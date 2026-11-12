@@ -28,6 +28,8 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "psycopg2-binary>=2.9.0",
     "langfuse>=4,<5",
+    "openpyxl>=3.1",
+    "fpdf2>=2.7.9",
 ]
 
 [project.optional-dependencies]

@@ -169,6 +169,13 @@ class Settings(BaseSettings):
     SMTP_FROM: Optional[str] = None
     SMTP_STARTTLS: bool = True
 
+    # F2.09 candidate comparison and custom export (Excel/PDF). Contact
+    # details (email/phone) are never exported.
+    EXPORT_MAX_ROWS: int = 500
+    # TrueType font with Vietnamese glyphs for PDF export. Empty = search
+    # DejaVu Sans (Linux, fonts-dejavu-core) then Arial (Windows).
+    PDF_FONT_PATH: Optional[str] = None
+
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 

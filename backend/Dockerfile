@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     libmagic1 \
     libreoffice-writer \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

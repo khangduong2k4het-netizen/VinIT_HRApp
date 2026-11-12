@@ -1,10 +1,11 @@
 from fastapi import APIRouter
-from . import quality, cross_duplicates
+from . import quality, cross_duplicates, candidate_reports
 from . import auth, users, positions, criteria, applications, assessments, shortlist, dashboard, admin, account_admin, operations, candidate_details, departments, retention, rubric_library, scorecards, analytics
 
 api_router = APIRouter()
 api_router.include_router(quality.router, prefix="/quality", tags=["Quality Inspection"])
 api_router.include_router(cross_duplicates.router, prefix="/cross-duplicates", tags=["Cross-position Duplicates"])
+api_router.include_router(candidate_reports.router, prefix="/candidate-reports", tags=["Candidate Comparison & Export"])
 api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 api_router.include_router(operations.router, prefix="/operations", tags=["Async Operations"])
 api_router.include_router(users.router, prefix="/users", tags=["Users"])

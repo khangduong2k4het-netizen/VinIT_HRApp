@@ -56,6 +56,18 @@ export const crossDuplicatesApi = {
   review: (id: string, decision: 'CONFIRMED' | 'DISMISSED') => apiClient.post(`/cross-duplicates/signals/${id}/review`, { decision }),
 };
 
+// F2.09: side-by-side comparison and custom export (never contains email/phone).
+export const candidateReportsApi = {
+  compare: (positionId: string, applicationIds: string[]) =>
+    apiClient.get(`/candidate-reports/positions/${positionId}/comparison`, {
+      params: { application_ids: applicationIds },
+      paramsSerializer: { indexes: null },
+    }),
+  export: (positionId: string, data: {
+    format: 'xlsx' | 'pdf'; columns: string[]; application_ids?: string[]; language: 'vi' | 'en';
+  }) => apiClient.post(`/candidate-reports/positions/${positionId}/export`, data, { responseType: 'blob' }),
+};
+
 // API Functions
 export const authApi = {
   login: (email: string, password: string) =>

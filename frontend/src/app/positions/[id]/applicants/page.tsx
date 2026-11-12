@@ -45,6 +45,9 @@ import PlaylistAddCheckIcon from '@mui/icons-material/PlaylistAddCheck';
 import ShareIcon from '@mui/icons-material/Share';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
+import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
+import ExportReportDialog from '@/components/reports/ExportReportDialog';
 import Checkbox from '@mui/material/Checkbox';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
@@ -118,6 +121,29 @@ export default function ApplicantsRankingPage() {
   const [shareDueDate, setShareDueDate] = useState('');
   const [shareSubmitting, setShareSubmitting] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  // F2.09: 2–4 assessed candidates for side-by-side comparison, and export.
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [exportOpen, setExportOpen] = useState(false);
+  const toggleCompare = (appId: string) => {
+    setCompareIds(prev => prev.includes(appId) ? prev.filter(id => id !== appId)
+      : prev.length >= 4 ? prev : [...prev, appId]);
+  };
+  const compareCheckbox = (item: RankingItem) => {
+    const assessed = item.matching_status !== 'NOT_ASSESSED';
+    const checked = compareIds.includes(item.application_id);
+    return (
+      <Tooltip title={!assessed ? t("Hồ sơ chưa được đánh giá nên chưa so sánh được")
+        : !checked && compareIds.length >= 4 ? t("Chỉ so sánh tối đa 4 hồ sơ") : t("Chọn để so sánh song song")}>
+        <span>
+          <FormControlLabel sx={{ mt: 0.25, '& .MuiFormControlLabel-label': { fontSize: 12 } }}
+            control={<Checkbox size="small" checked={checked} disabled={!assessed || (!checked && compareIds.length >= 4)}
+              onChange={() => toggleCompare(item.application_id)}
+              inputProps={{ 'aria-label': t("So sánh {0}", item.candidate_name || t("ứng viên")) }} />}
+            label={t("So sánh")} />
+        </span>
+      </Tooltip>
+    );
+  };
 
   const toggleExpanded = (appId: string) => {
     setExpandedIds(prev => {
@@ -442,6 +468,12 @@ export default function ApplicantsRankingPage() {
             sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
           >{t("Chia sẻ Shortlist")}</Button>
           <Button
+            variant="outlined"
+            startIcon={<FileDownloadOutlinedIcon />}
+            onClick={() => setExportOpen(true)}
+            sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
+          >{t("Xuất báo cáo")}</Button>
+          <Button
             variant="contained"
             color="secondary"
             startIcon={assessing ? <CircularProgress size={18} color="inherit" /> : <PlaylistAddCheckIcon />}
@@ -549,6 +581,18 @@ export default function ApplicantsRankingPage() {
         </Box>
       )}
 
+      {compareIds.length > 0 && (
+        <Box sx={{ position: 'sticky', top: { xs: 72, md: 76 }, zIndex: 4, mb: 3, p: 1.5, border: '1px solid #A6F4C5', borderRadius: 2, backgroundColor: '#ECFDF3', display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+          <Typography variant="body2" fontWeight={700}>{t("Đã chọn {0}/4 hồ sơ để so sánh", compareIds.length)}</Typography>
+          {compareIds.length < 2 && <Typography variant="caption" color="text.secondary">{t("Chọn thêm ít nhất 1 hồ sơ")}</Typography>}
+          <Box sx={{ flex: 1 }} />
+          <Button size="small" onClick={() => setCompareIds([])}>{t("Bỏ chọn")}</Button>
+          <Button size="small" variant="contained" color="secondary" startIcon={<CompareArrowsIcon />}
+            disabled={compareIds.length < 2} component={Link}
+            href={`/positions/${positionId}/compare?ids=${compareIds.join(',')}`}>{t("So sánh song song")}</Button>
+        </Box>
+      )}
+
       <Alert severity="info" sx={{ mb: 3 }}>
         {t("Cách đọc danh sách: điểm một phần chỉ tính trên phần trọng số đã có bằng chứng (cột Độ phủ), chưa phải điểm cuối. Ô chọn ở đầu mỗi dòng chỉ dùng để chọn hồ sơ đã Shortlist khi chia sẻ cho Hiring Manager. Mở rộng từng dòng để xem kết quả theo từng tiêu chí.")}
       </Alert>
@@ -575,6 +619,7 @@ export default function ApplicantsRankingPage() {
               <Typography variant="body2" sx={{ mt: 1.5 }}>{t("Điểm: ")}<strong>{item.matching_score == null ? '—' : `${item.matching_score}%`}</strong>{isPartialScore(item) && <Chip size="small" label={t("một phần")} sx={{ height: 20, fontSize: 10, ml: 0.5, backgroundColor: '#FFFAEB', color: '#B54708', fontWeight: 700 }} />}{t("· Độ phủ: ")}<strong>{item.evidence_coverage == null ? '—' : `${Math.round(item.evidence_coverage * 100)}%`}</strong></Typography>
               <Button size="small" onClick={() => toggleExpanded(item.application_id)} endIcon={expandedIds.has(item.application_id) ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />} sx={{ mt: 0.5, px: 0.5 }}>{t("Chi tiết tiêu chí")}</Button>
               {expandedIds.has(item.application_id) && <Box sx={{ mt: 1 }}>{renderCriterionBreakdown(item)}</Box>}
+              {compareCheckbox(item)}
               {item.is_shortlisted && <FormControlLabel sx={{ display: 'flex', mt: 0.5 }} control={<Checkbox checked={selectedIds.has(item.application_id)} onChange={() => handleToggleSelect(item.application_id)} />} label={t("Chọn để chia sẻ")} />}
               {!item.is_shortlisted && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>{t("Chuyển hồ sơ sang Shortlist để chọn chia sẻ cho Hiring Manager.")}</Typography>}
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 1.5 }}>
@@ -683,6 +728,7 @@ export default function ApplicantsRankingPage() {
                         <Chip label={t("Đang xử lý")} size="small" sx={{ height: 20, fontSize: 10 }} />
                       )}
                     </Box>
+                    {compareCheckbox(item)}
                   </TableCell>
                   <TableCell>{getMatchingStatusBadge(item)}</TableCell>
                   <TableCell align="center">
@@ -883,6 +929,8 @@ export default function ApplicantsRankingPage() {
       </Dialog>
       <Snackbar open={!!notice} autoHideDuration={5000} onClose={() => setNotice(null)} message={notice ? t(notice) : ""} />
       {overrideGate.dialog}
+      <ExportReportDialog open={exportOpen} onClose={() => setExportOpen(false)} positionId={positionId}
+        selectedIds={compareIds} />
     </Box>
   );
 }
