@@ -4,6 +4,26 @@ import unicodedata
 from difflib import SequenceMatcher
 
 
+_PHONE_CANDIDATE = re.compile(r"(?<![\w./])\+?\d[\d .()\-]{7,}\d(?![\w\d])")
+_YEAR_RANGE = re.compile(r"(?:19|20)\d{2}\s*[-–—]\s*(?:19|20)\d{2}")
+
+
+def extract_phone(text: str | None) -> str | None:
+    """First phone-like number in CV text: 9-15 digits, never a year range.
+
+    "B.Sc. (2016 - 2020)" used to be read as phone 20162020, which made every
+    candidate with the same study years a "duplicate".
+    """
+    for match in _PHONE_CANDIDATE.finditer(text or ""):
+        value = match.group(0)
+        if _YEAR_RANGE.search(value):
+            continue
+        digits = re.sub(r"\D", "", value)
+        if 9 <= len(digits) <= 15:
+            return digits
+    return None
+
+
 def normalize_email(value: str | None) -> str:
     value = (value or "").strip().casefold()
     return value if re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value) else ""

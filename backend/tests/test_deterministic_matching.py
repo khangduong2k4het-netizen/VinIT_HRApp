@@ -119,7 +119,7 @@ def test_negated_skill_mention_is_unresolved_not_a_rule_match():
     # v1.3, and the Python years gate/framework grouping in v1.4; the
     # version is part of the assessment fingerprint, so existing
     # assessments must be recalculated after any of these changes.
-    assert result["rule_version"] == "deterministic-rules-v1.4"
+    assert result["rule_version"] == "deterministic-rules-v1.5"
 
 
 def test_positive_skill_still_matches_when_another_sentence_is_negated():

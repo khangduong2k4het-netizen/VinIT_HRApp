@@ -18,6 +18,7 @@ from typing import Any
 from app.core.config import settings
 
 RULES_VERSION = settings.DETERMINISTIC_RULES_VERSION
+_MONTH_NAMES = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
 
 # Canonical concept -> accepted surface forms.  Keys and values are compared
 # after normalize_text(), so accents/case/punctuation do not matter.
@@ -714,17 +715,32 @@ class DeterministicMatchingEngine:
         """Return [start_month, end_month) intervals from date ranges."""
         lowered = _accentless_lower(text)
         intervals: list[tuple[int, int]] = []
+        # A month is "06/2024", "6.2024" or a name ("Jun 2024", "June 2024", "Sept. 2024").
+        month = (r"(?:(0?[1-9]|1[0-2])\s*[/.]\s*|(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|"
+                 r"aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+)?")
         pattern = re.compile(
-            r"(?:(0?[1-9]|1[0-2])\s*/\s*)?(20\d{2})\s*(?:-|–|—|\bto\b|\buntil\b)\s*"
-            r"(?:(0?[1-9]|1[0-2])\s*/\s*)?(20\d{2}|present|now|current|nay|hien nay)"
+            month + r"((?:19|20)\d{2})\s*(?:-|–|—|\bto\b|\buntil\b)\s*"
+            + month + r"((?:19|20)\d{2}|present|now|current|nay|hien nay|hien tai)"
         )
+        today = date.today()
+
+        def month_of(number: str | None, name: str | None) -> int | None:
+            if number:
+                return int(number)
+            if name:
+                return _MONTH_NAMES.index(name[:3]) + 1
+            return None
+
         for match in pattern.finditer(lowered):
-            start_month = int(match.group(1)) if match.group(1) else 1
-            start = int(match.group(2)) * 12 + (start_month - 1)
-            end_token = match.group(4)
+            start_month = month_of(match.group(1), match.group(2)) or 1
+            start = int(match.group(3)) * 12 + (start_month - 1)
+            end_token = match.group(6)
             if end_token.isdigit():
-                end_month = int(match.group(3)) if match.group(3) else 12
+                end_month = month_of(match.group(4), match.group(5)) or 12
                 end = int(end_token) * 12 + end_month
+            elif current_year == today.year:
+                # "Present" runs to the current month, not to December.
+                end = today.year * 12 + today.month
             else:
                 end = current_year * 12 + 12
             if end > start:
@@ -799,7 +815,16 @@ class DeterministicMatchingEngine:
                 explicit_values.append(max(values))
 
         profile_intervals: list[tuple[int, int]] = []
-        for value in self._iter_strings(profile):
+        # Only work history counts as experience: study periods ("B.Sc.,
+        # 2020 - 2024"), certifications and projects are not years of work.
+        work_history = profile.get("work_history") or []
+        work_texts = list(self._iter_strings(work_history))
+        for item in work_history if isinstance(work_history, list) else []:
+            # Models often return the dates as separate fields; join them into
+            # one range so the interval parser can read it.
+            if isinstance(item, dict) and item.get("start_date"):
+                work_texts.append(f"{item.get('start_date')} - {item.get('end_date') or 'Present'}")
+        for value in work_texts:
             add_explicit(value)
             profile_intervals.extend(self._date_intervals_in(value, date.today().year))
         if profile_intervals:

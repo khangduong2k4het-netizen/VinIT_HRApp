@@ -39,6 +39,7 @@ from app.services.semantic_diagnostics import record_semantic_run
 from app.services.ltr import LTRModel, artifact_sha256, extract_ranking_features
 from app.services.semantic_retrieval import merge_candidate_chunks, retrieve_semantic_candidates
 from app.services.redaction import redact_text
+from app.services.identity_matching import extract_phone
 from app.services.ai_config import (
     get_active_runtime, hydrate_runtime_secret, runtime_context, runtime_snapshot,
 )
@@ -496,7 +497,7 @@ class ProcessingWorker:
                 # stored/model text and the evidence verifier use exactly the
                 # same minimised text, including for later re-assessments.
                 email_match = re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", raw_text)
-                phone_match = re.search(r"(?<!\w)(?:\+?\d[\d .()\-]{7,}\d)(?!\w)", raw_text)
+                phone = extract_phone(raw_text)
                 full_text = redact_text(raw_text, detect_first_line_name=True)
                 # Never persist OCR diagnostic fields, which can contain raw text.
                 pages = [{"page_number": page.get("page_number"),
@@ -586,7 +587,6 @@ class ProcessingWorker:
                     # opaque candidate_identifier returned by the model.
                     display_name = os.path.splitext(doc["original_filename"])[0]
                     email = email_match.group(0).lower() if email_match else None
-                    phone = re.sub(r"\D", "", phone_match.group(0)) if phone_match else None
 
                     # Insert profile facts.  Model output is untrusted: only
                     # dict-shaped items are persisted, and the INTEGER page

@@ -97,7 +97,8 @@ class Settings(BaseSettings):
     CRITERIA_PROMPT_VERSION: str = "criteria-prompt-v2.1"
     PROFILE_PROMPT_VERSION: str = "profile-prompt-v2.0"
     MATCHING_PROMPT_VERSION: str = "matching-prompt-v2.0"
-    DETERMINISTIC_RULES_VERSION: str = "deterministic-rules-v1.4"
+    # v1.5: years of experience come from work history only (education no longer counted).
+    DETERMINISTIC_RULES_VERSION: str = "deterministic-rules-v1.5"
     MANDATORY_CRITERIA_WEIGHT_DEFAULT: float = 0.7
     NICE_TO_HAVE_WEIGHT_DEFAULT: float = 0.3
     MIN_EVIDENCE_COVERAGE: float = 0.7
