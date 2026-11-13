@@ -23,7 +23,9 @@ _REQUIREMENT_HINTS = ("require", "must", "experience", "years", "skill", "degree
 _STOPWORDS = {"and", "or", "the", "with", "for", "of", "in", "to", "a", "an", "on", "at", "is", "are", "be", "as",
               "years", "year", "experience", "strong", "solid", "skills", "skill", "knowledge", "ability",
               "must", "have", "required", "requirements", "nice", "plus", "preferred", "least", "minimum",
-              "good", "excellent", "working", "using", "building", "we", "you", "our", "will", "etc"}
+              "good", "excellent", "working", "using", "building", "we", "you", "our", "will", "etc",
+              # The redaction placeholder is not a skill (it reached profiles as "REDACTED").
+              "redacted"}
 
 
 def _sentences(text: str) -> list[str]:

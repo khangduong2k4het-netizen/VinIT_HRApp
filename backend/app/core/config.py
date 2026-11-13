@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     OCR_LANGUAGES: str = "eng"
     # Decompression-bomb guard: images above this pixel count are rejected.
     OCR_MAX_IMAGE_PIXELS: int = 16_000_000
+    # A CV longer than this goes to the HR manual queue instead of being parsed
+    # or OCR'd page by page (bounds CPU/memory for hostile uploads).
+    MAX_DOCUMENT_PAGES: int = 20
     # Below this effective resolution the CV goes to the HR manual queue.
     OCR_MIN_DPI: int = 150
     # Variance of the Laplacian on the normalised grayscale image. Lower means

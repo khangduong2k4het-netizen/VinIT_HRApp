@@ -1,9 +1,8 @@
 import os
-import tempfile
 from typing import Tuple
 from enum import Enum
 from pypdf import PdfReader
-from pdf2image import convert_from_path
+from pdf2image import convert_from_bytes
 import pytesseract
 from docx import Document
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
@@ -57,11 +56,12 @@ class DocumentQualityError(FileValidationError):
         "IMAGE_BLURRY": "Ảnh bị mờ, không đủ rõ để nhận dạng chữ; HR cần kiểm tra thủ công",
         "IMAGE_NO_TEXT": "Không nhận dạng được đủ chữ trong ảnh; HR cần kiểm tra thủ công",
         "DOCX_IMAGES_LOW_QUALITY": "DOCX chủ yếu là ảnh và ảnh không đủ rõ để nhận dạng; HR cần kiểm tra thủ công",
+        "PDF_TOO_MANY_PAGES": "PDF có quá nhiều trang (tối đa {max_pages} trang); HR cần kiểm tra thủ công",
     }
 
     def __init__(self, code: str, quality: dict | None = None):
         template = self.MESSAGES.get(code, "Tài liệu không đủ chất lượng để xử lý tự động; HR cần kiểm tra thủ công")
-        super().__init__(template.format(min_dpi=settings.OCR_MIN_DPI))
+        super().__init__(template.format(min_dpi=settings.OCR_MIN_DPI, max_pages=settings.MAX_DOCUMENT_PAGES))
         self.code = code
         self.quality = quality or {}
 
@@ -207,6 +207,75 @@ def _ocr(image: Image.Image) -> Tuple[str, dict]:
     return text.strip(), {"conf": list(data.get("conf", []))}
 
 
+_TINY_TEXT_PT = 1.5          # below this a glyph is unreadable to a person
+_WHITE = 0.97                # fill colour this close to white
+_MIN_HIDDEN_FRAGMENT = 3     # shorter pieces are spacing/kerning noise
+
+
+def _is_white(args: list, op: bytes) -> bool:
+    try:
+        values = [float(a) for a in args]
+    except (TypeError, ValueError):
+        return False
+    if op in (b"g", b"sc", b"scn") and len(values) == 1 or op == b"rg" or (op in (b"sc", b"scn") and len(values) == 3):
+        return bool(values) and all(v >= _WHITE for v in values)
+    if op == b"k" or (op in (b"sc", b"scn") and len(values) == 4):
+        return all(v <= 1 - _WHITE for v in values)
+    return False
+
+
+def extract_visible_pdf_text(page) -> Tuple[str, dict]:
+    """Text a person can see on the page, plus counts of hidden text.
+
+    Keyword stuffing hides text from the reader but not from a text extractor:
+    render mode 3/7 (invisible) or a microscopic font. Such text is removed so
+    it can neither reach the model nor become "evidence". White text is only
+    counted: many CV templates print white text on a dark sidebar, and
+    without the background we cannot tell the two apart.
+    """
+    state = {"tr": 0, "white": False}
+    stack: list[dict] = []
+    hidden: list[str] = []
+    stats = {"invisible_chars": 0, "tiny_chars": 0, "white_chars": 0}
+
+    def before(op, args, cm, tm):
+        if op == b"q":
+            stack.append(dict(state))
+        elif op == b"Q" and stack:
+            state.update(stack.pop())
+        elif op == b"Tr" and args:
+            try:
+                state["tr"] = int(args[0])
+            except (TypeError, ValueError):
+                pass
+        elif op in (b"g", b"rg", b"k", b"sc", b"scn"):
+            state["white"] = _is_white(list(args), op)
+
+    def on_text(text, cm, tm, font_dict, font_size):
+        piece = (text or "").strip()
+        if not piece:
+            return
+        try:
+            scale = abs(float(tm[3]) * float(cm[3])) or abs(float(tm[0]) * float(cm[0]))
+            size = abs(float(font_size or 0)) * (scale or 1.0)
+        except (TypeError, ValueError, IndexError):
+            size = 12.0
+        if state["tr"] in (3, 7):
+            stats["invisible_chars"] += len(piece)
+            hidden.append(piece)
+        elif 0 < size < _TINY_TEXT_PT:
+            stats["tiny_chars"] += len(piece)
+            hidden.append(piece)
+        elif state["white"]:
+            stats["white_chars"] += len(piece)
+
+    text = page.extract_text(visitor_operand_before=before, visitor_text=on_text) or ""
+    for piece in sorted(set(hidden), key=len, reverse=True):
+        if len(piece) >= _MIN_HIDDEN_FRAGMENT:
+            text = text.replace(piece, " ")
+    return text, stats
+
+
 def _paragraph_text(paragraph: Paragraph) -> str:
     return paragraph.text.strip()
 
@@ -305,14 +374,23 @@ class DocumentProcessor:
         """Extract text directly from PDF with embedded text"""
         pdf_file = io.BytesIO(file_content)
         reader = PdfReader(pdf_file)
+        if len(reader.pages) > settings.MAX_DOCUMENT_PAGES:
+            raise DocumentQualityError("PDF_TOO_MANY_PAGES", {"pages": len(reader.pages)})
         pages_text = []
+        hidden = {"invisible_chars": 0, "tiny_chars": 0, "white_chars": 0}
 
         for page_num, page in enumerate(reader.pages, start=1):
-            text = page.extract_text() or ""
+            text, stats = extract_visible_pdf_text(page)
+            for key, value in stats.items():
+                hidden[key] += value
             pages_text.append({
                 "page_number": page_num,
                 "content": text.strip()
             })
+        if any(hidden.values()):
+            # Counts only, never the hidden words; stored with the processing run.
+            pages_text[0]["pdf_hidden_text"] = hidden
+            logger.warning("PDF contains hidden or white text", **hidden)
 
         full_text = "\n\n".join([f"--- Page {p['page_number']} ---\n{p['content']}" for p in pages_text])
         return full_text, pages_text
@@ -320,24 +398,28 @@ class DocumentProcessor:
     async def extract_text_from_pdf_scan(self, file_content: bytes) -> Tuple[str, list]:
         """Run OCR on scanned PDF to extract text"""
         pages_text = []
+        try:
+            page_count = len(PdfReader(io.BytesIO(file_content)).pages)
+        except Exception:
+            page_count = 0
+        if page_count > settings.MAX_DOCUMENT_PAGES:
+            raise DocumentQualityError("PDF_TOO_MANY_PAGES", {"pages": page_count})
 
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as temp_pdf:
-            temp_pdf.write(file_content)
-            temp_pdf.flush()
+        try:
+            # From memory: an open NamedTemporaryFile cannot be reopened by
+            # poppler on Windows, and last_page bounds the work either way.
+            images = convert_from_bytes(file_content, dpi=300, last_page=settings.MAX_DOCUMENT_PAGES)
+        except Exception as e:
+            logger.error("Failed to convert PDF to images for OCR", error_type=type(e).__name__)
+            raise FileValidationError("Could not process scanned PDF file")
 
-            try:
-                images = convert_from_path(temp_pdf.name, dpi=300)
-            except Exception as e:
-                logger.error("Failed to convert PDF to images for OCR", error_type=type(e).__name__)
-                raise FileValidationError("Could not process scanned PDF file")
-
-            for page_num, image in enumerate(images, start=1):
-                text, confidence = _ocr(image)
-                pages_text.append({
-                    "page_number": page_num,
-                    "content": text,
-                    "ocr_confidence": confidence,
-                })
+        for page_num, image in enumerate(images, start=1):
+            text, confidence = _ocr(image)
+            pages_text.append({
+                "page_number": page_num,
+                "content": text,
+                "ocr_confidence": confidence,
+            })
 
         full_text = "\n\n".join([f"--- Page {p['page_number']} ---\n{p['content']}" for p in pages_text])
         return full_text, pages_text
@@ -476,7 +558,8 @@ def document_quality_summary(pages: list) -> dict | None:
     """Numeric-only OCR/image diagnostics to persist with a processing run."""
     images = [page["image_quality"] for page in pages if isinstance(page.get("image_quality"), dict)]
     docx_stats = next((page["docx_stats"] for page in pages if isinstance(page.get("docx_stats"), dict)), None)
-    if not images and not docx_stats:
+    hidden = next((page["pdf_hidden_text"] for page in pages if isinstance(page.get("pdf_hidden_text"), dict)), None)
+    if not images and not docx_stats and not hidden:
         return None
     summary: dict = {"images": [
         {key: value for key, value in image.items()
@@ -485,6 +568,8 @@ def document_quality_summary(pages: list) -> dict | None:
     ]}
     if docx_stats:
         summary["docx"] = dict(docx_stats)
+    if hidden:
+        summary["pdf_hidden_text"] = dict(hidden)
     return summary
 
 
