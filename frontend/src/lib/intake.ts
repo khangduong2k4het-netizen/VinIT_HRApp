@@ -27,8 +27,9 @@ export function validateIntakeFiles(files: IntakeFileLike[]) {
   });
 
   const items: IntakeFileValidation[] = files.map(file => {
-    if (!/\.(pdf|docx)$/i.test(file.name)) {
-      return { name: file.name, size: file.size, status: 'INVALID', message: 'Chỉ hỗ trợ tệp PDF hoặc DOCX.' };
+    // F2.06: the backend OCRs JPG/PNG images, so the browser must not block them.
+    if (!/\.(pdf|docx|jpe?g|png)$/i.test(file.name)) {
+      return { name: file.name, size: file.size, status: 'INVALID', message: 'Chỉ hỗ trợ tệp PDF, DOCX, JPG hoặc PNG.' };
     }
     if (file.size === 0 || file.size > INTAKE_LIMITS.maxFileBytes) {
       return { name: file.name, size: file.size, status: 'INVALID', message: 'Mỗi tệp phải có dung lượng từ 1 byte đến 10 MB.' };

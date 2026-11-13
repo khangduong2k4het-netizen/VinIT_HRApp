@@ -84,12 +84,14 @@ export default function PositionsPage() {
       const [positions, stats, me] = await Promise.all([
         positionsApi.listAll(), dashboardApi.getSummary().catch(() => null), authApi.me(),
       ]);
-      setCanCreate(me.data.system_roles?.some((role: string) => ['ADMIN', 'HR_LEAD', 'HR_RECRUITER'].includes(role)) ||
-        me.data.position_assignments?.some((a: any) => ['HR_RECRUITER', 'HR_LEAD'].includes(a.position_role)) || false);
+      const mayCreate = me.data.system_roles?.some((role: string) => ['ADMIN', 'HR_LEAD', 'HR_RECRUITER'].includes(role)) ||
+        me.data.position_assignments?.some((a: any) => ['HR_RECRUITER', 'HR_LEAD'].includes(a.position_role)) || false;
+      setCanCreate(mayCreate);
       setPositions(positions);
       setError(null);
-      // Job families (F2.01) feed rubric template suggestions; HM accounts cannot read them.
-      rubricApi.listFamilies().then(res => setFamilies(res.data || [])).catch(() => setFamilies([]));
+      // Job families (F2.01) only feed the create dialog; HM accounts cannot read them,
+      // so don't ask (it was a 403 on every visit).
+      if (mayCreate) rubricApi.listFamilies().then(res => setFamilies(res.data || [])).catch(() => setFamilies([]));
       setApplicationTotal(stats?.data?.total_applications ?? null);
     } catch (err: any) {
       setError(err.response?.data?.detail || t("Không thể tải danh sách vị trí"));

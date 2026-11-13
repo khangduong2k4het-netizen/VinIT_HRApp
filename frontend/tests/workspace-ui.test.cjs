@@ -53,3 +53,13 @@ test('intake validation marks duplicates as warnings and invalid files as blocke
   assert.equal(result.items[3].status, 'INVALID');
   assert.match(result.batchError, /chưa hợp lệ/);
 });
+
+test('intake validation accepts image CVs (F2.06)', () => {
+  const result = intake.validateIntakeFiles([
+    { name: 'scan.png', size: 100 },
+    { name: 'photo.JPG', size: 100 },
+    { name: 'photo2.jpeg', size: 100 },
+    { name: 'old.doc', size: 100 },
+  ]);
+  assert.deepEqual(result.items.map(item => item.status), ['VALID', 'VALID', 'VALID', 'INVALID']);
+});
