@@ -174,3 +174,51 @@ export function readApplicantNavigation(positionId: string): ApplicantNavigation
     return null;
   }
 }
+
+/**
+ * Merge the latest ranking with the position's applications, exactly as the applicants list shows them:
+ * ranked rows still in screening keep their rank, and applications without an assessment are appended.
+ */
+export function mergeRankingWithApplications(ranks: RankingItem[], apps: any[], unnamedLabel: string): RankingItem[] {
+  const appMap = new Map<string, any>();
+  apps.forEach((a: any) => appMap.set(a.application_id, a));
+  const merged: RankingItem[] = ranks
+    .filter(r => inScreening(appMap.get(r.application_id)?.application_status))
+    .map(r => {
+      const a = appMap.get(r.application_id) || {};
+      return {
+        ...r,
+        file_processing_status: a.file_processing_status,
+        file_error: a.file_error,
+        has_duplicate_warning: a.has_duplicate_warning,
+        application_status: a.application_status,
+        is_shortlisted: a.application_status === 'SHORTLIST',
+        created_at: a.created_at,
+      };
+    });
+  const rankedIds = new Set(merged.map(r => r.application_id));
+  apps.forEach((a: any) => {
+    if (rankedIds.has(a.application_id)) return;
+    const identity = a.identity;
+    let name = unnamedLabel;
+    if (Array.isArray(identity) && identity[0]) name = identity[0].display_name || name;
+    else if (identity && typeof identity === 'object') name = identity.display_name || name;
+    merged.push({
+      application_id: a.application_id,
+      candidate_name: name,
+      rank_number: null,
+      matching_status: 'NOT_ASSESSED' as const,
+      matching_score: null,
+      evidence_coverage: null,
+      needs_verification: false,
+      has_mismatch: false,
+      file_processing_status: a.file_processing_status,
+      file_error: a.file_error,
+      has_duplicate_warning: a.has_duplicate_warning,
+      application_status: a.application_status,
+      is_shortlisted: a.application_status === 'SHORTLIST',
+      created_at: a.created_at,
+    } as RankingItem);
+  });
+  return merged;
+}

@@ -86,6 +86,33 @@ def _applicants_target(position_id: str, queue: str | None = None) -> dict[str, 
     )
 
 
+# Steps only HR can carry out. A Hiring Manager (or any non-HR viewer) must never be sent to them:
+# the target pages are HR-only and would just show permission errors.
+HR_ONLY_ACTIONS = frozenset({
+    "CREATE_JD", "GENERATE_CRITERIA", "REGENERATE_CRITERIA", "UPLOAD_CV", "VIEW_PROCESSING", "REVIEW_FILES",
+    "REVIEW_DUPLICATES", "REVIEW_EVIDENCE", "REVIEW_MISMATCH", "RUN_ASSESSMENT", "SHARE_SHORTLIST", "VIEW_RANKING",
+})
+
+
+def _viewer_next_action(
+    position_id: str,
+    action: dict[str, Any],
+    criteria_approved: bool,
+    shared_shortlisted: int,
+) -> dict[str, Any]:
+    """Replace an HR-only next action with what a non-HR viewer can actually do."""
+    code = action["code"]
+    if code not in HR_ONLY_ACTIONS and not (code == "VIEW_SHORTLIST" and not shared_shortlisted):
+        return action
+    if criteria_approved and shared_shortlisted:
+        return {"code": "VIEW_SHORTLIST", "blocked_reason_code": None, "target": _target(position_id, "/shortlist")}
+    return {
+        "code": "WAIT_HR_SHORTLIST" if criteria_approved else "WAIT_HR_REVIEW",
+        "blocked_reason_code": "WAITING_FOR_HR",
+        "target": _position_target(position_id, "criteria"),
+    }
+
+
 def build_workflow(
     *,
     position_id: str,
@@ -237,6 +264,9 @@ def build_workflow(
             "target": _applicants_target(position_id),
         }
         current_step = "HR_REVIEW"
+
+    if not is_hr:
+        next_action = _viewer_next_action(position_id, next_action, criteria_approved, shared_shortlisted)
 
     criteria_step_status = "NOT_STARTED"
     if not jd_exists:

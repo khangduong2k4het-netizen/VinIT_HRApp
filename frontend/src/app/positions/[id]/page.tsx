@@ -631,23 +631,28 @@ export default function PositionDetailPage() {
               {t("Sao chép để chỉnh sửa")}
             </Button>
           )}
-          <Button
-            variant="outlined"
-            startIcon={<AutoAwesomeIcon />}
-            onClick={handleGenerateCriteria}
-            disabled={generating || !isHR || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status))}
-            sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
-          >
-            {generating ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
-            {currentCriteria?.status === 'APPROVED' ? t("Tạo phiên bản tiêu chí mới") : t("Đề xuất tiêu chí AI")}
-          </Button>
-          <Button
-            variant="contained"
-            color="secondary"
-            startIcon={<UploadFileIcon />}
-            onClick={scrollToIntake}
-            disabled={!approvedCriteria || !isHR || position.status !== 'OPEN' || isOperationRunning}
-          >{t("Tải lên CV")}</Button>
+          {/* HR-only actions: hidden (not just disabled) for Hiring Managers and other viewers. */}
+          {isHR && (
+            <Button
+              variant="outlined"
+              startIcon={<AutoAwesomeIcon />}
+              onClick={handleGenerateCriteria}
+              disabled={generating || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status))}
+              sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
+            >
+              {generating ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
+              {currentCriteria?.status === 'APPROVED' ? t("Tạo phiên bản tiêu chí mới") : t("Đề xuất tiêu chí AI")}
+            </Button>
+          )}
+          {isHR && (
+            <Button
+              variant="contained"
+              color="secondary"
+              startIcon={<UploadFileIcon />}
+              onClick={scrollToIntake}
+              disabled={!approvedCriteria || position.status !== 'OPEN' || isOperationRunning}
+            >{t("Tải lên CV")}</Button>
+          )}
         </Box>
       </Box>
 

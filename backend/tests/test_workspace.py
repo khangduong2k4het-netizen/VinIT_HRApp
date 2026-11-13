@@ -145,3 +145,44 @@ def test_work_queue_waits_for_approved_criteria_before_applicant_review_items():
     )
 
     assert [item["type"] for item in items] == ["CRITERIA_PENDING_HR"]
+
+
+def _hm_workflow(criteria_status="APPROVED", shared_shortlisted=0, **count_overrides):
+    approved = criteria_status == "APPROVED"
+    return build_workflow(
+        position_id="pos-1",
+        position_status="OPEN",
+        jd_exists=True,
+        criteria_status=criteria_status,
+        criteria_stale=False,
+        criteria_approved=approved,
+        counts=_counts(**count_overrides),
+        active_operation=None,
+        is_hr=False,
+        is_hm=True,
+        shared_shortlisted=shared_shortlisted,
+    )
+
+
+def test_hm_is_never_sent_to_hr_only_pages():
+    """HM must not get 'open candidate list' / 'upload CV' etc.: those pages are HR-only and return 403."""
+    for counts in ({}, {"total": 3}, {"total": 3, "file_review": 1}, {"total": 3, "not_assessed": 2},
+                   {"total": 3, "shortlisted": 1}):
+        action = _hm_workflow(**counts)["next_action"]
+        assert action["code"] == "WAIT_HR_SHORTLIST", counts
+        assert action["blocked_reason_code"] == "WAITING_FOR_HR"
+        assert action["target"] == {"pathname": "/positions/pos-1", "search": "tab=criteria"}
+
+
+def test_hm_goes_to_shortlist_once_hr_shared_with_them():
+    action = _hm_workflow(shared_shortlisted=1, total=3, shortlisted=1)["next_action"]
+    assert action["code"] == "VIEW_SHORTLIST"
+    assert action["target"]["pathname"] == "/shortlist"
+
+
+def test_hm_waits_for_hr_before_criteria_exist():
+    assert _hm_workflow(criteria_status=None)["next_action"]["code"] == "WAIT_HR_REVIEW"
+
+
+def test_hm_keeps_own_approval_action():
+    assert _hm_workflow(criteria_status="PENDING_HM_APPROVAL")["next_action"]["code"] == "APPROVE_CRITERIA_HM"

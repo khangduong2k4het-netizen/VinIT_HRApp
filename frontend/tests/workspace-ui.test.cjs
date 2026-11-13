@@ -63,3 +63,24 @@ test('intake validation accepts image CVs (F2.06)', () => {
   ]);
   assert.deepEqual(result.items.map(item => item.status), ['VALID', 'VALID', 'VALID', 'INVALID']);
 });
+
+test('detail-page navigation rebuilds the same order as the applicant list', () => {
+  const ranks = [
+    { application_id: 'r1', candidate_name: 'R1', rank_number: 1, matching_status: 'MEETS_MANDATORY', matching_score: 90, evidence_coverage: 1 },
+    { application_id: 'r2', candidate_name: 'R2', rank_number: 2, matching_status: 'MEETS_MANDATORY', matching_score: 80, evidence_coverage: 1 },
+    { application_id: 'gone', candidate_name: 'Rejected', rank_number: 3, matching_status: 'MEETS_MANDATORY', matching_score: 70, evidence_coverage: 1 },
+  ];
+  const apps = [
+    { application_id: 'r1', application_status: 'SHORTLIST', file_processing_status: 'COMPLETED' },
+    { application_id: 'r2', application_status: 'IN_REVIEW', file_processing_status: 'COMPLETED' },
+    { application_id: 'gone', application_status: 'REJECTED_SCREENING', file_processing_status: 'COMPLETED' },
+    { application_id: 'new', application_status: 'NEW', file_processing_status: 'COMPLETED', identity: [{ display_name: 'Unranked' }] },
+  ];
+  const merged = review.mergeRankingWithApplications(ranks, apps, 'unnamed');
+  // Rejected candidates leave the ranked list but stay reachable as unassessed rows, like on the list page.
+  assert.deepEqual(merged.map(item => item.application_id), ['r1', 'r2', 'gone', 'new']);
+  assert.equal(merged.find(item => item.application_id === 'r1').is_shortlisted, true);
+  assert.equal(merged.find(item => item.application_id === 'new').candidate_name, 'Unranked');
+  const order = review.filterAndSortApplicantItems(merged, 'ALL', '', 'REVIEW_PRIORITY').map(item => item.application_id);
+  assert.deepEqual(order.slice(0, 2), ['new', 'r1']);
+});

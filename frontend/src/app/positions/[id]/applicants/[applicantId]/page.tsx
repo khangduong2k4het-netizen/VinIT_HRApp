@@ -41,7 +41,7 @@ import ReplayIcon from '@mui/icons-material/Replay';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { applicationsApi, operationsApi } from '@/lib/api';
+import { applicationsApi, assessmentsApi, operationsApi } from '@/lib/api';
 import { useOverrideGate } from '@/components/applicants/OverrideReasonDialog';
 import StatusBadge from '@/components/common/StatusBadge';
 import StickyActionBar from '@/components/common/StickyActionBar';
@@ -50,7 +50,13 @@ import EvidenceCard from '@/components/candidates/EvidenceCard';
 import CVDocumentViewer from '@/components/candidates/CVDocumentViewer';
 import HRNotesPanel from '@/components/candidates/HRNotesPanel';
 import CrossDuplicatesPanel from '@/components/candidates/CrossDuplicatesPanel';
-import { readApplicantNavigation, type ApplicantNavigationContext } from '@/lib/applicantReview';
+import {
+  filterAndSortApplicantItems,
+  mergeRankingWithApplications,
+  readApplicantNavigation,
+  storeApplicantNavigation,
+  type ApplicantNavigationContext,
+} from '@/lib/applicantReview';
 import type { ApplicationWithAssessment } from '@/types';
 import { APPLICATION_STATUSES, APPLICATION_TRANSITIONS, isApplicationStatus } from '@/lib/applicationStatus';
 
@@ -151,6 +157,30 @@ export default function ApplicantDetailPage() {
     setSelectedEvidenceId(null);
     setSelectedPage(1);
   }, [positionId, applicantId]);
+
+  // Opened without the list (a bookmark, a shared link, a new tab): rebuild the list's default order
+  // so "previous / next" still work. Only reviewers who may change status can read the ranking.
+  const canReview = !!application?.can_update_status;
+  useEffect(() => {
+    if (!canReview) return;
+    const stored = readApplicantNavigation(positionId);
+    if (stored && stored.applicationIds.includes(applicantId)) return;
+    let cancelled = false;
+    Promise.all([assessmentsApi.getLatestRanking(positionId), applicationsApi.listAll(positionId)])
+      .then(([rankRes, apps]) => {
+        if (cancelled) return;
+        const items = filterAndSortApplicantItems(
+          mergeRankingWithApplications(rankRes.data || [], apps, t("Chưa trích xuất tên")), 'ALL', '', 'REVIEW_PRIORITY');
+        const context: ApplicantNavigationContext = {
+          positionId, queue: 'ALL', sort: 'REVIEW_PRIORITY', search: '',
+          applicationIds: items.map(item => item.application_id), storedAt: Date.now(),
+        };
+        storeApplicantNavigation(context);
+        setNavigationContext(context);
+      })
+      .catch(() => { /* navigation is optional; the profile itself is already shown */ });
+    return () => { cancelled = true; };
+  }, [canReview, positionId, applicantId, t]);
 
   const handleStatusUpdate = async () => {
     if (!newStatus || statusSubmitting) return;

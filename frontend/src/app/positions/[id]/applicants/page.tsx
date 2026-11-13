@@ -68,6 +68,7 @@ import OperationProgressPanel from '@/components/workflow/OperationProgressPanel
 import {
   applicantQueueCounts,
   filterAndSortApplicantItems,
+  mergeRankingWithApplications,
   isApplicantQueue,
   isApplicantSort,
   storeApplicantNavigation,
@@ -102,6 +103,8 @@ export default function ApplicantsRankingPage() {
   const [operationStatus, setOperationStatus] = useState<import('@/types').OperationStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rankingError, setRankingError] = useState<string | null>(null);
+  // 403 on the ranking: this viewer (e.g. a Hiring Manager) has no access to the applicant list.
+  const [forbidden, setForbidden] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [queue, setQueue] = useState<ApplicantQueue>('ALL');
@@ -191,55 +194,13 @@ export default function ApplicantsRankingPage() {
         assessmentsApi.getLatestRanking(positionId),
         applicationsApi.listAll(positionId),
       ]);
-      const ranks: RankingItem[] = rankRes.data || [];
-      const apps: any[] = appsRes;
-
-      // Merge ranking with application flags
-      const appMap = new Map<string, any>();
-      apps.forEach((a: any) => appMap.set(a.application_id, a));
-      const merged = ranks.filter((r: RankingItem) => inScreening(appMap.get(r.application_id)?.application_status)).map((r: RankingItem) => {
-        const a = appMap.get(r.application_id) || {};
-        return {
-          ...r,
-          file_processing_status: a.file_processing_status,
-          file_error: a.file_error,
-          has_duplicate_warning: a.has_duplicate_warning,
-          application_status: a.application_status,
-          is_shortlisted: a.application_status === 'SHORTLIST',
-          created_at: a.created_at,
-        };
-      });
-
-      // Add unassessed applications to list (if they exist in apps response but not ranks)
-      const rankedIds = new Set(merged.map(r => r.application_id));
-      apps.forEach((a: any) => {
-        if (!rankedIds.has(a.application_id)) {
-          const identity = a.identity;
-          let name = t("Chưa trích xuất tên");
-          if (Array.isArray(identity) && identity[0]) name = identity[0].display_name || name;
-          else if (identity && typeof identity === 'object') name = identity.display_name || name;
-          merged.push({
-            application_id: a.application_id,
-            candidate_name: name,
-            rank_number: null,
-            matching_status: 'NOT_ASSESSED' as const,
-            matching_score: null,
-            evidence_coverage: null,
-            needs_verification: false,
-            has_mismatch: false,
-            file_processing_status: a.file_processing_status,
-            file_error: a.file_error,
-            has_duplicate_warning: a.has_duplicate_warning,
-            application_status: a.application_status,
-            is_shortlisted: a.application_status === 'SHORTLIST',
-            created_at: a.created_at,
-          });
-        }
-      });
+      const merged = mergeRankingWithApplications(rankRes.data || [], appsRes, t("Chưa trích xuất tên"));
 
       setRankingError(null);
+      setForbidden(false);
       setRankingItems(merged);
     } catch (err: any) {
+      if (err.response?.status === 403) { setForbidden(true); return; }
       setRankingError(err.response?.data?.detail || t("Không thể tải bảng xếp hạng"));
     } finally {
       setLoading(false);
@@ -283,7 +244,10 @@ export default function ApplicantsRankingPage() {
     loadRanking();
     operationsApi.getActiveForPosition(positionId).then(res => {
       if (mounted && res.data) { setAssessing(true); setOperationStatus(res.data); pollOperation(res.data.operation_id); }
-    }).catch(() => { if (mounted) setError(t("Không thể tải tiến trình đang xử lý.")); });
+    }).catch((err: any) => {
+      // A 403 here means no access at all; the access message below already explains it.
+      if (mounted && err?.response?.status !== 403) setError(t("Không thể tải tiến trình đang xử lý."));
+    });
     return () => { mounted = false; stopPolling(); };
   }, [loadRanking, stopPolling, pollOperation, positionId, t]);
 
@@ -442,6 +406,18 @@ export default function ApplicantsRankingPage() {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}>
         <CircularProgress color="secondary" />
+      </Box>
+    );
+  }
+
+  if (forbidden) {
+    return (
+      <Box>
+        <Button component={Link} href={`/positions/${positionId}`} startIcon={<ArrowBackIcon />} sx={{ mb: 1 }}>{t("Quay lại vị trí")}</Button>
+        <Typography variant="h2" sx={{ fontSize: 22, color: '#0A2B57', mb: 2 }}>{t("Danh sách ưu tiên rà soát ứng viên")}</Typography>
+        <Alert severity="info" action={<Button component={Link} href="/shortlist" color="inherit">{t("Mở Shortlist")}</Button>}>
+          {t("Danh sách ứng viên chỉ dành cho HR phụ trách vị trí. Hiring Manager xem và chấm các hồ sơ được HR chia sẻ trong mục Shortlist.")}
+        </Alert>
       </Box>
     );
   }
