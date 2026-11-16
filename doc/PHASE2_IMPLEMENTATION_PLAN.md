@@ -1,6 +1,6 @@
 # Plan triển khai chi tiết — Phase 2 Batch đầu: Workflow cốt lõi
 
-> **Trạng thái triển khai:** Batch F2.01/F2.02 đang làm, chưa nghiệm thu hoặc deploy. Quyết định D-01…D-10 đã được người dùng chốt theo bảng mục 3; nội dung thiết kế bên dưới là mục tiêu, không phải mô tả đã hoàn thành. Migration dự thảo `00023_phase2_workflow_core.sql` chỉ kiểm thử trên PostgreSQL local disposable; kiểm tra lại lịch sử môi trường đích trước khi triển khai.
+> **Trạng thái triển khai:** Batch F2.01/F2.02 đang làm, chưa nghiệm thu hoặc deploy. Quyết định D-01…D-10 đã được người dùng chốt theo bảng mục 3; nội dung thiết kế bên dưới là mục tiêu, không phải mô tả đã hoàn thành. Migration `00023_phase2_workflow_core.sql` đã áp project Supabase test `myrymlqdbyqmpynesiwk` theo phê duyệt của người dùng, version remote `20261116081146`; app chưa deploy, không suy ra nghiệm thu.
 
 > Ngày lập plan: 2026-11-07  
 > Branch: `arena/ea6e2570-vinit-hrapp`  
@@ -67,7 +67,7 @@ Các quyết định dưới đây đã được người dùng chấp thuận; 
 
 ## 4. Thiết kế dữ liệu dự kiến
 
-Migration dự thảo: `supabase/migrations/00023_phase2_workflow_core.sql` (local hiện đến 00022; lịch sử Supabase test đã đọc và chưa có workflow core). Không tự áp remote; cần preflight lại trước deploy.
+Migration `supabase/migrations/00023_phase2_workflow_core.sql` đã áp project Supabase test `myrymlqdbyqmpynesiwk` (remote version `20261116081146`); môi trường khác chưa áp và cần preflight riêng.
 
 ### 4.1. F2.01 — Rubric Library
 
@@ -296,7 +296,7 @@ Không tạo endpoint cho HM chuyển trạng thái application; quyền quyết
 
 ### Bước 1 — Migration và domain foundation
 
-- Viết và kiểm thử migration `00023_phase2_workflow_core.sql`; chưa áp remote.
+- Viết và kiểm thử migration `00023_phase2_workflow_core.sql`; đã áp project test, chưa áp môi trường khác.
 - Thêm schema Pydantic dùng chung cho template item/scorecard.
 - Thêm service/domain functions cho publish validation, template clone và scorecard completion.
 - Viết unit test cho state transitions, weight validation và due-date calculation.
