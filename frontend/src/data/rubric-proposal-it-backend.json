@@ -1,0 +1,54 @@
+{
+  "job_family_code": "IT_DIGITAL",
+  "title": "ĐỀ XUẤT NHÁP — Kỹ sư Backend Python",
+  "level_band": null,
+  "mandatory_weight_total": 70,
+  "nice_to_have_weight_total": 30,
+  "items": [
+    {
+      "name": "Kinh nghiệm phát triển backend bằng Python",
+      "description": "Đề xuất: tối thiểu 4 năm kinh nghiệm phát triển backend bằng Python, có thể đối chiếu qua vai trò, thời gian và phạm vi công việc. Nếu thời gian hoặc mức độ liên quan chưa rõ, chọn thiếu bằng chứng và yêu cầu HR xác minh; không tự kết luận từ hồ sơ không đầy đủ.",
+      "category": "MUST_HAVE",
+      "weight_in_group": 45,
+      "expected_evidence_keywords": ["Python"],
+      "requirement_spec": {"kind": "SKILL", "terms": ["Python"], "min_years": 4},
+      "evidence_guidance": "Tìm công việc/dự án backend có nêu Python, thời gian và trách nhiệm. Không cộng trùng các giai đoạn chồng lấp; nếu mới thấy 2 năm hoặc khó xác minh tổng thời gian, ghi UNCLEAR để HR xác minh."
+    },
+    {
+      "name": "Python web framework và API",
+      "description": "Đề xuất: có kinh nghiệm xây dựng dịch vụ hoặc API bằng ít nhất một framework Python: FastAPI, Django hoặc Flask. Xác minh vai trò và phạm vi triển khai; không yêu cầu phải có cả ba framework.",
+      "category": "MUST_HAVE",
+      "weight_in_group": 30,
+      "expected_evidence_keywords": ["FastAPI", "Django", "Flask"],
+      "requirement_spec": {"kind": "SKILL", "terms": ["FastAPI", "Django", "Flask"]},
+      "evidence_guidance": "Tìm mô tả dự án, endpoint hoặc trách nhiệm phát triển API. Thiếu tên framework hay thiếu bối cảnh không tự đồng nghĩa không đạt."
+    },
+    {
+      "name": "Cơ sở dữ liệu PostgreSQL",
+      "description": "Đề xuất: có kinh nghiệm sử dụng PostgreSQL trong phát triển hoặc vận hành ứng dụng backend. Xác minh công việc thực tế như truy vấn, thiết kế dữ liệu hoặc xử lý giao dịch; không suy ra kinh nghiệm chỉ từ danh sách từ khóa.",
+      "category": "MUST_HAVE",
+      "weight_in_group": 25,
+      "expected_evidence_keywords": ["PostgreSQL", "Postgres"],
+      "requirement_spec": {"kind": "SKILL", "terms": ["PostgreSQL"]},
+      "evidence_guidance": "Tìm ngữ cảnh sử dụng PostgreSQL và trách nhiệm cụ thể; xác minh độ sâu qua phỏng vấn khi CV chưa mô tả đủ."
+    },
+    {
+      "name": "Kiểm thử tự động backend",
+      "description": "Đề xuất ưu tiên: có kinh nghiệm viết hoặc duy trì kiểm thử tự động cho backend hoặc API, chẳng hạn unit test hoặc integration test. Công cụ cụ thể không phải yêu cầu bắt buộc.",
+      "category": "NICE_TO_HAVE",
+      "weight_in_group": 60,
+      "expected_evidence_keywords": ["testing", "test automation"],
+      "requirement_spec": {"kind": "SKILL", "terms": ["testing"]},
+      "evidence_guidance": "Tìm ví dụ phạm vi test, trách nhiệm và cách xử lý lỗi; hỏi thêm khi chỉ liệt kê tên công cụ."
+    },
+    {
+      "name": "Đóng gói và triển khai container",
+      "description": "Đề xuất ưu tiên: có kinh nghiệm đóng gói hoặc triển khai ứng dụng bằng Docker hoặc container. Không bắt buộc kinh nghiệm Kubernetes.",
+      "category": "NICE_TO_HAVE",
+      "weight_in_group": 40,
+      "expected_evidence_keywords": ["Docker", "container"],
+      "requirement_spec": {"kind": "SKILL", "terms": ["Docker"]},
+      "evidence_guidance": "Tìm dự án hoặc công việc có nêu việc sử dụng Docker/container và vai trò của ứng viên; thông tin mơ hồ cần xác minh."
+    }
+  ]
+}

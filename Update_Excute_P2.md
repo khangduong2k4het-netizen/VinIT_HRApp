@@ -164,7 +164,7 @@ D-01…D-10 đã được người dùng chấp thuận theo `doc/PHASE2_IMPLEME
 | P2-B01 | Phạm vi/ưu tiên batch đầu Phase 2 | ĐÃ CHỐT | Workflow cốt lõi F2.01 + F2.02; chỉ lập plan chi tiết batch đầu |
 | P2-B02 | Plan chi tiết batch Workflow Core | ĐÃ DUYỆT, ĐANG TRIỂN KHAI | Hoàn thiện code/UI và kiểm thử theo plan |
 | P2-B03 | Quyết định nghiệp vụ D-01…D-10 | ĐÃ CHỐT | Thực hiện theo plan đã điều chỉnh |
-| P2-B04 | Nội dung rubric mẫu và dữ liệu kiểm thử nghiệp vụ | CHỜ HR CUNG CẤP | Có taxonomy đã duyệt và ít nhất một rubric draft thực tế để kiểm thử |
+| P2-B04 | Nội dung rubric mẫu và dữ liệu kiểm thử nghiệp vụ | CÓ ĐỀ XUẤT — CHỜ HR/HM RÀ SOÁT | Đã có đề xuất Python Backend trong code; chưa có draft thực tế trong database và chưa có nội dung nghiệp vụ được duyệt |
 | P2-B05 | Phase 1 Production gates đang tạm dừng | KHÔNG CHẶN LẬP PLAN | Chỉ chặn nghiệm thu Production/dữ liệu thật; không chặn thiết kế hoặc dev bằng dữ liệu tổng hợp |
 | P2-B06 | SSO | TẠM TREO | Chỉ mở lại khi người dùng yêu cầu |
 | P2-B07 | F2.07 Retention automation | LOẠI KHỎI VÒNG NÀY | Chỉ xét lại khi có quyết định mới; quyết định Legal về hold/OTP/chữ ký vẫn cần nếu mở lại |
@@ -199,3 +199,9 @@ Sau khi plan được duyệt và mỗi batch triển khai hoàn thành, bổ su
 - `phase2_workflow_core` đã được ghi trong lịch sử migration remote version `20261116081146`; file local SHA-256 `7e10d5ea098c7d5491f145a2def8d597a5fdc492f2e174f57a6aacbc876c73a4`.
 - Hậu kiểm chỉ đọc: số position/criteria/share không đổi; đúng 2 job families; 0 position liên kết qua backfill, 0 template nghiệp vụ và 0 scorecard (không backfill share legacy); 7/7 bảng mới bật RLS, anon/authenticated không có SELECT trên các bảng đó, 4/4 trigger bất biến bật, constraint origin gồm `TEMPLATE_CLONE`. Đây không thay thế kiểm thử runtime hoặc đánh giá toàn diện RLS.
 - **Chưa deploy backend/frontend mới**, chưa thực hiện E2E tổng thể, pilot hoặc production. Không chuyển gate tạm treo sang PASS.
+
+## 9. Đề xuất rubric Python Backend khởi đầu
+
+- Theo yêu cầu người dùng, tạo đề xuất tại `doc/RUBRIC_PROPOSAL_PYTHON_BACKEND.md` và dữ liệu `frontend/src/data/rubric-proposal-it-backend.json`: 5 tiêu chí, nhóm bắt buộc/ưu tiên 70/30. Ngưỡng Python backend tối thiểu 4 năm được giữ; các trọng số và tiêu chí còn lại cần HR/HM rà soát, không tự động loại ứng viên.
+- UI có nút điền đề xuất vào biểu mẫu; **không tự lưu, không xuất bản, không áp vào vị trí và không ghi Supabase**. HR cần dùng tài khoản hợp lệ để rà soát/lưu draft sau khi app được deploy; HR Lead quyết định publish. Chưa có draft thực tế trên database, chưa deploy app.
+- PostgreSQL disposable: full backend **352 passed, 10 warnings**, gồm lưu draft bằng tài khoản HR tổng hợp, quyền publish, giữ ngưỡng 4 năm và kiểm tra lựa chọn framework; frontend type-check/lint/i18n/unit/build pass; Ruff F và `git diff --check` pass. Test tổng hợp/local không thay thế browser E2E, kiểm chứng môi trường thật hay nghiệm thu nghiệp vụ. E2E tổng thể, benchmark và vận hành vẫn tạm treo.

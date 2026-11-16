@@ -353,3 +353,17 @@ def test_share_explicit_due_date_and_invalid_criterion(client, seed):
     invalid = client.put('/v1/scorecards/' + card['scorecard_id'], headers=headers(seed['hm']), json={
         'expected_revision': 1, 'overall_recommendation': 'RECOMMEND', 'ratings': [{'criterion_id': uid(), 'rating': 5}]})
     assert invalid.status_code == 400
+
+
+def test_hr_can_save_proposed_rubric_as_draft(client, seed):
+    import json
+    from pathlib import Path
+    proposal = json.loads((Path(__file__).resolve().parents[2] / 'frontend/src/data/rubric-proposal-it-backend.json').read_text(encoding='utf-8'))
+    family_code = proposal.pop('job_family_code')
+    family = next(f for f in client.get('/v1/rubric-library/families', headers=headers(seed['hr'])).json() if f['code'] == family_code)
+    response = client.post('/v1/rubric-library/templates', headers=headers(seed['hr']), json={**proposal, 'job_family_id': family['job_family_id']})
+    assert response.status_code == 201, response.text
+    result = response.json()
+    assert result['status'] == 'DRAFT' and result['created_by'] == seed['hr'] and len(result['items']) == 5
+    assert result['items'][0]['requirement_spec']['min_years'] == 4
+    assert client.post('/v1/rubric-library/versions/' + result['template_version_id'] + '/publish', headers=headers(seed['hr']), json={'expected_revision': 1}).status_code == 403

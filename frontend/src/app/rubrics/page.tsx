@@ -5,6 +5,7 @@ import { Alert, Box, Button, Card, CardContent, CircularProgress, Divider, MenuI
 import { useI18n } from '@/i18n/I18nProvider';
 import { rubricApi } from '@/lib/api';
 import { optionalRequirementSpec, rubricKeywords } from '@/lib/phase2Workflow';
+import backendProposal from '@/data/rubric-proposal-it-backend.json';
 
 type Family = { job_family_id: string; name: string; code: string };
 type Capabilities = { user_id: string; can_create: boolean; can_publish: boolean };
@@ -54,6 +55,19 @@ export default function RubricsPage() {
     if (dirty && !window.confirm(t('Bỏ các thay đổi chưa lưu?'))) return;
     setSelected(null); setCreating(true); setFamily(families[0]?.job_family_id || ''); setTitle(''); setLevel(''); setMandatory('70'); setNice('30'); setItems([]); setSpecs([]); setKeywords([]); setError(''); setDirty(false);
   };
+  const useProposal = () => {
+    if (dirty && !window.confirm(t('Bỏ các thay đổi chưa lưu?'))) return;
+    const family = families.find(f => f.code === backendProposal.job_family_code);
+    if (!family) { setError(t('Nhóm IT & Digital không khả dụng.')); return; }
+    const proposedItems = backendProposal.items as Item[];
+    setSelected(null); setCreating(true); setFamily(family.job_family_id);
+    setTitle(backendProposal.title); setLevel(backendProposal.level_band || '');
+    setMandatory(String(backendProposal.mandatory_weight_total)); setNice(String(backendProposal.nice_to_have_weight_total));
+    setItems(proposedItems.map(item => ({ ...item })));
+    setSpecs(proposedItems.map(item => item.requirement_spec ? JSON.stringify(item.requirement_spec, null, 2) : ''));
+    setKeywords(proposedItems.map(item => item.expected_evidence_keywords.join(', ')));
+    setError(''); setDirty(true);
+  };
   const changeItem = (index: number, patch: Partial<Item>) => { setItems(current => current.map((item, i) => i === index ? { ...item, ...patch } : item)); setDirty(true); };
   const save = async () => {
     try {
@@ -73,11 +87,15 @@ export default function RubricsPage() {
   };
   return <Box>
     <Typography variant="h1" sx={{ fontSize: 28, color: '#0A2B57', mb: 1 }}>{t('Thư viện rubric')}</Typography>
-    <Typography color="text.secondary" sx={{ mb: 2 }}>{t('HR tạo bản nháp; HR Lead xuất bản. Không có rubric mẫu được tạo sẵn.')}</Typography>
+    <Typography color="text.secondary" sx={{ mb: 2 }}>{t('HR tạo bản nháp; HR Lead xuất bản. Đề xuất chưa phải chuẩn nghiệp vụ.')}</Typography>
     {error && <Alert severity="error" sx={{ mb: 2 }}>{t(error)}</Alert>}
     {loading ? <CircularProgress /> : capabilities && <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems="start">
       <Card variant="outlined" sx={{ width: { xs: '100%', lg: 360 }, flexShrink: 0 }}><CardContent>
-        {capabilities.can_create && <Button variant="contained" onClick={create} disabled={busy}>{t('Tạo rubric nháp')}</Button>}
+        {capabilities.can_create && <Stack spacing={1}>
+          <Button variant="contained" onClick={create} disabled={busy}>{t('Tạo rubric nháp')}</Button>
+          <Button variant="outlined" onClick={useProposal} disabled={busy}>{t('Dùng đề xuất Backend Python')}</Button>
+          <Typography variant="caption">{t('Đề xuất chỉ điền biểu mẫu; HR cần rà soát và lưu bản nháp. Chưa xuất bản.')}</Typography>
+        </Stack>}
         {versions.length === 0 && <Typography sx={{ mt: 2 }}>{t('Chưa có rubric nào.')}</Typography>}
         {versions.map(v => <Button key={v.template_version_id} fullWidth sx={{ mt: 1, justifyContent: 'flex-start', textAlign: 'left' }} variant={selected?.template_version_id === v.template_version_id ? 'outlined' : 'text'} disabled={busy} onClick={() => select(v.template_version_id)}>{v.title} · v{v.version_number} · {statusLabel(v.status, t)} · {families.find(f => f.job_family_id === v.job_family_id) ? familyLabel(families.find(f => f.job_family_id === v.job_family_id)!.code, v.family_name || '', t) : v.family_name}</Button>)}
       </CardContent></Card>

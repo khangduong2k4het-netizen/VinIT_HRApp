@@ -1244,5 +1244,9 @@
   "Lý do chỉ hiển thị cho HR có quyền.": "The reason is visible only to authorized HR.",
   "Xem lịch sử mở lại": "View reopening history",
   "Chưa có lịch sử mở lại.": "No reopening history.",
-  "Không thể tải lịch sử mở lại.": "Could not load reopening history."
+  "Không thể tải lịch sử mở lại.": "Could not load reopening history.",
+  "HR tạo bản nháp; HR Lead xuất bản. Đề xuất chưa phải chuẩn nghiệp vụ.": "HR creates drafts; HR Lead publishes. The proposal is not an approved business standard.",
+  "Dùng đề xuất Backend Python": "Use Python backend proposal",
+  "Đề xuất chỉ điền biểu mẫu; HR cần rà soát và lưu bản nháp. Chưa xuất bản.": "The proposal only fills the form; HR must review and save the draft. It is not published.",
+  "Nhóm IT & Digital không khả dụng.": "The IT & Digital family is unavailable."
 }
