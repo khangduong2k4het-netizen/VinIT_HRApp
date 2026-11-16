@@ -1,4 +1,6 @@
 from typing import List, Optional
+from datetime import datetime, timezone
+from pydantic import AwareDatetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -19,6 +21,7 @@ class CreateShortlistShareRequest(BaseModel):
     application_ids: List[UUID] = Field(min_length=1, max_length=500)
     note: Optional[str] = Field(default=None, max_length=2000)
     allow_cv_view: bool = False
+    due_at: Optional[AwareDatetime] = None
 
 
 class ShortlistFeedbackRequest(BaseModel):
@@ -118,8 +121,12 @@ async def create_shortlist_share(request: CreateShortlistShareRequest, current_u
             VALUES (:position_id, :user_id, :recipient, :note, :allow_cv_view) RETURNING share_id
         """), {"position_id": position_id, "user_id": user_id, "recipient": recipient,
                 "note": request.note, "allow_cv_view": request.allow_cv_view}).scalar_one()
+        from app.api.scorecards import three_business_days
+        due = request.due_at or three_business_days(datetime.now(timezone.utc))
+        if due <= datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="Hạn phản hồi phải ở tương lai")
         for app_id in ids:
-            db.execute(text("""
+            item_id = db.execute(text("""
                 INSERT INTO app_private.shortlist_share_items
                     (share_id, position_id, application_id, assessment_id, ranking_item_id)
                 VALUES (:share_id, :position_id, :application_id,
@@ -146,8 +153,15 @@ async def create_shortlist_share(request: CreateShortlistShareRequest, current_u
                         AND c.jd_version_id = (SELECT jd_version_id FROM app_private.jd_versions
                             WHERE position_id = a.position_id ORDER BY version_number DESC LIMIT 1)
                       ORDER BY c.version_number DESC LIMIT 1)
-                     ORDER BY rr.created_at DESC LIMIT 1))
-            """), {"share_id": share_id, "position_id": position_id, "application_id": app_id})
+                     ORDER BY rr.created_at DESC LIMIT 1)) RETURNING share_item_id
+            """), {"share_id": share_id, "position_id": position_id, "application_id": app_id}).scalar_one()
+            card_id = db.execute(text("""INSERT INTO app_private.shortlist_scorecards(share_item_id,reviewer_user_id,criteria_version_id,due_at)
+                SELECT si.share_item_id,:recipient,ar.criteria_version_id,:due FROM app_private.shortlist_share_items si
+                LEFT JOIN app_private.assessment_runs ar ON ar.assessment_id=si.assessment_id WHERE si.share_item_id=:item RETURNING scorecard_id"""),
+                {"item": item_id, "recipient": recipient, "due": due}).scalar_one()
+            db.execute(text("""INSERT INTO app_private.shortlist_scorecard_criteria(scorecard_id,criterion_id)
+                SELECT :card,ci.criterion_id FROM app_private.criteria_items ci JOIN app_private.shortlist_scorecards sc ON sc.criteria_version_id=ci.criteria_version_id
+                WHERE sc.scorecard_id=:card"""), {"card": card_id})
         db.execute(text("""
             INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, position_id, outcome)
             VALUES (:user_id, 'SHARE_SHORTLIST', 'SHORTLIST_SHARE', :share_id, :position_id, 'SUCCESS')
@@ -176,8 +190,8 @@ async def get_shortlists_shared_with_me(current_user: dict = Depends(get_current
             JOIN app_private.positions p ON p.position_id = s.position_id
             LEFT JOIN app_private.user_profiles creator ON creator.user_id = s.created_by
             LEFT JOIN app_private.user_profiles recipient ON recipient.user_id = s.shared_with
-            WHERE s.status = 'ACTIVE' AND (
-                (s.shared_with = :user_id AND EXISTS (
+            WHERE (
+                (s.status = 'ACTIVE' AND s.shared_with = :user_id AND EXISTS (
                     SELECT 1 FROM app_private.position_assignments hm WHERE hm.position_id = s.position_id
                       AND hm.user_id = :user_id AND hm.position_role = 'HIRING_MANAGER' AND hm.revoked_at IS NULL))
                 OR EXISTS (SELECT 1 FROM app_private.position_assignments hr WHERE hr.position_id = s.position_id

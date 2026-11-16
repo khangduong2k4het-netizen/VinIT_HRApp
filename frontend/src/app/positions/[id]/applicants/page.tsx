@@ -127,6 +127,7 @@ export default function ApplicantsRankingPage() {
   const [shareRecipientQuery, setShareRecipientQuery] = useState('');
   const [shareRecipientOptions, setShareRecipientOptions] = useState<UserSummary[]>([]);
   const [shareAllowCv, setShareAllowCv] = useState(false);
+  const [shareDueAt, setShareDueAt] = useState('');
   const [shareSubmitting, setShareSubmitting] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
@@ -358,12 +359,14 @@ export default function ApplicantsRankingPage() {
         application_ids: Array.from(selectedIds),
         note: '',
         allow_cv_view: shareAllowCv,
+        ...(shareDueAt ? { due_at: new Date(shareDueAt).toISOString() } : {}),
       });
       setShareDialogOpen(false);
       setShareRecipient(null);
       setShareRecipientQuery('');
       setSelectedIds(new Set());
       setShareAllowCv(false);
+      setShareDueAt('');
       setNotice(t("Đã chia sẻ shortlist. Hiring Manager có thể xem trong mục Shortlist."));
     } catch (err: any) {
       setShareError(err.response?.data?.detail || t("Không thể chia sẻ shortlist"));
@@ -865,6 +868,7 @@ export default function ApplicantsRankingPage() {
               />
             )}
           />
+          <TextField fullWidth type="datetime-local" margin="normal" label={t('Hạn phản hồi tùy chọn')} InputLabelProps={{ shrink: true }} value={shareDueAt} onChange={e => setShareDueAt(e.target.value)} helperText={t('Để trống: 3 ngày làm việc theo giờ Việt Nam, chưa tính ngày lễ.')} />
           <Box sx={{ mt: 2 }}>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>{t("              Ứng viên được chia sẻ (")}{selectedIds.size})
             </Typography>

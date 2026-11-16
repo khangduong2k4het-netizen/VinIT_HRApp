@@ -44,13 +44,14 @@ import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { positionsApi, criteriaApi, applicationsApi, operationsApi, authApi, dashboardApi } from '@/lib/api';
+import { positionsApi, criteriaApi, applicationsApi, operationsApi, authApi, dashboardApi, rubricApi } from '@/lib/api';
 import StatusBadge from '@/components/common/StatusBadge';
 import WorkflowStepper from '@/components/workflow/WorkflowStepper';
 import NextActionCard from '@/components/workflow/NextActionCard';
 import PositionSummary from '@/components/workflow/PositionSummary';
 import OperationProgressPanel from '@/components/workflow/OperationProgressPanel';
 import CVIntakePanel from '@/components/positions/CVIntakePanel';
+import ApplyRubric from '@/components/positions/ApplyRubric';
 import HiringManagerChange from './HiringManagerChange';
 import { validateIntakeFiles } from '@/lib/intake';
 import type { Position, CriteriaVersion, Criterion, JDVersion, RequirementSpec, PositionWorkspace } from '@/types';
@@ -160,6 +161,9 @@ export default function PositionDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [positionDialogOpen, setPositionDialogOpen] = useState(false);
   const [positionTitle, setPositionTitle] = useState('');
+  const [positionFamily, setPositionFamily] = useState('');
+  const [familyChanged, setFamilyChanged] = useState(false);
+  const [families, setFamilies] = useState<Array<{job_family_id: string; code: string; name: string}>>([]);
   const [positionStatus, setPositionStatus] = useState<Position['status']>('OPEN');
   const [savingPosition, setSavingPosition] = useState(false);
   const [positionEditError, setPositionEditError] = useState<string | null>(null);
@@ -406,7 +410,7 @@ export default function PositionDetailPage() {
     if (!positionTitle.trim() || savingPosition) return;
     try {
       setSavingPosition(true); setPositionEditError(null);
-      await positionsApi.update(positionId, { title: positionTitle.trim(), status: positionStatus });
+      await positionsApi.update(positionId, { title: positionTitle.trim(), status: positionStatus, ...(familyChanged ? { job_family_id: positionFamily || null } : {}) });
       setPositionDialogOpen(false);
       await loadData();
     } catch (err: any) {
@@ -541,8 +545,10 @@ export default function PositionDetailPage() {
         </Box>
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
           {isHR && <HiringManagerChange positionId={positionId} onChanged={loadData} />}
+          {isHR && <ApplyRubric positionId={positionId} onApplied={loadData} disabled={generating || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status))} />}
           {isHR && <Button variant="outlined" startIcon={<EditOutlinedIcon />} onClick={() => {
-            setPositionTitle(position.title); setPositionStatus(position.status); setPositionEditError(null); setPositionDialogOpen(true);
+            setPositionTitle(position.title); setPositionStatus(position.status); setPositionFamily(position.job_family_id || ''); setFamilyChanged(false); setPositionEditError(null); setPositionDialogOpen(true);
+            rubricApi.families().then(res => setFamilies(res.data)).catch(() => { setFamilies([]); setPositionEditError(t('Không thể tải nhóm vị trí.')); });
           }}>{t("Chỉnh sửa vị trí")}</Button>}
           <Button
             variant="outlined"
@@ -625,6 +631,7 @@ export default function PositionDetailPage() {
 
       {/* Tab 1: Criteria & Approval */}
       <TabPanel value={activeTab} index={0}>
+        {currentCriteria?.source_template_version_id && <Alert severity="info" sx={{ mb: 2 }}>{t("Nguồn phiên bản rubric")}: {currentCriteria.source_template_version_id}</Alert>}
         {criteriaStale && <Alert severity="warning" sx={{ mb: 2 }}>{t("JD đã thay đổi. Cần tạo và duyệt bộ tiêu chí cho phiên bản mới trước khi tải hoặc đánh giá CV.")}</Alert>}
         {isHM && isSameApprover && currentCriteria?.status === 'PENDING_HM_APPROVAL' && <Alert severity="warning" sx={{ mb: 2 }}>{t("Hai bước duyệt phải do hai tài khoản khác nhau thực hiện. Vui lòng nhờ Hiring Manager khác được phân công duyệt.")}</Alert>}
         {!currentCriteria ? (
@@ -1015,6 +1022,10 @@ export default function PositionDetailPage() {
           <Box sx={{ display: 'grid', gap: 2, pt: 1 }}>
             <TextField autoFocus fullWidth required label={t("Tên vị trí")} value={positionTitle} inputProps={{ maxLength: 200 }}
               onChange={e => setPositionTitle(e.target.value)} />
+            <TextField select fullWidth label={t("Nhóm vị trí (tùy chọn)")} value={positionFamily} onChange={e => { setPositionFamily(e.target.value); setFamilyChanged(true); }}>
+              <MenuItem value="">{t("Chưa chọn")}</MenuItem>{positionFamily && !families.some(f => f.job_family_id === positionFamily) && <MenuItem value={positionFamily} disabled>{position.job_family || positionFamily}</MenuItem>}{families.map(f => <MenuItem key={f.job_family_id} value={f.job_family_id}>{f.code === 'ADMIN_OPERATIONS' ? t('Vận hành & Hành chính') : f.name}</MenuItem>)}
+            </TextField>
+            {!position.job_family_id && position.job_family && <Typography variant="caption">{t('Nhóm cũ chưa ánh xạ')}: {position.job_family}</Typography>}
             <FormControl fullWidth>
               <InputLabel id="position-status-label">{t("Trạng thái vị trí")}</InputLabel>
               <Select labelId="position-status-label" label={t("Trạng thái vị trí")} value={positionStatus}

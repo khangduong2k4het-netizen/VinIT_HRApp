@@ -37,7 +37,7 @@ import AddIcon from '@mui/icons-material/Add';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { positionsApi, usersApi, dashboardApi, authApi, departmentsApi } from '@/lib/api';
+import { positionsApi, usersApi, dashboardApi, authApi, departmentsApi, rubricApi } from '@/lib/api';
 import StatusBadge from '@/components/common/StatusBadge';
 import { Department, Position, UserSummary } from '@/types';
 
@@ -57,9 +57,11 @@ export default function PositionsPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [families, setFamilies] = useState<Array<{job_family_id: string; code: string; name: string}>>([]);
   const [departmentsLoading, setDepartmentsLoading] = useState(false);
   const [formData, setFormData] = useState({
     department_id: '',
+    job_family_id: '',
     title: '',
     jd_content: '',
     hiring_manager_user_id: '',
@@ -97,13 +99,14 @@ export default function PositionsPage() {
       setCreateLoading(true); setCreateError(null);
       const payload = {
         department_id: formData.department_id,
+        ...(formData.job_family_id ? { job_family_id: formData.job_family_id } : {}),
         title: formData.title,
         jd_content: formData.jd_content,
         hiring_manager_user_id: formData.hiring_manager_user_id,
       };
       await positionsApi.create(payload);
       setCreateDialogOpen(false);
-      setFormData({ department_id: '', title: '', jd_content: '', hiring_manager_user_id: '' });
+      setFormData({ department_id: '', job_family_id: '', title: '', jd_content: '', hiring_manager_user_id: '' });
       setHmSelectedName('');
       setHmSearchQuery('');
       setHmOptions([]);
@@ -125,7 +128,8 @@ export default function PositionsPage() {
     Promise.allSettled([
       departmentsApi.list(false),
       usersApi.list({ role: 'HIRING_MANAGER' }),
-    ]).then(([departmentResult, hmResult]) => {
+      rubricApi.families(),
+    ]).then(([departmentResult, hmResult, familiesResult]) => {
       if (!active) return;
       if (departmentResult.status === 'fulfilled') {
         setDepartments(departmentResult.value.data || []);
@@ -133,6 +137,8 @@ export default function PositionsPage() {
         setDepartments([]);
         setCreateError(departmentResult.reason?.response?.data?.detail || t("Không thể tải danh sách phòng ban."));
       }
+      if (familiesResult.status === 'fulfilled') setFamilies(familiesResult.value.data || []);
+      else { setFamilies([]); setCreateError(t('Không thể tải nhóm vị trí.')); }
       if (hmResult.status === 'fulfilled') {
         setHmOptions(hmResult.value.data || []);
       } else {
@@ -361,6 +367,12 @@ export default function PositionsPage() {
               {!departmentsLoading && departments.length === 0 && (
                 <Alert severity="warning" sx={{ mt: 1 }}>{t("Chưa có phòng ban đang hoạt động. Admin cần tạo phòng ban trước.")}</Alert>
               )}
+            </Grid>
+            <Grid item xs={12}>
+              <TextField select fullWidth label={t("Nhóm vị trí (tùy chọn)")} value={formData.job_family_id} onChange={e => setFormData({ ...formData, job_family_id: e.target.value })}>
+                <MenuItem value="">{t("Chưa chọn")}</MenuItem>
+                {families.map(f => <MenuItem key={f.job_family_id} value={f.job_family_id}>{f.code === 'ADMIN_OPERATIONS' ? t('Vận hành & Hành chính') : f.name}</MenuItem>)}
+              </TextField>
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField

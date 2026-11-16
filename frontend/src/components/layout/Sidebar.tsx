@@ -4,6 +4,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 
 import * as React from 'react';
 import { Box, Divider, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography } from '@mui/material';
+import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import WorkIcon from '@mui/icons-material/Work';
 import PeopleIcon from '@mui/icons-material/People';
 import BarChartIcon from '@mui/icons-material/BarChart';
@@ -20,6 +21,7 @@ const menuGroups = [
     items: [
       { text: 'Tổng quan công việc', icon: <BarChartIcon />, href: '/dashboard' },
       { text: 'Vị trí tuyển dụng', icon: <WorkIcon />, href: '/positions' },
+      { text: 'Thư viện rubric', icon: <LibraryBooksIcon />, href: '/rubrics', hrOnly: true },
       { text: 'Shortlist & phản hồi', icon: <PeopleIcon />, href: '/shortlist' },
     ],
   },
@@ -34,7 +36,7 @@ const menuGroups = [
   },
 ];
 
-export default function Sidebar({ mobileOpen, onClose, isAdmin }: { mobileOpen: boolean; onClose: () => void; isAdmin: boolean }) {
+export default function Sidebar({ mobileOpen, onClose, isAdmin, canAccessRubrics }: { mobileOpen: boolean; onClose: () => void; isAdmin: boolean; canAccessRubrics: boolean }) {
   const { t } = useI18n();
   const pathname = usePathname();
   const content = (
@@ -52,7 +54,7 @@ export default function Sidebar({ mobileOpen, onClose, isAdmin }: { mobileOpen: 
             <Typography variant="overline" sx={{ display: 'block', px: 3, pt: 1.5, pb: 0.75, color: 'rgba(255,255,255,.62)', fontSize: 10 }}>
               {t(group.label)}
             </Typography>
-            {group.items.map(item => {
+            {group.items.filter(item => !('hrOnly' in item) || !item.hrOnly || canAccessRubrics).map(item => {
               const selected = item.href === '/admin' ? pathname === '/admin' : pathname.startsWith(item.href);
               return (
                 <ListItem key={item.href} disablePadding sx={{ mb: 0.5 }}>

@@ -20,6 +20,7 @@ import { APPLICATION_STATUSES, type ApplicationStatus } from '@/lib/applicationS
 import StatusBadge from '@/components/common/StatusBadge';
 import PageHeader from '@/components/common/PageHeader';
 import WorkQueueList from '@/components/workflow/WorkQueueList';
+import ScorecardReminders from '@/components/shortlist/ScorecardReminders';
 import type { WorkQueueResponse } from '@/types';
 
 interface DashboardSummary {
@@ -46,11 +47,12 @@ export default function DashboardPage() {
   const [queueError, setQueueError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [reminderRefresh, setReminderRefresh] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const loadData = useCallback(async (initial = false) => {
     try {
-      if (initial) setLoading(true); else setRefreshing(true);
+      if (initial) setLoading(true); else { setRefreshing(true); setReminderRefresh(n => n + 1); }
       setError(null);
       setQueueError(null);
       const [summaryResponse, queueResponse] = await Promise.allSettled([
@@ -130,6 +132,7 @@ export default function DashboardPage() {
             <Alert severity="info" sx={{ mb: 3 }} action={<Button component={Link} href="/positions" color="inherit">{t("Xem vị trí")}</Button>}>{t("Chưa có hồ sơ trong phạm vi bạn được phép xem. Hãy bắt đầu từ một vị trí tuyển dụng.")}</Alert>
           )}
 
+          <ScorecardReminders refreshKey={reminderRefresh} />
           <Box sx={{ mb: 4 }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 2, flexWrap: 'wrap', mb: 2 }}>
               <Box>

@@ -87,6 +87,7 @@ class CriterionUpdate(BaseSchema):
 
 
 class Criterion(CriterionBase, TimestampMixin):
+    source_template_item_id: Optional[UUID] = None
     criterion_id: UUID
     criteria_version_id: UUID
     display_order: int
@@ -134,6 +135,7 @@ class CriteriaItemWeightsUpdate(BaseSchema):
 
 
 class CriteriaVersion(CriteriaVersionBase, TimestampMixin):
+    source_template_version_id: Optional[UUID] = None
     criteria_version_id: UUID
     position_id: UUID
     version_number: int

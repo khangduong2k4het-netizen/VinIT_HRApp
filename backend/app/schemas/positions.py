@@ -22,7 +22,8 @@ class PositionRole(str, Enum):
 class PositionBase(BaseSchema):
     position_code: str = Field(..., description="Unique position code, e.g. REQ-IT-001")
     title: str
-    job_family: Optional[str] = None  # e.g. Software Engineering, QA
+    job_family: Optional[str] = None  # legacy free text
+    job_family_id: Optional[UUID] = None
     org_unit: Optional[str] = None
     level: Optional[str] = None  # e.g. Junior, Mid, Senior
     work_location: Optional[str] = None
@@ -45,6 +46,7 @@ class PositionCreate(PositionBase):
 
 
 class PositionUpdate(BaseSchema):
+    job_family_id: Optional[UUID] = None
     title: Optional[str] = None
     status: Optional[PositionStatus] = None
     work_location: Optional[str] = None

@@ -144,13 +144,9 @@ Không thay đổi code tính năng, schema/migration, API hoặc frontend ở g
 4. Candidate Rediscovery để ở cuối Phase 2, không thuộc batch đầu.
 5. F2.08 SSO tiếp tục tạm treo.
 
-### 4.2. Quyết định còn phải chốt trước khi triển khai batch đầu
+### 4.2. Quyết định batch đầu đã chốt
 
-Các quyết định D-01…D-10 tại Mục 3 của `doc/PHASE2_IMPLEMENTATION_PLAN.md`, đặc biệt:
-
-- Job-family taxonomy, chủ sở hữu/publish template và chuẩn hóa `level_band`.
-- Thang scorecard, điều kiện submit, deadline mặc định và phạm vi email reminder.
-- Quyền xem scorecard và xác nhận HR private notes luôn tách khỏi HM view.
+D-01…D-10 đã được người dùng chấp thuận theo `doc/PHASE2_IMPLEMENTATION_PLAN.md`; không tự tạo nội dung rubric nghiệp vụ. Hai luồng phê duyệt criteria dual và direct đều được giữ. Các chi tiết UI và validation vẫn cần hoàn thiện và kiểm thử.
 
 ### 4.3. Quyết định để dành cho các plan sau
 
@@ -166,8 +162,8 @@ Các quyết định D-01…D-10 tại Mục 3 của `doc/PHASE2_IMPLEMENTATION_
 | Mã | Hạng mục | Trạng thái | Điều kiện mở khóa |
 |---|---|---|---|
 | P2-B01 | Phạm vi/ưu tiên batch đầu Phase 2 | ĐÃ CHỐT | Workflow cốt lõi F2.01 + F2.02; chỉ lập plan chi tiết batch đầu |
-| P2-B02 | Plan chi tiết batch Workflow Core | CHỜ DUYỆT PLAN | Người dùng duyệt `doc/PHASE2_IMPLEMENTATION_PLAN.md` |
-| P2-B03 | Quyết định nghiệp vụ D-01…D-10 | CHỜ HR/HR LEAD + HM/IT | Chốt taxonomy/template ownership, chuẩn hóa level, scorecard, deadline, reminder và quyền xem |
+| P2-B02 | Plan chi tiết batch Workflow Core | ĐÃ DUYỆT, ĐANG TRIỂN KHAI | Hoàn thiện code/UI và kiểm thử theo plan |
+| P2-B03 | Quyết định nghiệp vụ D-01…D-10 | ĐÃ CHỐT | Thực hiện theo plan đã điều chỉnh |
 | P2-B04 | Nội dung rubric mẫu và dữ liệu kiểm thử nghiệp vụ | CHỜ HR CUNG CẤP | Có taxonomy đã duyệt và ít nhất một rubric draft thực tế để kiểm thử |
 | P2-B05 | Phase 1 Production gates đang tạm dừng | KHÔNG CHẶN LẬP PLAN | Chỉ chặn nghiệm thu Production/dữ liệu thật; không chặn thiết kế hoặc dev bằng dữ liệu tổng hợp |
 | P2-B06 | SSO | TẠM TREO | Chỉ mở lại khi người dùng yêu cầu |
@@ -185,3 +181,13 @@ Sau khi plan được duyệt và mỗi batch triển khai hoàn thành, bổ su
 3. Lệnh test đã chạy và kết quả.
 4. Commit hash sau khi push và CI run tương ứng nếu có.
 5. Blocker còn lại và điều kiện mở khóa.
+
+
+## 7. Batch F2.01/F2.02 — code local, chưa nghiệm thu/deploy
+
+- `00023_phase2_workflow_core.sql`: seed đúng hai family (không seed rubric nghiệp vụ); backfill position chỉ với chuỗi khớp chính xác code/name, giữ text cũ nếu không khớp. Rubric có template/version/item, bản published/archived bất biến và có provenance về criteria. HR tạo draft, HR Lead system publish; cần revision đúng khi publish. Áp dụng tạo criteria draft, bảo toàn hai luồng dual/direct approval.
+- Shortlist share mới tạo scorecard theo assessment snapshot, score 1–5 hoặc thiếu bằng chứng, 4 mức khuyến nghị; HM lưu/submit, HR xem/mở lại có lý do, đổi hạn. Lý do mở lại chỉ HR có quyền xem. Share legacy không backfill; share không có snapshot chờ HR đánh giá và chia sẻ lại. HR xem được lịch sử share bị thu hồi, HM cũ/HM khác không xem. Scorecard không thay đổi trạng thái hồ sơ.
+- UI VI/EN: thư viện rubric, chọn family cho vị trí, áp dụng vào vị trí, scorecard trong shortlist, chọn hạn khi share. Nhắc hạn in-app trên dashboard/shortlist: quá hạn hoặc trong 24 giờ, hiển thị tối đa 100 share gần hạn nhất. Ngày làm việc là thứ Hai–thứ Sáu theo Asia/Ho_Chi_Minh, giữ giờ tạo, không tính lễ; chọn hạn thủ công theo múi giờ trình duyệt. Không có email.
+- PostgreSQL disposable local: full backend **348 passed, 10 warnings**; frontend type-check/lint/i18n/unit/build pass (unit 7). Ruff F và `git diff --check` pass. Kiểm thử tổng hợp gồm permission/immutability/revision, dual/direct, snapshot, HM change/revoke, stale scorecard write khi thu hồi, xóa cascade scorecard/reopen events qua retention với Storage mock và exact-only backfill riêng; không chứng minh Storage hay môi trường thật. Các test UI helper không thay thế browser E2E.
+- **Chưa deploy**: migration 00023 đã áp local disposable PostgreSQL (digest shim test-only), chưa áp Supabase remote; kiểm tra lại history, backup và kế hoạch rollout trước khi áp. Bản app này phụ thuộc schema 00023; không deploy app trước schema. E2E tổng thể, benchmark và vận hành/production tiếp tục tạm treo; không coi test local là nghiệm thu. F2.07 ngoài vòng, SSO treo, Rediscovery cuối Phase 2.
+- Nội dung rubric thật chưa được HR cung cấp; không nhập dữ liệu CV/JD thật vào các kiểm thử. Cần đánh giá usability HR/HM, quy tắc giờ đến hạn, thông báo, quyền/audit và retention trong bối cảnh triển khai thực tế khi các gate được mở lại.

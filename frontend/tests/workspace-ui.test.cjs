@@ -75,3 +75,21 @@ test('LLM cost display distinguishes unknown, free and very small estimates', ()
   assert.equal(formatUsd('0.450000000000'), '$0.45');
   assert.equal(formatUsd('invalid'), '—');
 });
+
+test('scorecard completion requires a recommendation and one valid decision per criterion', () => {
+  const { scorecardIsComplete } = loadTypeScriptModule('src/lib/phase2Workflow.ts');
+  assert.equal(scorecardIsComplete('RECOMMEND', []), false);
+  assert.equal(scorecardIsComplete(null, [{ rating: 5, insufficient_evidence: false }]), false);
+  assert.equal(scorecardIsComplete('CONSIDER', [{ rating: null, insufficient_evidence: false }]), false);
+  assert.equal(scorecardIsComplete('RECOMMEND', [{ rating: 5, insufficient_evidence: true }]), false);
+  assert.equal(scorecardIsComplete('RECOMMEND', [{ rating: 6, insufficient_evidence: false }]), false);
+  assert.equal(scorecardIsComplete('CONSIDER', [{ rating: 1, insufficient_evidence: false }, { rating: null, insufficient_evidence: true }]), true);
+});
+
+test('rubric form preserves structured requirements and separates keyword input', () => {
+  const { rubricKeywords, optionalRequirementSpec } = loadTypeScriptModule('src/lib/phase2Workflow.ts');
+  assert.deepEqual(rubricKeywords('Python,  SQL, , TypeScript'), ['Python', 'SQL', 'TypeScript']);
+  assert.equal(optionalRequirementSpec('  '), null);
+  assert.deepEqual(optionalRequirementSpec('{"kind":"YEARS","min_years":4}'), { kind: 'YEARS', min_years: 4 });
+  assert.throws(() => optionalRequirementSpec('{bad'));
+});

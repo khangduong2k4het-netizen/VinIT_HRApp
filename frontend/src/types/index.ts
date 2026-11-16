@@ -24,7 +24,8 @@ export interface Position {
   position_id: string;
   position_code: string;
   title: string;
-  job_family?: string;
+  job_family?: string | null;
+  job_family_id?: string | null;
   org_unit?: string;
   department_id?: string;
   department_name?: string;
@@ -179,7 +180,8 @@ export interface CriteriaVersion {
   position_id: string;
   jd_version_id: string;
   version_number: number;
-  origin: 'AI_DRAFT' | 'HR_CREATED';
+  origin: 'AI_DRAFT' | 'HR_CREATED' | 'TEMPLATE_CLONE';
+  source_template_version_id?: string | null;
   status: 'DRAFT' | 'PENDING_HR_REVIEW' | 'PENDING_HM_APPROVAL' | 'APPROVED' | 'REJECTED';
   mandatory_weight_total: number;
   nice_to_have_weight_total: number;

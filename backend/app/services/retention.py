@@ -612,6 +612,14 @@ def execute_retention_case(*, case_id: str, actor_user_id: str, recovery: bool =
             "ranking_items": _count(db, "SELECT COUNT(*) FROM app_private.ranking_items WHERE application_id=:application_id", params),
             "shortlist_share_items": _count(db, "SELECT COUNT(*) FROM app_private.shortlist_share_items WHERE application_id=:application_id", params),
             "shortlist_feedback": _count(db, "SELECT COUNT(*) FROM app_private.shortlist_feedback WHERE application_id=:application_id", params),
+            "shortlist_scorecards": _count(db, """SELECT COUNT(*) FROM app_private.shortlist_scorecards sc
+                JOIN app_private.shortlist_share_items si ON si.share_item_id=sc.share_item_id WHERE si.application_id=:application_id""", params),
+            "scorecard_criteria": _count(db, """SELECT COUNT(*) FROM app_private.shortlist_scorecard_criteria r
+                JOIN app_private.shortlist_scorecards sc ON sc.scorecard_id=r.scorecard_id
+                JOIN app_private.shortlist_share_items si ON si.share_item_id=sc.share_item_id WHERE si.application_id=:application_id""", params),
+            "scorecard_reopen_events": _count(db, """SELECT COUNT(*) FROM app_private.scorecard_reopen_events e
+                JOIN app_private.shortlist_scorecards sc ON sc.scorecard_id=e.scorecard_id
+                JOIN app_private.shortlist_share_items si ON si.share_item_id=sc.share_item_id WHERE si.application_id=:application_id""", params),
             "duplicate_signals": _count(db, "SELECT COUNT(*) FROM app_private.duplicate_signals WHERE application_id_1=:application_id OR application_id_2=:application_id", params),
             "cv_chunk_embeddings": _count(db, "SELECT COUNT(*) FROM app_private.cv_chunk_embeddings WHERE application_id=:application_id", params),
             "private_notes": _count(db, "SELECT COUNT(*) FROM app_private.application_private_notes WHERE application_id=:application_id", params),

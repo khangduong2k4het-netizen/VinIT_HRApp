@@ -38,6 +38,8 @@ import LinkOffIcon from '@mui/icons-material/LinkOff';
 import { useCallback, useEffect, useState } from 'react';
 import { shortlistApi } from '@/lib/api';
 import StatusBadge from '@/components/common/StatusBadge';
+import ScorecardPanel from '@/components/shortlist/ScorecardPanel';
+import ScorecardReminders from '@/components/shortlist/ScorecardReminders';
 import Link from 'next/link';
 
 interface FeedbackItem {
@@ -99,6 +101,14 @@ export default function ShortlistPage() {
     }
   }, [t]);
   useEffect(() => { loadData(true); }, [loadData]);
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('share');
+    if (!id || loading || !shares.length) return;
+    const share = shares.find(item => item.share_id === id);
+    if (share) { void handleOpenDetail(share); window.history.replaceState(null, '', window.location.pathname); }
+    // The link is consumed once; shares and loading are the availability gate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, shares]);
 
   const handleOpenDetail = async (share: ShortlistShare) => {
     setSelectedShare(share);
@@ -165,6 +175,7 @@ export default function ShortlistPage() {
         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => loadData()}>{t("Làm mới")}</Button>
       </Box>
 
+      <ScorecardReminders />
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} action={<Button color="inherit" onClick={() => loadData()}>{t("Thử lại")}</Button>}>
           {t(error)}
@@ -326,6 +337,7 @@ export default function ShortlistPage() {
                     )}
                   </Box>
 
+                  <ScorecardPanel shareId={selectedShare.share_id} candidates={selectedShare.applications || []} />
                   <Divider sx={{ mb: 2 }} />
 
                   <Typography variant="subtitle2" sx={{ mb: 1 }}>{t("                    Phản hồi (")}{(selectedShare.feedback || []).length})

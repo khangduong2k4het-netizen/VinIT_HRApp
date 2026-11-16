@@ -1,10 +1,10 @@
 # Plan triển khai chi tiết — Phase 2 Batch đầu: Workflow cốt lõi
 
-> **Lưu ý đối chiếu sau lập plan:** migration `00013` đã được dùng cho direct criteria approval và `00014` đã được dành trong repo cho retention/shared feedback; không dùng lại các số này cho Workflow Core. Kiểm tra local/remote và chọn số trống tiếp theo nếu batch được duyệt. Luồng direct approval đã được người dùng xác nhận: nội dung D-04 và các câu mô tả chỉ dual approval bên dưới là đề xuất cũ, cần cập nhật khi chốt D-04 để bảo toàn cả hai luồng hiện hành. Plan và D-01…D-10 vẫn chưa được duyệt. Xem [`PHASE1_REMAINING_EXECUTION_PLAN.md`](PHASE1_REMAINING_EXECUTION_PLAN.md).
+> **Trạng thái triển khai:** Batch F2.01/F2.02 đang làm, chưa nghiệm thu hoặc deploy. Quyết định D-01…D-10 đã được người dùng chốt theo bảng mục 3; nội dung thiết kế bên dưới là mục tiêu, không phải mô tả đã hoàn thành. Migration dự thảo `00023_phase2_workflow_core.sql` chỉ kiểm thử trên PostgreSQL local disposable; kiểm tra lại lịch sử môi trường đích trước khi triển khai.
 
 > Ngày lập plan: 2026-11-07  
 > Branch: `arena/ea6e2570-vinit-hrapp`  
-> Trạng thái: **PLAN CHI TIẾT BATCH ĐẦU — CHỜ DUYỆT ĐỂ TRIỂN KHAI**  
+> Trạng thái: **CODE ĐANG KIỂM THỬ LOCAL — CHƯA NGHIỆM THU/DEPLOY**
 > Căn cứ: `audit/PHASE2_REVIEW_2026-11-07.md`  
 > Phạm vi được người dùng chọn ưu tiên: **F2.01 Rubric Library + F2.02 Structured Collaborative Workflow HR–HM**.
 
@@ -20,7 +20,7 @@
 | F2.03, F2.04, F2.05, F2.06, F2.09 | Chưa lập plan chi tiết ở vòng này |
 | Phase 1 DEP-01…DEP-08 | Vẫn tạm dừng chờ Production; plan này không đóng hoặc thay thế các DEP đó |
 
-Plan này chưa phải lệnh triển khai. Chỉ bắt đầu viết code sau khi người dùng duyệt plan và các quyết định ở Mục 3 được chốt.
+Người dùng đã cho phép triển khai batch đầu và chốt các quyết định ở Mục 3. Các chi tiết thiết kế sau đây là mục tiêu, cần tiếp tục đối chiếu thực tế và kiểm thử trước khi coi là hoàn thành.
 
 ## 2. Mục tiêu và kết quả mong đợi của batch đầu
 
@@ -48,26 +48,26 @@ Plan này chưa phải lệnh triển khai. Chỉ bắt đầu viết code sau k
 - Tự động gộp/xóa hồ sơ ứng viên.
 - Thay đổi thuật toán matching, BGE hoặc LTR.
 
-## 3. Cổng quyết định trước khi viết code
+## 3. Quyết định batch đầu
 
-Các điểm sau phải được duyệt ở đầu batch. Nếu chưa chốt, chỉ làm discovery/prototype giao diện, không chốt migration.
+Các quyết định dưới đây đã được người dùng chấp thuận; phần giao diện, kiểm thử và các cổng triển khai vẫn đang mở.
 
 | ID | Quyết định | Đề xuất mặc định trong plan | Người chốt |
 |---|---|---|---|
-| D-01 | Danh sách job family ban đầu | Dùng 5 nhóm trong tài liệu: Academic/Faculty, Research, IT & Digital, Admin & Operations, Student Services; chỉ tạo taxonomy, chưa tự bịa nội dung rubric chuẩn | HR Lead/HR nghiệp vụ |
+| D-01 | Danh sách job family ban đầu | Chỉ hai nhóm đầu: IT & Digital và Vận hành & Hành chính; chưa có nội dung rubric nghiệp vụ, không seed nội dung | HR Lead/HR nghiệp vụ |
 | D-02 | Chủ sở hữu template | HR Recruiter/HRBP tạo draft; HR Lead duyệt và publish; Admin hỗ trợ kỹ thuật nhưng không tự duyệt nội dung nghiệp vụ | HR Lead |
 | D-03 | Vòng đời template | `DRAFT → PUBLISHED → ARCHIVED`; version đã publish bất biến, muốn sửa phải tạo version mới | HR Lead |
-| D-04 | Áp dụng vào position | Template chỉ tạo criteria `DRAFT`; vẫn bắt buộc quy trình HR/HM approval hiện tại, không auto-approve | HR Lead + HM representative |
-| D-05 | Level áp dụng | Template có `level_band` tùy chọn; danh sách level phải được chuẩn hóa trước khi khóa schema | HR Lead |
-| D-06 | Thang scorecard | Mỗi criterion: 1–5 hoặc `INSUFFICIENT_EVIDENCE`; có overall recommendation bắt buộc khi submit | HR Lead + HM representative |
+| D-04 | Áp dụng vào position | Template chỉ tạo criteria `DRAFT`, không auto-approve; giữ cả luồng HR rồi HM và luồng direct approval hiện hành của HR Lead/Admin | HR Lead + HM representative |
+| D-05 | Level áp dụng | Template có `level_band` tùy chọn; level tùy chọn, không áp danh sách level cứng | HR Lead |
+| D-06 | Thang scorecard | Mỗi criterion: 1–5 hoặc `INSUFFICIENT_EVIDENCE`; overall recommendation bắt buộc khi submit với bốn mức: rất nên, nên, cân nhắc, không nên; không tự chuyển trạng thái ứng viên | HR Lead + HM representative |
 | D-07 | Điều kiện submit scorecard | Phải đánh giá mọi criterion hoặc đánh dấu thiếu bằng chứng; overall recommendation bắt buộc; strengths/concerns theo mẫu chốt ở D-06 | HR Lead + HM |
-| D-08 | Deadline mặc định | 3 ngày làm việc kể từ lúc share, HR có thể đổi khi tạo share; lịch nghỉ lễ chưa tính ở vòng đầu | HR Lead |
+| D-08 | Deadline mặc định | 3 ngày làm việc kể từ lúc share, HR có thể đổi; lịch nghỉ lễ chưa tính ở vòng đầu. Code tạm tính thứ Hai–thứ Sáu theo Asia/Ho_Chi_Minh, giữ giờ tạo share; cần xác nhận quy tắc cuối ngày trước vận hành | HR Lead |
 | D-09 | Email reminder | Chưa cam kết trong batch đầu nếu chưa chọn SMTP/provider và mẫu email; in-app reminder là phạm vi chắc chắn | IT + HR Lead |
 | D-10 | Ai xem scorecard | HM tác giả, HR phụ trách position, HR Lead/Admin theo quyền hiện tại; HM khác không xem được | HR Lead |
 
 ## 4. Thiết kế dữ liệu dự kiến
 
-Migration tiếp theo dự kiến: `supabase/migrations/00013_phase2_workflow_core.sql`. Số migration chỉ được khóa khi bắt đầu triển khai và phải kiểm tra không trùng trên remote.
+Migration dự thảo: `supabase/migrations/00023_phase2_workflow_core.sql` (local hiện đến 00022; lịch sử Supabase test đã đọc và chưa có workflow core). Không tự áp remote; cần preflight lại trước deploy.
 
 ### 4.1. F2.01 — Rubric Library
 
@@ -296,7 +296,7 @@ Không tạo endpoint cho HM chuyển trạng thái application; quyền quyết
 
 ### Bước 1 — Migration và domain foundation
 
-- Viết migration `00013_phase2_workflow_core.sql`.
+- Viết và kiểm thử migration `00023_phase2_workflow_core.sql`; chưa áp remote.
 - Thêm schema Pydantic dùng chung cho template item/scorecard.
 - Thêm service/domain functions cho publish validation, template clone và scorecard completion.
 - Viết unit test cho state transitions, weight validation và due-date calculation.
@@ -396,3 +396,8 @@ Sau khi batch Workflow Core được duyệt và triển khai:
 2. Candidate Rediscovery chỉ được đưa vào cuối Phase 2 và phải chờ quyết định consent/retention/quyền tái sử dụng CV; việc F2.07 loại khỏi vòng này không có nghĩa rediscovery được phép bỏ qua các điều kiện pháp lý đó.
 3. F2.07 vẫn giữ ngoài phạm vi cho tới khi có quyết định mới.
 4. F2.08 SSO tiếp tục tạm treo cho tới khi người dùng mở lại.
+
+
+## Ghi chú triển khai batch đầu
+
+Code local hiện có API/UI cho template, clone vào criteria draft, scorecard và nhắc hạn. Lý do mở lại chỉ HR được phép xem; nhắc hạn là tổng hợp share quá hạn hoặc trong 24 giờ, tối đa 100 share gần hạn nhất; không gửi email. Deadline mặc định giữ giờ tạo, tính thứ Hai–thứ Sáu theo Asia/Ho_Chi_Minh, chưa tính lễ. Không backfill scorecard legacy; nếu thiếu assessment snapshot cần chia sẻ mới sau khi đánh giá. Xem `Update_Excute_P2.md` để biết kết quả kiểm thử và các gate còn mở; các phần thiết kế ở trên là mục tiêu và có thể khác tên API/schema thực tế. Không deploy app trước migration tương ứng.

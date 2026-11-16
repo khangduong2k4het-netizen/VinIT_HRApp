@@ -218,3 +218,25 @@ export const adminApi = {
   getWorkerHealth: () => apiClient.get('/admin/worker/health'),
   getAiOptions: () => apiClient.get('/admin/ai/options'),
 };
+
+export const scorecardsApi = {
+  reminders: () => apiClient.get('/scorecards/reminders'),
+  reopenHistory: (id: string) => apiClient.get(`/scorecards/${id}/reopen-history`),
+  forShare: (shareId: string) => apiClient.get(`/scorecards/share/${shareId}`),
+  save: (id: string, data: unknown) => apiClient.put(`/scorecards/${id}`, data),
+  submit: (id: string, expectedRevision: number) => apiClient.post(`/scorecards/${id}/submit`, { expected_revision: expectedRevision }),
+  reopen: (id: string, expectedRevision: number, reason: string) => apiClient.post(`/scorecards/${id}/reopen`, { expected_revision: expectedRevision, reason }),
+  setDueDate: (id: string, expectedRevision: number, dueAt: string) => apiClient.put(`/scorecards/${id}/due-date`, { expected_revision: expectedRevision, due_at: dueAt }),
+};
+
+export const rubricApi = {
+  capabilities: () => apiClient.get('/rubric-library/capabilities'),
+  families: () => apiClient.get('/rubric-library/families'),
+  templates: () => apiClient.get('/rubric-library/templates'),
+  getVersion: (id: string) => apiClient.get(`/rubric-library/versions/${id}`),
+  create: (data: unknown) => apiClient.post('/rubric-library/templates', data),
+  update: (id: string, data: unknown) => apiClient.put(`/rubric-library/versions/${id}`, data),
+  publish: (id: string, revision: number) => apiClient.post(`/rubric-library/versions/${id}/publish`, { expected_revision: revision }),
+  clone: (id: string) => apiClient.post(`/rubric-library/versions/${id}/clone`),
+  apply: (positionId: string, versionId: string) => apiClient.post(`/rubric-library/positions/${positionId}/apply`, { template_version_id: versionId }),
+};

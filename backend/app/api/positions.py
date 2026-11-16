@@ -138,18 +138,25 @@ async def create_position(
         if not department["is_active"]:
             raise HTTPException(status_code=400, detail="Đơn vị/phòng ban đã ngừng hoạt động")
         position_code, department_sequence = next_position_code(db, dict(department))
+        family_name = position_data.job_family
+        if position_data.job_family_id:
+            family_name = db.execute(text("SELECT name FROM app_private.job_families WHERE job_family_id=:id AND is_active FOR SHARE"), {'id': str(position_data.job_family_id)}).scalar_one_or_none()
+            if family_name is None:
+                raise HTTPException(status_code=400, detail="Nhóm vị trí không hoạt động")
         params = position_data.model_dump(exclude={"jd_content", "hiring_manager_user_id"})
         params.update({
             "position_code": position_code,
+            "job_family_id": str(position_data.job_family_id) if position_data.job_family_id else None,
+            "job_family": family_name,
             "org_unit": department["name"],
             "department_id": str(position_data.department_id),
             "department_sequence": department_sequence,
             "created_by": user_id,
         })
         new_position = db.execute(text("""
-            INSERT INTO app_private.positions (position_code, title, job_family, org_unit, level, work_location,
+            INSERT INTO app_private.positions (position_code, title, job_family, job_family_id, org_unit, level, work_location,
                 work_mode, employment_type, headcount, created_by, department_id, department_sequence)
-            VALUES (:position_code, :title, :job_family, :org_unit, :level, :work_location,
+            VALUES (:position_code, :title, :job_family, :job_family_id, :org_unit, :level, :work_location,
                 :work_mode, :employment_type, :headcount, :created_by, :department_id, :department_sequence) RETURNING *
         """), params).mappings().one()
         position_id = new_position["position_id"]
@@ -454,6 +461,8 @@ async def update_position(position_id: UUID, update: PositionUpdate, current_use
     if "status" in values and values["status"] is not None:
         values["status"] = values["status"].value
     allowed = {k: v for k, v in values.items() if k in {"title", "job_family", "org_unit", "level", "work_location", "work_mode", "employment_type", "headcount", "status"} and v is not None}
+    if "job_family_id" in values:
+        allowed["job_family_id"] = str(values["job_family_id"]) if values["job_family_id"] is not None else None
     if not allowed:
         raise HTTPException(status_code=400, detail="Không có nội dung cần cập nhật")
     if "title" in allowed:
@@ -465,6 +474,14 @@ async def update_position(position_id: UUID, update: PositionUpdate, current_use
         previous = db.execute(text("SELECT status FROM app_private.positions WHERE position_id = :id FOR UPDATE"), {"id": str(position_id)}).scalar_one_or_none()
         if not previous:
             raise NotFoundError("Position")
+        if "job_family_id" in allowed:
+            if allowed["job_family_id"] is None:
+                allowed["job_family"] = None
+            else:
+                family_name = db.execute(text("SELECT name FROM app_private.job_families WHERE job_family_id=:id AND is_active FOR SHARE"), {'id': allowed["job_family_id"]}).scalar_one_or_none()
+                if family_name is None:
+                    raise HTTPException(status_code=400, detail="Nhóm vị trí không hoạt động")
+                allowed["job_family"] = family_name
         if "status" in allowed and allowed["status"] != "CLOSED":
             from app.services.retention import position_has_inflight_purge
             if position_has_inflight_purge(db, str(position_id)):

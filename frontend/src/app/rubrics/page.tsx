@@ -1,0 +1,105 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, Box, Button, Card, CardContent, CircularProgress, Divider, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { useI18n } from '@/i18n/I18nProvider';
+import { rubricApi } from '@/lib/api';
+import { optionalRequirementSpec, rubricKeywords } from '@/lib/phase2Workflow';
+
+type Family = { job_family_id: string; name: string; code: string };
+type Capabilities = { user_id: string; can_create: boolean; can_publish: boolean };
+type Item = { name: string; description: string; category: 'MUST_HAVE' | 'NICE_TO_HAVE'; weight_in_group: number | string; expected_evidence_keywords: string[]; requirement_spec: Record<string, unknown> | null; evidence_guidance: string | null };
+type Version = { template_version_id: string; title: string; family_name?: string; job_family_id: string; level_band: string | null; created_by: string; status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'; version_number: number; revision: number; mandatory_weight_total: number | string; nice_to_have_weight_total: number | string; items: Item[] };
+const familyLabel = (code: string, name: string, t: (key: string) => string) => code === 'ADMIN_OPERATIONS' ? t('Vận hành & Hành chính') : name;
+const statusLabel = (status: Version['status'], t: (key: string) => string) => ({ DRAFT: t('Bản nháp'), PUBLISHED: t('Đã xuất bản'), ARCHIVED: t('Đã lưu trữ') }[status]);
+const emptyItem = (): Item => ({ name: '', description: '', category: 'MUST_HAVE', weight_in_group: 100, expected_evidence_keywords: [], requirement_spec: null, evidence_guidance: null });
+
+export default function RubricsPage() {
+  const { t } = useI18n();
+  const [families, setFamilies] = useState<Family[]>([]);
+  const [versions, setVersions] = useState<Version[]>([]);
+  const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
+  const [selected, setSelected] = useState<Version | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [family, setFamily] = useState('');
+  const [title, setTitle] = useState('');
+  const [level, setLevel] = useState('');
+  const [mandatory, setMandatory] = useState('70');
+  const [nice, setNice] = useState('30');
+  const [items, setItems] = useState<Item[]>([]);
+  const [specs, setSpecs] = useState<string[]>([]);
+  const [keywords, setKeywords] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [dirty, setDirty] = useState(false);
+  const canEdit = creating || (!!selected && selected.status === 'DRAFT' && !!capabilities && (capabilities.can_publish || (capabilities.can_create && selected.created_by === capabilities.user_id)));
+
+  const load = useCallback(async () => {
+    const [f, v, c] = await Promise.all([rubricApi.families(), rubricApi.templates(), rubricApi.capabilities()]);
+    setFamilies(f.data); setVersions(v.data); setCapabilities(c.data);
+  }, []);
+  useEffect(() => { let active = true; load().catch((err: any) => { if (active) setError(err.response?.data?.detail || t('Không thể tải thư viện rubric.')); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [load, t]);
+  const populate = (v: Version) => {
+    setSelected(v); setCreating(false); setMandatory(String(v.mandatory_weight_total)); setNice(String(v.nice_to_have_weight_total));
+    setItems(v.items); setSpecs(v.items.map(i => i.requirement_spec ? JSON.stringify(i.requirement_spec, null, 2) : '')); setKeywords(v.items.map(i => i.expected_evidence_keywords.join(', ')));  setDirty(false);
+  };
+  const select = async (id: string) => {
+    if (dirty && !window.confirm(t('Bỏ các thay đổi chưa lưu?'))) return;
+    try { setBusy(true); setError(''); populate((await rubricApi.getVersion(id)).data); }
+    catch (err: any) { setError(err.response?.data?.detail || t('Không thể tải phiên bản rubric.')); }
+    finally { setBusy(false); }
+  };
+  const create = () => {
+    if (dirty && !window.confirm(t('Bỏ các thay đổi chưa lưu?'))) return;
+    setSelected(null); setCreating(true); setFamily(families[0]?.job_family_id || ''); setTitle(''); setLevel(''); setMandatory('70'); setNice('30'); setItems([]); setSpecs([]); setKeywords([]); setError(''); setDirty(false);
+  };
+  const changeItem = (index: number, patch: Partial<Item>) => { setItems(current => current.map((item, i) => i === index ? { ...item, ...patch } : item)); setDirty(true); };
+  const save = async () => {
+    try {
+      setBusy(true); setError('');
+      const payload = { mandatory_weight_total: Number(mandatory), nice_to_have_weight_total: Number(nice), items: items.map((item, i) => ({ ...item, expected_evidence_keywords: rubricKeywords(keywords[i]), weight_in_group: Number(item.weight_in_group), requirement_spec: optionalRequirementSpec(specs[i] || '') })) };
+      const result = creating ? await rubricApi.create({ ...payload, job_family_id: family, title, level_band: level || null }) : await rubricApi.update(selected!.template_version_id, { ...payload, expected_revision: selected!.revision });
+      populate(result.data); await load();
+    } catch (err: any) { setError(err instanceof SyntaxError ? t('Requirement spec phải là JSON hợp lệ.') : (err.response?.data?.detail || t('Không thể lưu rubric.'))); }
+    finally { setBusy(false); }
+  };
+  const act = async (action: 'publish' | 'clone') => {
+    if (!selected || dirty) return;
+    if (!window.confirm(action === 'publish' ? t('Xuất bản phiên bản này? Phiên bản đã xuất bản sẽ bất biến.') : t('Tạo phiên bản nháp mới từ rubric này?'))) return;
+    try { setBusy(true); setError(''); const result = action === 'publish' ? await rubricApi.publish(selected.template_version_id, selected.revision) : await rubricApi.clone(selected.template_version_id); populate(result.data); await load(); }
+    catch (err: any) { setError(err.response?.data?.detail || t('Không thể cập nhật rubric.')); }
+    finally { setBusy(false); }
+  };
+  return <Box>
+    <Typography variant="h1" sx={{ fontSize: 28, color: '#0A2B57', mb: 1 }}>{t('Thư viện rubric')}</Typography>
+    <Typography color="text.secondary" sx={{ mb: 2 }}>{t('HR tạo bản nháp; HR Lead xuất bản. Không có rubric mẫu được tạo sẵn.')}</Typography>
+    {error && <Alert severity="error" sx={{ mb: 2 }}>{t(error)}</Alert>}
+    {loading ? <CircularProgress /> : capabilities && <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems="start">
+      <Card variant="outlined" sx={{ width: { xs: '100%', lg: 360 }, flexShrink: 0 }}><CardContent>
+        {capabilities.can_create && <Button variant="contained" onClick={create} disabled={busy}>{t('Tạo rubric nháp')}</Button>}
+        {versions.length === 0 && <Typography sx={{ mt: 2 }}>{t('Chưa có rubric nào.')}</Typography>}
+        {versions.map(v => <Button key={v.template_version_id} fullWidth sx={{ mt: 1, justifyContent: 'flex-start', textAlign: 'left' }} variant={selected?.template_version_id === v.template_version_id ? 'outlined' : 'text'} disabled={busy} onClick={() => select(v.template_version_id)}>{v.title} · v{v.version_number} · {statusLabel(v.status, t)} · {families.find(f => f.job_family_id === v.job_family_id) ? familyLabel(families.find(f => f.job_family_id === v.job_family_id)!.code, v.family_name || '', t) : v.family_name}</Button>)}
+      </CardContent></Card>
+      {(creating || selected) && <Card variant="outlined" sx={{ flex: 1, width: '100%' }}><CardContent><Stack spacing={2}>
+        {creating ? <><TextField select label={t('Nhóm vị trí')} value={family} onChange={e => { setFamily(e.target.value); setDirty(true); }}>{families.map(f => <MenuItem value={f.job_family_id} key={f.job_family_id}>{familyLabel(f.code, f.name, t)}</MenuItem>)}</TextField><TextField required label={t('Tên rubric')} value={title} onChange={e => { setTitle(e.target.value); setDirty(true); }} /><TextField label={t('Cấp độ (tùy chọn)')} value={level} onChange={e => { setLevel(e.target.value); setDirty(true); }} /></> : <Typography variant="h2" sx={{ fontSize: 20 }}>{selected?.title} · v{selected?.version_number} · {selected && statusLabel(selected.status, t)} {selected?.level_band && `· ${selected.level_band}`}</Typography>}
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}><TextField type="number" label={t('Trọng số bắt buộc (%)')} value={mandatory} disabled={!canEdit} onChange={e => { setMandatory(e.target.value); setDirty(true); }} /><TextField type="number" label={t('Trọng số ưu tiên (%)')} value={nice} disabled={!canEdit} onChange={e => { setNice(e.target.value); setDirty(true); }} /></Stack>
+        <Typography variant="body2">{t('Tổng hai nhóm bằng 100; mỗi nhóm có tiêu chí phải cộng 100 khi xuất bản.')}</Typography>
+        {items.map((item, i) => <Box key={i}><Divider sx={{ mb: 2 }} /><Stack spacing={1.5}>
+          <TextField label={t('Tên tiêu chí')} value={item.name} disabled={!canEdit} onChange={e => changeItem(i, { name: e.target.value })} />
+          <TextField label={t('Mô tả tiêu chí')} multiline value={item.description} disabled={!canEdit} onChange={e => changeItem(i, { description: e.target.value })} />
+          <TextField select label={t('Nhóm tiêu chí')} value={item.category} disabled={!canEdit} onChange={e => changeItem(i, { category: e.target.value as Item['category'] })}><MenuItem value="MUST_HAVE">{t('Bắt buộc')}</MenuItem><MenuItem value="NICE_TO_HAVE">{t('Ưu tiên')}</MenuItem></TextField>
+          <TextField type="number" label={t('Trọng số trong nhóm (%)')} value={item.weight_in_group} disabled={!canEdit} onChange={e => changeItem(i, { weight_in_group: e.target.value })} />
+          <TextField label={t('Từ khóa bằng chứng (phân tách bằng dấu phẩy)')} value={keywords[i] || ''} disabled={!canEdit} onChange={e => { setKeywords(current => current.map((value, n) => n === i ? e.target.value : value)); setDirty(true); }} />
+          <TextField label={t('Hướng dẫn bằng chứng')} value={item.evidence_guidance || ''} disabled={!canEdit} multiline onChange={e => changeItem(i, { evidence_guidance: e.target.value || null })} />
+          <TextField label={t('Requirement spec (JSON tùy chọn)')} value={specs[i] || ''} disabled={!canEdit} multiline onChange={e => { setSpecs(current => current.map((value, n) => n === i ? e.target.value : value)); setDirty(true); }} />
+          {canEdit && <Button color="error" onClick={() => { setItems(current => current.filter((_, n) => n !== i)); setSpecs(current => current.filter((_, n) => n !== i)); setKeywords(current => current.filter((_, n) => n !== i)); setDirty(true); }}>{t('Xóa tiêu chí')}</Button>}
+        </Stack></Box>)}
+        {canEdit && <><Button onClick={() => { setItems(current => [...current, emptyItem()]); setSpecs(current => [...current, '']); setKeywords(current => [...current, '']); setDirty(true); }}>{t('Thêm tiêu chí')}</Button><Button variant="contained" disabled={busy || (creating && (!family || !title.trim()))} onClick={save}>{t('Lưu bản nháp')}</Button></>}
+        {!creating && selected?.status === 'DRAFT' && capabilities.can_publish && <Button variant="outlined" disabled={busy || dirty} onClick={() => act('publish')}>{t('Xuất bản rubric')}</Button>}
+        {!creating && selected?.status === 'PUBLISHED' && capabilities.can_create && <Button variant="outlined" disabled={busy} onClick={() => act('clone')}>{t('Tạo phiên bản nháp mới')}</Button>}
+        {dirty && <Typography variant="caption">{t('Có thay đổi chưa lưu.')}</Typography>}
+      </Stack></CardContent></Card>}
+    </Stack>}
+  </Box>;
+}
