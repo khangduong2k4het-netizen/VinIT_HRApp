@@ -1,7 +1,8 @@
 from fastapi import APIRouter
-from . import auth, users, positions, criteria, applications, assessments, shortlist, dashboard, admin, account_admin, operations, candidate_details, departments, retention, rubric_library, scorecards, careers_demo, careers, talent_pool, careers_intake
+from . import auth, users, positions, criteria, applications, assessments, shortlist, dashboard, admin, account_admin, operations, candidate_details, departments, retention, rubric_library, scorecards, careers_demo, careers, talent_pool, careers_intake, gmail_test
 
 api_router = APIRouter()
+api_router.include_router(gmail_test.router, prefix="/gmail-test", tags=["Gmail synthetic test"])
 api_router.include_router(talent_pool.router, prefix="/talent-pool", tags=["Talent Pool"])
 api_router.include_router(careers.router, prefix="/careers", tags=["Public careers"])
 api_router.include_router(careers_intake.router, prefix="/careers", tags=["Careers synthetic test intake"])

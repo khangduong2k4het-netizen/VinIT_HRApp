@@ -1253,5 +1253,6 @@
   "Để trống nếu chưa có hạn. Khi cổng được bật, vị trí OPEN còn hạn và JD mới nhất có thể được công khai; HR cần kiểm tra nội dung JD.": "Leave empty if no deadline is set. When the portal is enabled, OPEN jobs with a future deadline and their latest JD may be public; HR must review the JD.",
   "Talent Pool (demo)": "Talent Pool (demo)",
   "Email offline (demo)": "Offline email (demo)",
-  "Talent Pool": "Talent Pool"
+  "Talent Pool": "Talent Pool",
+  "Gmail thử nghiệm": "Test Gmail"
 }

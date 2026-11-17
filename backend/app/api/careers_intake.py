@@ -75,7 +75,9 @@ async def apply(position_id: UUID, request_id: UUID = Form(...), name: str = For
                                    filename, data, mime, cv.content_type, pool_opt_in, pool_token, backend, bucket, identity)
 
 
-def _commit_intake(pos, req, digest, path, name, email, phone, filename, data, mime, declared_type, pool_opt_in, pool_token, backend, bucket, identity):
+def _commit_intake(pos, req, digest, path, name, email, phone, filename, data, mime, declared_type, pool_opt_in, pool_token, backend, bucket, identity, source="CAREERS"):
+    if source not in ("CAREERS", "EMAIL_TEST"):
+        raise ValueError("Invalid intake source")
     # Persist the intended path before external I/O. Stale STAGING receipts are
     # a durable reconciliation queue, not proof that an object exists.
     db = SessionLocal()
@@ -114,11 +116,11 @@ def _commit_intake(pos, req, digest, path, name, email, phone, filename, data, m
             # receipt permits explicit reconciliation or identical retry.
             raise HTTPException(503, 'Storage chưa sẵn sàng, vui lòng thử lại') from None
         operation = db.execute(text("""INSERT INTO app_private.operations(position_id,capability,status,idempotency_key,requested_by)
-            VALUES (:pos,'CV_PROCESSING','PENDING',:key,NULL) RETURNING operation_id"""), {'pos': pos, 'key': f'careers:{req}'}).scalar_one()
+            VALUES (:pos,'CV_PROCESSING','PENDING',:key,NULL) RETURNING operation_id"""), {'pos': pos, 'key': f'intake:{source}:{req}'}).scalar_one()
         batch = db.execute(text("""INSERT INTO app_private.cv_batches(position_id,operation_id,intake_source,status,total_files,total_size_bytes,uploaded_by)
-            VALUES (:pos,:op,'CAREERS','PROCESSING',1,:size,NULL) RETURNING batch_id"""), {'pos': pos, 'op': operation, 'size': len(data)}).scalar_one()
+            VALUES (:pos,:op,:source,'PROCESSING',1,:size,NULL) RETURNING batch_id"""), {'pos': pos, 'op': operation, 'size': len(data), 'source': source}).scalar_one()
         application = db.execute(text("""INSERT INTO app_private.applications(position_id,source_code,created_by)
-            VALUES (:pos,'CAREERS',NULL) RETURNING application_id"""), {'pos': pos}).scalar_one()
+            VALUES (:pos,:source,NULL) RETURNING application_id"""), {'pos': pos, 'source': source}).scalar_one()
         db.execute(text("INSERT INTO app_private.application_identities(application_id,display_name,email,phone) VALUES (:app,:name,:email,:phone)"),
                    {'app': application, 'name': name, 'email': email, 'phone': phone or None})
         document = db.execute(text("""INSERT INTO app_private.application_documents(application_id,document_type,bucket,storage_path,original_filename,mime_type,size_bytes,file_processing_status)
@@ -133,7 +135,7 @@ def _commit_intake(pos, req, digest, path, name, email, phone, filename, data, m
                            consent_expires_at=expiry, retention_expires_at=expiry, withdrawal_token=pool_token)
         db.execute(text("""UPDATE app_private.careers_intake_receipts SET state='COMMITTED',application_id=:app,updated_at=clock_timestamp() WHERE request_id=:req"""), {'app': application, 'req': req})
         db.execute(text("""INSERT INTO app_private.audit_events(action_type,object_type,object_id,position_id,outcome,metadata)
-            VALUES ('CAREERS_TEST_APPLY','APPLICATION',:app,:pos,'SUCCESS',jsonb_build_object('source','CAREERS'))"""), {'app': application, 'pos': pos})
+            VALUES ('CAREERS_TEST_APPLY','APPLICATION',:app,:pos,'SUCCESS',jsonb_build_object('source',CAST(:source AS text)))"""), {'app': application, 'pos': pos, 'source': source})
         db.commit()
         return {'message': 'Hồ sơ thử nghiệm đã được tiếp nhận.'}
     except IntegrityError:

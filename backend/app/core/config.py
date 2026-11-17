@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     # Synthetic-only end-to-end test: NEVER accept real data yet.
     PUBLIC_CAREERS_TEST_INTAKE_ENABLED: bool = False
     CLAMAV_UNIX_SOCKET: str = ""
+    GMAIL_TEST_INGEST_ENABLED: bool = False
+    GMAIL_TEST_TOKEN_FILE: str = ""
+    SPAMD_UNIX_SOCKET: str = ""
 
     # Keep withdrawal available whenever existing consents depend on it.
     TALENT_POOL_STORAGE_READY: bool = False
