@@ -238,3 +238,9 @@ Sau khi plan được duyệt và mỗi batch triển khai hoàn thành, bổ su
 - Người dùng muốn đưa ba hạng mục vào hệ thống VPS hiện tại và test kết nối thực. Môi trường/project đích và phạm vi dữ liệu chưa được xác minh; không mặc định cho phép dùng dữ liệu ứng viên thật hoặc coi gate production đã đóng.
 - Đã lập `doc/VPS_REAL_INTEGRATION_PREFLIGHT.md`: phân biệt demo guarded/giả lập với tính năng thực chưa xây đủ; preflight chỉ đọc, quyết định môi trường & dữ liệu, Gmail test OAuth, backup/restore, malware/anti-abuse, consent/retention và thứ tự triển khai. Không deploy, áp migration, khởi động lại, purge, đọc Gmail hoặc thay đổi Supabase trong lượt này. Phiên agent không có đường SSH trực tiếp tới VPS; operator cần chạy bước trên VPS khi đã xác nhận.
 - CI commit `cab29b7`: run `44008706147` pass. CI không thay thế smoke VPS, E2E tích hợp thực hay phê duyệt dữ liệu.
+
+## 15. Chốt môi trường test và chuẩn bị Gmail smoke
+
+- Người dùng chọn VPS hiện tại + project Supabase test trước đây; tích hợp thật nhưng **chỉ dùng dữ liệu tổng hợp**, đã có Gmail test và sẽ cấp OAuth. Không suy ra quyền dùng CV thật, backup hay deploy đã xong.
+- Supabase read-only: project `myrymlqdbyqmpynesiwk` healthy DB/Auth/Storage/REST, remote 00023 `20261116081146`; aggregate 6 positions/7 applications, 0 active operations/deletions, chưa có cột deadline demo. Không thao tác ghi, không chứng minh VPS trỏ đúng project; số liệu có thể thay đổi.
+- Đã chuẩn bị script `backend/scripts/gmail_readonly_smoke.py` và optional dependency `gmail-smoke`: Gmail OAuth Desktop với scope chỉ đọc, callback loopback qua SSH tunnel, query nhãn `HRA_TEST`, chỉ in count, không lưu token hay đưa CV vào HRA; unit mock 2 pass. Chưa chạy trên VPS/Gmail thật, chưa có ingestion. Setup/giới hạn và preflight chỉ đọc: `doc/VPS_REAL_INTEGRATION_PREFLIGHT.md`.

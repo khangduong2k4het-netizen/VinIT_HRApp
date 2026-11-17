@@ -45,3 +45,26 @@ Không chạy `cat .env`, `pm2 env`, `pm2 jlist`, `printenv`, `set -x`, log thô
 2. Thiết kế/triển khai các luồng thực với feature flags mặc định tắt, migration riêng, permission/retention rõ ràng; local integration/synthetic E2E và review; xây runbook rollback.
 3. Xác nhận backup và cửa sổ; sau sự đồng ý deploy cho môi trường cụ thể: apply migration được review, deploy phiên bản đã chọn, smoke, đối soát và giữ chức năng tắt cho đến khi gate đạt.
 4. Kết nối Gmail test với OAuth do operator thực hiện trên kênh/công cụ an toàn; thử dữ liệu tổng hợp qua từng kênh, ghi kết quả và cleanup theo quy trình được phê duyệt. Không báo đã chạy khi chưa có bằng chứng.
+
+## Quyết định đã nhận và kiểm tra chỉ đọc
+
+- Người dùng chọn VPS đã dùng và Supabase test `myrymlqdbyqmpynesiwk`; kết nối VPS/DB/Gmail thật nhưng chỉ dùng email/CV tổng hợp. Đã có Gmail test riêng và có thể cấp OAuth. Đây **không phải** phê duyệt dữ liệu thật hay xác nhận backup.
+- Kiểm tra connector chỉ đọc: project `ACTIVE_HEALTHY`; DB/Auth/Storage/REST báo healthy; migration cuối được liệt kê `phase2_workflow_core` version `20261116081146` (tương ứng local 00023). Aggregate: 6 positions, 7 applications, 0 operation `PENDING`/`PROCESSING`, 0 deletion `PROCESSING`; chưa có cột deadline demo. Số liệu là snapshot, không chứng minh VPS đang trỏ project/commit đó, dữ liệu hiện hữu là synthetic, backup, runtime hay production readiness. Không thay đổi project.
+
+## Gmail OAuth smoke chỉ đọc — đã chuẩn bị, chưa chạy thực tế
+
+`backend/scripts/gmail_readonly_smoke.py` là bước kiểm tra kết nối **độc lập**, không phải Gmail ingestion. Chỉ thực hiện sau khi operator xác nhận mailbox test chuyên dụng, không chứa email thật, và đã đọc quyền cấp:
+
+1. Trong Google Cloud do anh quản lý, bật Gmail API, cấu hình OAuth consent screen và đưa Gmail thử nghiệm vào test users khi cần; tạo OAuth client loại **Desktop app**. Chuẩn bị nhãn Gmail `HRA_TEST` và gửi một email **giả** vào nhãn đó. Scope `gmail.readonly` cho phép đọc cả mailbox, không chỉ nhãn: query nhãn chỉ giới hạn request của script, không giới hạn quyền OAuth. Đây là scope restricted theo [Google Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes); việc kiểm duyệt/verification Google khi mở rộng là bước riêng.
+2. Lưu JSON OAuth client an toàn trên VPS, **ngoài repo**, owner là user chạy app và mode 0600. Không dán nội dung JSON, URL cấp quyền, token hay authorization code vào chat/log/Git. Script từ chối file trong repo, symlink và file có quyền quá rộng; không lưu access/refresh token. Script chỉ lấy tối đa 5 message IDs theo label rồi chỉ in **số lượng**, không in ID/nội dung; không tạo hồ sơ, không sửa/xóa email.
+3. Sau khi có code được operator đưa lên VPS và đã xác định/đồng ý cách cài gói, cài optional dependency `gmail-smoke` vào venv test; tránh cài hoặc restart app đang chạy khi chưa chốt cửa sổ. Từ **máy anh**, mở SSH tunnel nội bộ tới VPS (`localhost:8765` của máy anh → `127.0.0.1:8765` trên VPS) theo quy trình SSH sẵn có; không mở cổng callback ra Internet. Trên VPS, chạy trong terminal tương tác từ gốc repo:
+
+   ```bash
+   backend/.venv/bin/python backend/scripts/gmail_readonly_smoke.py \
+     --client-file "$HOME/.config/hra-gmail/client.json" --confirm-test-mailbox
+   ```
+
+   Mở URL chỉ được in trong terminal trên trình duyệt **máy anh**, chọn đúng Gmail test và cấp quyền; callback localhost đi qua tunnel. Chỉ gửi lại trạng thái thành công/thất bại và số đếm, không gửi URL/log lỗi/token. Script timeout sau 5 phút; sau khi kết thúc không có token được lưu bởi script. Nếu có lỗi, gửi loại lỗi đã được script rút gọn; không gửi traceback/config.
+4. Đã test với flow/HTTP mock **2 passed**, không kết nối Google thật trong sandbox. Chưa chạy script trên VPS, chưa tạo application và chưa có Gmail ingestion/OAuth refresh token bền vững. Kết nối thật, xác nhận kết quả và triển khai luồng ingestion là các bước tiếp theo.
+
+Tham khảo: [Gmail messages.list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list), [OAuth Desktop](https://developers.google.com/identity/protocols/oauth2/native-app).
