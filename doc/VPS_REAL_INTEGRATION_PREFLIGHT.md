@@ -68,3 +68,10 @@ Không chạy `cat .env`, `pm2 env`, `pm2 jlist`, `printenv`, `set -x`, log thô
 4. Đã test với flow/HTTP mock **2 passed**, không kết nối Google thật trong sandbox. Chưa chạy script trên VPS, chưa tạo application và chưa có Gmail ingestion/OAuth refresh token bền vững. Kết nối thật, xác nhận kết quả và triển khai luồng ingestion là các bước tiếp theo.
 
 Tham khảo: [Gmail messages.list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list), [OAuth Desktop](https://developers.google.com/identity/protocols/oauth2/native-app).
+
+## Kết quả operator báo từ VPS — preflight vòng 1
+
+- Tại `~/hra`, `git rev-parse --short HEAD` = `94e38d9` (trong lịch sử branch hiện tại, trước code ba hạng mục); tracked working tree sạch. Đây là commit checkout, **không tự chứng minh** commit backend/frontend thực tế đã khởi động, hay code build frontend.
+- PM2 có `hra-backend`, `hra-frontend`, `fastapi-backend`, `nextjs-dashboard` đều online; tên process sau cùng theo tài liệu cũ có thể thuộc NarrativeHealth nhưng chưa xác minh hiện trạng, không đụng tới. Chưa map cổng/PID/cwd runtime.
+- `127.0.0.1:8005/health` healthy, `/health/ready` ready/database connected và cả hai báo `environment=production`. Readiness không chứng minh DB là project test đã chọn. Chưa có HTTP frontend, TLS, backup/restore hay worker drain evidence trong vòng này.
+- Không deploy/restart/purge/apply migration hoặc thay đổi cấu hình từ các kết quả này. Giữ nguyên demo guards; không thay `APP_ENV` hoặc cho rằng đây là production-ready. Cần xác nhận người dùng/ảnh hưởng stack, backup và đối chiếu cấu hình DB đích an toàn, cũng như runtime/cổng trước bất kỳ thay đổi nào.

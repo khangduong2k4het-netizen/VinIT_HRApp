@@ -244,3 +244,8 @@ Sau khi plan được duyệt và mỗi batch triển khai hoàn thành, bổ su
 - Người dùng chọn VPS hiện tại + project Supabase test trước đây; tích hợp thật nhưng **chỉ dùng dữ liệu tổng hợp**, đã có Gmail test và sẽ cấp OAuth. Không suy ra quyền dùng CV thật, backup hay deploy đã xong.
 - Supabase read-only: project `myrymlqdbyqmpynesiwk` healthy DB/Auth/Storage/REST, remote 00023 `20261116081146`; aggregate 6 positions/7 applications, 0 active operations/deletions, chưa có cột deadline demo. Không thao tác ghi, không chứng minh VPS trỏ đúng project; số liệu có thể thay đổi.
 - Đã chuẩn bị script `backend/scripts/gmail_readonly_smoke.py` và optional dependency `gmail-smoke`: Gmail OAuth Desktop với scope chỉ đọc, callback loopback qua SSH tunnel, query nhãn `HRA_TEST`, chỉ in count, không lưu token hay đưa CV vào HRA; unit mock 2 pass. Chưa chạy trên VPS/Gmail thật, chưa có ingestion. Setup/giới hạn và preflight chỉ đọc: `doc/VPS_REAL_INTEGRATION_PREFLIGHT.md`.
+
+## 16. VPS preflight vòng 1 do operator cung cấp
+
+- Checkout `~/hra` tại `94e38d9`, tracked sạch; `hra-backend`/`hra-frontend` và hai process khác đều online. Backend `:8005` health healthy, readiness ready/database connected, `APP_ENV=production` theo health. Checkout không chứng minh commit code đang chạy; chưa chứng minh DB nào đang kết nối hoặc frontend build/version.
+- Chưa deploy, restart, migration, OAuth hay xóa dữ liệu. Đối chiếu `doc/VPS_REAL_INTEGRATION_PREFLIGHT.md` cho các điểm còn thiếu và bảo vệ hai process còn lại; tiếp tục dùng dữ liệu tổng hợp, không tắt guard demo.
