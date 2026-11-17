@@ -180,6 +180,14 @@ class Settings(BaseSettings):
     # DejaVu Sans (Linux, fonts-dejavu-core) then Arial (Windows).
     PDF_FONT_PATH: Optional[str] = None
 
+    # Import a JD from a public job-posting link (HR still reviews the draft).
+    # Empty allowlist = any public host; private/loopback addresses are always refused.
+    JD_IMPORT_ENABLED: bool = True
+    JD_IMPORT_ALLOWED_HOSTS: list[str] = []
+    JD_IMPORT_TIMEOUT_SECONDS: float = 15.0
+    JD_IMPORT_MAX_BYTES: int = 3_000_000
+    JD_IMPORT_MAX_TEXT_CHARS: int = 30_000
+
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 

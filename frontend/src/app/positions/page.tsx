@@ -34,6 +34,7 @@ import {
   Select,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import LinkIcon from '@mui/icons-material/Link';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -69,6 +70,11 @@ export default function PositionsPage() {
     job_family_id: '',
     level: '',
   });
+  // Import a JD draft from a public job-posting link.
+  const [jdUrl, setJdUrl] = useState('');
+  const [jdImporting, setJdImporting] = useState(false);
+  const [jdImportError, setJdImportError] = useState<string | null>(null);
+  const [jdImportResult, setJdImportResult] = useState<any | null>(null);
   const [hmSearchQuery, setHmSearchQuery] = useState('');
   const [hmOptions, setHmOptions] = useState<UserSummary[]>([]);
   const [hmLoading, setHmLoading] = useState(false);
@@ -115,6 +121,7 @@ export default function PositionsPage() {
       await positionsApi.create(payload);
       setCreateDialogOpen(false);
       setFormData({ department_id: '', title: '', jd_content: '', hiring_manager_user_id: '', job_family_id: '', level: '' });
+      setJdUrl(''); setJdImportResult(null); setJdImportError(null);
       setHmSelectedName('');
       setHmSearchQuery('');
       setHmOptions([]);
@@ -123,6 +130,27 @@ export default function PositionsPage() {
       setCreateError(err.response?.data?.detail || t("Không thể tạo vị trí mới"));
     } finally {
       setCreateLoading(false);
+    }
+  };
+
+  const handleImportJd = async () => {
+    const url = jdUrl.trim();
+    if (!url || jdImporting) return;
+    if (formData.jd_content.trim() && !window.confirm(t("Nội dung JD hiện tại sẽ được thay bằng JD lấy từ đường dẫn. Tiếp tục?"))) return;
+    try {
+      setJdImporting(true); setJdImportError(null); setJdImportResult(null);
+      const res = await positionsApi.importJd(url);
+      const data = res.data;
+      setFormData(prev => ({
+        ...prev,
+        jd_content: data.jd_content || prev.jd_content,
+        title: prev.title.trim() ? prev.title : (data.title || ''),
+      }));
+      setJdImportResult(data);
+    } catch (err: any) {
+      setJdImportError(err.response?.data?.detail || t("Không lấy được JD từ đường dẫn này"));
+    } finally {
+      setJdImporting(false);
     }
   };
 
@@ -464,6 +492,51 @@ export default function PositionsPage() {
                   />
                 )}
               />
+            </Grid>
+            <Grid item xs={12}>
+              <Box sx={{ p: 2, border: '1px dashed #C9D3E0', borderRadius: 2, backgroundColor: '#F8FAFC' }}>
+                <Typography variant="subtitle2" sx={{ color: '#0A2B57', mb: 0.5 }}>{t("Lấy JD từ đường dẫn tin tuyển dụng (tùy chọn)")}</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                  {t("Dán link trang tuyển dụng công khai, ví dụ vinuni.talent.vn. Hệ thống đọc trang, AI lọc ra phần mô tả công việc và yêu cầu, rồi điền vào ô JD bên dưới để bạn rà soát.")}
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                  <TextField size="small" sx={{ flex: 1, minWidth: 260 }} value={jdUrl}
+                    onChange={(e) => setJdUrl(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleImportJd(); } }}
+                    placeholder="https://vinuni.talent.vn/job/..." inputProps={{ 'aria-label': t("Đường dẫn tin tuyển dụng") }} />
+                  <Button variant="outlined" startIcon={jdImporting ? <CircularProgress size={16} /> : <LinkIcon />}
+                    onClick={handleImportJd} disabled={jdImporting || !/^https?:\/\/\S+/i.test(jdUrl.trim())}
+                    sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}>
+                    {jdImporting ? t("Đang lấy JD…") : t("Lấy JD")}
+                  </Button>
+                </Box>
+                {jdImportError && <Alert severity="error" sx={{ mt: 1.5 }}>{t(jdImportError)}</Alert>}
+                {jdImportResult && (
+                  <Alert severity={jdImportResult.ai_used ? 'info' : 'warning'} sx={{ mt: 1.5 }}>
+                    <Typography variant="body2" fontWeight={600}>
+                      {jdImportResult.ai_used
+                        ? t("Đã lấy JD và AI đã lọc lại nội dung. Hãy đọc kỹ và chỉnh sửa trước khi tạo vị trí.")
+                        : t("Đã lấy nguyên văn nội dung trang (AI chưa lọc lại). Hãy tự rút gọn trước khi tạo vị trí.")}
+                    </Typography>
+                    <Typography variant="caption" sx={{ display: 'block' }}>
+                      {t("Nguồn")}: {jdImportResult.final_url}
+                      {jdImportResult.metadata?.posting_id ? ` · ${t("Mã tin")}: ${jdImportResult.metadata.posting_id}` : ''}
+                      {jdImportResult.metadata?.valid_through ? ` · ${t("Hạn nộp")}: ${jdImportResult.metadata.valid_through}` : ''}
+                      {jdImportResult.metadata?.employment_type ? ` · ${jdImportResult.metadata.employment_type}` : ''}
+                    </Typography>
+                    {jdImportResult.language_code === 'vi' && (
+                      <Typography variant="caption" sx={{ display: 'block' }}>{t("Tin tuyển dụng viết bằng tiếng Việt; JD được giữ nguyên ngôn ngữ gốc.")}</Typography>
+                    )}
+                    {(jdImportResult.notes || []).length > 0 && (
+                      <Box component="ul" sx={{ m: 0, mt: 0.5, pl: 2.5 }}>
+                        {jdImportResult.notes.map((note: string, i: number) => (
+                          <li key={i}><Typography variant="caption">{note}</Typography></li>
+                        ))}
+                      </Box>
+                    )}
+                  </Alert>
+                )}
+              </Box>
             </Grid>
             <Grid item xs={12}>
               <TextField

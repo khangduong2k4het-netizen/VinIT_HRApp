@@ -10,6 +10,11 @@ from app.db.database import SessionLocal
 from app.services.retention_automation import cancel_cases_of_reopened_positions
 from app.services.departments import DepartmentError, next_position_code
 from app.services.workspace import build_workflow
+from app.services import jd_import
+from app.services.llm_client import llm_client, LLMError
+from app.core.config import settings
+from pydantic import BaseModel, Field
+from urllib.parse import urlsplit
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 import json
@@ -104,6 +109,77 @@ async def list_positions(
         return [dict(row) for row in rows]
     finally:
         db.close()
+
+
+class JDImportRequest(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
+
+
+@router.post("/jd-import")
+async def import_jd_from_url(request: JDImportRequest, current_user: dict = Depends(get_current_user)):
+    """Fetch a public job-posting page and return a JD draft for HR to review.
+
+    Nothing is saved: HR edits the draft in the create-position form. Only the
+    host, extraction method and sizes are audited, never the page content.
+    """
+    if not settings.JD_IMPORT_ENABLED:
+        raise HTTPException(status_code=403, detail="Chức năng lấy JD từ đường dẫn đang tắt")
+    user_id = current_user["user_id"]
+    db = SessionLocal()
+    try:
+        account = db.execute(text("SELECT account_status FROM app_private.user_profiles WHERE user_id = :id"),
+                             {"id": user_id}).scalar_one_or_none()
+        roles = set(db.execute(text("""
+            SELECT role_code FROM app_private.user_role_assignments
+            WHERE user_id = :id AND revoked_at IS NULL AND role_code IN ('ADMIN', 'HR_LEAD', 'HR_RECRUITER')
+        """), {"id": user_id}).scalars())
+    finally:
+        db.close()
+    if account != "ACTIVE" or not roles:
+        raise HTTPException(status_code=403, detail="Chỉ HR mới được lấy JD từ đường dẫn")
+
+    host = (urlsplit(request.url.strip()).hostname or "").lower()
+    outcome, source, ai_used, chars, notes = "FAILED", None, False, 0, []
+    try:
+        try:
+            final_url, page = await jd_import.fetch_page(request.url)
+            job = jd_import.extract_job_page(page, final_url)
+        except jd_import.JDImportError as exc:
+            outcome = exc.code
+            raise HTTPException(status_code=400, detail=exc.message)
+        source, chars = job.source, len(job.text)
+        title, jd_content, language = job.title, job.text, "en"
+        try:
+            draft = await llm_client.extract_jd_from_page(job.text, job.title, source_host=host)
+            if not draft["is_job_posting"]:
+                outcome = "NOT_JOB_POSTING"
+                raise HTTPException(status_code=422, detail="Trang này không giống một tin tuyển dụng. Vui lòng kiểm tra lại đường dẫn")
+            if draft["jd_content"].strip():
+                jd_content, ai_used = draft["jd_content"].strip(), True
+            title = draft["title"].strip() or title
+            language = draft["language_code"]
+            notes = [n for n in draft["notes"] if isinstance(n, str) and n.strip()][:5]
+        except LLMError:
+            notes = ["AI không khả dụng nên JD là nguyên văn bản lấy từ trang. Vui lòng tự rà soát và rút gọn."]
+        outcome = "SUCCESS"
+        return {"source_url": request.url.strip(), "final_url": job.final_url, "extraction": job.source,
+                "ai_used": ai_used, "title": title[:200], "jd_content": jd_content, "language_code": language,
+                "metadata": job.metadata, "notes": notes}
+    finally:
+        audit_db = SessionLocal()
+        try:
+            audit_db.execute(text("""
+                INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, outcome, metadata)
+                VALUES (:user_id, 'IMPORT_JD_FROM_URL', 'JD_IMPORT', :outcome, CAST(:metadata AS jsonb))
+            """), {"user_id": user_id, "outcome": outcome,
+                   "metadata": json.dumps({"host": host[:255], "extraction": source, "ai_used": ai_used,
+                                           "text_characters": chars})})
+            audit_db.commit()
+        except Exception:
+            audit_db.rollback()
+            logger.warning("Could not audit JD import")
+        finally:
+            audit_db.close()
 
 
 @router.post("", response_model=Position, status_code=status.HTTP_201_CREATED)

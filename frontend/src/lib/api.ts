@@ -92,6 +92,8 @@ export const positionsApi = {
     }
   },
   create: (data: any) => apiClient.post('/positions', data),
+  // Fetch a public job-posting page and get back a JD draft (nothing is saved).
+  importJd: (url: string) => apiClient.post('/positions/jd-import', { url }, { timeout: 90000 }),
   getById: (id: string) => apiClient.get(`/positions/${id}`),
   getWorkspace: (id: string) => apiClient.get(`/positions/${id}/workspace`),
   update: (id: string, data: any) => apiClient.patch(`/positions/${id}`, data),

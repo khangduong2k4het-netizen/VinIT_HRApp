@@ -195,4 +195,14 @@ def respond(user_prompt: str) -> dict[str, Any]:
         return _match_criteria(payload)
     if "untrusted_redacted_cv" in payload:
         return _profile_from_cv(payload)
+    if "untrusted_job_page" in payload:
+        return _jd_from_page(payload)
     raise ValueError("Unknown mock AI task")
+
+
+def _jd_from_page(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep the page text as the JD draft; a real model would tidy it up."""
+    text = str(payload.get("untrusted_job_page") or "").strip()
+    return {"is_job_posting": len(text) >= 200, "title": str(payload.get("title_hint") or "")[:200],
+            "jd_content": text, "language_code": "en",
+            "notes": [f"{MOCK_MARK} AI giả lập giữ nguyên văn bản trang, chưa sắp xếp lại."]}
