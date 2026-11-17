@@ -37,3 +37,16 @@
 ## Điều chưa được nghiệm thu
 
 Không có SSH trực tiếp từ agent; chưa cài scanner, deploy, cấp OAuth hoặc chạy Gmail/Storage/scanner thật và browser E2E trên VPS. Gmail restricted-scope, phân loại spam, bảo vệ abuse, retention và consent production vẫn là gate riêng. Nếu cần ứng viên thật hoặc công khai Internet, phải làm HTTPS, privacy/retention, token recovery, anti-bot/rate limit, AV quarantine, reconciliation và nghiệm thu tương ứng; không dùng vòng test để tuyên bố production-ready.
+
+## Tiền kiểm scanner do operator gửi
+
+- Operator xác nhận `clamd`, `clamscan`, `spamd`, `spamc` chưa có trong PATH; `pm2 pid hra-backend` = `902622` khớp PID Python nghe `127.0.0.1:8005`, `pm2 pid hra-frontend` = `898038` khớp Next nghe `0.0.0.0:3005` tại snapshot. PID có thể đổi sau restart. Không tác động `fastapi-backend`/`nextjs-dashboard`.
+- Có script `backend/scripts/check_test_scanners.py` kiểm tra clamd với EICAR và spamd với GTUBE **trong bộ nhớ**, kèm mẫu sạch. Chỉ in verdict, không đọc hộp thư hay ghi tệp. Script phải chạy bằng user backend sau khi hai dịch vụ đã được cài/cấu hình (socket path thực tế) và code có mặt trên VPS:
+
+  ```bash
+  backend/.venv/bin/python backend/scripts/check_test_scanners.py \
+    --clam-socket /đường/dẫn/socket-clamd \
+    --spamd-socket /đường/dẫn/socket-spamd --confirm-synthetic
+  ```
+
+  Đường dẫn trên là ví dụ mô tả, không chạy nguyên văn. PASS đòi CLEAN/INFECTED/HAM/SPAM đúng; script có thể mất hơn một phút khi scanner không đáp ứng. PASS không xác nhận signature cập nhật, giới hạn archive, mọi malware/spam, cách ly mạng, quyền hoặc an toàn production. Hãy kiểm tra các điều kiện đó riêng và không bật flag khi FAIL. Script chưa chạy trên VPS.
