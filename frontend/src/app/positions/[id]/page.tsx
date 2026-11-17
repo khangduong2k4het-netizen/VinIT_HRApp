@@ -164,6 +164,7 @@ export default function PositionDetailPage() {
   const [positionFamily, setPositionFamily] = useState('');
   const [familyChanged, setFamilyChanged] = useState(false);
   const [families, setFamilies] = useState<Array<{job_family_id: string; code: string; name: string}>>([]);
+  const [positionDeadline, setPositionDeadline] = useState('');
   const [positionStatus, setPositionStatus] = useState<Position['status']>('OPEN');
   const [savingPosition, setSavingPosition] = useState(false);
   const [positionEditError, setPositionEditError] = useState<string | null>(null);
@@ -410,7 +411,7 @@ export default function PositionDetailPage() {
     if (!positionTitle.trim() || savingPosition) return;
     try {
       setSavingPosition(true); setPositionEditError(null);
-      await positionsApi.update(positionId, { title: positionTitle.trim(), status: positionStatus, ...(familyChanged ? { job_family_id: positionFamily || null } : {}) });
+      await positionsApi.update(positionId, { title: positionTitle.trim(), status: positionStatus, application_deadline_at: positionDeadline ? new Date(positionDeadline).toISOString() : null, ...(familyChanged ? { job_family_id: positionFamily || null } : {}) });
       setPositionDialogOpen(false);
       await loadData();
     } catch (err: any) {
@@ -547,7 +548,7 @@ export default function PositionDetailPage() {
           {isHR && <HiringManagerChange positionId={positionId} onChanged={loadData} />}
           {isHR && <ApplyRubric positionId={positionId} onApplied={loadData} disabled={generating || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status))} />}
           {isHR && <Button variant="outlined" startIcon={<EditOutlinedIcon />} onClick={() => {
-            setPositionTitle(position.title); setPositionStatus(position.status); setPositionFamily(position.job_family_id || ''); setFamilyChanged(false); setPositionEditError(null); setPositionDialogOpen(true);
+            setPositionTitle(position.title); setPositionStatus(position.status); setPositionDeadline(position.application_deadline_at ? new Date(new Date(position.application_deadline_at).getTime() - new Date(position.application_deadline_at).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''); setPositionFamily(position.job_family_id || ''); setFamilyChanged(false); setPositionEditError(null); setPositionDialogOpen(true);
             rubricApi.families().then(res => setFamilies(res.data)).catch(() => { setFamilies([]); setPositionEditError(t('Không thể tải nhóm vị trí.')); });
           }}>{t("Chỉnh sửa vị trí")}</Button>}
           <Button
@@ -1035,6 +1036,9 @@ export default function PositionDetailPage() {
                 <MenuItem value="CLOSED">{t("Đã đóng")}</MenuItem>
               </Select>
             </FormControl>
+            <TextField type="datetime-local" fullWidth label={t('Hạn ứng tuyển (giờ trình duyệt)')} value={positionDeadline}
+              InputLabelProps={{ shrink: true }} onChange={e => setPositionDeadline(e.target.value)} />
+            <Typography variant="caption">{t('Để trống nếu chưa có hạn. Vị trí OPEN còn hạn có thể hiển thị trên cổng demo; hãy kiểm tra nội dung JD.')}</Typography>
             {positionStatus !== 'OPEN' && <Alert severity="info">{t("Vị trí tạm dừng hoặc đóng sẽ không nhận thêm CV; tác vụ đã chạy không tự hủy. Việc lưu trữ và xóa dữ liệu chưa được tự động thực hiện.")}</Alert>}
           </Box>
         </DialogContent>

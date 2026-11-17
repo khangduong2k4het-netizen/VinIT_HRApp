@@ -46,6 +46,7 @@ class PositionCreate(PositionBase):
 
 
 class PositionUpdate(BaseSchema):
+    application_deadline_at: Optional[datetime] = None
     job_family_id: Optional[UUID] = None
     title: Optional[str] = None
     status: Optional[PositionStatus] = None
@@ -66,6 +67,7 @@ class Position(PositionBase, TimestampMixin):
     department_sequence: Optional[int] = None
     status: PositionStatus
     created_by: UUID
+    application_deadline_at: Optional[datetime] = None
     opened_at: Optional[datetime] = None
     closed_at: Optional[datetime] = None
 

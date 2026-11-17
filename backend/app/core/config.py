@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     SUPABASE_STORAGE_BUCKET_CV: str = "cv-originals"
     SUPABASE_STORAGE_BUCKET_EXTRACTED: str = "cv-extracted-text"
 
+    # Synthetic-only demo; refused outside testing/development even if enabled.
+    CAREERS_DEMO_ENABLED: bool = False
+
     # File upload limits
     MAX_FILE_SIZE_BYTES: int = 10_000_000  # 10 MB
     MAX_FILES_PER_BATCH: int = 50

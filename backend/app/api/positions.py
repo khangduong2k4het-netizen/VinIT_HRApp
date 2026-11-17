@@ -461,6 +461,11 @@ async def update_position(position_id: UUID, update: PositionUpdate, current_use
     if "status" in values and values["status"] is not None:
         values["status"] = values["status"].value
     allowed = {k: v for k, v in values.items() if k in {"title", "job_family", "org_unit", "level", "work_location", "work_mode", "employment_type", "headcount", "status"} and v is not None}
+    if "application_deadline_at" in values:
+        deadline = values["application_deadline_at"]
+        if deadline is not None and deadline.utcoffset() is None:
+            raise HTTPException(status_code=400, detail="Hạn ứng tuyển cần múi giờ rõ ràng")
+        allowed["application_deadline_at"] = deadline
     if "job_family_id" in values:
         allowed["job_family_id"] = str(values["job_family_id"]) if values["job_family_id"] is not None else None
     if not allowed:

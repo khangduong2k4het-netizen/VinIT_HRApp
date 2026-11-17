@@ -2,9 +2,9 @@
 
 ## Trạng thái và phạm vi
 
-Người dùng yêu cầu tạm treo các việc hiện tại để ưu tiên: (1) trang công khai việc làm còn hạn và đang hoạt động, form ứng tuyển và tải CV vào hệ thống; (2) một phần F3.01 Talent Pool/Rediscovery; (3) một phần F3.03 Email Gateway, demo với một Gmail thử nghiệm. Đây là **ưu tiên triển khai mới**, không phải xác nhận các gate Phase 1/2 đã hoàn tất hay chấp thuận xử lý dữ liệu thật. Chưa có tính năng nào trong ba hạng mục này được triển khai, deploy hoặc nghiệm thu tại thời điểm ghi nhận.
+Người dùng yêu cầu tạm treo các việc hiện tại để ưu tiên: (1) trang công khai việc làm còn hạn và đang hoạt động, form ứng tuyển và tải CV vào hệ thống; (2) một phần F3.01 Talent Pool/Rediscovery; (3) một phần F3.03 Email Gateway, demo với một Gmail thử nghiệm. Đây là **ưu tiên triển khai mới**, không phải xác nhận các gate Phase 1/2 đã hoàn tất hay chấp thuận xử lý dữ liệu thật. Đã có lát cắt demo bằng dữ liệu tổng hợp trong code như mục 4; chưa deploy hoặc nghiệm thu. Không dùng demo cho dữ liệu thật.
 
-Chi tiết bên dưới là đề xuất kỹ thuật ban đầu, không tự coi là chính sách được duyệt. Chờ quyết định về công khai JD, phạm vi dữ liệu demo, quyền/consent/retention và nguồn email; có thể điều chỉnh khi HR/Privacy/Legal xác nhận.
+Chi tiết bên dưới là đề xuất kỹ thuật ban đầu, không tự coi là chính sách được duyệt. Người dùng chọn hiển thị mọi vị trí OPEN còn hạn (HR cần bảo đảm JD phù hợp công khai), thiết kế opt-in riêng và demo email offline trước. Nội dung consent, thời hạn, quyền và xử lý dữ liệu thật vẫn cần HR/Privacy/Legal xác nhận.
 
 ## Khảo sát code hiện tại
 
@@ -42,3 +42,24 @@ Chi tiết bên dưới là đề xuất kỹ thuật ban đầu, không tự co
 2. Chốt đặc tả state machine, schema/RLS/actor, retention và thiết kế xử lý retry/quarantine; sau đó triển khai từng lát end-to-end với migration mới chỉ trong repository và DB disposable.
 3. Test synthetic bảo mật/permission/worker, cập nhật tài liệu và báo rõ phần đã làm so với roadmap. Chưa áp migration remote/deploy/kết nối Gmail thật nếu chưa có điều kiện và ủy quyền thích hợp.
 4. Trước public hoặc xử lý CV thật: HR/Privacy/Legal phê duyệt notice/consent/retention/quyền; DevOps phê duyệt edge chống abuse, malware scanning, secrets, monitoring, backup/restore, retention và incident response; test tích hợp staging/E2E trên môi trường được phép. Các gate đang treo vẫn chưa đạt chỉ vì có code.
+
+## 4. Tiến độ lát cắt demo đã triển khai
+
+### Cổng tuyển dụng demo
+
+- Migration `00024_careers_demo.sql` thêm hạn UTC `application_deadline_at` (mặc định NULL, không tự hiển thị vị trí cũ), phân biệt nguồn `CAREERS_DEMO`, cho phép actor NULL chỉ với nguồn demo thay vì mạo danh HR. Tệp migration **mới chỉ áp lên PostgreSQL disposable cục bộ**, chưa áp Supabase; code mới cần migration tương ứng trước deploy.
+- HR được quyền sửa hạn tại dialog chỉnh sửa vị trí; nhập theo giờ trình duyệt, API yêu cầu timestamp có múi giờ. Không có hạn, trạng thái khác OPEN hoặc hạn đã tới thì không hiển thị. Demo hiển thị tối đa 100 vị trí có JD phiên bản mới nhất, theo hạn; chưa có phân trang. Việc đặt hạn không ngụ ý nội dung JD đã được duyệt công khai.
+- `/careers-demo` là trang không cần login, hiển thị JD mới nhất của vị trí OPEN còn hạn. Người dùng đã chọn tự hiển thị, không thêm cờ publish; HR chịu trách nhiệm rà soát JD trước khi công khai về sau. Đây chỉ là demo synthetic vì cổng thực chưa đủ gate. Job vẫn hiển thị nếu rubric chưa duyệt, nhưng **chưa nhận đơn** cho đến khi rubric của JD mới nhất đã `APPROVED`; đây là giới hạn tạm bảo toàn workflow hiện hữu, không tự duyệt rubric. Nếu vị trí có operation đang chạy, form trả thông báo thử lại.
+- Form tạo application, batch và CV_PROCESSING trong một transaction; có request ID để thử lại idempotent cùng vị trí, giữ thông tin form khi worker cập nhật danh tính, có audit nguồn và dọn file best-effort khi rollback. Integration test synthetic kiểm tra đơn có trong danh sách HR và worker hiện hành đọc/hoàn tất CV với model mock. Không phải xác nhận email hay danh tính thực. Lưu file và DB vẫn không atomic; nếu cleanup lỗi hoặc process chết cần đối soát file mồ côi.
+- **Khóa mặc định**: `CAREERS_DEMO_ENABLED=false`; chỉ hoạt động nếu bật rõ và `APP_ENV` là `testing`/`development`, DSN trỏ cục bộ tường minh tới database tên kết thúc `_test`, Storage local và không có biến môi trường libpq nguy hiểm. Các khóa này giảm nguy cơ dùng nhầm, không chứng minh môi trường thực sự biệt lập, không thay thế kiểm soát mạng. Không được mở demo ra Internet hay đưa dữ liệu thật vào demo. Không có AV, rate limit đa instance, CAPTCHA/spam, retention notice đã duyệt, email xác nhận, pagination hay E2E trình duyệt; file checks hiện tại không phải kiểm tra mã độc.
+- Talent Pool: đề xuất opt-in là checkbox **không bắt buộc**, tách biệt với ứng tuyển, kèm mục đích/phiên bản nội dung/thời hạn và quyền rút. Chưa có wording/retention được Legal duyệt nên form demo **không thu consent**, không lưu pool, không tạo link rút consent. Module `talent_pool_demo.py` chỉ kiểm thử quy tắc thuần trên fixture synthetic, không đọc DB, không quét CV thật hay xếp hạng. Không áp dụng thời hạn mẫu 24 tháng như chính sách.
+
+### F3.03 — demo offline
+
+- Chạy `backend/.venv/bin/python backend/scripts/demo_email_offline.py` từ gốc repository sau khi cài dependencies. Script tự tạo email và attachment giả; phân tích mã vị trí chính xác trong subject từ danh sách được cấp, kiểm tra số lượng/đuôi/kích thước, trả metadata hoặc lý do review. Không xuất sender, body, CV; không mở Gmail, không kết nối mạng, không tạo application.
+- Đây **chưa phải** ingestion Gmail: chưa có OAuth, polling, idempotency mailbox/attachment, UI hàng review, content validation, antivirus/spam hoặc mapping DB. Kết quả `CANDIDATE` chỉ có nghĩa phù hợp quy tắc demo, không phải hợp lệ/an toàn để xử lý.
+
+### Kiểm thử và việc còn lại
+
+- Backend disposable PostgreSQL + synthetic: toàn bộ suite **356 pass, 10 warnings** trước khi bổ sung test tranh chấp; sau đó riêng `test_careers_demo.py` **3 pass**, gồm hạn hết khi đang đợi lock. Frontend type-check/lint/i18n/unit/build pass; không có browser E2E. Ruff F cho các file mới/được chọn pass. Không chứng minh Supabase Storage hay vận hành thực tế.
+- Bước tiếp theo: thiết kế tiếp nhận có hàng chờ nếu HR muốn nhận hồ sơ trước khi duyệt rubric; tích hợp kiểm soát anti-abuse/AV/retention và xử lý rollback/idempotency/scan an toàn, phân trang, E2E và privacy/security review; quyết định notice, thời hạn và opt-out, xây consent/pool/search thực sự. Email cần nối vào cùng intake sau quarantine, xây hàng review và test Gmail riêng có ủy quyền. Không tự áp `00024`, deploy, kết nối Gmail hoặc mở dữ liệu thật.

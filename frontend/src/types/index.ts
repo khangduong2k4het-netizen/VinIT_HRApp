@@ -38,6 +38,7 @@ export interface Position {
   headcount?: number;
   status: 'OPEN' | 'PAUSED' | 'CLOSED';
   created_by: string;
+  application_deadline_at?: string | null;
   opened_at?: string;
   closed_at?: string;
   created_at: string;
