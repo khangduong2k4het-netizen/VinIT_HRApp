@@ -86,6 +86,10 @@ async def apply(position_code: str, request: Request, file: UploadFile = File(..
     saved_path = None
     storage = None
     try:
+        # Serialise attempts from the same address so parallel requests cannot all read
+        # a count under the limit before any of them is recorded. The lock is held until
+        # the commit below, after this attempt has been inserted.
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:h, 3303))"), {"h": ip_hash})
         db.execute(text("DELETE FROM app_private.public_intake_events WHERE created_at < NOW() - INTERVAL '7 days'"))
         recent = db.execute(text("""SELECT COUNT(*) FROM app_private.public_intake_events
             WHERE ip_hash = :h AND created_at > NOW() - INTERVAL '1 hour'"""), {"h": ip_hash}).scalar_one()

@@ -42,10 +42,14 @@ class Settings(BaseSettings):
     PUBLIC_INTAKE_ENABLED: bool = False
     PUBLIC_INTAKE_IP_SALT: str = ""
     PUBLIC_INTAKE_MAX_PER_IP_HOUR: int = 5
-    # Number of reverse proxies (nginx, the Next.js /v1 proxy host...) that append to
-    # X-Forwarded-For before the request reaches the API. 0 means use the socket
-    # peer address. Never set this higher than the real number of trusted hops:
-    # the header is client-controlled to the left of the trusted entries.
+    # Number of reverse proxies that APPEND the client address to X-Forwarded-For
+    # before the request reaches the API (nginx with $proxy_add_x_forwarded_for = 1).
+    # The Next.js /v1 proxy forwards the header unchanged and does NOT count as a hop.
+    # 0 means use the socket peer address, which behind the Next proxy is the proxy
+    # itself, so every candidate would share one rate-limit bucket; outside
+    # development/testing the validator below refuses 0 while the portal is enabled.
+    # Never set this higher than the real number of appending proxies: the header is
+    # client-controlled to the left of the trusted entries.
     PUBLIC_INTAKE_TRUSTED_PROXY_HOPS: int = 0
     # Version of the consent wording shown next to the tick boxes.
     PUBLIC_INTAKE_NOTICE_VERSION: str = "v1"
@@ -236,6 +240,16 @@ class Settings(BaseSettings):
             raise ValueError("RETENTION_OTP_DEV_ECHO is only allowed when APP_ENV is development or testing")
         if any(day < 1 for day in self.RETENTION_NOTICE_DAYS):
             raise ValueError("RETENTION_NOTICE_DAYS must contain positive day counts")
+        # The public portal accepts files from anyone. Outside development/testing it
+        # may only start with a real scanner, a real salt and a usable client address.
+        if self.PUBLIC_INTAKE_ENABLED and self.APP_ENV not in ("development", "testing"):
+            if self.MALWARE_SCAN_MODE != "clamav":
+                raise ValueError("PUBLIC_INTAKE_ENABLED requires MALWARE_SCAN_MODE=clamav outside development/testing")
+            if len(self.PUBLIC_INTAKE_IP_SALT) < 16:
+                raise ValueError("PUBLIC_INTAKE_ENABLED requires PUBLIC_INTAKE_IP_SALT of at least 16 random characters")
+            if self.PUBLIC_INTAKE_TRUSTED_PROXY_HOPS < 1:
+                raise ValueError("PUBLIC_INTAKE_ENABLED requires PUBLIC_INTAKE_TRUSTED_PROXY_HOPS >= 1 (nginx in front of "
+                                 "the Next.js proxy); with 0 every candidate shares the proxy's rate-limit bucket")
         return self
 
 

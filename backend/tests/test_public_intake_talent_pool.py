@@ -82,6 +82,28 @@ def test_scanning_is_mandatory_in_production(monkeypatch):
         malware_scan.scan_upload(PDF)
     monkeypatch.setattr(settings, "APP_ENV", "development")
     malware_scan.scan_upload(PDF)
+    # Allowlist, not a single exact value: staging and typos must also refuse.
+    for env in ("staging", "prod", "test", "Production"):
+        monkeypatch.setattr(settings, "APP_ENV", env)
+        with pytest.raises(ScanUnavailable):
+            malware_scan.scan_upload(PDF)
+
+
+def test_portal_refuses_to_start_with_unsafe_settings_outside_development():
+    from pydantic import ValidationError
+    from app.core.config import Settings
+    safe = dict(_env_file=None, APP_ENV="staging", PUBLIC_INTAKE_ENABLED=True, MALWARE_SCAN_MODE="clamav",
+                PUBLIC_INTAKE_IP_SALT="x" * 32, PUBLIC_INTAKE_TRUSTED_PROXY_HOPS=1)
+    assert Settings(**safe).PUBLIC_INTAKE_ENABLED is True
+    for override in ({"MALWARE_SCAN_MODE": "off"},                 # files accepted unscanned
+                     {"PUBLIC_INTAKE_IP_SALT": ""},                  # IP hashes reversible
+                     {"PUBLIC_INTAKE_TRUSTED_PROXY_HOPS": 0}):       # one shared bucket behind the proxy
+        with pytest.raises(ValidationError):
+            Settings(**{**safe, **override})
+    # Development keeps its shortcuts, and a disabled portal needs none of this.
+    assert Settings(**{**safe, "APP_ENV": "development", "MALWARE_SCAN_MODE": "off",
+                       "PUBLIC_INTAKE_IP_SALT": "", "PUBLIC_INTAKE_TRUSTED_PROXY_HOPS": 0})
+    assert Settings(_env_file=None, APP_ENV="production", PUBLIC_INTAKE_ENABLED=False)
 
 
 # ---------------------------------------------------------- integration tests
@@ -315,6 +337,20 @@ def test_duplicate_content_and_rate_limit(client, portal, monkeypatch):
     assert _apply(client, seed).status_code == 202  # third attempt still allowed
     assert _apply(client, seed).status_code == 429
     assert "testclient" not in str(_count("SELECT string_agg(ip_hash, ',') FROM app_private.public_intake_events"))
+
+
+@integration
+def test_parallel_attempts_cannot_exceed_the_rate_limit(client, portal, monkeypatch):
+    """Count-then-insert without a lock let N parallel requests all see a count under
+    the limit. Attempts from one address are now serialised by an advisory lock."""
+    from concurrent.futures import ThreadPoolExecutor
+    seed = portal
+    monkeypatch.setattr(settings, "PUBLIC_INTAKE_MAX_PER_IP_HOUR", 3)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        # Honeypot submissions are cheap and still count as attempts.
+        codes = list(pool.map(lambda _: _apply(client, seed, honeypot="bot").status_code, range(12)))
+    assert codes.count(202) == 3 and codes.count(429) == 9
+    assert _count("SELECT COUNT(*) FROM app_private.public_intake_events") == 3
 
 
 def test_client_address_trusts_only_configured_proxy_hops(monkeypatch):
