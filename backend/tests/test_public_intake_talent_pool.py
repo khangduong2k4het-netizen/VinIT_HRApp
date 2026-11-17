@@ -144,7 +144,7 @@ def test_apply_creates_application_with_consents_and_audit(client, portal, tmp_p
                                                {"a": app_row.application_id})}
         doc = conn.execute(text("SELECT file_processing_status, content_sha256 FROM app_private.application_documents WHERE application_id = :a"),
                            {"a": app_row.application_id}).one()
-        audit = conn.execute(text("SELECT metadata FROM app_private.audit_events WHERE action_type = 'PUBLIC_CV_RECEIVED'")).scalar_one()
+        audit = conn.execute(text("SELECT metadata FROM app_private.audit_events WHERE action_type = 'RECEIVE_PUBLIC_CV'")).scalar_one()
         queued = conn.execute(text("""SELECT COUNT(*) FROM app_private.document_processing_runs r JOIN app_private.operations o USING (operation_id)
             WHERE o.status = 'PENDING' AND o.requested_by IS NULL""")).scalar_one()
     assert app_row.created_by is None and app_row.application_status == "NEW"
@@ -247,7 +247,7 @@ def test_mark_requires_valid_consent_and_scope(client, seed):
     old = _consented_application(seed, received=datetime.now(timezone.utc) - timedelta(days=365 * 5 + 30))
     state = client.get(f"/v1/talent-pool/applications/{old}", headers=hr).json()
     assert state["reason"] == "RETENTION_EXPIRED"
-    metadata = _count("SELECT metadata::text FROM app_private.audit_events WHERE action_type = 'TALENT_POOL_MARK'")
+    metadata = _count("SELECT metadata::text FROM app_private.audit_events WHERE action_type = 'MARK_TALENT_POOL'")
     assert "Pool" not in metadata
 
 

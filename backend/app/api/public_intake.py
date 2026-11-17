@@ -165,7 +165,7 @@ async def apply(position_code: str, request: Request, file: UploadFile = File(..
                 VALUES (:a, :p, :v, 'PORTAL', CAST(:e AS jsonb))"""),
                        {"a": app_id, "p": purpose, "v": settings.PUBLIC_INTAKE_NOTICE_VERSION, "e": evidence})
         db.execute(text("""INSERT INTO app_private.audit_events(action_type, object_type, object_id, position_id, outcome, metadata)
-            VALUES ('PUBLIC_CV_RECEIVED', 'APPLICATION', :a, :p, 'SUCCESS', CAST(:m AS jsonb))"""),
+            VALUES ('RECEIVE_PUBLIC_CV', 'APPLICATION', :a, :p, 'SUCCESS', CAST(:m AS jsonb))"""),
                    {"a": app_id, "p": position_id, "m": json.dumps({"talent_pool_consent": consent_talent_pool, "size_bytes": size})})
         db.commit()
         return {"status": "received"}

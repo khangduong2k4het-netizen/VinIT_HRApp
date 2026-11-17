@@ -75,7 +75,7 @@ async def mark(application_id: UUID, body: MarkInput, current_user: dict = Depen
             raise HTTPException(status_code=409, detail="Hồ sơ đã nằm trong Talent Pool")
         db.execute(text("INSERT INTO app_private.talent_pool_marks(application_id, marked_by, reason_code) VALUES (:a, :u, :r)"),
                    {"a": str(application_id), "u": current_user["user_id"], "r": body.reason_code})
-        _audit(db, current_user["user_id"], "TALENT_POOL_MARK", str(application_id), state["position_id"], {"reason_code": body.reason_code})
+        _audit(db, current_user["user_id"], "MARK_TALENT_POOL", str(application_id), state["position_id"], {"reason_code": body.reason_code})
         db.commit()
         return {"marked": True}
     finally:
@@ -91,7 +91,7 @@ async def unmark(application_id: UUID, current_user: dict = Depends(get_current_
                           {"a": str(application_id)}).rowcount
         if not done:
             raise HTTPException(status_code=404, detail="Hồ sơ không nằm trong Talent Pool")
-        _audit(db, current_user["user_id"], "TALENT_POOL_UNMARK", str(application_id), state["position_id"], {})
+        _audit(db, current_user["user_id"], "UNMARK_TALENT_POOL", str(application_id), state["position_id"], {})
         db.commit()
         return {"marked": False}
     finally:
@@ -111,7 +111,7 @@ async def withdraw_consent(application_id: UUID, body: WithdrawInput, current_us
             raise HTTPException(status_code=404, detail="Không có đồng ý đang hiệu lực để rút")
         db.execute(text("UPDATE app_private.talent_pool_marks SET removed_at = NOW() WHERE application_id = :a AND removed_at IS NULL"),
                    {"a": str(application_id)})
-        _audit(db, current_user["user_id"], "TALENT_POOL_CONSENT_WITHDRAWN", str(application_id), state["position_id"],
+        _audit(db, current_user["user_id"], "WITHDRAW_TALENT_POOL_CONSENT", str(application_id), state["position_id"],
                {"has_reference": bool(body.reference)})
         db.commit()
         return {"withdrawn": True}
