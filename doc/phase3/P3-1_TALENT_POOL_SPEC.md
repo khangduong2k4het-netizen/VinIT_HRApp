@@ -23,7 +23,7 @@ Thuộc đề xuất Phase 3, mục P3-1.
 | Mã | Câu hỏi | Người chốt | Đề xuất mặc định |
 | :--- | :--- | :--- | :--- |
 | D-TP-01 | Câu chữ ô tick lúc nộp có nêu rõ mục đích **dùng lại hồ sơ cho các vị trí khác của trường** không, và có áp dụng cho cả CV nhận qua email/HR nhập tay không. Nếu ô tick chỉ nói "xử lý hồ sơ cho vị trí này" thì chưa đủ cho Talent Pool | HR Lead (đối chiếu văn bản đang dùng) | Dùng câu chữ có nêu mục đích tái sử dụng; lưu `notice_version` |
-| D-TP-02 | Thời hạn lưu 5 năm tính **từ ngày nhận CV** (HR Lead cho biết nhiều khả năng là mốc này; cần xác nhận). Mốc này khác chính sách retention hiện tại (12 tháng **sau khi đóng vị trí**), nên hai quy tắc cần được hòa giải | HR Lead | Pool dùng mốc `applications.created_at + 60 tháng` (cấu hình `TALENT_POOL_RETENTION_MONTHS`). Retention hiện tại không tự đổi: hồ sơ vẫn có thể bị đưa vào hàng đợi xóa sớm hơn, và khi đó bị loại khỏi pool. Việc đổi hạn của hàng đợi xóa là quyết định riêng (xem mục 5) |
+| D-TP-02 | Thời hạn lưu 5 năm tính **từ lúc ứng viên tick đồng ý Talent Pool** (chủ dự án đã chốt ngày 17/11/2026; không tính từ ngày nhận CV). Mốc này khác chính sách retention hiện tại (12 tháng **sau khi đóng vị trí**), nên hai quy tắc cần được hòa giải | HR Lead | Pool dùng mốc `application_data_consents.granted_at + 60 tháng` (consent mục đích `TALENT_POOL`) (cấu hình `TALENT_POOL_RETENTION_MONTHS`). Retention hiện tại không tự đổi: hồ sơ vẫn có thể bị đưa vào hàng đợi xóa sớm hơn, và khi đó bị loại khỏi pool. Việc đổi hạn của hàng đợi xóa là quyết định riêng (xem mục 5) |
 | D-TP-03 | Ai được gắn nhãn vào pool và ai được quét | HR Lead | HR phụ trách vị trí gắn nhãn; quét: HR được phân công vị trí mới + HR Lead; HM không quét |
 | D-TP-04 | Điều kiện vào pool: trạng thái application nào (PRD: đạt chuẩn phỏng vấn, chưa nhận offer) | HR Lead | `INTERVIEW`, `REJECTED_INTERVIEW`, và `SHORTLIST` do HR chọn tay; không tự động |
 | D-TP-05 | Hồ sơ **đã có trong hệ thống trước khi có ô tick** (HR nhập tay, nhận qua email) xử lý thế nào | HR Lead | Không coi là có consent; không vào pool. Chỉ gửi email xin consent riêng khi HR muốn, theo mẫu HR duyệt (làm sau) |
@@ -60,7 +60,7 @@ Chỉ là thiết kế; chưa viết SQL. Vì được giữ 5 năm và consent 
 
 **Chấm lại hồ sơ cũ cho vị trí mới:** `assessment_runs` buộc `position_id`, nên một lượt quét tạo lượt chấm trong bảng kết quả riêng ở trên (không tạo application mới trong vị trí đích cho tới khi HR chọn `CONTACT`). Cần xác nhận khi làm pha 1 cách tái dùng `profile_version` đã trích mà không phải trích lại.
 
-**Tương tác với retention:** hạn của pool là `ngày nhận CV + 60 tháng`, kiểm tra trực tiếp trên `applications.created_at`. Điều này **không** tự thay đổi hàng đợi xóa hiện có (hạn = ngày đóng vị trí + 12 tháng, `retention_policy_versions`). Hai hướng giải quyết, cần HR Lead chọn: (1) giữ hàng đợi xóa như cũ, hồ sơ đã đánh dấu pool và còn consent được HR hoãn xóa bằng cơ chế hold; (2) đổi hạn của hàng đợi xóa thành mốc 5 năm kể từ ngày nhận CV cho mọi hồ sơ. Trong khi chưa chốt, pool chỉ quét hồ sơ không nằm trong case `SCHEDULED_FOR_DELETION` hoặc `ON_HOLD`; hồ sơ bị xóa thì tự biến mất khỏi pool. Rút đồng ý chặn quét ngay và đưa hồ sơ vào hàng đợi xóa hiện có.
+**Tương tác với retention:** hạn của pool là `thời điểm tick đồng ý Talent Pool + 60 tháng`, kiểm tra trực tiếp trên `application_data_consents.granted_at`. Điều này **không** tự thay đổi hàng đợi xóa hiện có (hạn = ngày đóng vị trí + 12 tháng, `retention_policy_versions`). Hai hướng giải quyết, cần HR Lead chọn: (1) giữ hàng đợi xóa như cũ, hồ sơ đã đánh dấu pool và còn consent được HR hoãn xóa bằng cơ chế hold; (2) đổi hạn của hàng đợi xóa thành mốc 5 năm kể từ lúc tick đồng ý cho hồ sơ có consent Talent Pool. Trong khi chưa chốt, pool chỉ quét hồ sơ không nằm trong case `SCHEDULED_FOR_DELETION` hoặc `ON_HOLD`; hồ sơ bị xóa thì tự biến mất khỏi pool. Rút đồng ý chặn quét ngay và đưa hồ sơ vào hàng đợi xóa hiện có.
 
 **Có còn cần "bản sao tối thiểu" không?** Không, với điều kiện D-TP-01 và D-TP-02 được xác nhận. Chỉ cần lại nếu hóa ra thời hạn 5 năm không áp dụng cho hồ sơ không được tuyển (khi đó quay về phương án giữ bản sao có consent riêng, như bản spec trước).
 
@@ -133,7 +133,7 @@ Kiểm thử tự động (dữ liệu tổng hợp, PostgreSQL + pgvector như 
 
 | Pha | Nội dung | Phụ thuộc | Độ lớn |
 | :--- | :--- | :--- | :-: |
-| 0 | Xác nhận D-TP-01, D-TP-02, D-TP-05 (câu chữ ô tick, mốc 5 năm từ ngày nhận CV) | HR Lead | nhỏ |
+| 0 | Xác nhận D-TP-01, D-TP-02, D-TP-05 (câu chữ ô tick; mốc 5 năm tính từ lúc tick đồng ý, đã chốt) | HR Lead | nhỏ |
 | 1 | **Đã làm trong nhánh code:** migration consent + đánh dấu; luật đủ điều kiện; API; test | D-TP-02 | S–M |
 | 2 | Quét và xếp hạng, màn kết quả có bằng chứng, quyết định HR | P3-0 (pilot Phase 2 ổn); DEP-05 nếu dùng LLM với dữ liệu thật | M |
 | 3 | Rút đồng ý, nhắc hết hạn 5 năm, hàng đợi xóa + OTP (tái dùng F2.07) | F2.07 | S |
@@ -147,7 +147,7 @@ Kiểm thử tự động (dữ liệu tổng hợp, PostgreSQL + pgvector như 
 | :--- | :--- |
 | Câu chữ ô tick không nêu mục đích tái sử dụng | Kiểm tra ở D-TP-01 trước khi bật quét trên dữ liệu thật; fail-closed khi không có bản ghi đúng `purpose` |
 | Chưa có nơi ghi tick (hệ thống hiện chưa có form công khai) | Pha 1 chỉ dựng bảng và API; ô tick thật làm cùng P3-3 bước 2; trong lúc chờ, pool chỉ chạy dữ liệu tổng hợp |
-| Mốc 5 năm (từ ngày nhận CV) lệch với hàng đợi xóa hiện có (12 tháng sau khi đóng vị trí) | Chọn một trong hai hướng ở mục 5 trước khi bật quét trên dữ liệu thật; không tự gia hạn các case retention đã sinh |
+| Mốc 5 năm (từ lúc tick đồng ý) lệch với hàng đợi xóa hiện có (12 tháng sau khi đóng vị trí) | Chọn một trong hai hướng ở mục 5 trước khi bật quét trên dữ liệu thật; không tự gia hạn các case retention đã sinh |
 | Giữ lâu hơn, tăng bề mặt rò rỉ | RLS + service_role; truy cập theo phân quyền vị trí; audit không chứa PII; xóa có xác nhận + OTP |
 | Chấm lại CV cũ tốn chi phí/LLM và cần egress | Rule engine trước; LLM chỉ cho tiêu chí chưa giải được; gate DEP-05 trước khi dùng dữ liệu thật |
 | Kết quả cũ "treo" sau khi rút đồng ý | Kiểm tra lại điều kiện lúc hiển thị; xóa kết quả của hồ sơ không còn hợp lệ |

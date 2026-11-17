@@ -21,7 +21,7 @@ PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
 
 def _reason(**over):
     base = dict(status="SHORTLIST", consent_present=True, consent_withdrawn=False,
-                received_at=NOW - timedelta(days=30), open_retention_status=None, now=NOW)
+                consented_at=NOW - timedelta(days=30), open_retention_status=None, now=NOW)
     base.update(over)
     return ineligibility_reason(**base)
 
@@ -30,11 +30,12 @@ def test_pool_rules_in_priority_order():
     assert _reason() is None
     assert _reason(consent_present=False, consent_withdrawn=True) == "NO_CONSENT"
     assert _reason(consent_withdrawn=True) == "CONSENT_WITHDRAWN"
-    assert _reason(received_at=datetime(2021, 11, 16, tzinfo=timezone.utc)) == "RETENTION_EXPIRED"
-    assert _reason(received_at=datetime(2021, 11, 18, tzinfo=timezone.utc)) is None
+    assert _reason(consented_at=datetime(2021, 11, 16, tzinfo=timezone.utc)) == "RETENTION_EXPIRED"
+    assert _reason(consented_at=datetime(2021, 11, 18, tzinfo=timezone.utc)) is None
+    assert _reason(consented_at=None) == "RETENTION_EXPIRED"
     assert _reason(open_retention_status="ON_HOLD") == "DELETION_PENDING"
     assert _reason(status="NEW") == "STATUS_NOT_ELIGIBLE"
-    # The five years are counted from receipt, not from any later event.
+    # The five years start when the candidate ticks the Talent Pool consent.
     assert pool_expiry(datetime(2026, 2, 28, tzinfo=timezone.utc)).date().isoformat() == "2031-02-28"
 
 
@@ -271,14 +272,14 @@ def test_hr_publishes_position_and_hiring_manager_cannot(client, seed):
 
 # ---- Talent Pool eligibility ----
 
-def _consented_application(seed, pool=True, status="SHORTLIST", received=None):
+def _consented_application(seed, pool=True, status="SHORTLIST", received=None, consented=None):
     app_id = _assessed_application(seed, "MEETS_MANDATORY", "Pool " + uid()[:4])
     with engine.begin() as conn:
         conn.execute(text("UPDATE app_private.applications SET application_status = :s, created_at = COALESCE(:r, created_at) WHERE application_id = :a"),
                      {"s": status, "r": received, "a": app_id})
         if pool:
-            conn.execute(text("""INSERT INTO app_private.application_data_consents(application_id, purpose, notice_version, channel)
-                VALUES (:a, 'TALENT_POOL', 'v1', 'PORTAL')"""), {"a": app_id})
+            conn.execute(text("""INSERT INTO app_private.application_data_consents(application_id, purpose, notice_version, channel, granted_at)
+                VALUES (:a, 'TALENT_POOL', 'v1', 'PORTAL', COALESCE(CAST(:g AS timestamptz), NOW()))"""), {"a": app_id, "g": consented})
     return app_id
 
 
@@ -299,9 +300,16 @@ def test_mark_requires_valid_consent_and_scope(client, seed):
 
     too_early = _consented_application(seed, status="NEW")
     assert client.post(route.format(too_early), headers=hr, json={"reason_code": "NEAR_MISS"}).status_code == 409
-    old = _consented_application(seed, received=datetime.now(timezone.utc) - timedelta(days=365 * 5 + 30))
+    long_ago = datetime.now(timezone.utc) - timedelta(days=365 * 5 + 30)
+    old = _consented_application(seed, received=long_ago, consented=long_ago)
     state = client.get(f"/v1/talent-pool/applications/{old}", headers=hr).json()
     assert state["reason"] == "RETENTION_EXPIRED"
+    # The window starts when consent is ticked, not when the CV arrived: an old CV
+    # whose Talent Pool consent was given recently is still in its five years.
+    late = _consented_application(seed, received=long_ago)
+    state = client.get(f"/v1/talent-pool/applications/{late}", headers=hr).json()
+    assert state["reason"] is None and state["can_mark"] is True
+    assert state["expires_on"] == pool_expiry(datetime.now(timezone.utc)).date().isoformat()
     metadata = _count("SELECT metadata::text FROM app_private.audit_events WHERE action_type = 'MARK_TALENT_POOL'")
     assert "Pool" not in metadata
 
@@ -325,7 +333,10 @@ def test_eligible_pool_excludes_withdrawn_expired_and_pending_deletion(client, s
     assert client.post(f"/v1/talent-pool/applications/{withdrawn}/withdraw-consent", headers=hr, json={"reference": "ref-1"}).status_code == 200
     assert client.post(f"/v1/talent-pool/applications/{withdrawn}/withdraw-consent", headers=hr, json={}).status_code == 404
     with engine.begin() as conn:
-        conn.execute(text("UPDATE app_private.applications SET created_at = NOW() - INTERVAL '61 months' WHERE application_id = :a"), {"a": expired})
+        conn.execute(text("""UPDATE app_private.application_data_consents SET granted_at = NOW() - INTERVAL '61 months'
+            WHERE application_id = :a AND purpose = 'TALENT_POOL'"""), {"a": expired})
+        # An old CV alone does not expire the pool: only the consent date counts.
+        conn.execute(text("UPDATE app_private.applications SET created_at = NOW() - INTERVAL '61 months' WHERE application_id = :a"), {"a": good})
         conn.execute(text("""INSERT INTO app_private.application_retention_cases(application_id, policy_version, position_closed_at, due_date, status)
             SELECT :a, policy_version, NOW(), NOW(), 'ON_HOLD' FROM app_private.retention_policy_versions LIMIT 1"""), {"a": held})
     assert ids() == {good}

@@ -53,7 +53,8 @@ class Settings(BaseSettings):
     CLAMD_HOST: str = "127.0.0.1"
     CLAMD_PORT: int = 3310
     CLAMD_TIMEOUT_SECONDS: float = 10.0
-    # P3-1 Talent Pool: how long a received CV may be reused, counted from receipt.
+    # P3-1 Talent Pool: how long a CV may be reused, counted from when the candidate
+    # ticked the Talent Pool consent (application_data_consents.granted_at).
     TALENT_POOL_RETENTION_MONTHS: int = 60
 
     # File upload limits

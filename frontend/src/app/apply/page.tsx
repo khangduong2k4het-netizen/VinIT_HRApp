@@ -94,7 +94,7 @@ export default function ApplyPage() {
                   label={t('Tôi đồng ý cho VinUniversity xử lý hồ sơ này để xem xét ứng tuyển vào vị trí trên.')} />
                 <FormControlLabel
                   control={<Checkbox checked={consentPool} onChange={e => setConsentPool(e.target.checked)} />}
-                  label={t('Tôi đồng ý cho VinUniversity lưu hồ sơ tối đa 5 năm kể từ ngày nhận và dùng lại để xem xét cho các vị trí khác phù hợp. Việc này không bắt buộc.')} />
+                  label={t('Tôi đồng ý cho VinUniversity lưu hồ sơ tối đa 5 năm kể từ khi tôi đánh dấu đồng ý này và dùng lại để xem xét cho các vị trí khác phù hợp. Việc này không bắt buộc.')} />
                 <Typography variant="caption" color="text.secondary">
                   {t('Bạn có thể yêu cầu rút đồng ý bất cứ lúc nào bằng cách liên hệ bộ phận Nhân sự. Hồ sơ không được dùng cho mục đích khác.')}
                 </Typography>
