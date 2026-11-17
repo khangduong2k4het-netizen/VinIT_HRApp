@@ -3,7 +3,6 @@ import hashlib
 import json
 import os
 import re
-import tempfile
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
@@ -16,8 +15,8 @@ from starlette.concurrency import run_in_threadpool
 from app.core.config import settings
 from app.core.exceptions import FileValidationError
 from app.db.database import SessionLocal
-from app.db.supabase import get_supabase_client
 from app.services.document_processor import document_processor
+from app.services.careers_storage import destination, store as _store
 from app.services.malware_scan import ScanVerdict, scan_bytes
 from app.services.talent_pool import create_consent
 
@@ -29,30 +28,6 @@ def _fingerprint(request_id, position_id, name, email, phone, filename, data, po
     payload = json.dumps([str(request_id), str(position_id), name, email, phone, filename,
                           hashlib.sha256(data).hexdigest(), pool_token], ensure_ascii=False, separators=(',', ':'))
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
-
-
-def _store(path: str, content: bytes, mime: str):
-    if settings.STORAGE_BACKEND == 'supabase':
-        client = get_supabase_client()
-        if not client:
-            raise RuntimeError('storage unavailable')
-        # This object key is unique to a receipt; retries upload exactly the
-        # same fingerprinted bytes. It is never made public by this code.
-        client.storage.from_(settings.SUPABASE_STORAGE_BUCKET_CV).upload(
-            path=path, file=content, file_options={'content-type': mime, 'upsert': 'true'})
-    elif settings.STORAGE_BACKEND == 'local':
-        directory = os.path.join(settings.LOCAL_STORAGE_PATH, settings.SUPABASE_STORAGE_BUCKET_CV, os.path.dirname(path))
-        os.makedirs(directory, exist_ok=True)
-        fd, temp = tempfile.mkstemp(prefix='.intake-', dir=directory)
-        try:
-            with os.fdopen(fd, 'wb') as stream:
-                stream.write(content)
-            os.replace(temp, os.path.join(directory, os.path.basename(path)))
-        finally:
-            if os.path.exists(temp):
-                os.unlink(temp)
-    else:
-        raise RuntimeError('storage unavailable')
 
 
 @router.post('/jobs/{position_id}/apply', status_code=202)
@@ -92,27 +67,35 @@ async def apply(position_id: UUID, request_id: UUID = Form(...), name: str = For
     ext = '.pdf' if mime == 'application/pdf' else '.docx'
     path = f'careers/{position_id}/{uuid4()}{ext}'
     pos, req = str(position_id), str(request_id)
+    try:
+        backend, bucket, identity = destination()
+    except ValueError:
+        raise HTTPException(503, 'Storage chưa sẵn sàng') from None
     return await run_in_threadpool(_commit_intake, pos, req, digest, path, name, email, phone,
-                                   filename, data, mime, cv.content_type, pool_opt_in, pool_token)
+                                   filename, data, mime, cv.content_type, pool_opt_in, pool_token, backend, bucket, identity)
 
 
-def _commit_intake(pos, req, digest, path, name, email, phone, filename, data, mime, declared_type, pool_opt_in, pool_token):
+def _commit_intake(pos, req, digest, path, name, email, phone, filename, data, mime, declared_type, pool_opt_in, pool_token, backend, bucket, identity):
     # Persist the intended path before external I/O. Stale STAGING receipts are
     # a durable reconciliation queue, not proof that an object exists.
     db = SessionLocal()
     try:
         if not db.execute(text('SELECT 1 FROM app_private.positions WHERE position_id=:id'), {'id': pos}).first():
             raise HTTPException(404, 'Vị trí không còn nhận hồ sơ')
-        db.execute(text("""INSERT INTO app_private.careers_intake_receipts(request_id,position_id,fingerprint,storage_path,state)
-            VALUES (:req,:pos,:digest,:path,'STAGING') ON CONFLICT (request_id) DO NOTHING"""),
-            {'req': req, 'pos': pos, 'digest': digest, 'path': path})
+        db.execute(text("""INSERT INTO app_private.careers_intake_receipts(request_id,position_id,fingerprint,storage_path,state,storage_backend,storage_bucket,storage_identity)
+            VALUES (:req,:pos,:digest,:path,'STAGING',:backend,:bucket,:identity) ON CONFLICT (request_id) DO NOTHING"""),
+            {'req': req, 'pos': pos, 'digest': digest, 'path': path, 'backend': backend, 'bucket': bucket, 'identity': identity})
         db.commit()
-        receipt = db.execute(text("""SELECT position_id,fingerprint,storage_path,state FROM app_private.careers_intake_receipts
+        receipt = db.execute(text("""SELECT position_id,fingerprint,storage_path,state,storage_backend,storage_bucket,storage_identity FROM app_private.careers_intake_receipts
             WHERE request_id=:req FOR UPDATE"""), {'req': req}).mappings().one()
         if str(receipt['position_id']) != pos or receipt['fingerprint'] != digest:
             raise HTTPException(409, 'Mã yêu cầu đã được sử dụng cho nội dung khác')
         if receipt['state'] == 'COMMITTED':
             return {'message': 'Hồ sơ thử nghiệm đã được tiếp nhận.'}
+        if receipt['state'] == 'ABANDONED':
+            raise HTTPException(410, 'Yêu cầu thử nghiệm đã hết hạn, vui lòng tạo yêu cầu mới')
+        if (receipt['storage_backend'], receipt['storage_bucket'], receipt['storage_identity']) != (backend, bucket, identity):
+            raise HTTPException(503, 'Cấu hình Storage đã thay đổi; cần đối soát')
         locked = db.execute(text('SELECT 1 FROM app_private.positions WHERE position_id=:id FOR UPDATE'), {'id': pos}).first()
         current = db.execute(text("SELECT status, application_deadline_at > clock_timestamp() AS eligible FROM app_private.positions WHERE position_id=:id"), {'id': pos}).mappings().first() if locked else None
         if not current or current['status'] != 'OPEN' or not current['eligible']:
@@ -125,7 +108,7 @@ def _commit_intake(pos, req, digest, path, name, email, phone, filename, data, m
             ('CV_PROCESSING','ASSESSMENT','RANKING') AND status IN ('PENDING','PROCESSING')"""), {'pos': pos}).first():
             raise HTTPException(409, 'Vị trí đang xử lý, vui lòng thử lại sau')
         try:
-            _store(receipt['storage_path'], data, mime)
+            _store(backend, bucket, identity, receipt['storage_path'], data, mime)
         except Exception:
             # Do not delete on uncertain upload/commit outcome; the committed
             # receipt permits explicit reconciliation or identical retry.
@@ -140,7 +123,7 @@ def _commit_intake(pos, req, digest, path, name, email, phone, filename, data, m
                    {'app': application, 'name': name, 'email': email, 'phone': phone or None})
         document = db.execute(text("""INSERT INTO app_private.application_documents(application_id,document_type,bucket,storage_path,original_filename,mime_type,size_bytes,file_processing_status)
             VALUES (:app,'CV',:bucket,:path,:name,:mime,:size,'RECEIVED') RETURNING document_id"""),
-            {'app': application, 'bucket': settings.SUPABASE_STORAGE_BUCKET_CV, 'path': receipt['storage_path'], 'name': filename, 'mime': mime, 'size': len(data)}).scalar_one()
+            {'app': application, 'bucket': receipt['storage_bucket'], 'path': receipt['storage_path'], 'name': filename, 'mime': mime, 'size': len(data)}).scalar_one()
         db.execute(text("INSERT INTO app_private.document_processing_runs(document_id,operation_id,extraction_type,status) VALUES (:doc,:op,'INITIAL_EXTRACTION','PENDING')"), {'doc': document, 'op': operation})
         db.execute(text("""INSERT INTO app_private.cv_batch_items(batch_id,original_filename,declared_mime_type,detected_mime_type,size_bytes,validation_result,application_id)
             VALUES (:batch,:name,:declared,:mime,:size,'ACCEPTED',:app)"""), {'batch': batch, 'name': filename, 'declared': declared_type, 'mime': mime, 'size': len(data), 'app': application})
