@@ -154,3 +154,6 @@ Riêng semantic/LTR: chưa có BGE endpoint thật, chưa đo chất lượng em
 - Đặt `PUBLIC_INTAKE_IP_SALT` là chuỗi ngẫu nhiên; địa chỉ chỉ được lưu dưới dạng băm có muối.
 - Câu chữ ô tick đồng ý nằm trong `frontend/src/app/apply/page.tsx`; khi đổi câu chữ phải tăng `PUBLIC_INTAKE_NOTICE_VERSION` để bản ghi đồng ý biết ứng viên đã thấy phiên bản nào. Câu chữ cần HR Lead/Pháp chế duyệt trước khi bật.
 - Chưa có CAPTCHA; hiện chỉ có giới hạn tần suất và ô ẩn chống bot.
+- Giới hạn dung lượng: backend từ chối thân yêu cầu lớn hơn `MAX_FILE_SIZE_BYTES` cộng 100 KB trên mọi đường dẫn `/v1/public/` trước khi đọc nội dung. Nên đặt thêm giới hạn ở proxy phía trước (ví dụ nginx `client_max_body_size 11m;` cho `/v1/public/`) để chặn sớm hơn nữa.
+- Proxy `/v1` của Next.js **không** tự nối địa chỉ client vào `X-Forwarded-For`. Chỉ đặt `PUBLIC_INTAKE_TRUSTED_PROXY_HOPS=1` khi có proxy thật (như nginx) đứng trước Next và nối địa chỉ client; nếu Next lộ ra Internet trực tiếp thì để 0, vì giá trị header khi đó do client tự đặt.
+- Lưu ý: một địa chỉ IP dùng chung (mạng trường, NAT) chia sẻ chung giới hạn `PUBLIC_INTAKE_MAX_PER_IP_HOUR`; tăng giá trị này nếu nhiều ứng viên nộp từ cùng một mạng.

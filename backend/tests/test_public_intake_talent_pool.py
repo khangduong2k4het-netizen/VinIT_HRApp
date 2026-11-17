@@ -157,6 +157,61 @@ def test_apply_creates_application_with_consents_and_audit(client, portal, tmp_p
 
 
 @integration
+def test_portal_application_reaches_the_worker_and_the_hr_list(client, portal):
+    seed = portal
+    assert _apply(client, seed).status_code == 202
+    from app.workers.processor import ProcessingWorker
+    ProcessingWorker()._process_pending_operations()
+    with engine.connect() as conn:
+        operation = conn.execute(text("SELECT status FROM app_private.operations WHERE capability = 'CV_PROCESSING'")).scalar_one()
+    assert operation == "COMPLETED"  # a portal batch has no uploader but is processed like an HR upload
+    listed = client.get("/v1/applications", headers=headers(seed["hr"]), params={"position_id": seed["pos"]}).json()
+    assert [a["source_code"] for a in listed if a["source_code"] == "PORTAL"] == ["PORTAL"]
+    detail = client.get(f"/v1/applications/{listed[0]['application_id']}", headers=headers(seed["hr"]))
+    assert detail.status_code == 200
+
+
+def test_body_limit_counts_chunked_bodies_too():
+    import asyncio
+    from app.core.body_limit import PublicBodyLimit
+    sent = []
+
+    async def app(scope, receive, send):
+        while (await receive()).get("more_body"):
+            pass
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    async def run(chunks):
+        queue = [{"type": "http.request", "body": c, "more_body": i < len(chunks) - 1} for i, c in enumerate(chunks)]
+
+        async def receive():
+            return queue.pop(0)
+
+        async def send(message):
+            sent.append(message)
+        await PublicBodyLimit(app, "/v1/public/", 100)(
+            {"type": "http", "path": "/v1/public/x", "method": "POST", "headers": []}, receive, send)
+    asyncio.run(run([b"a" * 60, b"b" * 60]))      # no Content-Length, 120 bytes > 100
+    assert sent[0]["status"] == 413
+    sent.clear()
+    asyncio.run(run([b"a" * 60]))
+    assert sent[0]["status"] == 200
+
+
+@integration
+def test_oversized_public_body_is_refused_before_parsing(client, portal, monkeypatch):
+    seed = portal
+    monkeypatch.setattr(settings, "MAX_FILE_SIZE_BYTES", 1000)
+    big = PDF + b"x" * 200_000
+    res = _apply(client, seed, content=big)
+    assert res.status_code == 413
+    assert _count("SELECT COUNT(*) FROM app_private.applications WHERE source_code = 'PORTAL'") == 0
+    # Authenticated endpoints keep their own limits and are not capped by this wrapper.
+    assert client.get("/v1/public/positions").status_code == 200
+
+
+@integration
 def test_apply_guards(client, portal, monkeypatch):
     seed = portal
     monkeypatch.setattr(settings, "PUBLIC_INTAKE_MAX_PER_IP_HOUR", 100)

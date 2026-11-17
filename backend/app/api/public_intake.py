@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import aiofiles
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import text
 
 from app.core.config import settings
@@ -112,7 +113,8 @@ async def apply(position_code: str, request: Request, file: UploadFile = File(..
         except FileValidationError:
             raise HTTPException(status_code=400, detail=REFUSED) from None
         try:
-            scan_upload(content)
+            # clamd is a blocking socket call; keep it off the event loop.
+            await run_in_threadpool(scan_upload, content)
         except ScanRejected:
             logger.warning("Public upload rejected by malware scan")
             raise HTTPException(status_code=400, detail=REFUSED) from None
