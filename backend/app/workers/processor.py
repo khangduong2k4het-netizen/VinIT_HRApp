@@ -661,9 +661,9 @@ class ProcessingWorker:
                     # Update application identity
                     db.execute(text("""
                         UPDATE app_private.application_identities
-                        SET display_name = CASE WHEN EXISTS (SELECT 1 FROM app_private.applications a WHERE a.application_id = :application_id AND a.source_code IN ('CAREERS_DEMO','EMAIL_DEMO')) THEN COALESCE(display_name, :display_name) ELSE :display_name END,
-                            email = CASE WHEN EXISTS (SELECT 1 FROM app_private.applications a WHERE a.application_id = :application_id AND a.source_code IN ('CAREERS_DEMO','EMAIL_DEMO')) THEN COALESCE(email, :email) ELSE :email END,
-                            phone = CASE WHEN EXISTS (SELECT 1 FROM app_private.applications a WHERE a.application_id = :application_id AND a.source_code IN ('CAREERS_DEMO','EMAIL_DEMO')) THEN COALESCE(phone, :phone) ELSE :phone END, updated_at = NOW()
+                        SET display_name = CASE WHEN EXISTS (SELECT 1 FROM app_private.applications a WHERE a.application_id = :application_id AND a.source_code IN ('CAREERS','CAREERS_DEMO','EMAIL_DEMO')) THEN COALESCE(display_name, :display_name) ELSE :display_name END,
+                            email = CASE WHEN EXISTS (SELECT 1 FROM app_private.applications a WHERE a.application_id = :application_id AND a.source_code IN ('CAREERS','CAREERS_DEMO','EMAIL_DEMO')) THEN COALESCE(email, :email) ELSE :email END,
+                            phone = CASE WHEN EXISTS (SELECT 1 FROM app_private.applications a WHERE a.application_id = :application_id AND a.source_code IN ('CAREERS','CAREERS_DEMO','EMAIL_DEMO')) THEN COALESCE(phone, :phone) ELSE :phone END, updated_at = NOW()
                         WHERE application_id = :application_id
                     """), {
                         "application_id": application_id,

@@ -38,6 +38,9 @@ class Settings(BaseSettings):
 
     # Public listing is deliberately off by default; HR must review every OPEN JD.
     PUBLIC_CAREERS_ENABLED: bool = False
+    # Synthetic-only end-to-end test: NEVER accept real data yet.
+    PUBLIC_CAREERS_TEST_INTAKE_ENABLED: bool = False
+    CLAMAV_UNIX_SOCKET: str = ""
 
     # Keep withdrawal available whenever existing consents depend on it.
     TALENT_POOL_STORAGE_READY: bool = False

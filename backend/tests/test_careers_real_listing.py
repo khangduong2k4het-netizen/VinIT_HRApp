@@ -25,7 +25,7 @@ def test_disabled_by_default_and_open_jobs_only(client, seed, monkeypatch):
     assert res.status_code == 200 and res.headers['cache-control'] == 'no-store'
     job = res.json()['items'][0]
     assert len(res.json()['items']) == 1 and job['position_id'] == seed['pos'] and job['description'] == 'Newest JD'
-    assert set(job) == {'position_id', 'position_code', 'title', 'org_unit', 'work_location', 'work_mode', 'employment_type', 'application_deadline_at', 'description'}
+    assert set(job) == {'position_id', 'position_code', 'title', 'org_unit', 'work_location', 'work_mode', 'employment_type', 'application_deadline_at', 'description', 'can_apply_test'}
     with engine.begin() as conn:
         conn.execute(text("UPDATE app_private.positions SET application_deadline_at=now()-interval '1 second' WHERE position_id=:id"), {'id': seed['pos']})
     assert client.get('/v1/careers/jobs').json()['items'] == []
