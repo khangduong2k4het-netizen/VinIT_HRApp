@@ -22,6 +22,7 @@ const menuGroups = [
       { text: 'Tổng quan công việc', icon: <BarChartIcon />, href: '/dashboard' },
       { text: 'Vị trí tuyển dụng', icon: <WorkIcon />, href: '/positions' },
       { text: 'Email offline (demo)', icon: <PeopleIcon />, href: '/email-demo', hrOnly: true },
+      { text: 'Talent Pool', icon: <PeopleIcon />, href: '/talent-pool', hrOnly: true },
       { text: 'Talent Pool (demo)', icon: <PeopleIcon />, href: '/talent-pool-demo', hrOnly: true },
       { text: 'Thư viện rubric', icon: <LibraryBooksIcon />, href: '/rubrics', hrOnly: true },
       { text: 'Shortlist & phản hồi', icon: <PeopleIcon />, href: '/shortlist' },
@@ -57,7 +58,7 @@ export default function Sidebar({ mobileOpen, onClose, isAdmin, canAccessRubrics
               {t(group.label)}
             </Typography>
             {group.items.filter(item => !('hrOnly' in item) || !item.hrOnly || canAccessRubrics).map(item => {
-              const selected = item.href === '/admin' ? pathname === '/admin' : pathname.startsWith(item.href);
+              const selected = item.href === '/admin' ? pathname === '/admin' : (pathname === item.href || pathname.startsWith(`${item.href}/`));
               return (
                 <ListItem key={item.href} disablePadding sx={{ mb: 0.5 }}>
                   <ListItemButton component={Link} href={item.href} onClick={onClose} selected={selected}

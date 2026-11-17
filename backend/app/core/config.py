@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     # Public listing is deliberately off by default; HR must review every OPEN JD.
     PUBLIC_CAREERS_ENABLED: bool = False
 
+    # Keep withdrawal available whenever existing consents depend on it.
+    TALENT_POOL_STORAGE_READY: bool = False
+    TALENT_POOL_REDISCOVERY_ENABLED: bool = False
+
     # Synthetic-only demo; refused outside testing/development even if enabled.
     CAREERS_DEMO_ENABLED: bool = False
 
