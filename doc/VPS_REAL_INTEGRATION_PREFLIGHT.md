@@ -1,0 +1,47 @@
+# Preflight — đấu nối thật trên VPS để thử nghiệm
+
+## Yêu cầu mới và trạng thái
+
+Người dùng yêu cầu đấu nối thật vào hệ thống hiện tại trên VPS để test ba hạng mục: cổng việc làm/ứng tuyển, Talent Pool/rediscovery và email Gmail. Đây là yêu cầu chuyển từ preview synthetic sang **tích hợp hạ tầng thật**; chưa xác định được phép dùng CV thật, chưa xác minh VPS/project đang chạy, chưa deploy hoặc thay đổi remote. Tài liệu cũ về địa chỉ/commit là snapshot, không phải kết quả kiểm tra hiện tại. Phiên agent hiện không có đường SSH trực tiếp tới VPS; operator có thể thực hiện lệnh được hướng dẫn, không gửi mật khẩu/token/key/URL DB chứa mật khẩu vào chat.
+
+## Điều quan trọng: bản demo chưa phải bản deploy
+
+- `careers-demo`, `talent-pool-demo`, `email-demo` và server `careers_demo_server.py` chỉ chạy với DB local `_test`, local Storage, giả lập HR/AI; **không deploy wrapper giả lập hay bỏ các guard lên VPS hiện tại**. Migration `00024`–`00026` là cấu trúc demo, chưa áp remote; không giả định có thể dùng nguyên chúng như schema chính thức.
+- Cổng thực chưa có các kiểm soát cần cho public intake: hạn, nội dung JD phù hợp công khai, upload quarantine/AV, anti-abuse, retry/giới hạn, nhận hồ sơ không mạo danh HR, Storage/DB reconciliation, privacy notice. Hiện intake cũ yêu cầu rubric duyệt, lock, worker và user HR; cần xây và thử luồng thật chứ không bật flag demo.
+- Talent Pool mới chỉ là prototype; chưa có policy consent/retention được duyệt, danh tính và quy trình rút/lưu bằng chứng phù hợp, quyền/tìm kiếm xuyên vị trí và matching thật. Chỉ test synthetic cho đến khi các phê duyệt và kiểm soát cần thiết hoàn tất.
+- Email `.eml` hiện là tải tay offline; **chưa kết nối Gmail, OAuth, polling/ack, dedupe bền vững, quarantine/AV hoặc hàng review**. Gmail thật phải là mailbox thử nghiệm riêng được chủ sở hữu ủy quyền, dùng dữ liệu giả khi chưa được duyệt dữ liệu thật. Không yêu cầu người dùng gửi password, app password, access/refresh token hoặc client secret vào chat/Git.
+- Migration `00023` từng được xác nhận áp trên Supabase test `myrymlqdbyqmpynesiwk`; không suy hiện VPS trỏ project đó, code đã deploy tương ứng hoặc project không có dữ liệu thật. Cần xác nhận thực tế trước khi áp bất kỳ migration nào. Không lặp thao tác purge dữ liệu.
+
+## Tiền kiểm chỉ đọc trên VPS
+
+Chạy trên VPS bởi operator có quyền; các lệnh dưới không đọc/in nội dung `.env`, không dump DB và không thay đổi service. Nếu thư mục cài đặt khác `/home/ubuntu/hra`, dùng thư mục thực tế. Chỉ gửi **output không chứa secrets**, che hostname/IP nội bộ nếu cần.
+
+```bash
+cd /home/ubuntu/hra
+printf 'commit: '; git rev-parse --short HEAD
+printf 'branch: '; git branch --show-current
+printf '\ntracked status:\n'; git status --short --untracked-files=no
+printf '\nprocesses:\n'; pm2 list
+printf '\nbackend health:\n'; curl --max-time 5 -fsS http://127.0.0.1:8005/health || echo 'health unavailable'
+printf '\nbackend readiness:\n'; curl --max-time 5 -fsS http://127.0.0.1:8005/health/ready || echo 'readiness unavailable'
+printf '\nfrontend HTTP status: '; curl --max-time 5 -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3005/ || true
+```
+
+Không chạy `cat .env`, `pm2 env`, `pm2 jlist`, `printenv`, `set -x`, log thô hoặc `git remote -v` trong output gửi lên vì có thể lộ cấu hình/credentials. Nếu cổng khác, báo các cổng nội bộ không chứa secret. Không yêu cầu đăng nhập lại hoặc chia sẻ quyền SSH trong chat.
+
+## Cần chốt trước khi thao tác thay đổi
+
+1. Xác định VPS/process, domain HTTPS, project Supabase đích và tính chất test/production; xem data/active jobs và version migration qua phương thức được ủy quyền, chỉ báo aggregate, không lộ CV. Nếu stack dùng chung production, cần môi trường cách ly/cửa sổ bảo trì và phương án ngăn ảnh hưởng người dùng.
+2. Chốt dữ liệu thử nghiệm: **khuyến nghị email và CV synthetic** qua Gmail/Storage/DB thật trước. Chỉ dùng dữ liệu thật khi HR/Privacy/Legal phê duyệt mục đích, notice, thời hạn, phân quyền, xử lý quyền ứng viên và egress LLM/AI. Dữ liệu test vẫn cần cơ chế thu gom/xóa theo quy trình, không tự purge.
+3. Gmail test: chủ mailbox chuẩn bị Google Cloud project/OAuth consent screen, tài khoản test và quyền cần thiết; scope tối thiểu, token lưu an toàn phía server, tách môi trường. Không yêu cầu credential trong chat. Chưa có kết nối OAuth; việc biết địa chỉ Gmail không cho phép đọc mailbox.
+4. DevOps/DBA xác nhận backup **DB và Storage**, khả năng restore, kế hoạch rollback/forward-fix khi migration không đảo được, topology worker/queue, TLS, firewall và log/monitoring. Không chạy migration, restart, deploy hoặc gửi email trước preflight và phê duyệt thao tác phù hợp.
+5. Cổng ứng viên: trước Internet phải có bảo vệ abuse, giới hạn request/body ở edge, kiểm tra định dạng và quét malware fail-closed, quarantine/cleanup/reconciliation, notice và thiết lập hạn/điều kiện mở. Thử nghiệm riêng bằng synthetic, không coi CI/local E2E là nghiệm thu thực tế.
+6. Rediscovery: cần lưu và kiểm tra consent độc lập/expiry/withdrawal/retention/quyền; không dùng hồ sơ cũ nếu chưa chứng minh có quyền tái sử dụng. Phân quyền HR và ngăn rò rỉ CV xuyên vị trí; kiểm tra race rút/xóa và audit.
+7. Gmail: dùng OAuth, key bảo mật, polling idempotent theo mailbox/message/attachment, ack sau commit, quarantine và review có trạng thái cho sai mã/nhiều tệp; không suy consent pool từ email. Kiểm tra duplicate/retry và từ chối mã độc bằng dữ liệu giả.
+
+## Thứ tự thực thi dự kiến
+
+1. Người dùng xác nhận môi trường, mailbox thử nghiệm và phạm vi dữ liệu; operator gửi kết quả preflight chỉ đọc.
+2. Thiết kế/triển khai các luồng thực với feature flags mặc định tắt, migration riêng, permission/retention rõ ràng; local integration/synthetic E2E và review; xây runbook rollback.
+3. Xác nhận backup và cửa sổ; sau sự đồng ý deploy cho môi trường cụ thể: apply migration được review, deploy phiên bản đã chọn, smoke, đối soát và giữ chức năng tắt cho đến khi gate đạt.
+4. Kết nối Gmail test với OAuth do operator thực hiện trên kênh/công cụ an toàn; thử dữ liệu tổng hợp qua từng kênh, ghi kết quả và cleanup theo quy trình được phê duyệt. Không báo đã chạy khi chưa có bằng chứng.

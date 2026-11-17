@@ -232,3 +232,9 @@ Sau khi plan được duyệt và mỗi batch triển khai hoàn thành, bổ su
 - Browser E2E Chromium trên local pass: ứng tuyển CV giả/opt-in, worker, quét pool HR, rút và quét lại, upload email EML giả và thấy application. Lượt test đầu phát hiện worker cố chạy assessment không có LLM; wrapper đã tắt assessment/ranking rõ ràng, chạy lại E2E pass, hai operation demo đều COMPLETED. Không chứng minh AI matching hoặc Gmail.
 - Runbook/kịch bản: `doc/HUONG_DAN_DEMO_TUYEN_DUNG.md`. Frontend preview `DEMO_PREVIEW=1` chuyển `/` sang `/demo`; runtime sandbox tạm thời, dữ liệu có thể mất. Các gate bảo mật, consent thật, anti-spam/AV và Gmail vẫn mở.
 - Bổ sung kiểm tra sau chuẩn bị: frontend type-check/lint/i18n/unit pass; backend `test_careers_demo.py` + `test_priority_demo.py` 8 pass; Ruff F và `git diff --check` pass. CI commit trước `5f5c10f`: run `44006315383` pass.
+
+## 14. Yêu cầu mới: đấu nối thật vào VPS để test
+
+- Người dùng muốn đưa ba hạng mục vào hệ thống VPS hiện tại và test kết nối thực. Môi trường/project đích và phạm vi dữ liệu chưa được xác minh; không mặc định cho phép dùng dữ liệu ứng viên thật hoặc coi gate production đã đóng.
+- Đã lập `doc/VPS_REAL_INTEGRATION_PREFLIGHT.md`: phân biệt demo guarded/giả lập với tính năng thực chưa xây đủ; preflight chỉ đọc, quyết định môi trường & dữ liệu, Gmail test OAuth, backup/restore, malware/anti-abuse, consent/retention và thứ tự triển khai. Không deploy, áp migration, khởi động lại, purge, đọc Gmail hoặc thay đổi Supabase trong lượt này. Phiên agent không có đường SSH trực tiếp tới VPS; operator cần chạy bước trên VPS khi đã xác nhận.
+- CI commit `cab29b7`: run `44008706147` pass. CI không thay thế smoke VPS, E2E tích hợp thực hay phê duyệt dữ liệu.
