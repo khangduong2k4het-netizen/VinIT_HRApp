@@ -249,3 +249,8 @@ Sau khi plan được duyệt và mỗi batch triển khai hoàn thành, bổ su
 
 - Checkout `~/hra` tại `94e38d9`, tracked sạch; `hra-backend`/`hra-frontend` và hai process khác đều online. Backend `:8005` health healthy, readiness ready/database connected, `APP_ENV=production` theo health. Checkout không chứng minh commit code đang chạy; chưa chứng minh DB nào đang kết nối hoặc frontend build/version.
 - Chưa deploy, restart, migration, OAuth hay xóa dữ liệu. Đối chiếu `doc/VPS_REAL_INTEGRATION_PREFLIGHT.md` cho các điểm còn thiếu và bảo vệ hai process còn lại; tiếp tục dùng dữ liệu tổng hợp, không tắt guard demo.
+
+## 17. VPS preflight vòng 2 và nền quét mã độc
+
+- Operator xác nhận stack chỉ để test; chưa có backup DB, dữ liệu test không ưu tiên bảo toàn. Frontend `:3005` HTTP 200 và listen `0.0.0.0`; backend `:8005` listen `127.0.0.1`. Chưa xác minh firewall/TLS hay mapping PM2; không suy frontend chắc chắn public. Chưa có quyết định xóa/reset, backup Storage hoặc phương án rollback cho thay đổi cụ thể.
+- Chuẩn bị adapter `app/services/malware_scan.py` ClamAV INSTREAM Unix socket với fail-closed timeout/size/protocol/scanner failures, test fake local socket. **Chưa tích hợp intake, chưa cài/kiểm thử ClamAV thật trên VPS, chưa triển khai**; chi tiết và gates trong preflight.

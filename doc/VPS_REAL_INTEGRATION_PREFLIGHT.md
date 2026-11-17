@@ -75,3 +75,14 @@ Tham khảo: [Gmail messages.list](https://developers.google.com/workspace/gmail
 - PM2 có `hra-backend`, `hra-frontend`, `fastapi-backend`, `nextjs-dashboard` đều online; tên process sau cùng theo tài liệu cũ có thể thuộc NarrativeHealth nhưng chưa xác minh hiện trạng, không đụng tới. Chưa map cổng/PID/cwd runtime.
 - `127.0.0.1:8005/health` healthy, `/health/ready` ready/database connected và cả hai báo `environment=production`. Readiness không chứng minh DB là project test đã chọn. Chưa có HTTP frontend, TLS, backup/restore hay worker drain evidence trong vòng này.
 - Không deploy/restart/purge/apply migration hoặc thay đổi cấu hình từ các kết quả này. Giữ nguyên demo guards; không thay `APP_ENV` hoặc cho rằng đây là production-ready. Cần xác nhận người dùng/ảnh hưởng stack, backup và đối chiếu cấu hình DB đích an toàn, cũng như runtime/cổng trước bất kỳ thay đổi nào.
+
+## Kết quả operator báo từ VPS — preflight vòng 2
+
+- Frontend `127.0.0.1:3005/` HTTP 200; `ss` báo Next.js PID 898038 lắng nghe `0.0.0.0:3005`, Python PID 902622 lắng nghe `127.0.0.1:8005` (PID là snapshot, có thể đổi). Lắng nghe `0.0.0.0` có nghĩa mọi interface local, **không đủ** để kết luận firewall/NAT cho phép truy cập Internet. Chưa xác minh TLS, firewall hoặc port-to-PM2 mapping. Không thay network hoặc restart các process.
+- Operator xác nhận stack hiện là thử nghiệm, chưa có backup DB và không coi bảo toàn dữ liệu test là ưu tiên. Cần vẫn thỏa thuận rõ phạm vi ảnh hưởng/rollback, bảo vệ tài khoản, cấu hình và dữ liệu hiện hữu; không suy ra được phép xóa hoặc reset. Storage backup chưa xác nhận. Với thay đổi schema có rủi ro hoặc không đảo được, cần backup/restore được xác minh hoặc quyết định chấp nhận rủi ro và cách rollback/forward-fix cụ thể trước khi thao tác. Chưa chốt thao tác migration/deploy cụ thể.
+
+## Chuẩn bị adapter quét mã độc (chưa tích hợp)
+
+`backend/app/services/malware_scan.py` là adapter ClamAV INSTREAM qua Unix socket; chỉ trả CLEAN/INFECTED/UNAVAILABLE và không log CV hay signature. Chỉ CLEAN được phép đi tiếp; lỗi socket, timeout, kích cỡ, scanner error hay trả lời không đúng đều UNAVAILABLE (fail-closed). Test fake socket nội bộ, không có ClamAV thực và **chưa kết nối endpoint intake**. Không có API nào được bảo vệ nhờ adapter này cho tới khi tích hợp đúng thứ tự trước mọi bước parse/extract/promote và test end-to-end.
+
+Trước khi dùng: cấu hình clamd socket chỉ ứng dụng được phép truy cập, signature updates/giám sát freshness, giới hạn INSTREAM và archive/unpack/recursion phù hợp, bật cảnh báo giới hạn/encrypted files, giới hạn request tại edge, kiểm tra thực tế với fixture thử nghiệm an toàn (ví dụ EICAR) và lỗi/quá hạn; đánh giá chính sách file không thể quét và quarantine. CLEAN không chứng minh tệp an toàn tuyệt đối; kiểm soát loại file, spam, quarantine, xử lý lỗi và abuse vẫn bắt buộc. Không tự cài hoặc thay đổi ClamAV trên VPS.
