@@ -27,6 +27,7 @@ const menuGroups = [
       { text: 'Shortlist & phản hồi', icon: <PeopleIcon />, href: '/shortlist' },
       { text: 'Thư viện rubric', icon: <LibraryBooksIcon />, href: '/rubric-library', hrOnly: true },
       { text: 'Báo cáo vận hành', icon: <InsightsIcon />, href: '/reports', hrOnly: true },
+      { text: 'Chất lượng AI', icon: <InsightsIcon />, href: '/reports/ai-quality', hrOnly: true },
       { text: 'Kiểm định chất lượng', icon: <HistoryIcon />, href: '/quality', leadOnly: true },
       { text: 'Lưu trữ & xóa dữ liệu', icon: <DeleteSweepIcon />, href: '/retention', hrOnly: true },
     ],
@@ -62,7 +63,7 @@ export default function Sidebar({ mobileOpen, onClose, isAdmin, isHr = false, is
               {t(group.label)}
             </Typography>
             {group.items.filter(item => (!('hrOnly' in item) || isHr) && (!('leadOnly' in item) || isLead)).map(item => {
-              const selected = item.href === '/admin' ? pathname === '/admin' : pathname.startsWith(item.href);
+              const selected = ['/admin', '/reports'].includes(item.href) ? pathname === item.href : pathname.startsWith(item.href);
               return (
                 <ListItem key={item.href} disablePadding sx={{ mb: 0.5 }}>
                   <ListItemButton component={Link} href={item.href} onClick={onClose} selected={selected}
