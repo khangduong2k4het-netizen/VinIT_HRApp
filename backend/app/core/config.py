@@ -37,6 +37,20 @@ class Settings(BaseSettings):
     SUPABASE_STORAGE_BUCKET_CV: str = "cv-originals"
     SUPABASE_STORAGE_BUCKET_EXTRACTED: str = "cv-extracted-text"
 
+    # P3-3 public application portal. Off by default; when on, malware scanning
+    # must be configured or submissions are refused (fail-closed).
+    PUBLIC_INTAKE_ENABLED: bool = False
+    PUBLIC_INTAKE_IP_SALT: str = ""
+    PUBLIC_INTAKE_MAX_PER_IP_HOUR: int = 5
+    # Version of the consent wording shown next to the tick boxes.
+    PUBLIC_INTAKE_NOTICE_VERSION: str = "v1"
+    MALWARE_SCAN_MODE: Literal["off", "clamav"] = "off"
+    CLAMD_HOST: str = "127.0.0.1"
+    CLAMD_PORT: int = 3310
+    CLAMD_TIMEOUT_SECONDS: float = 10.0
+    # P3-1 Talent Pool: how long a received CV may be reused, counted from receipt.
+    TALENT_POOL_RETENTION_MONTHS: int = 60
+
     # File upload limits
     MAX_FILE_SIZE_BYTES: int = 10_000_000  # 10 MB
     MAX_FILES_PER_BATCH: int = 50

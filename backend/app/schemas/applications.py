@@ -46,7 +46,7 @@ class CVBatchCreate(BaseSchema):
 class CVBatch(BaseSchema, TimestampMixin):
     batch_id: UUID
     position_id: UUID
-    uploaded_by: UUID
+    uploaded_by: Optional[UUID] = None
     status: str  # pending, processing, completed, partially_completed, failed
     total_files: int
     total_size_bytes: int
