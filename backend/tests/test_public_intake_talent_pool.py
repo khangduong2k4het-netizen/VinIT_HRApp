@@ -193,6 +193,18 @@ def test_duplicate_content_and_rate_limit(client, portal, monkeypatch):
     assert "testclient" not in str(_count("SELECT string_agg(ip_hash, ',') FROM app_private.public_intake_events"))
 
 
+def test_client_address_trusts_only_configured_proxy_hops(monkeypatch):
+    from types import SimpleNamespace
+    from app.api.public_intake import client_address
+    request = SimpleNamespace(headers={"x-forwarded-for": "6.6.6.6, 203.0.113.9"}, client=SimpleNamespace(host="10.0.0.2"))
+    monkeypatch.setattr(settings, "PUBLIC_INTAKE_TRUSTED_PROXY_HOPS", 0)
+    assert client_address(request) == "10.0.0.2"          # header ignored unless a proxy is trusted
+    monkeypatch.setattr(settings, "PUBLIC_INTAKE_TRUSTED_PROXY_HOPS", 1)
+    assert client_address(request) == "203.0.113.9"       # a forged left-hand entry has no effect
+    monkeypatch.setattr(settings, "PUBLIC_INTAKE_TRUSTED_PROXY_HOPS", 3)
+    assert client_address(request) == "10.0.0.2"          # chain shorter than the hops: fall back
+
+
 @integration
 def test_hr_publishes_position_and_hiring_manager_cannot(client, seed):
     route = f"/v1/positions/{seed['pos']}/public-apply"

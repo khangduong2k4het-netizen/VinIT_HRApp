@@ -145,3 +145,12 @@ npm run dev
 Hoàn thành kiểm thử staging/e2e Auth/Storage/LLM/OCR với dữ liệu được phép; đánh giá chất lượng và bias, egress/DLP, retention/xóa, audit bất biến, bảo vệ session/XSS (`localStorage` đang chứa access token), DR/monitoring và phê duyệt pháp lý/bảo mật. Python dependencies chưa lock; cần quản lý chuỗi cung ứng và quét image định kỳ. Ngày 05/11/2026, `npm audit --omit=dev` báo 0 lỗ hổng; audit đầy đủ báo 6 moderate trong chuỗi dev-only `@typescript-eslint`/`minimatch`, cần theo dõi bản vá tương thích. Kết quả audit dependencies chỉ phản ánh thời điểm quét, không chứng minh image triển khai an toàn.
 
 Riêng semantic/LTR: chưa có BGE endpoint thật, chưa đo chất lượng embedding trên golden set HR và chưa có HR labelled dataset đủ lớn. Đây là các điều kiện chặn trước khi chuyển `SEMANTIC_RETRIEVAL_ENABLED=true` hoặc `LTR_MODE=ACTIVE` trong môi trường dùng dữ liệu thật.
+
+## Cổng ứng tuyển công khai (P3-3)
+
+- Mặc định tắt: `PUBLIC_INTAKE_ENABLED=false`. Trang ứng viên ở đường dẫn `/apply`; mỗi vị trí chỉ hiện khi HR bật `public-apply` cho vị trí đó.
+- Production bắt buộc quét mã độc: `MALWARE_SCAN_MODE=clamav` kèm `CLAMD_HOST`/`CLAMD_PORT`. Nếu chưa cấu hình, hệ thống từ chối nhận hồ sơ (fail-closed).
+- Giới hạn tần suất theo địa chỉ IP. Backend chỉ thấy địa chỉ của proxy nếu không cấu hình: đặt `PUBLIC_INTAKE_TRUSTED_PROXY_HOPS` bằng đúng số proxy tin cậy nối thêm vào `X-Forwarded-For` (ví dụ 1 khi chỉ có nginx phía trước). Để 0 nếu không có proxy; không đặt cao hơn thực tế vì phần bên trái của header do client điều khiển.
+- Đặt `PUBLIC_INTAKE_IP_SALT` là chuỗi ngẫu nhiên; địa chỉ chỉ được lưu dưới dạng băm có muối.
+- Câu chữ ô tick đồng ý nằm trong `frontend/src/app/apply/page.tsx`; khi đổi câu chữ phải tăng `PUBLIC_INTAKE_NOTICE_VERSION` để bản ghi đồng ý biết ứng viên đã thấy phiên bản nào. Câu chữ cần HR Lead/Pháp chế duyệt trước khi bật.
+- Chưa có CAPTCHA; hiện chỉ có giới hạn tần suất và ô ẩn chống bot.

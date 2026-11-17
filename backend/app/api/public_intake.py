@@ -29,8 +29,18 @@ logger = get_logger(__name__)
 REFUSED = "Không thể nhận tệp này. Vui lòng kiểm tra định dạng (PDF, DOCX, JPG, PNG) và thử lại."
 
 
+def client_address(request: Request) -> str:
+    """Peer address, or the client entry of X-Forwarded-For behind a known number of proxies."""
+    hops = settings.PUBLIC_INTAKE_TRUSTED_PROXY_HOPS
+    if hops > 0:
+        chain = [part.strip() for part in request.headers.get("x-forwarded-for", "").split(",") if part.strip()]
+        if len(chain) >= hops:
+            return chain[-hops]
+    return request.client.host if request.client else "unknown"
+
+
 def _ip_hash(request: Request) -> str:
-    ip = request.client.host if request.client else "unknown"
+    ip = client_address(request)
     return hashlib.sha256(f"{settings.PUBLIC_INTAKE_IP_SALT}|{ip}".encode()).hexdigest()
 
 

@@ -10,6 +10,12 @@ import Sidebar from './Sidebar';
 import Header, { APPBAR_HEIGHT } from './Header';
 import { authApi } from '@/lib/api';
 
+// Pages that never require (or show) the signed-in workspace: login, first-admin
+// setup, forced password change, and the candidate-facing application portal.
+function isPublicPath(pathname: string): boolean {
+  return ['/', '/bootstrap', '/change-password'].includes(pathname) || pathname === '/apply' || pathname.startsWith('/apply/');
+}
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { t } = useI18n();
   const router = useRouter();
@@ -24,7 +30,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (['/', '/bootstrap', '/change-password'].includes(pathname)) { setIsLoading(false); setAuthenticated(false); return; }
+    if (isPublicPath(pathname)) { setIsLoading(false); setAuthenticated(false); return; }
     let active = true;
     const checkAuth = async () => {
       const token = localStorage.getItem('hra_access_token');
@@ -52,7 +58,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, router, attempt]);
 
-  if (['/', '/bootstrap', '/change-password'].includes(pathname)) return <>{children}</>;
+  if (isPublicPath(pathname)) return <>{children}</>;
   if (isLoading || (!authenticated && !authError)) return (
     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', bgcolor: '#F8FAFC' }}>
       <CircularProgress color="secondary" aria-label={t("Đang xác thực")} />

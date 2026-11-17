@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     PUBLIC_INTAKE_ENABLED: bool = False
     PUBLIC_INTAKE_IP_SALT: str = ""
     PUBLIC_INTAKE_MAX_PER_IP_HOUR: int = 5
+    # Number of reverse proxies (nginx, the Next.js /v1 proxy host...) that append to
+    # X-Forwarded-For before the request reaches the API. 0 means use the socket
+    # peer address. Never set this higher than the real number of trusted hops:
+    # the header is client-controlled to the left of the trusted entries.
+    PUBLIC_INTAKE_TRUSTED_PROXY_HOPS: int = 0
     # Version of the consent wording shown next to the tick boxes.
     PUBLIC_INTAKE_NOTICE_VERSION: str = "v1"
     MALWARE_SCAN_MODE: Literal["off", "clamav"] = "off"
