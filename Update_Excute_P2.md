@@ -254,3 +254,9 @@ Sau khi plan được duyệt và mỗi batch triển khai hoàn thành, bổ su
 
 - Operator xác nhận stack chỉ để test; chưa có backup DB, dữ liệu test không ưu tiên bảo toàn. Frontend `:3005` HTTP 200 và listen `0.0.0.0`; backend `:8005` listen `127.0.0.1`. Chưa xác minh firewall/TLS hay mapping PM2; không suy frontend chắc chắn public. Chưa có quyết định xóa/reset, backup Storage hoặc phương án rollback cho thay đổi cụ thể.
 - Chuẩn bị adapter `app/services/malware_scan.py` ClamAV INSTREAM Unix socket với fail-closed timeout/size/protocol/scanner failures, test fake local socket. **Chưa tích hợp intake, chưa cài/kiểm thử ClamAV thật trên VPS, chưa triển khai**; chi tiết và gates trong preflight.
+
+## 18. Triển khai thực — lát cắt danh sách việc làm
+
+- Theo yêu cầu hoàn thiện FE/BE/DB, đã code migration `00027_careers_real_listing.sql` độc lập với migration demo; API thật `GET /v1/careers/jobs` có flag `PUBLIC_CAREERS_ENABLED=false`, danh sách OPEN/còn hạn/JD mới nhất và phân trang; FE `/careers` public chỉ xem danh sách, cảnh báo chưa nhận CV, HR thấy cảnh báo rà soát JD khi sửa hạn.
+- DB integration test dùng riêng disposable `hra_careers_real_test` schema tới 00023 + 00027; không áp Supabase. 2 test danh sách pass (105 vị trí, filter, pagination, flag), cộng scan/OAuth mock tổng 12 pass. FE type-check, lint, i18n/unit/build pass. Không nhầm với kiểm thử end-to-end thật.
+- 00024–00026 vẫn demo-only: không tự chạy chuỗi migration lên remote. Chưa deploy/bật flag; cần review công khai JD, topology, firewall, kế hoạch migration/rollback. Intake CV thật, pool và Gmail còn chưa hoàn thiện, chi tiết trong `doc/VPS_REAL_INTEGRATION_PREFLIGHT.md`.

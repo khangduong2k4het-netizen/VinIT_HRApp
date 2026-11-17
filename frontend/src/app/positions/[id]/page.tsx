@@ -1038,7 +1038,7 @@ export default function PositionDetailPage() {
             </FormControl>
             <TextField type="datetime-local" fullWidth label={t('Hạn ứng tuyển (giờ trình duyệt)')} value={positionDeadline}
               InputLabelProps={{ shrink: true }} onChange={e => setPositionDeadline(e.target.value)} />
-            <Typography variant="caption">{t('Để trống nếu chưa có hạn. Vị trí OPEN còn hạn có thể hiển thị trên cổng demo; hãy kiểm tra nội dung JD.')}</Typography>
+            <Typography variant="caption">{t('Để trống nếu chưa có hạn. Khi cổng được bật, vị trí OPEN còn hạn và JD mới nhất có thể được công khai; HR cần kiểm tra nội dung JD.')}</Typography>
             {positionStatus !== 'OPEN' && <Alert severity="info">{t("Vị trí tạm dừng hoặc đóng sẽ không nhận thêm CV; tác vụ đã chạy không tự hủy. Việc lưu trữ và xóa dữ liệu chưa được tự động thực hiện.")}</Alert>}
           </Box>
         </DialogContent>

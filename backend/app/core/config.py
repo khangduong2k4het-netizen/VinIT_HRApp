@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     SUPABASE_STORAGE_BUCKET_CV: str = "cv-originals"
     SUPABASE_STORAGE_BUCKET_EXTRACTED: str = "cv-extracted-text"
 
+    # Public listing is deliberately off by default; HR must review every OPEN JD.
+    PUBLIC_CAREERS_ENABLED: bool = False
+
     # Synthetic-only demo; refused outside testing/development even if enabled.
     CAREERS_DEMO_ENABLED: bool = False
 
