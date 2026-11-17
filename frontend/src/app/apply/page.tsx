@@ -23,6 +23,7 @@ export default function ApplyPage() {
   const [failure, setFailure] = useState<ApplyFailure | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  const [withdrawalToken, setWithdrawalToken] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoadError(false);
@@ -41,7 +42,7 @@ export default function ApplyPage() {
     setBusy(true);
     const result = await submitApplication(selected.code, file as File, consentPool, honeypot);
     setBusy(false);
-    if (result.ok) setDone(true); else setFailure(result.failure);
+    if (result.ok) { setWithdrawalToken(result.withdrawalToken ?? null); setDone(true); } else setFailure(result.failure);
   };
 
   const fieldMessage = fieldError === 'MISSING' ? t('Vui lòng chọn tệp CV.')
@@ -73,6 +74,13 @@ export default function ApplyPage() {
           <Alert severity="success" role="status">
             <Typography sx={{ fontWeight: 700 }}>{t('Đã nhận hồ sơ của bạn.')}</Typography>
             {t('Bộ phận Nhân sự sẽ xem xét hồ sơ và liên hệ nếu phù hợp.')}
+            {withdrawalToken && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="body2">{t('Mã để rút lại đồng ý lưu hồ sơ trong Talent Pool. Hãy lưu mã này, hệ thống chỉ hiển thị một lần:')}</Typography>
+                <Typography component="code" sx={{ display: 'block', wordBreak: 'break-all', fontFamily: 'monospace', mt: 0.5 }}>{withdrawalToken}</Typography>
+                <Typography variant="body2" sx={{ mt: 0.5 }}>{t('Rút lại đồng ý tại')} <a href="/apply/withdraw">/apply/withdraw</a></Typography>
+              </Box>
+            )}
           </Alert>
         ) : selected ? (
           <Card component="form" onSubmit={submit} noValidate>

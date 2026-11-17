@@ -1502,5 +1502,12 @@
   "Prompt": "Prompt",
   "Bộ quy tắc": "Rule set",
   "Ghi chú của Admin": "Admin note",
-  "Vòng rỗng ở đáy: kỳ chưa đủ dữ liệu để tính tỷ lệ. Dải mờ: khoảng tin cậy 95%. Vạch đỏ: mốc thay đổi.": "Hollow circle at the bottom: not enough data in that period to compute a rate. Shaded band: 95% confidence interval. Red line: change marker."
+  "Vòng rỗng ở đáy: kỳ chưa đủ dữ liệu để tính tỷ lệ. Dải mờ: khoảng tin cậy 95%. Vạch đỏ: mốc thay đổi.": "Hollow circle at the bottom: not enough data in that period to compute a rate. Shaded band: 95% confidence interval. Red line: change marker.",
+  "Mã để rút lại đồng ý lưu hồ sơ trong Talent Pool. Hãy lưu mã này, hệ thống chỉ hiển thị một lần:": "Code to withdraw your consent to keep your CV in the Talent Pool. Save it now; it is shown only once:",
+  "Rút lại đồng ý tại": "Withdraw your consent at",
+  "Rút lại đồng ý Talent Pool": "Withdraw Talent Pool consent",
+  "Nếu mã hợp lệ, lựa chọn Talent Pool đã được rút.": "If the code is valid, your Talent Pool choice has been withdrawn.",
+  "Mã rút lại đồng ý": "Withdrawal code",
+  "Mã gồm 64 ký tự (0-9, a-f).": "The code has 64 characters (0-9, a-f).",
+  "Rút lại đồng ý": "Withdraw consent"
 }

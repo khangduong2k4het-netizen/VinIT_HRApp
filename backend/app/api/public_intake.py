@@ -8,11 +8,13 @@ data, and the audit record holds counts only.
 import hashlib
 import json
 import os
+import secrets
 from uuid import uuid4
 
 import aiofiles
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 
 from app.core.config import settings
@@ -41,6 +43,10 @@ def client_address(request: Request) -> str:
         if len(chain) >= hops:
             return chain[-hops]
     return request.client.host if request.client else "unknown"
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("ascii", "ignore")).hexdigest()
 
 
 def _ip_hash(request: Request) -> str:
@@ -130,11 +136,6 @@ async def apply(position_code: str, request: Request, file: UploadFile = File(..
             raise HTTPException(status_code=503, detail="Hệ thống tạm thời chưa nhận hồ sơ. Vui lòng thử lại sau.") from None
 
         sha = hashlib.sha256(content).hexdigest()
-        duplicate = db.execute(text("""
-            SELECT 1 FROM app_private.application_documents d JOIN app_private.applications a USING (application_id)
-            WHERE a.position_id = :p AND d.content_sha256 = :sha LIMIT 1"""), {"p": pos.position_id, "sha": sha}).first()
-        if duplicate:
-            return {"status": "received"}  # idempotent: no second application, no signal to the sender
 
         if settings.STORAGE_BACKEND == "supabase":
             storage = get_supabase_client()
@@ -148,6 +149,12 @@ async def apply(position_code: str, request: Request, file: UploadFile = File(..
                                    {"p": position_id}).scalar_one_or_none()
         if locked_status != "OPEN":
             raise HTTPException(status_code=404, detail="Vị trí không còn nhận hồ sơ.")
+        # Checked under the position lock, so two simultaneous identical uploads cannot both pass.
+        duplicate = db.execute(text("""
+            SELECT 1 FROM app_private.application_documents d JOIN app_private.applications a USING (application_id)
+            WHERE a.position_id = :p AND d.content_sha256 = :sha LIMIT 1"""), {"p": pos.position_id, "sha": sha}).first()
+        if duplicate:
+            return {"status": "received"}  # idempotent: no second application, no signal to the sender
         busy = db.execute(text("""SELECT 1 FROM app_private.operations WHERE position_id = :p
               AND capability IN ('CV_PROCESSING', 'ASSESSMENT', 'RANKING') AND status IN ('PENDING', 'PROCESSING') LIMIT 1"""),
                           {"p": position_id}).first() is not None
@@ -187,15 +194,18 @@ async def apply(position_code: str, request: Request, file: UploadFile = File(..
                        {"b": batch_id, "fn": filename, "dm": file.content_type, "m": mime, "s": size, "a": app_id})
         evidence = json.dumps({"ip_hash": ip_hash[:16]})
         purposes = ["THIS_POSITION"] + (["TALENT_POOL"] if consent_talent_pool else [])
+        withdrawal_token = secrets.token_hex(32) if consent_talent_pool else None
         for purpose in purposes:
-            db.execute(text("""INSERT INTO app_private.application_data_consents(application_id, purpose, notice_version, channel, evidence)
-                VALUES (:a, :p, :v, 'PORTAL', CAST(:e AS jsonb))"""),
-                       {"a": app_id, "p": purpose, "v": settings.PUBLIC_INTAKE_NOTICE_VERSION, "e": evidence})
+            db.execute(text("""INSERT INTO app_private.application_data_consents(application_id, purpose, notice_version, channel, evidence, withdrawal_token_hash)
+                VALUES (:a, :p, :v, 'PORTAL', CAST(:e AS jsonb), :th)"""),
+                       {"a": app_id, "p": purpose, "v": settings.PUBLIC_INTAKE_NOTICE_VERSION, "e": evidence,
+                        "th": hash_token(withdrawal_token) if withdrawal_token and purpose == "TALENT_POOL" else None})
         db.execute(text("""INSERT INTO app_private.audit_events(action_type, object_type, object_id, position_id, outcome, metadata)
             VALUES ('RECEIVE_PUBLIC_CV', 'APPLICATION', :a, :p, 'SUCCESS', CAST(:m AS jsonb))"""),
                    {"a": app_id, "p": position_id, "m": json.dumps({"talent_pool_consent": consent_talent_pool, "size_bytes": size})})
         db.commit()
-        return {"status": "received"}
+        # The token is shown once; only its hash is stored.
+        return {"status": "received", **({"withdrawal_token": withdrawal_token} if withdrawal_token else {})}
     except Exception:
         db.rollback()
         if saved_path:
@@ -213,12 +223,39 @@ async def apply(position_code: str, request: Request, file: UploadFile = File(..
         db.close()
 
 
+class WithdrawInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+
+
+@router.post("/talent-pool/withdraw")
+def withdraw_talent_pool(body: WithdrawInput):
+    """Candidate withdraws the Talent Pool consent with the token shown at submission. Always answers alike."""
+    _require_enabled()
+    db = SessionLocal()
+    try:
+        row = db.execute(text("""UPDATE app_private.application_data_consents SET withdrawn_at = NOW()
+            WHERE withdrawal_token_hash = :h AND purpose = 'TALENT_POOL' AND withdrawn_at IS NULL RETURNING application_id"""),
+                         {"h": hash_token(body.token)}).first()
+        if row:
+            db.execute(text("UPDATE app_private.talent_pool_marks SET removed_at = NOW() WHERE application_id = :a AND removed_at IS NULL"),
+                       {"a": row[0]})
+            db.execute(text("""INSERT INTO app_private.audit_events(action_type, object_type, object_id, outcome)
+                VALUES ('WITHDRAW_TALENT_POOL_CONSENT_BY_CANDIDATE', 'APPLICATION', :a, 'SUCCESS')"""), {"a": row[0]})
+        db.commit()
+        return {"status": "ok"}
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 # ---- HR side: publish or unpublish a position on the public portal -------------------
 
 from uuid import UUID  # noqa: E402
 
 from fastapi import Depends  # noqa: E402
-from pydantic import BaseModel, ConfigDict  # noqa: E402
 
 from app.core.permissions import check_position_access  # noqa: E402
 from app.core.security import get_current_user  # noqa: E402

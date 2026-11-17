@@ -159,7 +159,7 @@ def test_portal_is_off_by_default_and_lists_only_published_positions(client, por
 def test_apply_creates_application_with_consents_and_audit(client, portal, tmp_path):
     seed = portal
     res = _apply(client, seed)
-    assert res.status_code == 202 and res.json() == {"status": "received"}
+    assert res.status_code == 202 and res.json()["status"] == "received" and len(res.json()["withdrawal_token"]) == 64
     with engine.connect() as conn:
         app_row = conn.execute(text("""SELECT application_id, source_code, created_by, application_status FROM app_private.applications
             WHERE source_code = 'PORTAL'""")).one()
@@ -447,3 +447,23 @@ def test_eligible_pool_excludes_withdrawn_expired_and_pending_deletion(client, s
     # Unmarking also removes a candidate from the pool.
     assert client.delete(f"/v1/talent-pool/applications/{good}/mark", headers=hr).status_code == 200
     assert ids() == set()
+
+
+@integration
+def test_candidate_withdraws_with_token_and_duplicates_are_idempotent(client, portal):
+    seed = portal
+    first = _apply(client, seed)
+    token = first.json()["withdrawal_token"]
+    assert len(token) == 64 and _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE withdrawal_token_hash = :h", h=token) == 0
+    assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE withdrawal_token_hash IS NOT NULL") == 1
+    again = _apply(client, seed)  # identical file: no new application, no token
+    assert again.status_code == 202 and "withdrawal_token" not in again.json()
+    assert _count("SELECT COUNT(*) FROM app_private.applications WHERE source_code = 'PORTAL'") == 1
+    assert _apply(client, seed, pool=False, content=PDF + b"\n%other").json() == {"status": "received"}  # no token without the box
+    wrong = client.post("/v1/public/talent-pool/withdraw", json={"token": "0" * 64})
+    assert wrong.status_code == 200 and wrong.json() == {"status": "ok"}  # same answer for unknown tokens
+    assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE purpose = 'TALENT_POOL' AND withdrawn_at IS NOT NULL") == 0
+    assert client.post("/v1/public/talent-pool/withdraw", json={"token": token}).json() == {"status": "ok"}
+    assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE purpose = 'TALENT_POOL' AND withdrawn_at IS NOT NULL") == 1
+    assert _count("SELECT COUNT(*) FROM app_private.audit_events WHERE action_type = 'WITHDRAW_TALENT_POOL_CONSENT_BY_CANDIDATE'") == 1
+    assert client.post("/v1/public/talent-pool/withdraw", json={"token": "xyz"}).status_code == 422

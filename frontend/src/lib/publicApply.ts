@@ -32,7 +32,7 @@ export async function fetchPublicPositions(): Promise<PublicPosition[]> {
   return (await response.json()).positions as PublicPosition[];
 }
 
-export async function submitApplication(code: string, file: File, consentTalentPool: boolean, honeypot: string): Promise<{ ok: true } | { ok: false; failure: ApplyFailure }> {
+export async function submitApplication(code: string, file: File, consentTalentPool: boolean, honeypot: string): Promise<{ ok: true; withdrawalToken?: string } | { ok: false; failure: ApplyFailure }> {
   const body = new FormData();
   body.append('file', file);
   // Reaching this function means the required box was ticked (the form enforces it).
@@ -41,9 +41,23 @@ export async function submitApplication(code: string, file: File, consentTalentP
   body.append('website', honeypot);
   try {
     const response = await fetch(`/v1/public/positions/${encodeURIComponent(code)}/apply`, { method: 'POST', body });
-    if (response.ok) return { ok: true };
+    if (response.ok) {
+      const data = await response.json().catch(() => ({}));
+      return { ok: true, withdrawalToken: typeof data.withdrawal_token === 'string' ? data.withdrawal_token : undefined };
+    }
     return { ok: false, failure: failureFromStatus(response.status) };
   } catch {
     return { ok: false, failure: 'NETWORK' };
+  }
+}
+
+export async function withdrawTalentPool(token: string): Promise<boolean> {
+  try {
+    const response = await fetch('/v1/public/talent-pool/withdraw', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: token.trim().toLowerCase() }),
+    });
+    return response.ok;
+  } catch {
+    return false;
   }
 }
