@@ -24,3 +24,11 @@ def test_scanner_smoke_fails_closed(monkeypatch):
     monkeypatch.setattr(module, 'scan_bytes', Mock(return_value=ScanVerdict.UNAVAILABLE))
     monkeypatch.setattr(module, 'scan_message', Mock(return_value=SpamVerdict.UNAVAILABLE))
     assert module.run_checks('/tmp/clam.sock', '/tmp/spamd.sock')['pass'] is False
+
+
+def test_clamav_only_mode(monkeypatch):
+    monkeypatch.setattr(module, 'scan_bytes', Mock(side_effect=[ScanVerdict.INFECTED, ScanVerdict.CLEAN]))
+    spam = Mock(side_effect=AssertionError('must not call spamd'))
+    monkeypatch.setattr(module, 'scan_message', spam)
+    assert module.run_checks('/tmp/clam.sock') == {'clamav_clean': 'CLEAN', 'clamav_eicar': 'INFECTED', 'pass': True}
+    spam.assert_not_called()

@@ -21,6 +21,7 @@ pytestmark = pytest.mark.skipif(not os.environ.get('TEST_DATABASE_URL'), reason=
 @pytest.fixture
 def gmail_ready(seed, monkeypatch, tmp_path):
     monkeypatch.setattr(settings, 'GMAIL_TEST_INGEST_ENABLED', True)
+    monkeypatch.setattr(settings, 'GMAIL_TEST_GMAIL_SPAM_ONLY', False)
     monkeypatch.setattr(settings, 'CLAMAV_UNIX_SOCKET', '/synthetic/clamd.sock')
     monkeypatch.setattr(settings, 'SPAMD_UNIX_SOCKET', '/synthetic/spamd.sock')
     monkeypatch.setattr(settings, 'STORAGE_BACKEND', 'local')
@@ -52,7 +53,7 @@ def test_gmail_happy_dedupe_no_implicit_pool_consent(client, gmail_ready):
     assert client.post('/v1/gmail-test/sync', headers=headers(seed['hm'])).status_code == 403
     first = client.post('/v1/gmail-test/sync', headers=headers(seed['hr']))
     assert first.status_code == 200, first.text
-    assert first.json() == {'processed': 1, 'next_page_token': None}
+    assert first.json() == {'processed': 1, 'next_page_token': None, 'spam_mode': 'SPAMD'}
     assert [x[0] for x in order] == ['av', 'spam', 'av']
     assert client.post('/v1/gmail-test/sync', headers=headers(seed['hr'])).json()['processed'] == 0
     records = client.get('/v1/gmail-test/review', headers=headers(seed['hr'])).json()['items']
@@ -126,3 +127,33 @@ def test_gmail_to_worker_preserves_synthetic_identity(client, gmail_ready, monke
             JOIN app_private.cv_batch_items bi USING (application_id)
             JOIN app_private.cv_batches b USING (batch_id) JOIN app_private.operations o USING (operation_id)""")).one()
         assert row == ('COMPLETED', 'COMPLETED', 'Gmail thử nghiệm', 'gmail-test@example.test')
+
+
+def test_gmail_labels_only_mode_still_requires_antivirus_and_guards(client, gmail_ready, monkeypatch):
+    seed, raw, _, order = gmail_ready
+    monkeypatch.setattr(settings, 'GMAIL_TEST_GMAIL_SPAM_ONLY', True)
+    monkeypatch.setattr(settings, 'SPAMD_UNIX_SOCKET', '')
+    never_spamd = Mock(side_effect=AssertionError('spamd must not be called'))
+    monkeypatch.setattr(gmail_test, 'scan_message', never_spamd)
+    result = client.post('/v1/gmail-test/sync', headers=headers(seed['hr']))
+    assert result.status_code == 200 and result.json()['spam_mode'] == 'GMAIL_LABELS_ONLY_TEST'
+    assert [step for step, _ in order] == ['av', 'av'] and not never_spamd.called
+    assert client.get('/v1/gmail-test/review', headers=headers(seed['hr'])).json()['spam_mode'] == 'GMAIL_LABELS_ONLY_TEST'
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT metadata->>'spam_mode' FROM app_private.audit_events WHERE action_type='GMAIL_TEST_PROCESS' ORDER BY created_at DESC LIMIT 1")).scalar_one() == 'GMAIL_LABELS_ONLY_TEST'
+    monkeypatch.setattr(gmail_test.gmail_test_client, 'list_messages', lambda s, page: (['test-message-2'], None))
+    monkeypatch.setattr(gmail_test, 'scan_bytes', lambda *a, **k: ScanVerdict.UNAVAILABLE)
+    assert client.post('/v1/gmail-test/sync', headers=headers(seed['hr'])).status_code == 200
+    assert 'ANTIVIRUS_UNAVAILABLE' in {item['reason'] for item in client.get('/v1/gmail-test/review', headers=headers(seed['hr'])).json()['items']}
+    monkeypatch.setattr(gmail_test.gmail_test_client, 'list_messages', lambda s, page: (['test-message-3'], None))
+    monkeypatch.setattr(gmail_test.gmail_test_client, 'fetch_message', lambda s, mid: (['SPAM'], raw))
+    assert client.post('/v1/gmail-test/sync', headers=headers(seed['hr'])).status_code == 200
+    assert 'GMAIL_SPAM_OR_TRASH' in {item['reason'] for item in client.get('/v1/gmail-test/review', headers=headers(seed['hr'])).json()['items']}
+    monkeypatch.setattr(settings, 'CLAMAV_UNIX_SOCKET', '')
+    assert client.post('/v1/gmail-test/sync', headers=headers(seed['hr'])).status_code == 503
+
+
+def test_spamd_is_required_by_default(client, gmail_ready, monkeypatch):
+    seed, _, _, _ = gmail_ready
+    monkeypatch.setattr(settings, 'SPAMD_UNIX_SOCKET', '')
+    assert client.post('/v1/gmail-test/sync', headers=headers(seed['hr'])).status_code == 503

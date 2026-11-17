@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     CLAMAV_UNIX_SOCKET: str = ""
     GMAIL_TEST_INGEST_ENABLED: bool = False
     GMAIL_TEST_TOKEN_FILE: str = ""
+    # Synthetic-only: use Gmail spam/trash labels without independent spamd.
+    GMAIL_TEST_GMAIL_SPAM_ONLY: bool = False
     SPAMD_UNIX_SOCKET: str = ""
 
     # Keep withdrawal available whenever existing consents depend on it.

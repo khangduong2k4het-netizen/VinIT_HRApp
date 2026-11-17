@@ -21,8 +21,9 @@ export default function GmailTestPage() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [spamMode, setSpamMode] = useState<string | null>(null);
   const load = useCallback(async () => {
-    try { const result = await apiClient.get('/gmail-test/review'); setItems(result.data.items); }
+    try { const result = await apiClient.get('/gmail-test/review'); setItems(result.data.items); setSpamMode(result.data.spam_mode); }
     catch (err: any) { setError(err.response?.data?.detail || 'Không thể tải hàng đợi Gmail thử nghiệm.'); }
   }, []);
   useEffect(() => { void load(); }, [load]);
@@ -38,6 +39,7 @@ export default function GmailTestPage() {
   };
   return <Box><Typography variant="h1" sx={{ fontSize: 28, mb: 2 }}>Gmail thử nghiệm</Typography>
     <Alert severity="warning" sx={{ mb: 2 }}>Chỉ HR Lead/quản trị viên. Chỉ dùng hộp Gmail thử nghiệm riêng, nhãn HRA_TEST, tiêu đề bắt đầu [HRA-TEST] và email/CV giả; không dùng dữ liệu thật. Đây là đồng bộ thủ công, không sửa hoặc xóa email.</Alert>
+    {spamMode === 'GMAIL_LABELS_ONLY_TEST' && <Alert severity="warning" sx={{ mb: 2 }}>Chỉ dùng phân loại spam/thùng rác của Gmail; không có SpamAssassin. Chỉ dành cho dữ liệu giả.</Alert>}
     {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
     {message && <Alert severity="success" sx={{ mb: 2 }}>{message}</Alert>}
     <Stack spacing={2} sx={{ maxWidth: 760 }}>

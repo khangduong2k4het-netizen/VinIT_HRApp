@@ -290,3 +290,8 @@ Sau khi plan được duyệt và mỗi batch triển khai hoàn thành, bổ su
 
 - Operator báo `clamd`, `clamscan`, `spamd`, `spamc` chưa có. PM2 PID backend `902622`/frontend `898038` khớp snapshot các process đang nghe `127.0.0.1:8005` và `0.0.0.0:3005`; chưa xác minh firewall hoặc scanner, PID chỉ là snapshot.
 - CI commit `85b9466` run `44019434971` pass. Bổ sung `backend/scripts/check_test_scanners.py` thực hiện EICAR/GTUBE và mẫu sạch trong bộ nhớ qua đúng adapter, chạy bằng user backend, in verdict không ghi file; 18 test scanner/script local pass. Chưa có scanner thực tế, chưa chạy VPS hoặc deploy; runbook đã cập nhật. Các bước cài phụ thuộc OS/phiên bản: Ubuntu 22.04 có thể gói spamd khác Ubuntu 24.04; phải xác minh trước, không tự đổi cấu hình hệ thống hoặc firewall.
+
+## 24. Chọn luồng Gmail thử nghiệm rút gọn
+
+- User đồng ý phương án chỉ cài ClamAV, dùng nhãn spam/trash của Gmail thay cho spamd ở vòng dữ liệu giả. Thêm `GMAIL_TEST_GMAIL_SPAM_ONLY` mặc định false: khi true chỉ route Gmail thử nghiệm bỏ qua spamd; Gmail nhãn SPAM/TRASH vẫn bị loại, ClamAV email/attachment vẫn bắt buộc và fail-closed. UI cảnh báo rõ và audit ghi mode cho mỗi xử lý; không thay đổi pool consent hay API Careers. Gmail filtering không tương đương SpamAssassin, không chứng minh nội dung an toàn. Cờ không biến hệ thống thành phù hợp dữ liệu thật; mailbox/marker không chứng minh synthetic.
+- Script kiểm tra scanner hỗ trợ chỉ ClamAV, vẫn kiểm tra spamd khi truyền socket. Backend local 411 passed/10 warnings; FE type-check, lint, i18n, unit và build pass. Một lệnh `npm test` thử nhầm không tồn tại, sau đó chạy đúng `npm run test:unit` và build. Chưa deploy/khởi động/cài trên VPS; chưa chạy scanner/Gmail thật. Chi tiết lệnh tuần tự và gate: `doc/VPS_THU_NGHIEM_RUT_GON.md`.
