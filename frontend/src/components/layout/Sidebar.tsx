@@ -21,6 +21,8 @@ const menuGroups = [
     items: [
       { text: 'Tổng quan công việc', icon: <BarChartIcon />, href: '/dashboard' },
       { text: 'Vị trí tuyển dụng', icon: <WorkIcon />, href: '/positions' },
+      { text: 'Email offline (demo)', icon: <PeopleIcon />, href: '/email-demo', hrOnly: true },
+      { text: 'Talent Pool (demo)', icon: <PeopleIcon />, href: '/talent-pool-demo', hrOnly: true },
       { text: 'Thư viện rubric', icon: <LibraryBooksIcon />, href: '/rubrics', hrOnly: true },
       { text: 'Shortlist & phản hồi', icon: <PeopleIcon />, href: '/shortlist' },
     ],

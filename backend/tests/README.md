@@ -41,7 +41,9 @@ for f in supabase/migrations/00001_initial_schema.sql \
          supabase/migrations/00021_llm_prices_and_usage.sql \
          supabase/migrations/00022_llm_operations_observability.sql \
          supabase/migrations/00023_phase2_workflow_core.sql \
-         supabase/migrations/00024_careers_demo.sql; do
+         supabase/migrations/00024_careers_demo.sql \
+         supabase/migrations/00025_talent_pool_demo.sql \
+         supabase/migrations/00026_email_demo.sql; do
   psql 'postgresql://postgres@127.0.0.1:55432/hra_phase1_test' -v ON_ERROR_STOP=1 -f "$f"
 done
 ```

@@ -35,3 +35,16 @@ def inspect_synthetic_email(raw: bytes, eligible_codes: set[str]) -> dict:
         return {'status': 'CANDIDATE', 'position_code': matches[0], 'attachment_size': len(content)}
     except (ValueError, TypeError, LookupError):
         return {'status': 'REVIEW', 'reason': 'MALFORMED'}
+
+
+def extract_synthetic_attachment(raw: bytes, eligible_codes: set[str]) -> tuple[dict, str | None, bytes | None]:
+    """For the offline demo only; caller must revalidate bytes and position authorization."""
+    result = inspect_synthetic_email(raw, eligible_codes)
+    if result['status'] != 'CANDIDATE':
+        return result, None, None
+    try:
+        message = BytesParser(policy=policy.default).parsebytes(raw)
+        part = next(p for p in message.walk() if p.get_content_disposition() == 'attachment')
+        return result, part.get_filename(), part.get_payload(decode=True)
+    except (ValueError, TypeError, LookupError, StopIteration):
+        return {'status': 'REVIEW', 'reason': 'MALFORMED'}, None, None

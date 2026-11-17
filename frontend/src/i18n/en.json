@@ -1250,5 +1250,7 @@
   "Đề xuất chỉ điền biểu mẫu; HR cần rà soát và lưu bản nháp. Chưa xuất bản.": "The proposal only fills the form; HR must review and save the draft. It is not published.",
   "Nhóm IT & Digital không khả dụng.": "The IT & Digital family is unavailable.",
   "Hạn ứng tuyển (giờ trình duyệt)": "Application deadline (browser time)",
-  "Để trống nếu chưa có hạn. Vị trí OPEN còn hạn có thể hiển thị trên cổng demo; hãy kiểm tra nội dung JD.": "Leave empty if no deadline is set. OPEN jobs with a future deadline may appear on the demo portal; check the JD content."
+  "Để trống nếu chưa có hạn. Vị trí OPEN còn hạn có thể hiển thị trên cổng demo; hãy kiểm tra nội dung JD.": "Leave empty if no deadline is set. OPEN jobs with a future deadline may appear on the demo portal; check the JD content.",
+  "Talent Pool (demo)": "Talent Pool (demo)",
+  "Email offline (demo)": "Offline email (demo)"
 }
