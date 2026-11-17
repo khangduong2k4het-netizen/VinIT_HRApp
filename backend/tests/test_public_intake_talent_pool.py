@@ -147,7 +147,7 @@ def test_apply_creates_application_with_consents_and_audit(client, portal, tmp_p
                            {"a": app_row.application_id}).one()
         audit = conn.execute(text("SELECT metadata FROM app_private.audit_events WHERE action_type = 'RECEIVE_PUBLIC_CV'")).scalar_one()
         queued = conn.execute(text("""SELECT COUNT(*) FROM app_private.document_processing_runs r JOIN app_private.operations o USING (operation_id)
-            WHERE o.status = 'PENDING' AND o.requested_by IS NULL""")).scalar_one()
+            WHERE o.status = 'PENDING' AND o.requested_by IS NULL AND o.position_id = :p"""), {"p": seed["pos"]}).scalar_one()
     assert app_row.created_by is None and app_row.application_status == "NEW"
     assert consents == {"THIS_POSITION", "TALENT_POOL"} and doc.file_processing_status == "RECEIVED" and len(doc.content_sha256) == 64
     assert set(audit) == {"talent_pool_consent", "size_bytes"} and queued == 1
@@ -210,6 +210,74 @@ def test_oversized_public_body_is_refused_before_parsing(client, portal, monkeyp
     assert _count("SELECT COUNT(*) FROM app_private.applications WHERE source_code = 'PORTAL'") == 0
     # Authenticated endpoints keep their own limits and are not capped by this wrapper.
     assert client.get("/v1/public/positions").status_code == 200
+
+
+@integration
+def test_portal_job_is_tied_to_position_and_waits_for_a_running_job(client, portal):
+    """The worker needs operations.position_id to assess and rank a portal CV, and the
+    one-job-per-position guard must see portal jobs. A CV that arrives while a job is
+    running is kept for HR, who queues it with the existing reprocess action."""
+    seed = portal
+    assert _apply(client, seed).status_code == 202
+    first = _count("""SELECT COUNT(*) FROM app_private.operations
+        WHERE position_id = :p AND capability = 'CV_PROCESSING' AND status = 'PENDING'""", p=seed["pos"])
+    assert first == 1
+    # HR upload now sees the portal job as the position's active job.
+    active = client.get(f"/v1/operations/position/{seed['pos']}/active", headers=headers(seed["hr"]))
+    assert active.status_code == 200 and active.json()
+
+    assert _apply(client, seed, content=PDF + b"\n%while-busy").status_code == 202
+    with engine.connect() as conn:
+        parked = conn.execute(text("""SELECT a.application_id, d.file_processing_status, d.processing_error
+            FROM app_private.applications a JOIN app_private.application_documents d USING (application_id)
+            WHERE a.source_code = 'PORTAL' ORDER BY a.created_at DESC LIMIT 1""")).one()
+    assert parked.file_processing_status == "NEEDS_HR_REVIEW" and "Xử lý lại" in parked.processing_error
+    assert _count("SELECT COUNT(*) FROM app_private.operations WHERE position_id = :p", p=seed["pos"]) == 1
+
+    # Once the running job ends, HR's reprocess action queues the parked CV.
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.operations SET status = 'COMPLETED' WHERE position_id = :p"), {"p": seed["pos"]})
+    res = client.post(f"/v1/applications/{parked.application_id}/reprocess", headers=headers(seed["hr"]))
+    assert res.status_code == 202
+    assert _count("""SELECT COUNT(*) FROM app_private.operations
+        WHERE position_id = :p AND status = 'PENDING'""", p=seed["pos"]) == 1
+
+
+@integration
+def test_worker_assesses_a_portal_cv(client, portal, monkeypatch):
+    """Regression: a portal job without position_id was extracted but then failed with
+    'Operation has no associated position' and was never assessed or ranked."""
+    import io
+    from docx import Document
+    from app.workers.processor import worker, llm_client
+    seed = portal
+
+    async def extract(**kwargs):
+        return {"education": [], "work_history": [], "skills": ["Python"], "certifications": []}
+
+    async def match(**kwargs):
+        return {"findings": [{"criterion_id": seed["criterion"], "outcome": "STRONG_MATCH", "confidence": .9,
+                              "confidence_band": "HIGH", "evidence": {"verbatim_quote": "Developed Python systems for five years"}}]}
+    monkeypatch.setattr(llm_client, "extract_candidate_profile", extract)
+    monkeypatch.setattr(llm_client, "match_criterion_evidence", match)
+    document = Document()
+    document.add_paragraph("Developed Python systems for five years. Built reliable automated testing systems.")
+    content = io.BytesIO()
+    document.save(content)
+    docx_mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    res = client.post(f"/v1/public/positions/{seed['pos']}/apply",
+                      files={"file": ("candidate.docx", content.getvalue(), docx_mime)},
+                      data={"consent_processing": "true", "consent_talent_pool": "false", "website": ""})
+    assert res.status_code == 202
+    worker._process_pending_operations()
+    with engine.connect() as conn:
+        op = conn.execute(text("""SELECT operation_id, status, error_code FROM app_private.operations
+            WHERE position_id = :p AND capability = 'CV_PROCESSING' ORDER BY created_at DESC LIMIT 1"""), {"p": seed["pos"]}).one()
+        assessed = conn.execute(text("""SELECT COUNT(*) FROM app_private.assessment_runs r
+            JOIN app_private.applications a USING (application_id)
+            WHERE a.source_code = 'PORTAL' AND r.status = 'COMPLETED'""")).scalar_one()
+    assert op.status == "COMPLETED", (op.status, op.error_code)
+    assert assessed == 1
 
 
 @integration

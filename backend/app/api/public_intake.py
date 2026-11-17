@@ -28,6 +28,9 @@ logger = get_logger(__name__)
 
 # Same message for every refused file so the endpoint is not a scanner oracle.
 REFUSED = "Không thể nhận tệp này. Vui lòng kiểm tra định dạng (PDF, DOCX, JPG, PNG) và thử lại."
+# Shown to HR only (never to the candidate) on a portal CV that arrived while the
+# position already had a job running; HR queues it with "Xử lý lại".
+DEFERRED_WHILE_BUSY = "CV nộp qua cổng công khai khi vị trí đang có tác vụ xử lý; bấm Xử lý lại để chấm điểm."
 
 
 def client_address(request: Request) -> str:
@@ -134,9 +137,22 @@ async def apply(position_code: str, request: Request, file: UploadFile = File(..
             if not storage:
                 raise HTTPException(status_code=503, detail="Hệ thống tạm thời chưa nhận hồ sơ.")
         position_id = str(pos.position_id)
-        operation_id = db.execute(text("INSERT INTO app_private.operations(capability, status) VALUES ('CV_PROCESSING', 'PENDING') RETURNING operation_id")).scalar_one()
-        batch_id = db.execute(text("""INSERT INTO app_private.cv_batches(position_id, operation_id, status, total_files, total_size_bytes)
-            VALUES (:p, :o, 'PROCESSING', 1, :s) RETURNING batch_id"""), {"p": position_id, "o": operation_id, "s": size}).scalar_one()
+        # Same order as the HR upload and the reprocess endpoint: lock the position,
+        # then check for a running job. The worker needs operations.position_id to
+        # assess and rank, and the one-job-per-position guard only sees jobs that carry it.
+        locked_status = db.execute(text("SELECT status FROM app_private.positions WHERE position_id = :p FOR UPDATE"),
+                                   {"p": position_id}).scalar_one_or_none()
+        if locked_status != "OPEN":
+            raise HTTPException(status_code=404, detail="Vị trí không còn nhận hồ sơ.")
+        busy = db.execute(text("""SELECT 1 FROM app_private.operations WHERE position_id = :p
+              AND capability IN ('CV_PROCESSING', 'ASSESSMENT', 'RANKING') AND status IN ('PENDING', 'PROCESSING') LIMIT 1"""),
+                          {"p": position_id}).first() is not None
+        operation_id = batch_id = None
+        if not busy:
+            operation_id = db.execute(text("""INSERT INTO app_private.operations(position_id, capability, status)
+                VALUES (:p, 'CV_PROCESSING', 'PENDING') RETURNING operation_id"""), {"p": position_id}).scalar_one()
+            batch_id = db.execute(text("""INSERT INTO app_private.cv_batches(position_id, operation_id, status, total_files, total_size_bytes)
+                VALUES (:p, :o, 'PROCESSING', 1, :s) RETURNING batch_id"""), {"p": position_id, "o": operation_id, "s": size}).scalar_one()
         app_id = db.execute(text("INSERT INTO app_private.applications(position_id, source_code) VALUES (:p, 'PORTAL') RETURNING application_id"),
                             {"p": position_id}).scalar_one()
         storage_path = f"{position_id}/{app_id}/{uuid4()}{MIME_EXTENSIONS[mime]}"
@@ -150,16 +166,21 @@ async def apply(position_code: str, request: Request, file: UploadFile = File(..
             storage.storage.from_(settings.SUPABASE_STORAGE_BUCKET_CV).upload(
                 path=storage_path, file=content, file_options={"content-type": mime})
         doc_id = db.execute(text("""INSERT INTO app_private.application_documents(application_id, document_type, bucket, storage_path,
-                original_filename, mime_type, size_bytes, file_processing_status, content_sha256)
-            VALUES (:a, 'CV', :b, :sp, :fn, :m, :s, 'RECEIVED', :sha) RETURNING document_id"""),
+                original_filename, mime_type, size_bytes, file_processing_status, processing_error, content_sha256)
+            VALUES (:a, 'CV', :b, :sp, :fn, :m, :s, :st, :err, :sha) RETURNING document_id"""),
                             {"a": app_id, "b": settings.SUPABASE_STORAGE_BUCKET_CV, "sp": storage_path, "fn": filename,
-                             "m": mime, "s": size, "sha": sha}).scalar_one()
+                             "m": mime, "s": size, "sha": sha,
+                             # While another job runs on the position, the CV is kept but not queued;
+                             # HR starts it with the existing "reprocess" action once the job ends.
+                             "st": "NEEDS_HR_REVIEW" if busy else "RECEIVED",
+                             "err": DEFERRED_WHILE_BUSY if busy else None}).scalar_one()
         db.execute(text("INSERT INTO app_private.application_identities(application_id) VALUES (:a)"), {"a": app_id})
-        db.execute(text("""INSERT INTO app_private.document_processing_runs(document_id, operation_id, extraction_type, status)
-            VALUES (:d, :o, 'INITIAL_EXTRACTION', 'PENDING')"""), {"d": doc_id, "o": operation_id})
-        db.execute(text("""INSERT INTO app_private.cv_batch_items(batch_id, original_filename, declared_mime_type, detected_mime_type,
-                size_bytes, validation_result, application_id) VALUES (:b, :fn, :dm, :m, :s, 'ACCEPTED', :a)"""),
-                   {"b": batch_id, "fn": filename, "dm": file.content_type, "m": mime, "s": size, "a": app_id})
+        if not busy:
+            db.execute(text("""INSERT INTO app_private.document_processing_runs(document_id, operation_id, extraction_type, status)
+                VALUES (:d, :o, 'INITIAL_EXTRACTION', 'PENDING')"""), {"d": doc_id, "o": operation_id})
+            db.execute(text("""INSERT INTO app_private.cv_batch_items(batch_id, original_filename, declared_mime_type, detected_mime_type,
+                    size_bytes, validation_result, application_id) VALUES (:b, :fn, :dm, :m, :s, 'ACCEPTED', :a)"""),
+                       {"b": batch_id, "fn": filename, "dm": file.content_type, "m": mime, "s": size, "a": app_id})
         evidence = json.dumps({"ip_hash": ip_hash[:16]})
         purposes = ["THIS_POSITION"] + (["TALENT_POOL"] if consent_talent_pool else [])
         for purpose in purposes:
