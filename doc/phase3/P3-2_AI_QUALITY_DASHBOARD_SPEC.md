@@ -1,6 +1,6 @@
 # Spec P3-2: Dashboard chất lượng AI
 
-Thuộc gói lõi Phase 3 (`PHASE3_PROPOSAL.md`, mục P3-2). Dựa trên báo cáo vận hành F2.03 và kiểm định QA F2.04 đã có. Phần "Hiện trạng" là điều đã đọc trong code; phần còn lại là thiết kế đề xuất. Các điểm cần HR Lead/Admin chốt ghi là `D-QD-xx`.
+Thuộc gói lõi Phase 3 (đề xuất Phase 3, mục P3-2). Dựa trên báo cáo vận hành F2.03 và kiểm định QA F2.04 đã có. Phần "Hiện trạng" là điều đã đọc trong code; phần còn lại là thiết kế đề xuất. Các điểm cần HR Lead/Admin chốt ghi là `D-QD-xx`.
 
 ## 1. Mục tiêu
 

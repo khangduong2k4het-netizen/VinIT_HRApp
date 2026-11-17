@@ -1,6 +1,6 @@
 # Spec P3-1: Talent Pool và Candidate Rediscovery
 
-Thuộc `PHASE3_PROPOSAL.md`, mục P3-1.
+Thuộc đề xuất Phase 3, mục P3-1.
 
 Đây là **spec đề xuất**, chưa phải quyết định. Chỗ nào là quyết định của HR/Pháp chế được ghi là `D-TP-xx` ở mục 2. Phần "Hiện trạng" là sự thật đã đọc trong code/migration; phần còn lại là thiết kế đề xuất.
 
