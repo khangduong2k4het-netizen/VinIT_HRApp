@@ -2,6 +2,8 @@
 
 Thuộc đề xuất Phase 3, mục P3-1.
 
+**Cập nhật theo thông tin từ chủ dự án:** dự án có quyền lưu CV **5 năm**, và ứng viên phải **tick đồng ý cho phép sử dụng dữ liệu** khi nộp hồ sơ. Vì vậy bản này bỏ phương án "bản sao tối thiểu" và bỏ bước xin consent bằng email cho hồ sơ mới; consent lấy ngay lúc nộp và gắn thẳng vào application. Những điểm vẫn cần xác nhận được ghi ở mục 2.
+
 Đây là **spec đề xuất**, chưa phải quyết định. Chỗ nào là quyết định của HR/Pháp chế được ghi là `D-TP-xx` ở mục 2. Phần "Hiện trạng" là sự thật đã đọc trong code/migration; phần còn lại là thiết kế đề xuất.
 
 ## 1. Hiện trạng của hệ thống (cơ sở của thiết kế)
@@ -20,24 +22,26 @@ Thuộc đề xuất Phase 3, mục P3-1.
 
 | Mã | Câu hỏi | Người chốt | Đề xuất mặc định |
 | :--- | :--- | :--- | :--- |
-| D-TP-01 | Mục đích, nội dung thông báo và thời hạn consent (PRD ví dụ 24 tháng; không mặc định) | Pháp chế + HR Lead | 24 tháng, gia hạn được bằng consent mới |
-| D-TP-02 | Hồ sơ Talent Pool tồn tại **bên cạnh** retention 12 tháng như thế nào: (A) giữ hồ sơ gốc bằng hold; (B) pool tự giữ **bản sao tối thiểu**, hồ sơ gốc vẫn bị xóa đúng hạn | Pháp chế + HR Lead | **B**, vì không phá hứa hẹn retention của application gốc và dễ chứng minh xóa khi hết hạn/rút consent |
+| D-TP-01 | Câu chữ ô tick lúc nộp có nêu rõ mục đích **dùng lại hồ sơ cho các vị trí khác của trường** không, và có áp dụng cho cả CV nhận qua email/HR nhập tay không. Nếu ô tick chỉ nói "xử lý hồ sơ cho vị trí này" thì chưa đủ cho Talent Pool | HR Lead (đối chiếu văn bản đang dùng) | Dùng câu chữ có nêu mục đích tái sử dụng; lưu `notice_version` |
+| D-TP-02 | Thời hạn lưu 5 năm tính từ mốc nào (ngày nộp hay ngày đóng vị trí) và có thay chính sách retention hiện tại (12 tháng sau khi đóng vị trí) hay không | HR Lead | Tính từ ngày đóng vị trí, như cơ chế hiện có; chỉ đổi `retention_months` trong chính sách thành 60 (giá trị đã cấu hình được, không cần sửa code) |
 | D-TP-03 | Ai được gắn nhãn vào pool và ai được quét | HR Lead | HR phụ trách vị trí gắn nhãn; quét: HR được phân công vị trí mới + HR Lead; HM không quét |
 | D-TP-04 | Điều kiện vào pool: trạng thái application nào (PRD: đạt chuẩn phỏng vấn, chưa nhận offer) | HR Lead | `INTERVIEW`, `REJECTED_INTERVIEW`, và `SHORTLIST` do HR chọn tay; không tự động |
-| D-TP-05 | Gửi consent bằng kênh nào, ngôn ngữ nào, ai ký tên thư | HR + IT | Email Outlook của VinUni, song ngữ Việt–Anh, mẫu do HR duyệt |
-| D-TP-06 | Khi consent hết hạn mà ứng viên không phản hồi: xóa tự động hay HR xác nhận | Pháp chế | HR xác nhận như retention hiện tại (dùng lại hàng đợi + OTP của F2.07) |
-| D-TP-07 | Có cho phép ứng viên cập nhật CV qua link không (PRD có) | HR Lead | Có, ở bước sau (pha 3), vì đi qua cổng công khai cần P3-3 |
+| D-TP-05 | Hồ sơ **đã có trong hệ thống trước khi có ô tick** (HR nhập tay, nhận qua email) xử lý thế nào | HR Lead | Không coi là có consent; không vào pool. Chỉ gửi email xin consent riêng khi HR muốn, theo mẫu HR duyệt (làm sau) |
+| D-TP-06 | Khi hết 5 năm hoặc ứng viên rút đồng ý: xóa tự động hay HR xác nhận | HR Lead | HR xác nhận như retention hiện tại (hàng đợi + OTP của F2.07); riêng rút đồng ý thì chặn quét ngay |
+| D-TP-07 | Có cho phép ứng viên cập nhật CV qua link không (PRD có) | HR Lead | Có, ở bước sau, cần cổng công khai của P3-3 |
+
+Lưu ý: tôi không phải luật sư. Phần "ô tick đã đủ chưa" chỉ cần đối chiếu câu chữ với mục đích thực tế; nếu đã đúng thì không còn việc nào phải chờ Pháp chế.
 
 ## 3. Phạm vi
 
-**Trong phạm vi:** gắn nhãn pool; consent riêng (có bằng chứng, hạn, rút); quét pool theo rubric đã duyệt của vị trí mới và xếp hạng; HR xem bằng chứng và quyết định liên hệ; audit và retention cho dữ liệu pool.
+**Trong phạm vi:** đánh dấu hồ sơ đủ điều kiện vào pool; kiểm tra consent đã ghi lúc nộp (có bằng chứng, rút được); quét pool theo rubric đã duyệt của vị trí mới và xếp hạng; HR xem bằng chứng và quyết định liên hệ; audit và retention cho dữ liệu pool.
 
-**Ngoài phạm vi (bản này):** tự liên hệ ứng viên, tự đưa ứng viên vào vị trí mới, nhập hàng loạt hồ sơ cũ vào pool, suy đoán consent từ việc đã nộp CV hoặc gửi email, tự gia hạn retention, semantic search toàn kho (F3.07, làm sau).
+**Ngoài phạm vi (bản này):** tự liên hệ ứng viên, tự đưa ứng viên vào vị trí mới, nhập hàng loạt hồ sơ cũ vào pool, suy đoán consent cho hồ sơ không có bản ghi tick, tự gia hạn retention, semantic search toàn kho (F3.07, làm sau).
 
 ## 4. Nguyên tắc bắt buộc (từ PRD và kế hoạch của nhóm)
 
-1. Chỉ quét hồ sơ **có consent còn hạn, chưa rút, chưa quá hạn lưu trữ, không đang chờ xóa**. Kiểm tra ở backend ngay trước mỗi lượt quét và khi hiển thị kết quả, không chỉ ở lúc tạo.
-2. Consent là lựa chọn **riêng**: nộp CV hay nhận phỏng vấn không phải consent.
+1. Chỉ quét hồ sơ **có bản ghi consent lúc nộp (đúng mục đích tái sử dụng), chưa rút, chưa quá hạn 5 năm, không đang chờ xóa**. Kiểm tra ở backend ngay trước mỗi lượt quét và khi hiển thị kết quả, không chỉ ở lúc tạo.
+2. Consent phải là ô tick **riêng, không bắt buộc cho việc ứng tuyển** nếu mục đích là tái sử dụng cho vị trí khác; không có bản ghi thì không coi là có consent.
 3. Không có consent thật thì chức năng **fail-closed**: chỉ chạy với dữ liệu tổng hợp trong môi trường dev/test.
 4. Mọi lượt quét và truy cập đều ghi audit, **không chứa PII** (đếm, ID đã băm, vị trí, người gọi).
 5. Không gửi họ tên, SĐT, email cho LLM (giữ `redaction.py`); gửi nội dung CV ra ngoài chỉ khi DEP-05 được duyệt.
@@ -45,31 +49,29 @@ Thuộc đề xuất Phase 3, mục P3-1.
 
 ## 5. Mô hình dữ liệu đề xuất (migration mới, đánh số tiếp sau migration hiện có)
 
-Chỉ là thiết kế; chưa viết SQL. Theo hướng **B** của D-TP-02. Mọi bảng nằm trong `app_private`, bật RLS, chỉ `service_role` truy cập, giống các bảng retention.
+Chỉ là thiết kế; chưa viết SQL. Vì được giữ 5 năm và consent nằm ngay trên application, **không cần sao chép hồ sơ sang bảng riêng**: pool là một **tập con có điều kiện** của application hiện có. Mọi bảng nằm trong `app_private`, bật RLS, chỉ `service_role` truy cập.
 
-| Bảng | Nội dung chính |
+| Bảng / cột | Nội dung chính |
 | :--- | :--- |
-| `talent_pool_entries` | `entry_id`, `source_position_id`, `source_application_opaque_id` (ID băm, **không** FK để không giữ ràng buộc với application sắp bị xóa), `status` (`PENDING_CONSENT`, `ACTIVE`, `WITHDRAWN`, `EXPIRED`, `DELETED`), `nominated_by`, `nominated_at`, `consent_expires_at`, `retention_expires_at`, `deletion_pending` |
-| `talent_pool_profiles` | bản sao **tối thiểu** dùng để chấm: `entry_id`, `profile_snapshot` (JSONB các `profile_facts` đã trích, không kèm email/SĐT), đường dẫn CV đã sao chép sang bucket riêng của pool, `extracted_text_path`, hash nội dung. Danh tính liên hệ nằm ở bảng riêng dưới đây |
-| `talent_pool_contacts` | `entry_id`, tên, email, SĐT; tách bảng để dễ xóa/ẩn danh độc lập và hạn chế truy cập |
-| `talent_pool_consents` | lịch sử: `consent_id`, `entry_id`, `notice_version` (phiên bản nội dung thông báo), `purpose`, `granted_at`, `expires_at`, `withdrawn_at`, `evidence` (token đã băm, thời điểm bấm, IP đã rút gọn tùy chính sách), `channel` |
-| `talent_pool_tokens` | token một lần cho link đồng ý / rút / cập nhật CV: chỉ lưu hash, hạn ngắn, số lần dùng |
+| `application_data_consents` | `consent_id`, `application_id`, `purpose` (`THIS_POSITION`, `TALENT_POOL`), `notice_version`, `granted_at`, `channel` (`PORTAL`, `EMAIL_LINK`), bằng chứng (thời điểm, IP rút gọn tùy chính sách), `withdrawn_at`. Ghi lúc nộp; chỉ thêm, không sửa |
+| `talent_pool_marks` | `application_id`, `marked_by`, `marked_at`, lý do ngắn (không tự do chứa PII), `removed_at`; HR đánh dấu hồ sơ đủ điều kiện (D-TP-04) |
 | `talent_pool_scans` | mỗi lượt quét: `scan_id`, `position_id` đích, `criteria_version_id` đã duyệt, người gọi, số hồ sơ đủ điều kiện, số bị loại theo từng lý do (chỉ số) |
-| `talent_pool_scan_results` | kết quả chấm: `scan_id`, `entry_id`, trạng thái, điểm, độ phủ bằng chứng, các `criterion_results` + trích dẫn bằng chứng (lưu dạng cùng schema `criterion_assessment_results`/`evidence_items` hoặc bảng song song), `hr_decision` (`CONTACT`, `SKIP`, `LATER`), `decided_by`, `decided_at` |
+| `talent_pool_scan_results` | kết quả chấm: `scan_id`, `application_id`, điểm, độ phủ bằng chứng, `criterion_results` + trích dẫn (cùng schema `criterion_assessment_results`/`evidence_items` hoặc bảng song song), `hr_decision` (`CONTACT`, `SKIP`, `LATER`), `decided_by`, `decided_at` |
 
-Lý do tách `talent_pool_profiles` khỏi `application`: assessment hiện buộc `application_id` thuộc một vị trí; sao chép sang pool tránh việc application cũ phải sống thêm sau khi retention xóa.
+**Chấm lại hồ sơ cũ cho vị trí mới:** `assessment_runs` buộc `position_id`, nên một lượt quét tạo lượt chấm trong bảng kết quả riêng ở trên (không tạo application mới trong vị trí đích cho tới khi HR chọn `CONTACT`). Cần xác nhận khi làm pha 1 cách tái dùng `profile_version` đã trích mà không phải trích lại.
 
-**Tương tác với retention (hướng B):** application gốc vẫn đi đúng quy trình 12 tháng và F2.07. Khi nominate, hệ thống sao chép dữ liệu tối thiểu sang pool **chỉ sau khi consent được ghi nhận** (trạng thái `PENDING_CONSENT` chưa có profile đầy đủ, chỉ có tham chiếu đến application để chờ). Nếu hồ sơ gốc đến hạn xóa trong lúc chưa có consent thì mục `PENDING_CONSENT` chuyển `EXPIRED` và không sao chép. Hạn `consent_expires_at` mới là hạn lưu trữ của bản sao; cần Pháp chế xác nhận không mâu thuẫn với chính sách 12 tháng (D-TP-02).
+**Tương tác với retention:** application và `profile_versions` đã sống đủ 5 năm theo chính sách, nên Talent Pool không cần đường riêng. Hồ sơ bị xóa theo retention/F2.07 thì tự biến mất khỏi pool; hồ sơ `ON_HOLD` hoặc đang chờ xóa bị loại khỏi quét. Rút đồng ý chặn quét ngay và đưa hồ sơ vào hàng đợi xóa hiện có.
+
+**Có còn cần "bản sao tối thiểu" không?** Không, với điều kiện D-TP-01 và D-TP-02 được xác nhận. Chỉ cần lại nếu hóa ra thời hạn 5 năm không áp dụng cho hồ sơ không được tuyển (khi đó quay về phương án giữ bản sao có consent riêng, như bản spec trước).
 
 ## 6. Luồng nghiệp vụ
 
-### 6.1 Gắn nhãn và xin consent
+### 6.1 Consent và đánh dấu
 
-1. HR mở application đủ điều kiện (D-TP-04), bấm **"Đề xuất vào Talent Pool"**, hệ thống tạo `talent_pool_entries` ở `PENDING_CONSENT`.
-2. HR xem trước email consent (mẫu song ngữ, có tên vị trí cũ, mục đích, thời hạn, quyền rút, liên hệ), bấm gửi. Không gửi tự động.
-3. Email có hai link token một lần: **Đồng ý** và **Từ chối/Rút**. Link dẫn tới trang công khai tối giản, không cần đăng nhập, không hiển thị dữ liệu cá nhân ngoài tên vị trí.
-4. Đồng ý: ghi `talent_pool_consents` (phiên bản thông báo, thời điểm, hạn), sao chép dữ liệu tối thiểu, entry `ACTIVE`. Từ chối hoặc không trả lời sau N ngày (đề xuất 14): entry `EXPIRED`, không sao chép gì.
-5. Rút consent bất cứ lúc nào (link trong email hoặc HR nhập theo yêu cầu bằng văn bản): entry `WITHDRAWN`, **chặn quét ngay**, xếp hàng xóa dữ liệu pool (D-TP-06).
+1. **Lúc nộp hồ sơ** (cổng công khai P3-3 hoặc form nộp hiện hành): ô tick mục đích Talent Pool (D-TP-01). Hệ thống ghi `application_data_consents` cùng phiên bản câu chữ. Chưa có form công khai thì pha 1 làm API ghi consent để cổng sau này gọi, và dữ liệu thử dùng bản ghi tổng hợp.
+2. HR mở application đủ điều kiện (D-TP-04), bấm **"Đưa vào Talent Pool"**; hệ thống từ chối nếu không có consent hợp lệ. Không có tự động đưa vào.
+3. Rút đồng ý: ứng viên yêu cầu (hoặc HR nhập theo yêu cầu bằng văn bản): ghi `withdrawn_at`, **chặn quét ngay**, xếp hàng xóa qua cơ chế F2.07.
+4. Hồ sơ cũ không có bản ghi tick: không vào pool (D-TP-05). Gửi email xin consent là hạng mục tùy chọn sau này, cần P3-0 (Microsoft Graph/SMTP).
 
 ### 6.2 Quét kho (Rediscovery)
 
@@ -87,24 +89,21 @@ Cron/chu kỳ nền (mở rộng chu kỳ retention hiện có, vẫn **không b
 
 | Method | Path | Quyền | Ghi chú |
 | :--- | :--- | :--- | :--- |
-| POST | `/entries` | HR phụ trách vị trí nguồn / HR Lead | Body: `application_id`; kiểm tra trạng thái hợp lệ (D-TP-04) |
-| POST | `/entries/{id}/consent-request` | như trên | Tạo token, trả bản xem trước email; gửi chỉ khi HR xác nhận |
-| GET | `/entries` | HR Lead, HR được phân công | Danh sách + trạng thái, lọc theo vị trí nguồn; **không** trả nội dung CV |
-| POST | `/entries/{id}/withdraw` | HR Lead/Admin (thay mặt theo văn bản) | Ghi lý do |
-| POST | `/positions/{id}/talent-pool/scan` | theo D-TP-03 | Trả `scan_id` và chạy bất đồng bộ qua worker/operation giống assessment |
-| GET | `/talent-pool/scans/{scan_id}` | người tạo, HR Lead | Kết quả đã lọc hợp lệ tại thời điểm xem |
-| POST | `/talent-pool/scans/{scan_id}/results/{entry_id}/decision` | như trên | `CONTACT/SKIP/LATER` |
-| GET/POST | `/public/talent-pool/consent/{token}` | **không đăng nhập** | Xem thông báo, đồng ý hoặc từ chối; rate limit, token một lần; chỉ ra tên vị trí và mục đích |
-| POST | `/public/talent-pool/withdraw/{token}` | không đăng nhập | Rút consent |
+| POST | `/applications/{id}/mark` | HR phụ trách vị trí nguồn / HR Lead | Đánh dấu vào pool; từ chối nếu thiếu consent `TALENT_POOL` hợp lệ hoặc trạng thái không đủ điều kiện (D-TP-04) |
+| DELETE | `/applications/{id}/mark` | như trên | Bỏ đánh dấu |
+| GET | `/marks` | HR Lead, HR được phân công | Danh sách và trạng thái consent; **không** trả nội dung CV |
+| POST | `/applications/{id}/withdraw-consent` | HR Lead/Admin (thay mặt theo văn bản) | Ghi `withdrawn_at`, chặn quét, xếp hàng xóa |
+| POST | `/positions/{id}/talent-pool/scan` | theo D-TP-03 | Trả `scan_id`, chạy bất đồng bộ giống assessment |
+| GET | `/scans/{scan_id}` | người tạo, HR Lead | Kết quả đã lọc hợp lệ tại thời điểm xem |
+| POST | `/scans/{scan_id}/results/{application_id}/decision` | như trên | `CONTACT/SKIP/LATER` |
 
-Endpoint công khai chỉ cần cho consent/rút; chưa gồm form nộp CV (đó là P3-3). Đặt rate limit và giới hạn kích thước ngay từ đầu vì đây là bề mặt công khai đầu tiên của HRApp.
+Endpoint ghi consent lúc nộp do cổng ứng tuyển (P3-3) gọi, nên chưa nằm trong bản này; pha 1 chỉ cung cấp hàm ghi dùng chung. Không có endpoint công khai mới trong P3-1.
 
 ## 8. Giao diện (Việt/Anh, trong Recruitment Workspace hiện có)
 
-- Trang application (HR): nút "Đề xuất vào Talent Pool" và badge trạng thái consent.
-- Trang mới **Talent Pool**: danh sách entry, trạng thái consent, hạn, nhắc hạn, hàng đợi xóa (mở rộng trang "Lưu trữ & xóa dữ liệu").
-- Trang vị trí: nút "Quét Talent Pool" (chỉ hiện khi vị trí OPEN và criteria APPROVED), màn kết quả có bằng chứng cạnh nhau như màn đối chiếu hiện tại, kèm cột "còn hạn consent đến".
-- Trang công khai consent: một trang tối giản, nội dung do Pháp chế duyệt, hiển thị theo ngôn ngữ trong link.
+- Trang application (HR): nút "Đưa vào Talent Pool" và badge consent (có/không/đã rút).
+- Trang **Talent Pool**: danh sách hồ sơ đã đánh dấu, trạng thái consent, hạn lưu, hàng đợi xóa (mở rộng trang "Lưu trữ & xóa dữ liệu").
+- Trang vị trí: nút "Quét Talent Pool" (chỉ hiện khi vị trí OPEN và criteria APPROVED), màn kết quả có bằng chứng cạnh nhau như màn đối chiếu hiện tại, kèm cột "lưu đến ngày".
 
 ## 9. Kiểm thử và nghiệm thu
 
@@ -119,32 +118,31 @@ Kiểm thử tự động (dữ liệu tổng hợp, PostgreSQL + pgvector như 
 - Fail-closed: bảng pool rỗng hoặc cấu hình tắt thì quét trả lỗi rõ, không quét application cũ thay thế.
 
 **Tiêu chí nghiệm thu (đề xuất, một phần theo Cổng 3 của PRD):**
-1. Mẫu consent và thời hạn được Pháp chế duyệt bằng văn bản.
-2. 100% entry `ACTIVE` có bản ghi consent đầy đủ (phiên bản thông báo, thời điểm, hạn).
+1. Câu chữ ô tick được HR Lead/Pháp chế xác nhận có nêu mục đích tái sử dụng.
+2. 100% hồ sơ trong pool có bản ghi consent đầy đủ (phiên bản câu chữ, thời điểm), chưa rút.
 3. Không có trường hợp quét nào chạm entry không hợp lệ trong bộ test tổng hợp, kể cả race.
 4. Quét một vị trí mới trên pool tổng hợp 200 hồ sơ cho kết quả có bằng chứng; thời gian chấp nhận được (cần đo, chưa có số).
-5. Quy trình rút và xóa chạy đầu-cuối trên staging với dữ liệu tổng hợp.
+5. Quy trình rút đồng ý và xóa chạy đầu-cuối trên staging với dữ liệu tổng hợp.
 
 ## 10. Thứ tự triển khai đề xuất
 
 | Pha | Nội dung | Phụ thuộc | Độ lớn |
 | :--- | :--- | :--- | :-: |
-| 0 | Chốt D-TP-01…D-TP-06 với Pháp chế/HR Lead; viết mẫu thông báo consent | Pháp chế | chờ |
-| 1 | Migration + mô hình + luật đủ điều kiện (hàm thuần kèm truy vấn DB) + test race/retention | D-TP-02 | M |
-| 2 | Gắn nhãn, email consent qua Outlook (cần P3-0: Microsoft Graph/SMTP), trang công khai consent/rút, token | IT cấp quyền gửi mail; D-TP-05 | M |
-| 3 | Quét và xếp hạng, màn kết quả có bằng chứng, quyết định HR | P3-0 (pilot Phase 2 ổn); DEP-05 nếu dùng LLM với dữ liệu thật | M |
-| 4 | Hết hạn, nhắc 30/15/7, hàng đợi xóa + OTP cho pool, cập nhật CV qua link (D-TP-07) | Pháp chế duyệt hold/OTP (F2.07) | S–M |
+| 0 | Xác nhận D-TP-01, D-TP-02, D-TP-05 (đối chiếu câu chữ ô tick, mốc 5 năm) | HR Lead | nhỏ |
+| 1 | Migration consent + đánh dấu; luật đủ điều kiện (hàm thuần kèm truy vấn DB); chính sách retention 60 tháng; test race/retention | D-TP-02 | S–M |
+| 2 | Quét và xếp hạng, màn kết quả có bằng chứng, quyết định HR | P3-0 (pilot Phase 2 ổn); DEP-05 nếu dùng LLM với dữ liệu thật | M |
+| 3 | Rút đồng ý, nhắc hết hạn 5 năm, hàng đợi xóa + OTP (tái dùng F2.07) | F2.07 | S |
+| 4 | Ô tick thật trên cổng công khai (P3-3 bước 2), cập nhật CV qua link (D-TP-07), email xin consent cho hồ sơ cũ (tùy chọn) | P3-3, P3-0 | M |
 
-Ước lượng tổng: L (khoảng 3–4 tuần làm việc, chưa tính thời gian chờ Pháp chế/IT). Pha 1 làm được ngay mà không cần chờ quyết định cuối nếu giữ hằng số hạn consent cấu hình được.
+Ước lượng tổng: giảm xuống còn M–L so với bản trước vì bỏ sao chép dữ liệu, email consent và trang consent công khai. Pha 1–3 làm được ngay trên dữ liệu tổng hợp.
 
 ## 11. Rủi ro
 
 | Rủi ro | Giảm thiểu |
 | :--- | :--- |
-| Pháp chế không chấp nhận hướng B (bản sao tồn tại sau 12 tháng) | Chuẩn bị phương án A: dùng `ON_HOLD` với lý do mới `TALENT_POOL_CONSENT`; cần mở rộng danh sách lý do và ý nghĩa "số văn bản" |
-| Nhân đôi dữ liệu cá nhân, tăng bề mặt rò rỉ | Chỉ sao chép tối thiểu; tách bảng liên hệ; RLS + service_role; xóa có xác nhận; kiểm tra chéo trong test |
+| Câu chữ ô tick không nêu mục đích tái sử dụng | Kiểm tra ở D-TP-01 trước khi bật quét trên dữ liệu thật; fail-closed khi không có bản ghi đúng `purpose` |
+| Chưa có nơi ghi tick (hệ thống hiện chưa có form công khai) | Pha 1 chỉ dựng bảng và API; ô tick thật làm cùng P3-3 bước 2; trong lúc chờ, pool chỉ chạy dữ liệu tổng hợp |
+| Đổi retention 12 → 60 tháng ảnh hưởng hồ sơ đã có | Áp dụng bằng phiên bản chính sách mới cho các vị trí đóng sau này; không tự gia hạn các case retention đã sinh |
+| Giữ lâu hơn, tăng bề mặt rò rỉ | RLS + service_role; truy cập theo phân quyền vị trí; audit không chứa PII; xóa có xác nhận + OTP |
 | Chấm lại CV cũ tốn chi phí/LLM và cần egress | Rule engine trước; LLM chỉ cho tiêu chí chưa giải được; gate DEP-05 trước khi dùng dữ liệu thật |
-| Bề mặt công khai đầu tiên (consent/rút) bị lạm dụng | Rate limit, token băm một lần, không lộ dữ liệu cá nhân, không log nội dung |
-| Kết quả cũ "treo" sau khi rút consent | Kiểm tra lại điều kiện lúc hiển thị; xóa kết quả của entry không còn hợp lệ |
-| Email consent bị coi là spam hoặc gửi nhầm | HR xem trước, gửi từ hòm thư chính thức, giới hạn tần suất, ghi nhật ký gửi |
-| Đồng ý nhưng sau đó đổi CV/hết liên quan | Hạn consent ngắn hơn khi không cập nhật; nhắc làm mới (pha 4) |
+| Kết quả cũ "treo" sau khi rút đồng ý | Kiểm tra lại điều kiện lúc hiển thị; xóa kết quả của hồ sơ không còn hợp lệ |
