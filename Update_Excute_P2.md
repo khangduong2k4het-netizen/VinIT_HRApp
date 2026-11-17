@@ -295,3 +295,7 @@ Sau khi plan được duyệt và mỗi batch triển khai hoàn thành, bổ su
 
 - User đồng ý phương án chỉ cài ClamAV, dùng nhãn spam/trash của Gmail thay cho spamd ở vòng dữ liệu giả. Thêm `GMAIL_TEST_GMAIL_SPAM_ONLY` mặc định false: khi true chỉ route Gmail thử nghiệm bỏ qua spamd; Gmail nhãn SPAM/TRASH vẫn bị loại, ClamAV email/attachment vẫn bắt buộc và fail-closed. UI cảnh báo rõ và audit ghi mode cho mỗi xử lý; không thay đổi pool consent hay API Careers. Gmail filtering không tương đương SpamAssassin, không chứng minh nội dung an toàn. Cờ không biến hệ thống thành phù hợp dữ liệu thật; mailbox/marker không chứng minh synthetic.
 - Script kiểm tra scanner hỗ trợ chỉ ClamAV, vẫn kiểm tra spamd khi truyền socket. Backend local 411 passed/10 warnings; FE type-check, lint, i18n, unit và build pass. Một lệnh `npm test` thử nhầm không tồn tại, sau đó chạy đúng `npm run test:unit` và build. Chưa deploy/khởi động/cài trên VPS; chưa chạy scanner/Gmail thật. Chi tiết lệnh tuần tự và gate: `doc/VPS_THU_NGHIEM_RUT_GON.md`.
+
+## 25. Tài nguyên VPS cho ClamAV
+
+Operator báo Ubuntu noble arm64 package candidate ClamAV `1.5.4+dfsg-0ubuntu0.24.04.1`, RAM 3.8 GiB với 2.5 GiB available, swap 4 GiB với 1.5 GiB used, `/` còn 13 GB/45 GB. Có thể thử cài sau khi chú ý tải VPS, nhưng cần theo dõi RAM/swap và tình trạng các app sau khi nạp signature; không đảm bảo đủ. Chưa cài hoặc test scanner. CI commit `02e816b` run `44031133790` success.

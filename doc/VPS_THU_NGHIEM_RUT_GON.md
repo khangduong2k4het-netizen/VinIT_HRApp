@@ -57,3 +57,7 @@ Thay đường dẫn ví dụ bằng socket xác định ở trên. Kết quả 
 Qua tunnel, HR thử một CV giả vào Careers (có và không opt-in), xem worker và thử rút consent; gửi một email giả có nhãn `HRA_TEST`, tiêu đề `[HRA-TEST] <mã vị trí>`, đúng một CV giả, HR Lead/Admin bấm đồng bộ. Kiểm tra dedupe, trường hợp review, không tự consent pool, ClamAV bị dừng không nhận hồ sơ. Thư Spam/Trash có thể bị Gmail loại khỏi danh sách và không xuất hiện trong review. Chưa chạy những test này trên hạ tầng thật.
 
 **Chưa sẵn sàng cho production**: cần xét lọc spam độc lập, HTTPS, chống abuse, privacy/retention/withdrawal, backup và các gate vận hành trong runbook chi tiết. Không có bước ở đây cho phép nhận dữ liệu thật.
+
+## Kết quả kiểm tra VPS do operator gửi
+
+Snapshot: repo Ubuntu noble (24.04) arm64, candidate ClamAV `1.5.4+dfsg-0ubuntu0.24.04.1`; 3.8 GiB RAM, 2.5 GiB available, swap 4 GiB trong đó 1.5 GiB used; root filesystem 45 GB, còn 13 GB (73% used). Có thể thử cài nhưng RAM không dư dả và swap đã dùng: cần theo dõi sau khi daemon nạp signatures, tránh làm khi VPS đang tải nặng, dừng và đánh giá nếu RAM/swap tăng nhiều hoặc dịch vụ khác chậm. Không khẳng định thông số này bảo đảm đủ tài nguyên. Tại snapshot scanner chưa được cài; agent không có SSH.
