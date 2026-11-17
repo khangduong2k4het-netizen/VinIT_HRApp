@@ -190,7 +190,8 @@ def test_admin_and_hr_lead_can_directly_approve_without_hm(client, seed):
                          {"id": user_id, "role": role})
 
     route = f"/v1/criteria/{seed['cv']}/approve"
-    assert client.post(route, headers=headers(seed["hr"]), json={"action": "DIRECT_APPROVE"}).status_code == 403
+    # The assigned HR may approve directly only after accepting responsibility.
+    assert client.post(route, headers=headers(seed["hr"]), json={"action": "DIRECT_APPROVE"}).status_code == 400
     assert client.post(route, headers=headers(seed["hm"]), json={"action": "DIRECT_APPROVE"}).status_code == 403
 
     # HR Lead can finalize a draft directly; HM approval remains bypassed,
@@ -241,6 +242,49 @@ def test_admin_and_hr_lead_can_directly_approve_without_hm(client, seed):
     assert row["approved_by_hr"] == seed["hr"] and row["approved_by_hm"] is None
     assert [(event["reviewer_role"], event["decision"]) for event in events] == [
         ("HR_RECRUITER", "APPROVE"), ("ADMIN", "DIRECT_APPROVE")]
+
+
+def test_assigned_hr_can_self_approve_criteria_after_accepting_responsibility(client, seed):
+    route = f"/v1/criteria/{seed['cv']}/approve"
+    refused = client.post(route, headers=headers(seed["hr"]), json={"action": "DIRECT_APPROVE"})
+    assert refused.status_code == 400 and "chịu trách nhiệm" in refused.json()["detail"]
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT status FROM app_private.criteria_versions WHERE criteria_version_id = :id"),
+                            {"id": seed["cv"]}).scalar_one() == "DRAFT"
+
+    # An HR Recruiter of another position cannot use the path at all.
+    outsider = uid()
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO auth.users(id) VALUES (:id)"), {"id": outsider})
+        conn.execute(text("INSERT INTO app_private.user_profiles(user_id, display_name) VALUES (:id, 'Other HR')"), {"id": outsider})
+        conn.execute(text("INSERT INTO app_private.user_role_assignments(user_id, role_code) VALUES (:id, 'HR_RECRUITER')"), {"id": outsider})
+    assert client.post(route, headers=headers(outsider),
+                       json={"action": "DIRECT_APPROVE", "accept_responsibility": True}).status_code == 403
+
+    response = client.post(route, headers=headers(seed["hr"]),
+                           json={"action": "DIRECT_APPROVE", "accept_responsibility": True})
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "APPROVED"
+    with engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT approved_by_hm FROM app_private.criteria_versions WHERE criteria_version_id = :id
+        """), {"id": seed["cv"]}).mappings().one()
+        event = conn.execute(text("""
+            SELECT reviewer_role, decision, comment FROM app_private.criteria_approval_events
+            WHERE criteria_version_id = :id ORDER BY decided_at DESC, event_id DESC LIMIT 1
+        """), {"id": seed["cv"]}).mappings().one()
+        audit = conn.execute(text("""
+            SELECT metadata FROM app_private.audit_events
+            WHERE action_type = 'REVIEW_CRITERIA' AND object_id = :id ORDER BY created_at DESC LIMIT 1
+        """), {"id": seed["cv"]}).scalar_one()
+    # HM approval is skipped, not impersonated; the trail says who took responsibility.
+    assert row["approved_by_hm"] is None
+    assert (event["reviewer_role"], event["decision"]) == ("HR_RECRUITER", "DIRECT_APPROVE")
+    assert "tự chịu trách nhiệm" in event["comment"]
+    assert audit["hr_self_approval"] is True and audit["accepted_responsibility"] is True and audit["bypassed_hm"] is True
+
+    # The approved version is usable: CV upload is no longer blocked by missing HM approval.
+    assert client.get(f"/v1/criteria/position/{seed['pos']}/approved", headers=headers(seed["hr"])).status_code == 200
 
 
 def test_status_shortlist_permissions_feedback_and_revocation(client, seed):

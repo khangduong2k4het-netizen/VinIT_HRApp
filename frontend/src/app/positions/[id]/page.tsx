@@ -30,6 +30,8 @@ import {
   InputLabel,
   MenuItem,
   Select,
+  Checkbox,
+  FormControlLabel,
 } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
@@ -171,6 +173,9 @@ export default function PositionDetailPage() {
   const [savingPosition, setSavingPosition] = useState(false);
   const [positionEditError, setPositionEditError] = useState<string | null>(null);
   const [approvalHistory, setApprovalHistory] = useState<any[]>([]);
+  // HR self-approval (no Hiring Manager review): explicit responsibility acknowledgement.
+  const [selfApproveOpen, setSelfApproveOpen] = useState(false);
+  const [acceptResponsibility, setAcceptResponsibility] = useState(false);
   const [appCounts, setAppCounts] = useState<{total: number; processing: number; needs_review: number; shortlisted: number} | null>(null);
   // F1.01: status history and reason; F1.02: copy to a new version; F2.01: apply a template.
   const [statusEvents, setStatusEvents] = useState<PositionStatusEvent[]>([]);
@@ -302,12 +307,13 @@ export default function PositionDetailPage() {
     } finally { setGenerating(false); }
   };
 
-  const handleApprove = async (action: 'APPROVE' | 'DIRECT_APPROVE' | 'REJECT' | 'REQUEST_CHANGES', comment?: string) => {
+  const handleApprove = async (action: 'APPROVE' | 'DIRECT_APPROVE' | 'REJECT' | 'REQUEST_CHANGES', comment?: string, acceptResponsibility?: boolean) => {
     if (!currentCriteria || approving) return;
     try {
       setApproving(true); setError(null);
-      await criteriaApi.approve(currentCriteria.criteria_version_id, action, comment);
+      await criteriaApi.approve(currentCriteria.criteria_version_id, action, comment, acceptResponsibility);
       setApprovalAction(null); setApprovalComment('');
+      setSelfApproveOpen(false); setAcceptResponsibility(false);
       await loadData();
     } catch (err: any) {
       setError(err.response?.data?.detail || t("Thao tác không thành công"));
@@ -449,6 +455,12 @@ export default function PositionDetailPage() {
   const isHR = myPositionRoles.has('HR_RECRUITER') || myPositionRoles.has('HR_LEAD') || mySystemRoles.has('ADMIN') || mySystemRoles.has('HR_LEAD');
   const isHM = myPositionRoles.has('HIRING_MANAGER');
   const canDirectApprove = mySystemRoles.has('ADMIN') || mySystemRoles.has('HR_LEAD') || myPositionRoles.has('HR_LEAD');
+  // The assigned HR Recruiter may also approve without the HM, but only after accepting responsibility.
+  const canHrSelfApprove = !canDirectApprove && myPositionRoles.has('HR_RECRUITER');
+  const openSelfApprove = () => { setAcceptResponsibility(false); setSelfApproveOpen(true); };
+  // Latest decision of an approved version made without the Hiring Manager (direct approval).
+  const lastApprovalEvent = approvalHistory.length ? approvalHistory[approvalHistory.length - 1] : null;
+  const approvedWithoutHm = currentCriteria?.status === 'APPROVED' && lastApprovalEvent?.decision === 'DIRECT_APPROVE' ? lastApprovalEvent : null;
   const isSameApprover = !!currentCriteria?.approved_by_hr && currentCriteria.approved_by_hr === me?.user_id;
   const canEditCriteria = isHR && !!currentCriteria && ['DRAFT', 'PENDING_HR_REVIEW'].includes(currentCriteria.status);
   const fairnessIssues = currentCriteria?.fairness_warnings || [];
@@ -719,6 +731,21 @@ export default function PositionDetailPage() {
       {/* Tab 1: Criteria & Approval */}
       <TabPanel value={activeTab} index={0}>
         {criteriaStale && <Alert severity="warning" sx={{ mb: 2 }}>{t("JD đã thay đổi. Cần tạo và duyệt bộ tiêu chí cho phiên bản mới trước khi tải hoặc đánh giá CV.")}</Alert>}
+        {approvedWithoutHm && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography variant="body2" fontWeight={600}>
+              {approvedWithoutHm.reviewer_role === 'HR_RECRUITER'
+                ? t("HR tự duyệt — chưa có ý kiến của Hiring Manager")
+                : t("Duyệt trực tiếp — chưa có ý kiến của Hiring Manager")}
+            </Typography>
+            <Typography variant="body2">
+              {approvedWithoutHm.reviewer_role === 'HR_RECRUITER'
+                ? t("{0} đã xác nhận tự chịu trách nhiệm về bộ tiêu chí này ({1}).", approvedWithoutHm.reviewer_name || t("HR phụ trách"), new Date(approvedWithoutHm.decided_at).toLocaleString(dateLocale))
+                : t("{0} đã duyệt trực tiếp bộ tiêu chí này ({1}).", approvedWithoutHm.reviewer_name || t("Người duyệt"), new Date(approvedWithoutHm.decided_at).toLocaleString(dateLocale))}
+              {isHM && <> {t("Bạn vẫn xem được toàn bộ tiêu chí; nếu thấy chưa phù hợp, hãy trao đổi với HR để tạo phiên bản mới.")}</>}
+            </Typography>
+          </Alert>
+        )}
         {isHM && isSameApprover && currentCriteria?.status === 'PENDING_HM_APPROVAL' && <Alert severity="warning" sx={{ mb: 2 }}>{t("Hai bước duyệt phải do hai tài khoản khác nhau thực hiện. Vui lòng nhờ Hiring Manager khác được phân công duyệt.")}</Alert>}
         {currentCriteria && currentCriteria.status !== 'APPROVED' && (
           <Alert severity="info" sx={{ mb: 2 }}>
@@ -931,6 +958,11 @@ export default function PositionDetailPage() {
                               {t("Admin hoặc HR Lead có thể duyệt trực tiếp, không cần chờ Hiring Manager; luồng HR → HM vẫn giữ nguyên.")}
                             </Typography>
                           )}
+                          {canHrSelfApprove && (
+                            <Typography variant="caption" color="#B54708" sx={{ mt: 0.5, display: 'block' }}>
+                              {t("Bạn có thể tự duyệt mà không chờ Hiring Manager, nhưng phải xác nhận tự chịu trách nhiệm về bộ tiêu chí.")}
+                            </Typography>
+                          )}
                         </Box>
                       </Box>
                       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
@@ -961,6 +993,15 @@ export default function PositionDetailPage() {
                                     onClick={() => handleApprove('DIRECT_APPROVE')}
                                     disabled={approving || criteriaStale || !itemWeightsValid || fairnessIssues.length > 0}
                                   >{t("Admin/HR Lead duyệt trực tiếp")}</Button>
+                                )}
+                                {canHrSelfApprove && (
+                                  <Button
+                                    variant="outlined"
+                                    color="warning"
+                                    startIcon={<WarningIcon />}
+                                    onClick={openSelfApprove}
+                                    disabled={approving || criteriaStale || !itemWeightsValid || fairnessIssues.length > 0}
+                                  >{t("Tự duyệt, không chờ HM")}</Button>
                                 )}
                               </>
                             )}
@@ -996,7 +1037,16 @@ export default function PositionDetailPage() {
                                 disabled={approving || criteriaStale || !itemWeightsValid || fairnessIssues.length > 0}
                               >{t("Admin/HR Lead duyệt trực tiếp")}</Button>
                             )}
-                            {!isHM && !canDirectApprove && (
+                            {canHrSelfApprove && (
+                              <Button
+                                variant="outlined"
+                                color="warning"
+                                startIcon={<WarningIcon />}
+                                onClick={openSelfApprove}
+                                disabled={approving || criteriaStale || !itemWeightsValid || fairnessIssues.length > 0}
+                              >{t("Tự duyệt, không chờ HM")}</Button>
+                            )}
+                            {!isHM && !canDirectApprove && !canHrSelfApprove && (
                               <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>{t("Chờ Hiring Manager duyệt")}</Typography>
                             )}
                           </>
@@ -1166,6 +1216,32 @@ export default function PositionDetailPage() {
           <Button onClick={() => setTemplateDialogOpen(false)} disabled={applyingTemplate}>{t("Hủy")}</Button>
           <Button variant="contained" color="secondary" onClick={applyTemplate}
             disabled={!selectedTemplate || applyingTemplate || hasOpenCriteria}>{applyingTemplate ? t("Đang áp dụng…") : t("Áp dụng template")}</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={selfApproveOpen} onClose={() => !approving && setSelfApproveOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{t("Tự duyệt tiêu chí, không chờ Hiring Manager")}</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>{t("Bạn tự chịu trách nhiệm khi đăng tuyển theo bộ tiêu chí này.")}</Typography>
+            <Typography variant="body2">
+              {t("Bộ tiêu chí sẽ được khóa và dùng ngay để nhận và đánh giá CV mà không có ý kiến chuyên môn của Hiring Manager. Nếu tiêu chí sai hoặc thiếu, kết quả sàng lọc có thể sai và bạn là người chịu trách nhiệm.")}
+            </Typography>
+          </Alert>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            {t("Quyết định được ghi vào lịch sử duyệt và nhật ký audit kèm tên bạn. Hiring Manager vẫn xem được bộ tiêu chí, kèm nhãn “HR tự duyệt — chưa có ý kiến của Hiring Manager”.")}
+          </Typography>
+          <FormControlLabel
+            control={<Checkbox checked={acceptResponsibility} onChange={e => setAcceptResponsibility(e.target.checked)} color="warning" />}
+            label={t("Tôi đã đọc cảnh báo và tự chịu trách nhiệm khi duyệt bộ tiêu chí này mà không có ý kiến của Hiring Manager.")}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSelfApproveOpen(false)} disabled={approving}>{t("Hủy")}</Button>
+          <Button variant="contained" color="warning" disabled={!acceptResponsibility || approving}
+            onClick={() => handleApprove('DIRECT_APPROVE', undefined, true)}>
+            {approving ? t("Đang duyệt…") : t("Xác nhận tự duyệt")}
+          </Button>
         </DialogActions>
       </Dialog>
 

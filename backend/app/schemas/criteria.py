@@ -171,3 +171,6 @@ class ApprovalAction(str, Enum):
 class CriteriaApprovalRequest(BaseSchema):
     action: ApprovalAction
     comment: Optional[str] = None
+    # Required when an assigned HR Recruiter approves directly without the
+    # Hiring Manager: the recruiter explicitly accepts responsibility.
+    accept_responsibility: bool = False

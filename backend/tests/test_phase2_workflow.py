@@ -228,7 +228,8 @@ def test_scorecard_lifecycle_snapshot_and_access(client, seed):
     assert shared.status_code == 201, shared.text
     share_id = shared.json()["share_id"]
     due = datetime.fromisoformat(str(shared.json()["due_at"]).replace("Z", "+00:00"))
-    assert timedelta(days=3) <= due - datetime.now(timezone.utc) <= timedelta(days=5, minutes=1)
+    # 3 working days; on Mon–Wed that is exactly 3 calendar days, so allow clock skew.
+    assert timedelta(days=3, minutes=-1) <= due - datetime.now(timezone.utc) <= timedelta(days=5, minutes=1)
 
     inbox = client.get("/v1/shortlist/my-scorecards", headers=hm).json()
     assert inbox["summary"]["not_started"] == 1

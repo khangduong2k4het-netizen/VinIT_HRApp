@@ -331,7 +331,7 @@ def test_profile_page_numbers_are_sanitized_before_database_insert():
     assert profile["languages"][0]["page_number"] is None
 
 
-def test_criteria_direct_approval_is_admin_or_hr_lead_only():
+def test_criteria_direct_approval_roles():
     from fastapi import HTTPException
 
     from app.api.criteria import criteria_decision
@@ -343,16 +343,22 @@ def test_criteria_direct_approval_is_admin_or_hr_lead_only():
     assert criteria_decision("PENDING_HM_APPROVAL", ApprovalAction.APPROVE, {"HIRING_MANAGER"}, set()) == (
         "APPROVED", "HIRING_MANAGER")
 
-    # The supplementary path is available to Admin/HR Lead from every
-    # non-final approval state, but not to a recruiter or HM acting alone.
+    # The supplementary path is available to Admin/HR Lead and to the assigned
+    # HR Recruiter (who must also accept responsibility, checked by the endpoint)
+    # from every non-final approval state, but never to an HM or an outsider.
     for status in ("DRAFT", "PENDING_HR_REVIEW", "PENDING_HM_APPROVAL"):
+        assert criteria_decision(status, ApprovalAction.DIRECT_APPROVE, {"HR_RECRUITER"}, set()) == (
+            "APPROVED", "HR_RECRUITER")
+        # Someone who is both HR Lead and the assigned recruiter acts as HR Lead.
+        assert criteria_decision(status, ApprovalAction.DIRECT_APPROVE, {"HR_RECRUITER"}, {"HR_LEAD"}) == (
+            "APPROVED", "HR_LEAD")
         assert criteria_decision(status, ApprovalAction.DIRECT_APPROVE, set(), {"ADMIN"}) == (
             "APPROVED", "ADMIN")
         assert criteria_decision(status, ApprovalAction.DIRECT_APPROVE, {"HR_LEAD"}, set()) == (
             "APPROVED", "HR_LEAD")
         assert criteria_decision(status, ApprovalAction.DIRECT_APPROVE, set(), {"HR_LEAD"}) == (
             "APPROVED", "HR_LEAD")
-        for position_roles, system_roles in (({"HR_RECRUITER"}, set()), ({"HIRING_MANAGER"}, set()), (set(), set())):
+        for position_roles, system_roles in (({"HIRING_MANAGER"}, set()), (set(), {"HR_RECRUITER"}), (set(), set())):
             with pytest.raises(HTTPException) as exc:
                 criteria_decision(status, ApprovalAction.DIRECT_APPROVE, position_roles, system_roles)
             assert exc.value.status_code == 403

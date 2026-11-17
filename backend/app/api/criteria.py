@@ -46,7 +46,7 @@ def _load_criteria(db, version_id):
 def _require_fair_criteria(db, criteria_version_id: str) -> None:
     """F1.02: criteria must not rely on age, gender, appearance, marital status,
     personality or culture fit. Checked at every step that moves a version
-    towards APPROVED, including the Admin/HR Lead direct path."""
+    towards APPROVED, including the direct path (Admin, HR Lead or assigned HR)."""
     items = db.execute(text("""
         SELECT criterion_id, name, description, evidence_guidance, expected_evidence_keywords
         FROM app_private.criteria_items WHERE criteria_version_id = :id
@@ -285,13 +285,22 @@ def criteria_decision(current_status: str, action: ApprovalAction, position_role
     # The approval trail records the capacity used; system roles are preserved
     # separately in audit metadata.
     hr_role = "HR_LEAD" if "HR_LEAD" in (system_roles | position_roles) and "HR_RECRUITER" not in position_roles else "HR_RECRUITER"
-    can_direct_approve = bool({"ADMIN", "HR_LEAD"} & system_roles) or "HR_LEAD" in position_roles
-    direct_role = "ADMIN" if "ADMIN" in system_roles else "HR_LEAD"
+    # Admin/HR Lead may always approve directly. The HR Recruiter assigned to the
+    # position may too, but only after accepting responsibility (checked by the
+    # endpoint), because the Hiring Manager's expert review is skipped.
+    can_direct_approve = (bool({"ADMIN", "HR_LEAD"} & system_roles)
+                          or bool({"HR_LEAD", "HR_RECRUITER"} & position_roles))
+    if "ADMIN" in system_roles:
+        direct_role = "ADMIN"
+    elif "HR_LEAD" in (system_roles | position_roles):
+        direct_role = "HR_LEAD"
+    else:
+        direct_role = "HR_RECRUITER"
 
     if action == ApprovalAction.DIRECT_APPROVE:
         if current_status in ("DRAFT", "PENDING_HR_REVIEW", "PENDING_HM_APPROVAL"):
             if not can_direct_approve:
-                raise HTTPException(status_code=403, detail="Chỉ Admin hoặc HR Lead mới có thể duyệt trực tiếp, không qua Hiring Manager")
+                raise HTTPException(status_code=403, detail="Chỉ Admin, HR Lead hoặc HR phụ trách mới có thể duyệt trực tiếp, không qua Hiring Manager")
             return "APPROVED", direct_role
     elif action == ApprovalAction.APPROVE:
         if current_status in ("DRAFT", "PENDING_HR_REVIEW"):
@@ -320,7 +329,7 @@ async def approve_criteria(
     request: CriteriaApprovalRequest,
     current_user: dict = Depends(get_current_user)
 ):
-    """Record HR/HM decisions atomically, plus the Admin/HR Lead direct path."""
+    """Record HR/HM decisions atomically, plus the direct path (Admin/HR Lead, or the assigned HR who accepts responsibility)."""
     user_id = current_user["user_id"]
     cv_id_str = str(criteria_version_id)
     comment = (request.comment or "").strip() or None
@@ -357,6 +366,11 @@ async def approve_criteria(
             WHERE user_id = :user_id AND revoked_at IS NULL FOR SHARE
         """), {"user_id": user_id}).scalars())
         new_status, reviewer_role = criteria_decision(cv["status"], request.action, position_roles, system_roles)
+        hr_self_approval = request.action == ApprovalAction.DIRECT_APPROVE and reviewer_role == "HR_RECRUITER"
+        if hr_self_approval:
+            if not request.accept_responsibility:
+                raise HTTPException(status_code=400, detail="Vui lòng xác nhận bạn tự chịu trách nhiệm khi duyệt tiêu chí không qua Hiring Manager")
+            comment = comment or "HR tự duyệt, không qua Hiring Manager và tự chịu trách nhiệm về bộ tiêu chí."
         if new_status in ("PENDING_HM_APPROVAL", "APPROVED"):
             latest_jd = db.execute(text("SELECT jd_version_id FROM app_private.jd_versions WHERE position_id = :id ORDER BY version_number DESC LIMIT 1"), {"id": position_id}).scalar_one_or_none()
             if str(latest_jd) != str(cv["jd_version_id"]):
@@ -364,7 +378,7 @@ async def approve_criteria(
         if new_status == "APPROVED" and request.action != ApprovalAction.DIRECT_APPROVE:
             # One account may hold both roles.  The position and criteria rows
             # are locked above so this check and the decision are indivisible.
-            # DIRECT_APPROVE is the explicit Admin/HR Lead bypass, so it does
+            # DIRECT_APPROVE is the explicit bypass (Admin/HR Lead/assigned HR), so it does
             # not require a prior, distinct HR approver.
             if not cv["approved_by_hr"] or str(cv["approved_by_hr"]) == str(user_id):
                 raise HTTPException(status_code=409, detail="Hai bước duyệt phải do hai tài khoản khác nhau thực hiện")
@@ -421,7 +435,9 @@ async def approve_criteria(
                     "reviewer_role": reviewer_role, "system_roles": sorted(system_roles),
                     "position_roles": sorted(position_roles),
                     "direct_approve": request.action == ApprovalAction.DIRECT_APPROVE,
-                    "bypassed_hm": request.action == ApprovalAction.DIRECT_APPROVE})})
+                    "bypassed_hm": request.action == ApprovalAction.DIRECT_APPROVE,
+                    "hr_self_approval": hr_self_approval,
+                    "accepted_responsibility": bool(hr_self_approval and request.accept_responsibility)})})
         updated = dict(db.execute(text("SELECT * FROM app_private.criteria_versions WHERE criteria_version_id = :id"),
                                   {"id": cv_id_str}).mappings().one())
         updated["criteria"] = [dict(row) for row in db.execute(text("""
