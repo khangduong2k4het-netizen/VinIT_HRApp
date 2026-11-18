@@ -29,3 +29,12 @@ HRA_E2E_FIXTURE=/đường/dẫn/fixture-tổng-hợp.json \
 ```
 
 Có thể chỉ định `HRA_E2E_CHROMIUM_EXECUTABLE` cho binary có sẵn và `HRA_E2E_CHROMIUM_ARGS` là JSON array khi môi trường CI cô lập cần flags riêng. Không lưu fixture/token hay binary browser vào Git. Test này không chứng minh Supabase Auth/Storage, OCR, model thật hay tính an toàn production.
+
+`npm run test:e2e:intake-mock` chạy Playwright trên server Next cục bộ **với mọi request `/v1` được intercept bằng response giả**, không gọi API, Gmail hay database thật. Nó kiểm tra form rút bị vô hiệu hóa khi JavaScript chưa tải, mất phản hồi Careers và retry giữ cùng request/token, withdrawal, Gmail REVIEW → retry → xác nhận thông tin giả, Talent Pool scan. Các file và tài khoản trong test đều giả; không thay thế kiểm thử hạ tầng thật. Cần Chromium tương thích và thư viện hệ thống, sau đó:
+
+```bash
+HRA_E2E_SYNTHETIC=1 HRA_E2E_BASE_URL=http://127.0.0.1:3000 \
+  npm run test:e2e:intake-mock
+```
+
+Có thể đặt `HRA_E2E_CHROMIUM_EXECUTABLE` và `HRA_E2E_CHROMIUM_ARGS` như test khác. Chỉ dùng server cục bộ dùng một lần. Test chủ động fail nếu gặp `/v1` ngoài mock; không truy cập thư thật hay đưa token thật vào fixture.

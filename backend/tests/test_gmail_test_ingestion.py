@@ -241,3 +241,48 @@ def test_concurrent_identity_updates_have_one_winner(client, gmail_ready):
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = [executor.submit(client.put, url, headers=headers(seed['hr']), json=body) for _ in range(2)]
         assert sorted(f.result(timeout=10).status_code for f in futures) == [200, 409]
+
+
+def test_retry_after_commit_response_lost_does_not_duplicate(client, gmail_ready, monkeypatch):
+    seed, _, _, _ = gmail_ready
+    original = gmail_test._commit_intake
+    def commit_then_lose_response(*args, **kwargs):
+        original(*args, **kwargs)
+        raise OSError('synthetic lost response after commit')
+    monkeypatch.setattr(gmail_test, '_commit_intake', commit_then_lose_response)
+    assert client.post('/v1/gmail-test/sync', headers=headers(seed['hr'])).status_code == 200
+    item = client.get('/v1/gmail-test/review', headers=headers(seed['hr'])).json()['items'][0]
+    assert (item['status'], item['reason']) == ('REVIEW', 'PROCESSING_UNAVAILABLE')
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM app_private.applications WHERE source_code='EMAIL_TEST'")).scalar_one() == 1
+    monkeypatch.setattr(gmail_test, '_commit_intake', original)
+    result = client.post(f"/v1/gmail-test/review/{item['receipt_id']}/retry", headers=headers(seed['hr']))
+    assert result.status_code == 200 and result.json()['status'] == 'ACCEPTED'
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM app_private.applications WHERE source_code='EMAIL_TEST'")).scalar_one() == 1
+        assert conn.execute(text("SELECT count(*) FROM app_private.talent_pool_consents")).scalar_one() == 0
+
+
+def test_concurrent_gmail_sync_creates_one_receipt_and_application(client, gmail_ready, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from app.api import careers_intake
+    seed, _, _, _ = gmail_ready
+    original = careers_intake._store
+    entered, release = Event(), Event()
+    def pause_storage(*args):
+        entered.set()
+        assert release.wait(5)
+        return original(*args)
+    monkeypatch.setattr(careers_intake, '_store', pause_storage)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(client.post, '/v1/gmail-test/sync', headers=headers(seed['hr']))
+        assert entered.wait(5)
+        second = pool.submit(client.post, '/v1/gmail-test/sync', headers=headers(seed['hr']))
+        release.set()
+        results = [first.result(timeout=10), second.result(timeout=10)]
+    assert all(result.status_code == 200 for result in results)
+    assert sorted(result.json()['processed'] for result in results) == [0, 1]
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM app_private.applications WHERE source_code='EMAIL_TEST'")).scalar_one() == 1
+        assert conn.execute(text('SELECT count(*) FROM app_private.gmail_test_messages')).scalar_one() == 1

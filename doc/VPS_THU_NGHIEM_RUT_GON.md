@@ -68,3 +68,8 @@ Snapshot: repo Ubuntu noble (24.04) arm64, candidate ClamAV `1.5.4+dfsg-0ubuntu0
 - Gmail `GET/PUT /review/{receipt_id}/identity`: chỉ HR Lead/Admin active, khi flag Gmail test bật, chỉ receipt ACCEPTED có application nguồn EMAIL_TEST không có retention case; chỉ cho tên giả và email `@example.test` cùng xác nhận tường minh. Chặn khi vị trí có tác vụ đang chạy, dùng `updated_at` chống ghi đè đồng thời và audit actor không ghi thông tin vào metadata. Đây không xác thực danh tính thật, không xác minh dữ liệu giả, không tạo consent hay khôi phục mã rút. Khi email đổi, các duplicate signal PENDING cũ bị dismiss; tín hiệu mới được tính khi chạy ranking sau.
 - UI Careers phân biệt lỗi CV rỗng/quá lớn, lỗi dịch vụ và kết quả không rõ; request ID chỉ bảo vệ retry có nội dung giống nhau, không phát hiện mọi ứng viên trùng. UI rút consent luôn phản hồi đồng nhất, không xác nhận mã tồn tại; HR scan là snapshot, cần tìm lại trước khi dùng.
 - Không có migration bổ sung; code và test local không chứng minh Gmail, Storage, ClamAV, OAuth hay E2E trên VPS. Không bật tính năng hoặc nhập hồ sơ thật.
+
+## Kiểm thử bổ sung tại máy agent (mock, không phải VPS)
+
+- Form rút không thể nhập/gửi trước khi JavaScript khởi tạo; cần JavaScript để thực hiện rút. Browser test local dùng Chromium và mock toàn bộ `/v1` kiểm tra mất phản hồi, retry giữ cùng request/token, withdrawal, Gmail review/retry/xác nhận thông tin giả và kết quả scan pool rỗng. Kết quả không chứng minh withdrawal hoặc Gmail thật.
+- Test PostgreSQL disposable giả lập hai lần sync đồng thời và mất phản hồi ngay sau commit; sau retry chỉ có một receipt và một ứng viên EMAIL_TEST. Không chứng minh tác động lỗi mạng Gmail/Storage thật.
