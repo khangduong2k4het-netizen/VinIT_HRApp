@@ -170,9 +170,9 @@ class Settings(BaseSettings):
     LANGFUSE_SAMPLE_RATE: float = 1.0
     LANGFUSE_CAPTURE_CONTENT: bool = False
 
-    # Retention: 5 years after the position closes. Applying requires the
-    # candidate's data-use consent. The approved row in
-    # app_private.retention_policy_versions takes precedence (migration 00022).
+    # Retention fallback only: the approved row in
+    # app_private.retention_policy_versions decides (migration 00023: 12 months
+    # after closing, or up to 5 years from an active Talent Pool consent).
     RETENTION_MONTHS: int = 60
     # F2.07 — reminder milestones before the due date (days) and the window in
     # which cases appear in the console before they are due.

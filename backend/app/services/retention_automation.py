@@ -33,8 +33,10 @@ from app.services.retention import (
     _as_utc,
     _audit,
     _now,
+    approved_policy,
     assert_position_still_closed,
     days_until,
+    earliest_retention_months,
     generate_retention_cases,
     get_case,
     notice_window_days,
@@ -86,26 +88,33 @@ def cancel_cases_of_superseded_policy(db, *, actor_user_id: str | None = None) -
     """Cancel open cases whose policy was replaced by a longer one.
 
     A case stores the due date computed under the policy in force when it was
-    created. When the approved retention period is extended (12 months -> 5
-    years), such a case would delete data too early, so it is cancelled and
-    re-created later with the new due date. Legal holds (ON_HOLD) are kept:
-    once released they come back as PENDING and are cancelled here.
+    created. When the approved policy gives that application a later due date
+    (12 months -> 5 years with an active Talent Pool consent), the case would
+    delete data too early, so it is cancelled and re-created later with the new
+    due date. Legal holds (ON_HOLD) are kept: once released they come back as
+    PENDING and are cancelled here.
     """
-    policy = db.execute(text("""
-        SELECT policy_version, retention_months FROM app_private.retention_policy_versions
-        WHERE status = 'APPROVED' ORDER BY created_at DESC, policy_version DESC LIMIT 1
-    """)).mappings().first()
+    policy = approved_policy(db)
     if not policy:
         return 0
-    months = int(policy["retention_months"] or settings.RETENTION_MONTHS)
+    use_consent = policy["base_months"] is not None
+    # Same rule as retention_due_date, per case.
     rows = db.execute(text("""
         UPDATE app_private.application_retention_cases c
         SET status = 'CANCELLED', cancel_reason = 'POLICY_EXTENDED', cancelled_at = NOW()
         WHERE c.status IN ('PENDING', 'SCHEDULED_FOR_DELETION')
           AND c.policy_version <> :policy_version
-          AND c.position_closed_at + make_interval(months => :months) > c.due_date
+          AND GREATEST(
+                c.position_closed_at + make_interval(months => :base_months),
+                CASE WHEN :use_consent THEN (
+                    SELECT k.granted_at + make_interval(months => :months)
+                    FROM app_private.application_data_consents k
+                    WHERE k.application_id = c.application_id
+                      AND k.purpose = 'TALENT_POOL' AND k.withdrawn_at IS NULL) END
+              ) > c.due_date
         RETURNING c.retention_case_id, c.position_id
-    """), {"policy_version": policy["policy_version"], "months": months}).mappings().all()
+    """), {"policy_version": policy["policy_version"], "months": policy["months"],
+           "base_months": earliest_retention_months(policy), "use_consent": use_consent}).mappings().all()
     if not rows:
         return 0
     case_ids = [str(row["retention_case_id"]) for row in rows]
@@ -127,14 +136,13 @@ def cancel_cases_of_superseded_policy(db, *, actor_user_id: str | None = None) -
 
 def sync_due_cases(db) -> int:
     """Create cases for every closed position that is due or nearly due."""
-    policy = db.execute(text("""
-        SELECT retention_months FROM app_private.retention_policy_versions
-        WHERE status = 'APPROVED' ORDER BY created_at DESC, policy_version DESC LIMIT 1
-    """)).mappings().first()
+    policy = approved_policy(db)
     if not policy:
         return 0
-    months = int(policy["retention_months"] or settings.RETENTION_MONTHS)
-    # Coarse SQL pre-filter; generate_retention_cases applies the exact rule.
+    # Shortest period: applications without an active Talent Pool consent.
+    months = earliest_retention_months(policy)
+    # Coarse SQL pre-filter; generate_retention_cases applies the exact rule
+    # (including the later due date of applications with consent).
     horizon = _now() + timedelta(days=notice_window_days() + 1)
     positions = db.execute(text("""
         SELECT p.position_id FROM app_private.positions p
