@@ -999,6 +999,8 @@
   "Điểm một phần: chỉ tính trên {0}% trọng số tiêu chí đã có bằng chứng, chưa phải điểm cuối.": "Partial score: calculated only on the {0}% of rubric weight that already has evidence; not the final score.",
   "Điểm cuối: đã tính trên toàn bộ trọng số tiêu chí.": "Final score: calculated on the full rubric weight.",
   "một phần": "partial",
+  "chưa đủ bằng chứng": "not enough evidence",
+  "Chưa so sánh được điểm: chỉ tính trên {0}% trọng số tiêu chí đã có bằng chứng.": "Score not comparable yet: calculated only on the {0}% of rubric weight that has evidence.",
   "Chi tiết tiêu chí": "Criterion details",
   "Chi tiết tiêu chí của {0}": "Criterion details of {0}",
   "Thu gọn chi tiết tiêu chí": "Collapse criterion details",
