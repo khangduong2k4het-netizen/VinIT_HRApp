@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     # client-controlled to the left of the trusted entries.
     PUBLIC_INTAKE_TRUSTED_PROXY_HOPS: int = 0
     # Version of the consent wording shown next to the tick boxes.
-    PUBLIC_INTAKE_NOTICE_VERSION: str = "v1"
+    PUBLIC_INTAKE_NOTICE_VERSION: str = "v2"  # v2: one mandatory consent incl. AI use, 5-year storage, reuse
     MALWARE_SCAN_MODE: Literal["off", "clamav"] = "off"
     CLAMD_HOST: str = "127.0.0.1"
     CLAMD_PORT: int = 3310
@@ -170,8 +170,10 @@ class Settings(BaseSettings):
     LANGFUSE_SAMPLE_RATE: float = 1.0
     LANGFUSE_CAPTURE_CONTENT: bool = False
 
-    # Retention
-    RETENTION_MONTHS: int = 12
+    # Retention: 5 years after the position closes. Applying requires the
+    # candidate's data-use consent. The approved row in
+    # app_private.retention_policy_versions takes precedence (migration 00022).
+    RETENTION_MONTHS: int = 60
     # F2.07 — reminder milestones before the due date (days) and the window in
     # which cases appear in the console before they are due.
     RETENTION_NOTICE_DAYS: list[int] = [30, 15, 7]

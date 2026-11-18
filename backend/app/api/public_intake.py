@@ -246,11 +246,16 @@ async def apply(position_code: str, request: Request, file: UploadFile = File(..
     pos = await run_in_threadpool(_admit, position_code, ip_hash)
     if website.strip():
         # Honeypot: pretend success so a bot learns nothing.
-        return _received(consent_talent_pool)
+        return _received(True)
     if pos is None:
         raise HTTPException(status_code=404, detail="Vị trí không còn nhận hồ sơ.")
     if not consent_processing:
-        raise HTTPException(status_code=400, detail="Cần đồng ý cho phép xử lý hồ sơ để ứng tuyển.")
+        raise HTTPException(status_code=400, detail="Cần đồng ý cho phép sử dụng thông tin hồ sơ để ứng tuyển.")
+    # One mandatory consent (notice v2): processing for this position, AI-assisted
+    # assessment, keeping the CV for 5 years and reuse for other suitable positions.
+    # The separate optional Talent Pool box is gone; the old form field is ignored.
+    # The candidate can still withdraw the reuse part with the token shown once.
+    consent_talent_pool = True
 
     filename = os.path.basename(file.filename or "cv")
     file.file.seek(0, os.SEEK_END)

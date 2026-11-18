@@ -191,6 +191,26 @@ if os.environ.get("TEST_DATABASE_URL"):
     from test_phase1_integration import client, headers, purge_with_otp, seed, uid  # noqa: F401
 
 
+@pytest.fixture(autouse=True)
+def _twelve_month_policy():
+    """These scenarios are written for a 12-month policy; pin it, then restore what was approved."""
+    if not os.environ.get("TEST_DATABASE_URL"):
+        yield
+        return
+    with engine.begin() as conn:
+        approved = list(conn.execute(text(
+            "SELECT policy_version FROM app_private.retention_policy_versions WHERE status = 'APPROVED'")).scalars())
+        conn.execute(text("""INSERT INTO app_private.retention_policy_versions (policy_version, retention_months, trigger_event, status)
+            VALUES ('v1.0-12month', 12, 'POSITION_CLOSED', 'APPROVED') ON CONFLICT (policy_version) DO NOTHING"""))
+        conn.execute(text("UPDATE app_private.retention_policy_versions SET status = 'SUPERSEDED' WHERE status = 'APPROVED'"))
+        conn.execute(text("UPDATE app_private.retention_policy_versions SET status = 'APPROVED' WHERE policy_version = 'v1.0-12month'"))
+    yield
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.retention_policy_versions SET status = 'SUPERSEDED' WHERE status = 'APPROVED'"))
+        conn.execute(text("UPDATE app_private.retention_policy_versions SET status = 'APPROVED' WHERE policy_version = ANY(:v)"),
+                     {"v": approved or ["v1.0-12month"]})
+
+
 def _close(seed, *, months_ago=None, days_until_due=None, position="pos"):
     """Close a position so that its 12-month due date lands where requested."""
     now = datetime.now(timezone.utc)
@@ -288,6 +308,43 @@ def test_reopening_position_cancels_open_cases_and_restarts_cycle(client, seed):
     assert closed.status_code == 200, closed.text
     regenerated = client.post(f"/v1/retention/positions/{seed['pos']}/cases/generate", headers=headers(seed["hr"]))
     assert regenerated.json()["created_count"] == 0
+
+
+@integration
+def test_extending_retention_to_five_years_cancels_cases_of_the_old_policy(client, seed):
+    """Cases created under the 12-month policy must not delete data once 5 years is approved."""
+    _close(seed, months_ago=13)
+    _grant_lead(seed)
+    generated = client.post(f"/v1/retention/positions/{seed['pos']}/cases/generate", headers=headers(seed["hr"]))
+    case_id = generated.json()["cases"][0]["retention_case_id"]
+    assert client.post(f"/v1/retention/cases/{case_id}/confirm", headers=headers(seed["hr"]), json={}).status_code == 200
+    with engine.begin() as conn:
+        old = conn.execute(text("""SELECT policy_version FROM app_private.retention_policy_versions
+            WHERE status = 'APPROVED' ORDER BY created_at DESC LIMIT 1""")).scalar_one()
+        conn.execute(text("UPDATE app_private.retention_policy_versions SET status = 'SUPERSEDED' WHERE policy_version = :v"), {"v": old})
+        conn.execute(text("""INSERT INTO app_private.retention_policy_versions (policy_version, retention_months, trigger_event, status)
+            VALUES ('test-60month', 60, 'POSITION_CLOSED', 'APPROVED')"""))
+    try:
+        summary = automation.run_retention_cycle()
+        assert summary["cases_cancelled_policy_extended"] == 1 and summary["cases_created"] == 0
+        listed = client.get(f"/v1/retention/positions/{seed['pos']}/cases", headers=headers(seed["hr"])).json()
+        assert [(c["status"], c["cancel_reason"]) for c in listed] == [("CANCELLED", "POLICY_EXTENDED")]
+        with engine.connect() as conn:
+            job = conn.execute(text("SELECT status, error FROM app_private.deletion_jobs WHERE retention_case_id = :c"),
+                               {"c": case_id}).mappings().one()
+            audited = conn.execute(text("""SELECT COUNT(*) FROM app_private.audit_events
+                WHERE action_type = 'CANCEL_RETENTION_CASES_POLICY_EXTENDED'""")).scalar_one()
+        assert job["status"] == "FAILED" and job["error"] == "CANCELLED_POLICY_EXTENDED" and audited == 1
+        # 13 months after closing is far from the 5-year due date: nothing new, and a rerun is a no-op.
+        regenerated = client.post(f"/v1/retention/positions/{seed['pos']}/cases/generate", headers=headers(seed["hr"]))
+        assert regenerated.json()["created_count"] == 0 and regenerated.json()["retention_months"] == 60
+        assert automation.run_retention_cycle()["cases_cancelled_policy_extended"] == 0
+    finally:
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE app_private.retention_policy_versions SET status = 'APPROVED' WHERE policy_version = :v"), {"v": old})
+            conn.execute(text("UPDATE app_private.application_retention_cases SET policy_version = :v WHERE policy_version = 'test-60month'"),
+                         {"v": old})
+            conn.execute(text("DELETE FROM app_private.retention_policy_versions WHERE policy_version = 'test-60month'"))
 
 
 @integration

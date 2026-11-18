@@ -16,8 +16,8 @@ export default function ApplyPage() {
   const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState<PublicPosition | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  // One mandatory consent (notice v2): use of the CV incl. AI, 5-year storage, reuse for other positions.
   const [consentProcessing, setConsentProcessing] = useState(false);
-  const [consentPool, setConsentPool] = useState(false);
   const [honeypot, setHoneypot] = useState('');
   const [fieldError, setFieldError] = useState<'MISSING' | 'TYPE' | 'SIZE' | 'CONSENT' | null>(null);
   const [failure, setFailure] = useState<ApplyFailure | null>(null);
@@ -40,7 +40,7 @@ export default function ApplyPage() {
     if (!consentProcessing) { setFieldError('CONSENT'); return; }
     setFieldError(null);
     setBusy(true);
-    const result = await submitApplication(selected.code, file as File, consentPool, honeypot);
+    const result = await submitApplication(selected.code, file as File, true, honeypot);
     setBusy(false);
     if (result.ok) { setWithdrawalToken(result.withdrawalToken ?? null); setDone(true); } else setFailure(result.failure);
   };
@@ -48,7 +48,7 @@ export default function ApplyPage() {
   const fieldMessage = fieldError === 'MISSING' ? t('Vui lòng chọn tệp CV.')
     : fieldError === 'TYPE' ? t('Chỉ hỗ trợ tệp PDF, DOCX, JPG hoặc PNG.')
     : fieldError === 'SIZE' ? t('Tệp vượt quá 10 MB.')
-    : fieldError === 'CONSENT' ? t('Cần đồng ý cho phép xử lý hồ sơ để ứng tuyển.') : '';
+    : fieldError === 'CONSENT' ? t('Cần đồng ý cho phép sử dụng thông tin hồ sơ để ứng tuyển.') : '';
   const failureMessage = failure === 'RATE_LIMIT' ? t('Bạn đã gửi quá nhiều lần. Vui lòng thử lại sau.')
     : failure === 'UNAVAILABLE' ? t('Hệ thống tạm thời chưa nhận hồ sơ. Vui lòng thử lại sau.')
     : failure === 'POSITION_CLOSED' ? t('Vị trí không còn nhận hồ sơ.')
@@ -76,7 +76,7 @@ export default function ApplyPage() {
             {t('Bộ phận Nhân sự sẽ xem xét hồ sơ và liên hệ nếu phù hợp.')}
             {withdrawalToken && (
               <Box sx={{ mt: 2 }}>
-                <Typography variant="body2">{t('Mã để rút lại đồng ý lưu hồ sơ trong Talent Pool. Hãy lưu mã này, hệ thống chỉ hiển thị một lần:')}</Typography>
+                <Typography variant="body2">{t('Mã để rút lại đồng ý dùng hồ sơ cho các vị trí khác. Hãy lưu mã này, hệ thống chỉ hiển thị một lần:')}</Typography>
                 <Typography component="code" sx={{ display: 'block', wordBreak: 'break-all', fontFamily: 'monospace', mt: 0.5 }}>{withdrawalToken}</Typography>
                 <Typography variant="body2" sx={{ mt: 0.5 }}>{t('Rút lại đồng ý tại')} <a href="/apply/withdraw">/apply/withdraw</a></Typography>
               </Box>
@@ -98,13 +98,11 @@ export default function ApplyPage() {
                   <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>{t('PDF, DOCX, JPG hoặc PNG, tối đa 10 MB.')}</Typography>
                 </Box>
                 <FormControlLabel
+                  required
                   control={<Checkbox checked={consentProcessing} onChange={e => { setConsentProcessing(e.target.checked); setFieldError(null); }} />}
-                  label={t('Tôi đồng ý cho VinUniversity xử lý hồ sơ này để xem xét ứng tuyển vào vị trí trên.')} />
-                <FormControlLabel
-                  control={<Checkbox checked={consentPool} onChange={e => setConsentPool(e.target.checked)} />}
-                  label={t('Tôi đồng ý cho VinUniversity lưu hồ sơ tối đa 5 năm kể từ khi tôi đánh dấu đồng ý này và dùng lại để xem xét cho các vị trí khác phù hợp. Việc này không bắt buộc.')} />
+                  label={t('Tôi đồng ý cho VinUniversity sử dụng thông tin trong hồ sơ này, bao gồm xử lý bằng công cụ AI, để xem xét ứng tuyển vào vị trí trên và các vị trí phù hợp khác. Hồ sơ được lưu tối đa 5 năm. Đây là điều kiện bắt buộc để nộp hồ sơ.')} />
                 <Typography variant="caption" color="text.secondary">
-                  {t('Bạn có thể yêu cầu rút đồng ý bất cứ lúc nào bằng cách liên hệ bộ phận Nhân sự. Hồ sơ không được dùng cho mục đích khác.')}
+                  {t('Sau khi nộp, bạn nhận một mã để rút lại đồng ý dùng hồ sơ cho các vị trí khác; bạn cũng có thể liên hệ bộ phận Nhân sự. Hồ sơ không được dùng cho mục đích khác ngoài tuyển dụng.')}
                 </Typography>
                 {/* Honeypot: invisible to people and assistive technology; bots fill it in. */}
                 <Box aria-hidden="true" sx={{ position: 'absolute', left: '-10000px', width: 1, height: 1, overflow: 'hidden' }}>

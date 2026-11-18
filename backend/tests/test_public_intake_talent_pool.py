@@ -174,9 +174,15 @@ def test_apply_creates_application_with_consents_and_audit(client, portal, tmp_p
     assert consents == {"THIS_POSITION", "TALENT_POOL"} and doc.file_processing_status == "RECEIVED" and len(doc.content_sha256) == 64
     assert set(audit) == {"talent_pool_consent", "size_bytes"} and queued == 1
     assert any(files for _, _, files in os.walk(tmp_path))
-    # Ticking only the first box gives only the first consent.
-    assert _apply(client, seed, pool=False, content=PDF + b"\n%second").status_code == 202
-    assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE purpose = 'TALENT_POOL'") == 1
+    # Notice v2: one mandatory consent covers this position, AI use, 5-year storage and reuse,
+    # so the reuse consent is recorded even when an old client still sends consent_talent_pool=false.
+    again = _apply(client, seed, pool=False, content=PDF + b"\n%second")
+    assert again.status_code == 202 and len(again.json()["withdrawal_token"]) == 64
+    assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE purpose = 'TALENT_POOL'") == 2
+    assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE notice_version = 'v2'") == 4
+    # Without the mandatory consent nothing is created.
+    assert _apply(client, seed, processing=False, content=PDF + b"\n%third").status_code == 400
+    assert _count("SELECT COUNT(*) FROM app_private.applications WHERE source_code = 'PORTAL'") == 2
 
 
 @integration
@@ -459,7 +465,8 @@ def test_candidate_withdraws_with_token_and_duplicates_are_idempotent(client, po
     again = _apply(client, seed)  # identical file: no new application, no token
     assert again.status_code == 202 and again.json()["withdrawal_token"] != token  # only a throwaway token
     assert _count("SELECT COUNT(*) FROM app_private.applications WHERE source_code = 'PORTAL'") == 1
-    assert _apply(client, seed, pool=False, content=PDF + b"\n%other").json() == {"status": "received"}  # no token without the box
+    # Consent is mandatory (notice v2): every receipt carries a withdrawal token.
+    assert len(_apply(client, seed, pool=False, content=PDF + b"\n%other").json()["withdrawal_token"]) == 64
     wrong = client.post("/v1/public/talent-pool/withdraw", json={"token": "0" * 64})
     assert wrong.status_code == 200 and wrong.json() == {"status": "ok"}  # same answer for unknown tokens
     assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE purpose = 'TALENT_POOL' AND withdrawn_at IS NOT NULL") == 0

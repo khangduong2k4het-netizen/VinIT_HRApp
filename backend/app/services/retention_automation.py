@@ -82,6 +82,49 @@ def cancel_cases_of_reopened_positions(db, *, position_id: str | None = None,
     return len(rows)
 
 
+def cancel_cases_of_superseded_policy(db, *, actor_user_id: str | None = None) -> int:
+    """Cancel open cases whose policy was replaced by a longer one.
+
+    A case stores the due date computed under the policy in force when it was
+    created. When the approved retention period is extended (12 months -> 5
+    years), such a case would delete data too early, so it is cancelled and
+    re-created later with the new due date. Legal holds (ON_HOLD) are kept:
+    once released they come back as PENDING and are cancelled here.
+    """
+    policy = db.execute(text("""
+        SELECT policy_version, retention_months FROM app_private.retention_policy_versions
+        WHERE status = 'APPROVED' ORDER BY created_at DESC, policy_version DESC LIMIT 1
+    """)).mappings().first()
+    if not policy:
+        return 0
+    months = int(policy["retention_months"] or settings.RETENTION_MONTHS)
+    rows = db.execute(text("""
+        UPDATE app_private.application_retention_cases c
+        SET status = 'CANCELLED', cancel_reason = 'POLICY_EXTENDED', cancelled_at = NOW()
+        WHERE c.status IN ('PENDING', 'SCHEDULED_FOR_DELETION')
+          AND c.policy_version <> :policy_version
+          AND c.position_closed_at + make_interval(months => :months) > c.due_date
+        RETURNING c.retention_case_id, c.position_id
+    """), {"policy_version": policy["policy_version"], "months": months}).mappings().all()
+    if not rows:
+        return 0
+    case_ids = [str(row["retention_case_id"]) for row in rows]
+    db.execute(text("""
+        UPDATE app_private.deletion_jobs
+        SET status = 'FAILED', error = 'CANCELLED_POLICY_EXTENDED', completed_at = NOW()
+        WHERE retention_case_id = ANY(CAST(:ids AS uuid[])) AND status IN ('PENDING', 'PROCESSING')
+    """), {"ids": case_ids})
+    by_position: dict[str, list[dict]] = {}
+    for row in rows:
+        by_position.setdefault(str(row["position_id"]), []).append(dict(row))
+    for pid, cases in by_position.items():
+        _audit(db, actor_user_id=actor_user_id, action="CANCEL_RETENTION_CASES_POLICY_EXTENDED",
+               case={"retention_case_id": cases[0]["retention_case_id"], "position_id": pid},
+               outcome="CANCELLED", metadata={"position_id": pid, "cancelled_count": len(cases),
+                                              "policy_version": policy["policy_version"]})
+    return len(rows)
+
+
 def sync_due_cases(db) -> int:
     """Create cases for every closed position that is due or nearly due."""
     policy = db.execute(text("""
@@ -258,6 +301,7 @@ def run_retention_cycle(now: datetime | None = None) -> dict[str, Any]:
             db.rollback()
             return {"skipped": True}
         cancelled = cancel_cases_of_reopened_positions(db)
+        cancelled_policy = cancel_cases_of_superseded_policy(db)
         created = sync_due_cases(db)
         reminders = record_due_reminders(db, now)
         db.commit()
@@ -267,7 +311,8 @@ def run_retention_cycle(now: datetime | None = None) -> dict[str, Any]:
     finally:
         db.close()
     delivery = deliver_email_reminders(reminders["email_ids"])
-    summary = {"skipped": False, "cases_cancelled_reopened": cancelled, "cases_created": created,
+    summary = {"skipped": False, "cases_cancelled_reopened": cancelled,
+               "cases_cancelled_policy_extended": cancelled_policy, "cases_created": created,
                "in_app_reminders_sent": reminders["in_app_sent"], **delivery}
     logger.info("Retention cycle finished", **summary)
     return summary

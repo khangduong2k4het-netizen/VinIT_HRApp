@@ -197,7 +197,7 @@ export default function RetentionPage() {
       </Box>
 
       <Alert severity="info" sx={{ mb: 2 }}>
-        {t("Thời hạn 12 tháng tính từ ngày đóng vị trí là đề xuất, chưa được Legal/Privacy xác nhận. Xóa một hồ sơ không ảnh hưởng hồ sơ của cùng ứng viên ở vị trí khác.")}
+        {t("Hồ sơ được lưu 5 năm tính từ ngày đóng vị trí, vì ứng viên phải đồng ý cho sử dụng thông tin khi nộp hồ sơ. Xóa một hồ sơ không ảnh hưởng hồ sơ của cùng ứng viên ở vị trí khác.")}
         {' '}{t("Hồ sơ hiện trong danh sách từ 30 ngày trước hạn; vị trí mở lại sẽ hủy các case cũ và tính lại từ ngày đóng mới.")}
       </Alert>
       {notifications.length > 0 && (
