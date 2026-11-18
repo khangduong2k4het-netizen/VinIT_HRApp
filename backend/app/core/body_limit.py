@@ -6,6 +6,8 @@ refuses on Content-Length and also counts bytes for chunked bodies.
 """
 import json
 
+from fastapi import HTTPException
+
 
 class PublicBodyLimit:
     def __init__(self, app, prefix: str, max_bytes):
@@ -46,5 +48,8 @@ class PublicBodyLimit:
         await send({"type": "http.response.body", "body": body})
 
 
-class _TooLarge(Exception):
-    pass
+class _TooLarge(HTTPException):
+    """HTTPException so FastAPI answers 413 instead of wrapping it as a body-parse 400."""
+
+    def __init__(self):
+        super().__init__(status_code=413, detail="Tệp quá lớn.")

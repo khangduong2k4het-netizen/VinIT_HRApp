@@ -457,7 +457,7 @@ def test_candidate_withdraws_with_token_and_duplicates_are_idempotent(client, po
     assert len(token) == 64 and _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE withdrawal_token_hash = :h", h=token) == 0
     assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE withdrawal_token_hash IS NOT NULL") == 1
     again = _apply(client, seed)  # identical file: no new application, no token
-    assert again.status_code == 202 and "withdrawal_token" not in again.json()
+    assert again.status_code == 202 and again.json()["withdrawal_token"] != token  # only a throwaway token
     assert _count("SELECT COUNT(*) FROM app_private.applications WHERE source_code = 'PORTAL'") == 1
     assert _apply(client, seed, pool=False, content=PDF + b"\n%other").json() == {"status": "received"}  # no token without the box
     wrong = client.post("/v1/public/talent-pool/withdraw", json={"token": "0" * 64})
@@ -467,3 +467,68 @@ def test_candidate_withdraws_with_token_and_duplicates_are_idempotent(client, po
     assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE purpose = 'TALENT_POOL' AND withdrawn_at IS NOT NULL") == 1
     assert _count("SELECT COUNT(*) FROM app_private.audit_events WHERE action_type = 'WITHDRAW_TALENT_POOL_CONSENT_BY_CANDIDATE'") == 1
     assert client.post("/v1/public/talent-pool/withdraw", json={"token": "xyz"}).status_code == 422
+
+
+@integration
+def test_repeat_and_bot_submissions_look_like_a_fresh_receipt(client, portal):
+    seed = portal
+    real = _apply(client, seed).json()["withdrawal_token"]
+    repeat = _apply(client, seed).json()
+    bot = _apply(client, seed, honeypot="x", content=PDF + b"\n%bot").json()
+    assert len(repeat["withdrawal_token"]) == 64 and repeat["withdrawal_token"] != real and len(bot["withdrawal_token"]) == 64
+    assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE withdrawal_token_hash IS NOT NULL") == 1
+    assert client.post("/v1/public/talent-pool/withdraw", json={"token": repeat["withdrawal_token"]}).status_code == 200
+    assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE withdrawn_at IS NOT NULL") == 0
+
+
+@integration
+def test_withdrawal_still_works_when_the_portal_is_off(client, portal, monkeypatch):
+    token = _apply(client, portal).json()["withdrawal_token"]
+    monkeypatch.setattr(settings, "PUBLIC_INTAKE_ENABLED", False)
+    assert client.post("/v1/public/talent-pool/withdraw", json={"token": token}).status_code == 200
+    assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE withdrawn_at IS NOT NULL") == 1
+
+
+@integration
+def test_portal_gives_up_with_503_while_hr_holds_the_position(client, portal, monkeypatch):
+    from app.api import public_intake
+    monkeypatch.setattr(public_intake, "LOCK_TIMEOUT", "300ms")
+    conn = engine.connect()
+    trans = conn.begin()
+    try:
+        conn.execute(text("SELECT 1 FROM app_private.positions WHERE position_id = :p FOR UPDATE"), {"p": portal["pos"]})
+        assert _apply(client, portal).status_code == 503
+    finally:
+        trans.rollback()
+        conn.close()
+    assert _count("SELECT COUNT(*) FROM app_private.applications WHERE source_code = 'PORTAL'") == 0
+    assert _apply(client, portal).status_code == 202
+
+
+@integration
+def test_position_unpublished_after_lookup_is_refused_under_the_lock(client, portal, monkeypatch):
+    from app.api import public_intake
+    real_admit = public_intake._admit
+
+    def admit_then_unpublish(code, ip_hash):
+        pos = real_admit(code, ip_hash)
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE app_private.positions SET public_apply_enabled = FALSE WHERE position_id = :p"), {"p": portal["pos"]})
+        return pos
+    monkeypatch.setattr(public_intake, "_admit", admit_then_unpublish)
+    assert _apply(client, portal).status_code == 404
+    assert _count("SELECT COUNT(*) FROM app_private.applications WHERE source_code = 'PORTAL'") == 0
+
+
+@integration
+def test_oversized_chunked_upload_is_413_through_the_real_app(client, portal, monkeypatch):
+    monkeypatch.setattr(settings, "MAX_FILE_SIZE_BYTES", 1000)
+
+    def chunks():  # a valid multipart body sent with no Content-Length, as the Next proxy does
+        yield b'--b\r\nContent-Disposition: form-data; name="file"; filename="cv.pdf"\r\nContent-Type: application/pdf\r\n\r\n'
+        yield b"x" * 60_000
+        yield b"x" * 60_000
+        yield b"\r\n--b--\r\n"
+    res = client.post(f"/v1/public/positions/{portal['pos']}/apply", content=chunks(),
+                      headers={"content-type": "multipart/form-data; boundary=b"})
+    assert res.status_code == 413, res.text

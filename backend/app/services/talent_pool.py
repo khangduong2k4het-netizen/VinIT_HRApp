@@ -51,7 +51,7 @@ ELIGIBLE_POOL_SQL = """
     JOIN app_private.application_data_consents c
       ON c.application_id = a.application_id AND c.purpose = 'TALENT_POOL' AND c.withdrawn_at IS NULL
     WHERE m.removed_at IS NULL
-      AND c.granted_at > CAST(:now AS timestamptz) - make_interval(months => :months)
+      AND c.granted_at + make_interval(months => :months) > CAST(:now AS timestamptz)
       AND a.application_status IN ('SHORTLIST', 'INTERVIEW', 'REJECTED_INTERVIEW')
       AND NOT EXISTS (
           SELECT 1 FROM app_private.application_retention_cases rc

@@ -11,11 +11,11 @@ import os
 import secrets
 from uuid import uuid4
 
-import aiofiles
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from app.core.config import settings
 from app.core.exceptions import FileValidationError
@@ -32,6 +32,7 @@ logger = get_logger(__name__)
 REFUSED = "Không thể nhận tệp này. Vui lòng kiểm tra định dạng (PDF, DOCX, JPG, PNG) và thử lại."
 # Shown to HR only (never to the candidate) on a portal CV that arrived while the
 # position already had a job running; HR queues it with "Xử lý lại".
+LOCK_TIMEOUT = "5s"  # how long a portal request may wait for a position that HR is changing
 DEFERRED_WHILE_BUSY = "CV nộp qua cổng công khai khi vị trí đang có tác vụ xử lý; bấm Xử lý lại để chấm điểm."
 
 
@@ -82,16 +83,24 @@ def list_public_positions():
         db.close()
 
 
-@router.post("/positions/{position_code}/apply", status_code=status.HTTP_202_ACCEPTED)
-async def apply(position_code: str, request: Request, file: UploadFile = File(...),
-                consent_processing: bool = Form(False), consent_talent_pool: bool = Form(False),
-                website: str = Form("")):
-    _require_enabled()
-    ip_hash = _ip_hash(request)
+def _fake_token() -> str:
+    """Answer shaped like a real receipt, so a repeat or bot submission learns nothing."""
+    return secrets.token_hex(32)
+
+
+def _received(consent_talent_pool: bool, token: str | None = None) -> dict:
+    # The real token is shown once; only its hash is stored. Duplicates get a throwaway one.
+    if not consent_talent_pool:
+        return {"status": "received"}
+    return {"status": "received", "withdrawal_token": token or _fake_token()}
+
+
+def _admit(position_code: str, ip_hash: str):
+    """Rate limit and look up the position. Blocking DB work: run in the threadpool."""
     db = SessionLocal()
-    saved_path = None
-    storage = None
     try:
+        # The attempt row references the position, so it can wait for a lock HR holds on it.
+        db.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
         # Serialise attempts from the same address so parallel requests cannot all read
         # a count under the limit before any of them is recorded. The lock is held until
         # the commit below, after this attempt has been inserted.
@@ -106,55 +115,69 @@ async def apply(position_code: str, request: Request, file: UploadFile = File(..
         db.execute(text("INSERT INTO app_private.public_intake_events(ip_hash, position_id, outcome) VALUES (:h, :p, 'ATTEMPT')"),
                    {"h": ip_hash, "p": pos.position_id if pos else None})
         db.commit()
-        if website.strip():
-            # Honeypot: pretend success so a bot learns nothing.
-            return {"status": "received"}
-        if pos is None:
-            raise HTTPException(status_code=404, detail="Vị trí không còn nhận hồ sơ.")
-        if not consent_processing:
-            raise HTTPException(status_code=400, detail="Cần đồng ý cho phép xử lý hồ sơ để ứng tuyển.")
+        return pos
+    except OperationalError as exc:
+        db.rollback()
+        if getattr(exc.orig, "pgcode", None) == "55P03":  # lock_not_available
+            raise HTTPException(status_code=503, detail="Hệ thống đang bận. Vui lòng thử lại sau ít phút.") from None
+        raise
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
 
-        filename = os.path.basename(file.filename or "cv")
-        file.file.seek(0, os.SEEK_END)
-        size = file.file.tell()
-        file.file.seek(0)
-        if size > settings.MAX_FILE_SIZE_BYTES:
-            raise HTTPException(status_code=413, detail=REFUSED)
-        content = await file.read()
-        try:
-            mime = await document_processor.validate_file(content, filename, file.content_type)
-        except FileValidationError:
-            raise HTTPException(status_code=400, detail=REFUSED) from None
-        try:
-            # clamd is a blocking socket call; keep it off the event loop.
-            await run_in_threadpool(scan_upload, content)
-        except ScanRejected:
-            logger.warning("Public upload rejected by malware scan")
-            raise HTTPException(status_code=400, detail=REFUSED) from None
-        except ScanUnavailable as exc:
-            logger.error("Malware scan unavailable; refusing upload", reason=str(exc))
-            raise HTTPException(status_code=503, detail="Hệ thống tạm thời chưa nhận hồ sơ. Vui lòng thử lại sau.") from None
 
-        sha = hashlib.sha256(content).hexdigest()
+def _write_cv(storage, storage_path: str, content: bytes, mime: str) -> None:
+    if settings.STORAGE_BACKEND == "local":
+        full = os.path.join(settings.LOCAL_STORAGE_PATH, settings.SUPABASE_STORAGE_BUCKET_CV, storage_path)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "wb") as out:
+            out.write(content)
+    else:
+        storage.storage.from_(settings.SUPABASE_STORAGE_BUCKET_CV).upload(
+            path=storage_path, file=content, file_options={"content-type": mime})
 
+
+def _remove_cv(storage, saved_path: str) -> None:
+    try:
+        if settings.STORAGE_BACKEND == "local":
+            full = os.path.join(settings.LOCAL_STORAGE_PATH, settings.SUPABASE_STORAGE_BUCKET_CV, saved_path)
+            if os.path.exists(full):
+                os.remove(full)
+        elif storage:
+            storage.storage.from_(settings.SUPABASE_STORAGE_BUCKET_CV).remove([saved_path])
+    except Exception as exc:
+        logger.error("Could not remove orphaned public upload", error_type=type(exc).__name__)
+
+
+def _commit_application(pos, *, filename: str, content: bytes, mime: str, declared_type, size: int, sha: str,
+                        consent_talent_pool: bool, ip_hash: str) -> dict:
+    """Store the CV and create the application. Blocking: runs in the threadpool, never on the event loop."""
+    db = SessionLocal()
+    saved_path = None
+    storage = None
+    try:
         if settings.STORAGE_BACKEND == "supabase":
             storage = get_supabase_client()
             if not storage:
                 raise HTTPException(status_code=503, detail="Hệ thống tạm thời chưa nhận hồ sơ.")
         position_id = str(pos.position_id)
+        # Do not queue behind an HR upload that holds this position: give up after a few seconds.
+        db.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT}'"))
         # Same order as the HR upload and the reprocess endpoint: lock the position,
         # then check for a running job. The worker needs operations.position_id to
         # assess and rank, and the one-job-per-position guard only sees jobs that carry it.
-        locked_status = db.execute(text("SELECT status FROM app_private.positions WHERE position_id = :p FOR UPDATE"),
-                                   {"p": position_id}).scalar_one_or_none()
-        if locked_status != "OPEN":
+        # Re-check everything the portal promises (open, published, approved criteria) under the lock.
+        still_open = db.execute(text(OPEN_POSITION_SQL + " AND p.position_id = :p FOR UPDATE OF p"), {"p": position_id}).first()
+        if not still_open:
             raise HTTPException(status_code=404, detail="Vị trí không còn nhận hồ sơ.")
         # Checked under the position lock, so two simultaneous identical uploads cannot both pass.
         duplicate = db.execute(text("""
             SELECT 1 FROM app_private.application_documents d JOIN app_private.applications a USING (application_id)
-            WHERE a.position_id = :p AND d.content_sha256 = :sha LIMIT 1"""), {"p": pos.position_id, "sha": sha}).first()
+            WHERE a.position_id = :p AND d.content_sha256 = :sha LIMIT 1"""), {"p": position_id, "sha": sha}).first()
         if duplicate:
-            return {"status": "received"}  # idempotent: no second application, no signal to the sender
+            return _received(consent_talent_pool)  # idempotent: no second application, no signal to the sender
         busy = db.execute(text("""SELECT 1 FROM app_private.operations WHERE position_id = :p
               AND capability IN ('CV_PROCESSING', 'ASSESSMENT', 'RANKING') AND status IN ('PENDING', 'PROCESSING') LIMIT 1"""),
                           {"p": position_id}).first() is not None
@@ -168,14 +191,7 @@ async def apply(position_code: str, request: Request, file: UploadFile = File(..
                             {"p": position_id}).scalar_one()
         storage_path = f"{position_id}/{app_id}/{uuid4()}{MIME_EXTENSIONS[mime]}"
         saved_path = storage_path
-        if settings.STORAGE_BACKEND == "local":
-            full = os.path.join(settings.LOCAL_STORAGE_PATH, settings.SUPABASE_STORAGE_BUCKET_CV, storage_path)
-            os.makedirs(os.path.dirname(full), exist_ok=True)
-            async with aiofiles.open(full, "wb") as out:
-                await out.write(content)
-        else:
-            storage.storage.from_(settings.SUPABASE_STORAGE_BUCKET_CV).upload(
-                path=storage_path, file=content, file_options={"content-type": mime})
+        _write_cv(storage, storage_path, content, mime)
         doc_id = db.execute(text("""INSERT INTO app_private.application_documents(application_id, document_type, bucket, storage_path,
                 original_filename, mime_type, size_bytes, file_processing_status, processing_error, content_sha256)
             VALUES (:a, 'CV', :b, :sp, :fn, :m, :s, :st, :err, :sha) RETURNING document_id"""),
@@ -191,7 +207,7 @@ async def apply(position_code: str, request: Request, file: UploadFile = File(..
                 VALUES (:d, :o, 'INITIAL_EXTRACTION', 'PENDING')"""), {"d": doc_id, "o": operation_id})
             db.execute(text("""INSERT INTO app_private.cv_batch_items(batch_id, original_filename, declared_mime_type, detected_mime_type,
                     size_bytes, validation_result, application_id) VALUES (:b, :fn, :dm, :m, :s, 'ACCEPTED', :a)"""),
-                       {"b": batch_id, "fn": filename, "dm": file.content_type, "m": mime, "s": size, "a": app_id})
+                       {"b": batch_id, "fn": filename, "dm": declared_type, "m": mime, "s": size, "a": app_id})
         evidence = json.dumps({"ip_hash": ip_hash[:16]})
         purposes = ["THIS_POSITION"] + (["TALENT_POOL"] if consent_talent_pool else [])
         withdrawal_token = secrets.token_hex(32) if consent_talent_pool else None
@@ -204,23 +220,62 @@ async def apply(position_code: str, request: Request, file: UploadFile = File(..
             VALUES ('RECEIVE_PUBLIC_CV', 'APPLICATION', :a, :p, 'SUCCESS', CAST(:m AS jsonb))"""),
                    {"a": app_id, "p": position_id, "m": json.dumps({"talent_pool_consent": consent_talent_pool, "size_bytes": size})})
         db.commit()
-        # The token is shown once; only its hash is stored.
-        return {"status": "received", **({"withdrawal_token": withdrawal_token} if withdrawal_token else {})}
+        return _received(consent_talent_pool, withdrawal_token)
+    except OperationalError as exc:
+        db.rollback()
+        if saved_path:
+            _remove_cv(storage, saved_path)
+        if getattr(exc.orig, "pgcode", None) == "55P03":  # lock_not_available
+            raise HTTPException(status_code=503, detail="Hệ thống đang bận. Vui lòng thử lại sau ít phút.") from None
+        raise
     except Exception:
         db.rollback()
         if saved_path:
-            try:
-                if settings.STORAGE_BACKEND == "local":
-                    full = os.path.join(settings.LOCAL_STORAGE_PATH, settings.SUPABASE_STORAGE_BUCKET_CV, saved_path)
-                    if os.path.exists(full):
-                        os.remove(full)
-                elif storage:
-                    storage.storage.from_(settings.SUPABASE_STORAGE_BUCKET_CV).remove([saved_path])
-            except Exception as exc:
-                logger.error("Could not remove orphaned public upload", error_type=type(exc).__name__)
+            _remove_cv(storage, saved_path)
         raise
     finally:
         db.close()
+
+
+@router.post("/positions/{position_code}/apply", status_code=status.HTTP_202_ACCEPTED)
+async def apply(position_code: str, request: Request, file: UploadFile = File(...),
+                consent_processing: bool = Form(False), consent_talent_pool: bool = Form(False),
+                website: str = Form("")):
+    _require_enabled()
+    ip_hash = _ip_hash(request)
+    pos = await run_in_threadpool(_admit, position_code, ip_hash)
+    if website.strip():
+        # Honeypot: pretend success so a bot learns nothing.
+        return _received(consent_talent_pool)
+    if pos is None:
+        raise HTTPException(status_code=404, detail="Vị trí không còn nhận hồ sơ.")
+    if not consent_processing:
+        raise HTTPException(status_code=400, detail="Cần đồng ý cho phép xử lý hồ sơ để ứng tuyển.")
+
+    filename = os.path.basename(file.filename or "cv")
+    file.file.seek(0, os.SEEK_END)
+    size = file.file.tell()
+    file.file.seek(0)
+    if size > settings.MAX_FILE_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail=REFUSED)
+    content = await file.read()
+    try:
+        mime = await document_processor.validate_file(content, filename, file.content_type)
+    except FileValidationError:
+        raise HTTPException(status_code=400, detail=REFUSED) from None
+    try:
+        # clamd is a blocking socket call; keep it off the event loop.
+        await run_in_threadpool(scan_upload, content)
+    except ScanRejected:
+        logger.warning("Public upload rejected by malware scan")
+        raise HTTPException(status_code=400, detail=REFUSED) from None
+    except ScanUnavailable as exc:
+        logger.error("Malware scan unavailable; refusing upload", reason=str(exc))
+        raise HTTPException(status_code=503, detail="Hệ thống tạm thời chưa nhận hồ sơ. Vui lòng thử lại sau.") from None
+
+    return await run_in_threadpool(
+        _commit_application, pos, filename=filename, content=content, mime=mime, declared_type=file.content_type,
+        size=size, sha=hashlib.sha256(content).hexdigest(), consent_talent_pool=consent_talent_pool, ip_hash=ip_hash)
 
 
 class WithdrawInput(BaseModel):
@@ -230,8 +285,10 @@ class WithdrawInput(BaseModel):
 
 @router.post("/talent-pool/withdraw")
 def withdraw_talent_pool(body: WithdrawInput):
-    """Candidate withdraws the Talent Pool consent with the token shown at submission. Always answers alike."""
-    _require_enabled()
+    """Candidate withdraws the Talent Pool consent with the token shown at submission. Always answers alike.
+
+    Stays available when the portal is switched off: withdrawing is a right, not part of intake.
+    """
     db = SessionLocal()
     try:
         row = db.execute(text("""UPDATE app_private.application_data_consents SET withdrawn_at = NOW()
