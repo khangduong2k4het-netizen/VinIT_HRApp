@@ -58,3 +58,20 @@ def test_repeated_requirement_block_is_not_duplicated():
 def test_draft_without_preferred_criteria_gets_100_0():
     assert draft_group_totals([{"category": "MUST_HAVE"}]) == (100.0, 0.0)
     assert draft_group_totals([{"category": "MUST_HAVE"}, {"category": "NICE_TO_HAVE"}]) == (70.0, 30.0)
+
+
+def _outcomes(keywords, cv):
+    from app.services.mock_ai import _match_criteria
+    rubric = [{"criterion_id": "c1", "name": "x", "description": "x", "expected_evidence_keywords": keywords}]
+    return _match_criteria({"untrusted_rubric": rubric, "untrusted_redacted_cv": cv})["findings"][0]["outcome"]
+
+
+def test_generic_words_alone_are_not_evidence():
+    cv = "Worked on data engineering projects for a university information technology team."
+    assert _outcomes(["Data", "Engineering", "Information", "Technology"], cv) == "UNCLEAR"
+
+
+def test_keywords_match_whole_words_only():
+    assert _outcomes(["Java"], "Built single page apps in JavaScript and TypeScript.") == "UNCLEAR"
+    assert _outcomes(["Java"], "Built backend services in Java and Spring Boot.") == "MATCH"
+    assert _outcomes(["Kafka", "Spark"], "Streamed events with Kafka into Spark jobs.") == "STRONG_MATCH"

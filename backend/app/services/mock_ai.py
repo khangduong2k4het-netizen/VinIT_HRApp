@@ -28,6 +28,25 @@ _STOPWORDS = {"and", "or", "the", "with", "for", "of", "in", "to", "a", "an", "o
               "redacted"}
 
 
+# Words too common in any CV to count as evidence on their own ("Data" matched
+# every data-adjacent CV). Kept separate from _STOPWORDS so keyword lists that
+# are already stored on approved criteria are filtered at match time too.
+_GENERIC = {"data", "engineering", "engineer", "information", "technology", "technologies", "computer", "science",
+            "bachelor", "master", "degree", "hands-on", "familiarity", "apache", "related", "field", "team",
+            "system", "systems", "software", "development", "developer", "backend", "frontend", "service", "services",
+            "platform", "platforms", "tools", "management", "business", "project", "projects", "university",
+            "communication", "english", "problem", "solution", "solutions", "design", "process", "processes"}
+
+
+def _specific(keywords: list[str]) -> list[str]:
+    return [k for k in keywords if k.strip().lower() not in _GENERIC]
+
+
+def _mentions(keyword: str, sentence: str) -> bool:
+    """Whole-word match, so "Java" does not hit "JavaScript"."""
+    return re.search(rf"(?<![A-Za-z0-9]){re.escape(keyword.strip())}(?![A-Za-z0-9])", sentence, re.IGNORECASE) is not None
+
+
 def _sentences(text: str) -> list[str]:
     parts = re.split(r"(?<=[.!?;])\s+|\n+|•|•", text or "")
     return [re.sub(r"\s+", " ", p).strip(" -*\t") for p in parts if p and len(p.strip()) > 3]
@@ -40,6 +59,8 @@ def _keywords(text: str, limit: int = 5) -> list[str]:
         if len(clean) < 2 or clean.lower() in _STOPWORDS:
             continue
         # Prefer technical-looking tokens (capitalised, acronyms, symbols).
+        if clean.lower() in _GENERIC:
+            continue
         if clean[0].isupper() or any(c in clean for c in "+#./") or clean.isupper():
             if clean.lower() not in {k.lower() for k in found}:
                 found.append(clean)
@@ -217,13 +238,14 @@ def _match_criteria(payload: dict) -> dict:
     for criterion in payload.get("untrusted_rubric", []):
         criterion_id = str(criterion.get("criterion_id") or "")
         keywords = [k for k in (criterion.get("expected_evidence_keywords") or []) if isinstance(k, str) and k.strip()]
+        keywords = _specific(keywords)
         if not keywords:
             keywords = _keywords(f"{criterion.get('name', '')} {criterion.get('description', '')}")
         best, hits, source = None, 0, None
         for passage in _candidate_passages(payload, criterion_id):
             flat = re.sub(r"\s+", " ", passage["text"])  # quote verification also normalises whitespace
             for sentence in _sentences(passage["text"]):
-                count = sum(1 for k in keywords if k.lower() in sentence.lower())
+                count = sum(1 for k in keywords if _mentions(k, sentence))
                 if count > hits and sentence in flat:  # the quote must be verbatim CV text
                     best, hits, source = sentence, count, passage
         if best:
