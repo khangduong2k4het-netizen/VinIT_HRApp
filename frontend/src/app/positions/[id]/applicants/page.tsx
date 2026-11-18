@@ -92,6 +92,13 @@ const OUTCOME_META: Record<string, { label: string; color: string }> = {
 const isPartialScore = (item: RankingItem) =>
   item.matching_score != null && item.evidence_coverage != null && item.evidence_coverage < 1;
 
+/** Below this coverage the score rests on too few criteria to compare candidates
+ * (e.g. 90% on 23% of the rubric would look better than 89% on 88%). */
+const LOW_COVERAGE = 0.7;
+const isLowCoverageScore = (item: RankingItem) =>
+  item.matching_score != null && item.evidence_coverage != null && item.evidence_coverage < LOW_COVERAGE;
+const LOW_COVERAGE_SCORE_COLOR = '#98A2B3';
+
 export default function ApplicantsRankingPage() {
   const { t } = useI18n();
   const params = useParams();
@@ -595,7 +602,13 @@ export default function ApplicantsRankingPage() {
                 {item.has_duplicate_warning && <Chip size="small" color="warning" variant="outlined" label={t("Hồ sơ trùng lặp")} />}
                 {item.evidence_coverage != null && item.evidence_coverage < 0.7 && <Chip size="small" color="warning" variant="outlined" label={t("Độ phủ thấp — cần xác minh")} />}
               </Box>
-              <Typography variant="body2" sx={{ mt: 1.5 }}>{t("Điểm: ")}<strong>{item.matching_score == null ? '—' : `${item.matching_score}%`}</strong>{isPartialScore(item) && <Chip size="small" label={t("một phần")} sx={{ height: 20, fontSize: 10, ml: 0.5, backgroundColor: '#FFFAEB', color: '#B54708', fontWeight: 700 }} />}{t("· Độ phủ: ")}<strong>{item.evidence_coverage == null ? '—' : `${Math.round(item.evidence_coverage * 100)}%`}</strong></Typography>
+              {/* component="div": a Chip renders a <div>, which is not allowed inside <p>. */}
+              <Typography component="div" variant="body2" sx={{ mt: 1.5 }}>{t("Điểm: ")}<strong style={isLowCoverageScore(item) ? { color: LOW_COVERAGE_SCORE_COLOR } : undefined}>{item.matching_score == null ? '—' : `${item.matching_score}%`}</strong>{isPartialScore(item) && <Chip size="small" label={isLowCoverageScore(item) ? t("chưa đủ bằng chứng") : t("một phần")} sx={{ height: 20, fontSize: 10, ml: 0.5, backgroundColor: '#FFFAEB', color: '#B54708', fontWeight: 700 }} />}{t("· Độ phủ: ")}<strong>{item.evidence_coverage == null ? '—' : `${Math.round(item.evidence_coverage * 100)}%`}</strong></Typography>
+              {isLowCoverageScore(item) && (
+                <Typography variant="caption" sx={{ display: 'block', color: '#B54708', mt: 0.5 }}>
+                  {t("Chưa so sánh được điểm: chỉ tính trên {0}% trọng số tiêu chí đã có bằng chứng.", Math.round((item.evidence_coverage ?? 0) * 100))}
+                </Typography>
+              )}
               <Button size="small" onClick={() => toggleExpanded(item.application_id)} endIcon={expandedIds.has(item.application_id) ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />} sx={{ mt: 0.5, px: 0.5 }}>{t("Chi tiết tiêu chí")}</Button>
               {expandedIds.has(item.application_id) && <Box sx={{ mt: 1 }}>{renderCriterionBreakdown(item)}</Box>}
               {compareCheckbox(item)}
@@ -714,7 +727,9 @@ export default function ApplicantsRankingPage() {
                     {item.matching_score === null || item.matching_score === undefined ? (
                       <Typography variant="h4" sx={{ fontSize: 20, fontWeight: 'bold', color: 'text.disabled' }}>—</Typography>
                     ) : (
-                      <Tooltip title={isPartialScore(item)
+                      <Tooltip title={isLowCoverageScore(item)
+                        ? t("Chưa so sánh được điểm: chỉ tính trên {0}% trọng số tiêu chí đã có bằng chứng.", Math.round((item.evidence_coverage ?? 0) * 100))
+                        : isPartialScore(item)
                         ? t("Điểm một phần: chỉ tính trên {0}% trọng số tiêu chí đã có bằng chứng, chưa phải điểm cuối.", Math.round((item.evidence_coverage ?? 0) * 100))
                         : t("Điểm cuối: đã tính trên toàn bộ trọng số tiêu chí.")}>
                         <Box>
@@ -723,13 +738,16 @@ export default function ApplicantsRankingPage() {
                             sx={{
                               fontSize: 20,
                               fontWeight: 'bold',
-                              color: isPartialScore(item) ? '#B54708' : getScoreColor(item.matching_score),
+                              color: isLowCoverageScore(item) ? LOW_COVERAGE_SCORE_COLOR
+                                : isPartialScore(item) ? '#B54708' : getScoreColor(item.matching_score),
                             }}
                           >
                             {`${item.matching_score}%`}
                           </Typography>
                           {isPartialScore(item) && (
-                            <Typography variant="caption" sx={{ display: 'block', color: '#B54708', fontWeight: 700 }}>{t("một phần")}</Typography>
+                            <Typography variant="caption" sx={{ display: 'block', color: '#B54708', fontWeight: 700 }}>
+                              {isLowCoverageScore(item) ? t("chưa đủ bằng chứng") : t("một phần")}
+                            </Typography>
                           )}
                         </Box>
                       </Tooltip>
