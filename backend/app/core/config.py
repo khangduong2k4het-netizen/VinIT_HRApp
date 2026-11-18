@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     # P3-1 Talent Pool: how long a CV may be reused, counted from when the candidate
     # ticked the Talent Pool consent (application_data_consents.granted_at).
     TALENT_POOL_RETENTION_MONTHS: int = 60
+    # P3-1 phase 2: most pool applications one scan scores (rules only, no LLM).
+    TALENT_POOL_SCAN_MAX: int = 300
 
     # File upload limits
     MAX_FILE_SIZE_BYTES: int = 10_000_000  # 10 MB

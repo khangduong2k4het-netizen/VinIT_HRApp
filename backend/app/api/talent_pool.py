@@ -1,16 +1,18 @@
-"""P3-1 Talent Pool, phase 1: marking and eligibility. Scanning comes later."""
+"""P3-1 Talent Pool: marking and eligibility (phase 1), scanning and HR decisions (phase 2)."""
 import json
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 
 from app.core.permissions import check_position_access
 from app.core.security import get_current_user
 from app.db.database import SessionLocal
-from app.services.talent_pool import MARK_REASONS, application_pool_state
+from app.services.talent_pool import MARK_REASONS, application_pool_state, eligible_pool, pool_expiry
+from app.services.talent_pool_scan import ScanError, record_decision, run_scan, scan_header, scan_results
 
 router = APIRouter()
 
@@ -115,5 +117,142 @@ async def withdraw_consent(application_id: UUID, body: WithdrawInput, current_us
                {"has_reference": bool(body.reference)})
         db.commit()
         return {"withdrawn": True}
+    finally:
+        db.close()
+
+
+class DecisionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: str
+
+
+_HR_SCOPE_SQL = """
+    (EXISTS (SELECT 1 FROM app_private.user_role_assignments ur
+             WHERE ur.user_id = :u AND ur.revoked_at IS NULL AND ur.role_code IN ('ADMIN', 'HR_LEAD'))
+     OR EXISTS (SELECT 1 FROM app_private.position_assignments pa
+                WHERE pa.position_id = a.position_id AND pa.user_id = :u AND pa.revoked_at IS NULL
+                  AND pa.position_role IN ('HR_RECRUITER', 'HR_LEAD')))
+"""
+
+
+@router.get("/marks")
+async def list_marks(current_user: dict = Depends(get_current_user)):
+    """Pool applications whose source position the caller handles as HR (all for HR Lead/Admin). No CV content."""
+    db = SessionLocal()
+    try:
+        eligible = {str(r["application_id"]): r for r in eligible_pool(db)}
+        rows = db.execute(text(f"""
+            SELECT m.application_id, m.reason_code, m.marked_at, a.position_id, p.title AS position_title,
+                   p.position_code, a.application_status
+            FROM app_private.talent_pool_marks m
+            JOIN app_private.applications a ON a.application_id = m.application_id
+            JOIN app_private.positions p ON p.position_id = a.position_id
+            WHERE m.removed_at IS NULL AND {_HR_SCOPE_SQL}
+            ORDER BY m.marked_at DESC
+        """), {"u": current_user["user_id"]}).mappings().all()
+        items = []
+        for r in rows:
+            e = eligible.get(str(r["application_id"]))
+            items.append({"application_id": str(r["application_id"]), "reason_code": r["reason_code"],
+                          "marked_at": r["marked_at"], "position_id": str(r["position_id"]),
+                          "position_title": r["position_title"], "position_code": r["position_code"],
+                          "application_status": r["application_status"], "eligible": e is not None,
+                          "expires_on": pool_expiry(e["consented_at"]).date().isoformat() if e else None})
+        return {"items": items}
+    finally:
+        db.close()
+
+
+def _scan_sync(position_id: str, user_id: str) -> dict:
+    db = SessionLocal()
+    try:
+        result = run_scan(db, position_id=position_id, user_id=user_id)
+        db.commit()
+        return result
+    except ScanError as exc:
+        db.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+@router.post("/positions/{position_id}/scan", status_code=201)
+async def scan_position(position_id: UUID, current_user: dict = Depends(get_current_user)):
+    """Score the eligible pool against the position's approved rubric (rules only)."""
+    await check_position_access(position_id, current_user, required_roles=["HR_RECRUITER"])
+    return await run_in_threadpool(_scan_sync, str(position_id), current_user["user_id"])
+
+
+@router.get("/positions/{position_id}/scans")
+async def list_scans(position_id: UUID, current_user: dict = Depends(get_current_user)):
+    await check_position_access(position_id, current_user, required_roles=["HR_RECRUITER"])
+    db = SessionLocal()
+    try:
+        rows = db.execute(text("""SELECT scan_id, created_at, eligible_count, scored_count, skipped_counts, method
+            FROM app_private.talent_pool_scans WHERE position_id = :p ORDER BY created_at DESC LIMIT 20"""),
+                          {"p": str(position_id)}).mappings().all()
+        return {"items": [{**dict(r), "scan_id": str(r["scan_id"])} for r in rows]}
+    finally:
+        db.close()
+
+
+async def _scan_with_access(db, scan_id: UUID, current_user: dict) -> dict:
+    header = scan_header(db, str(scan_id))
+    if header is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy lượt quét")
+    await check_position_access(header["position_id"], current_user, required_roles=["HR_RECRUITER"])
+    return header
+
+
+@router.get("/scans/{scan_id}")
+async def get_scan(scan_id: UUID, current_user: dict = Depends(get_current_user)):
+    """Ranked results that are still eligible now; results that left the pool are removed first."""
+    db = SessionLocal()
+    try:
+        header = await _scan_with_access(db, scan_id, current_user)
+        results = scan_results(db, str(scan_id))
+        db.execute(text("""INSERT INTO app_private.audit_events(actor_user_id, action_type, object_type, object_id, position_id, outcome, metadata)
+            VALUES (:u, 'VIEW_TALENT_POOL_SCAN', 'TALENT_POOL_SCAN', :s, :p, 'SUCCESS', CAST(:m AS jsonb))"""),
+                   {"u": current_user["user_id"], "s": str(scan_id), "p": str(header["position_id"]),
+                    "m": json.dumps({"result_count": len(results)})})
+        db.commit()
+        return {**{k: (str(v) if k in ("scan_id", "position_id", "criteria_version_id", "requested_by") else v)
+                   for k, v in header.items()},
+                "results": results}
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+@router.post("/scans/{scan_id}/results/{application_id}/decision")
+async def decide(scan_id: UUID, application_id: UUID, body: DecisionInput, current_user: dict = Depends(get_current_user)):
+    """HR records CONTACT / SKIP / LATER. The system never contacts the candidate or creates an application."""
+    db = SessionLocal()
+    try:
+        header = await _scan_with_access(db, scan_id, current_user)
+        try:
+            done = record_decision(db, scan_id=str(scan_id), application_id=str(application_id),
+                                   decision=body.decision, user_id=current_user["user_id"])
+        except ScanError as exc:
+            db.commit()  # keep the removal of a result that left the pool
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
+        if not done:
+            raise HTTPException(status_code=404, detail="Không có kết quả này trong lượt quét")
+        db.execute(text("""INSERT INTO app_private.audit_events(actor_user_id, action_type, object_type, object_id, position_id, outcome, metadata)
+            VALUES (:u, 'DECIDE_TALENT_POOL_RESULT', 'APPLICATION', :a, :p, 'SUCCESS', CAST(:m AS jsonb))"""),
+                   {"u": current_user["user_id"], "a": str(application_id), "p": str(header["position_id"]),
+                    "m": json.dumps({"scan_id": str(scan_id), "decision": body.decision})})
+        db.commit()
+        return {"decision": body.decision}
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()

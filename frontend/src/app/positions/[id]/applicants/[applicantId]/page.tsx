@@ -2,6 +2,7 @@
 
 import { useI18n } from '@/i18n/I18nProvider';
 import { localizeServerMessage } from '@/i18n/serverMessages';
+import TalentPoolPanel from '@/components/talent-pool/TalentPoolPanel';
 
 import * as React from 'react';
 import {
@@ -308,6 +309,8 @@ export default function ApplicantDetailPage() {
           )}
         </Box>
       </StickyActionBar>
+
+      {application.can_update_status && <TalentPoolPanel applicationId={applicantId} />}
 
       {/* Warnings */}
       {(application.file_processing_status === 'NEEDS_HR_REVIEW' || application.has_duplicate_warning) && (

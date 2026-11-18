@@ -282,6 +282,20 @@ export const adminApi = {
 
 // F1.10 / S-19 — retention queue and explicit, audited deletion.
 // F2.07 — exception hold, reminders and a one-time code before purge.
+// P3-1 Talent Pool: marking (phase 1) and scanning against a new position (phase 2). No CV content or contact data.
+export const talentPoolApi = {
+  state: (applicationId: string) => apiClient.get(`/talent-pool/applications/${applicationId}`),
+  mark: (applicationId: string, reasonCode: string) =>
+    apiClient.post(`/talent-pool/applications/${applicationId}/mark`, { reason_code: reasonCode }),
+  unmark: (applicationId: string) => apiClient.delete(`/talent-pool/applications/${applicationId}/mark`),
+  marks: () => apiClient.get('/talent-pool/marks'),
+  scan: (positionId: string) => apiClient.post(`/talent-pool/positions/${positionId}/scan`, undefined, { timeout: 120000 }),
+  scans: (positionId: string) => apiClient.get(`/talent-pool/positions/${positionId}/scans`),
+  scanDetail: (scanId: string) => apiClient.get(`/talent-pool/scans/${scanId}`),
+  decide: (scanId: string, applicationId: string, decision: 'CONTACT' | 'SKIP' | 'LATER') =>
+    apiClient.post(`/talent-pool/scans/${scanId}/results/${applicationId}/decision`, { decision }),
+};
+
 export const retentionApi = {
   queue: (status?: 'PENDING' | 'SCHEDULED_FOR_DELETION' | 'ON_HOLD' | 'DELETED' | 'CANCELLED') =>
     apiClient.get('/retention/queue', { params: { status } }),

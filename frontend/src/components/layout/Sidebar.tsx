@@ -29,6 +29,7 @@ const menuGroups = [
       { text: 'Báo cáo vận hành', icon: <InsightsIcon />, href: '/reports', hrOnly: true },
       { text: 'Chất lượng AI', icon: <InsightsIcon />, href: '/reports/ai-quality', hrOnly: true },
       { text: 'Kiểm định chất lượng', icon: <HistoryIcon />, href: '/quality', leadOnly: true },
+      { text: 'Talent Pool', icon: <PeopleIcon />, href: '/talent-pool', hrOnly: true },
       { text: 'Lưu trữ & xóa dữ liệu', icon: <DeleteSweepIcon />, href: '/retention', hrOnly: true },
     ],
   },
