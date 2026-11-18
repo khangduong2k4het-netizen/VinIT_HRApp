@@ -119,7 +119,7 @@ def test_negated_skill_mention_is_unresolved_not_a_rule_match():
     # v1.3, and the Python years gate/framework grouping in v1.4; the
     # version is part of the assessment fingerprint, so existing
     # assessments must be recalculated after any of these changes.
-    assert result["rule_version"] == "deterministic-rules-v1.5"
+    assert result["rule_version"] == "deterministic-rules-v1.6"
 
 
 def test_positive_skill_still_matches_when_another_sentence_is_negated():
@@ -366,3 +366,81 @@ def test_inferred_requirement_kind_always_satisfies_the_stored_spec_schema(name,
                                        "expected_evidence_keywords": []})
     assert stored["kind"] == expected_kind
     RequirementSpecSchema.model_validate(stored)
+
+
+# --- field gate (rules v1.6): years and degree must be in the named field ---
+
+def test_years_in_unrelated_job_do_not_match_a_field_requirement():
+    criteria = [criterion("c1", "3+ years of experience in Data Engineering",
+                          "Hands-on data engineering experience")]
+    sewing = (
+        "WORK EXPERIENCE\n"
+        "Sewing machine operator, Garment Factory, 01/2013 - Present.\n"
+        "Operated industrial sewing machines and checked stitch quality.\n"
+    )
+    result = deterministic_matcher.evaluate_criteria(sewing, criteria, {})
+    assert result["findings"] == []
+    assert result["unresolved_criterion_ids"] == ["c1"]
+
+
+def test_years_in_the_named_field_still_match():
+    criteria = [criterion("c1", "3+ years of experience in Data Engineering",
+                          "Hands-on data engineering experience")]
+    engineer = (
+        "WORK EXPERIENCE\n"
+        "Data Engineer, Acme Analytics, 01/2019 - Present.\n"
+        "Built Spark and Kafka pipelines for the data platform.\n"
+    )
+    result = deterministic_matcher.evaluate_criteria(engineer, criteria, {})
+    assert result["findings"][0]["outcome"] == "STRONG_MATCH"
+
+
+def test_too_few_years_is_still_a_no_match_regardless_of_field():
+    criteria = [criterion("c1", "5+ years of experience in Data Engineering", "")]
+    profile = {"total_years_experience": 2}
+    result = deterministic_matcher.evaluate_criteria(
+        "WORK EXPERIENCE\nSewing machine operator for 2 years.", criteria, profile)
+    assert result["findings"][0]["outcome"] == "NO_MATCH"
+
+
+def test_years_without_a_named_field_keep_the_total_rule():
+    criteria = [criterion("c1", "3+ years of professional experience", "")]
+    result = deterministic_matcher.evaluate_criteria(
+        "WORK EXPERIENCE\nSewing machine operator, 01/2013 - Present.", criteria, {})
+    assert result["findings"][0]["outcome"] in {"MATCH", "STRONG_MATCH"}
+
+
+def test_degree_in_another_major_does_not_match_a_field_requirement():
+    criteria = [criterion("c1", "Bachelor's degree in IT, Computer Science or related field", "")]
+    for education in (
+        "EDUCATION\nBachelor of Accounting Information Systems, Hanoi University, 2016.",
+        "EDUCATION\nBachelor of Science in Accounting, National Economics University.",
+        "EDUCATION\nVocational college certificate in Garment Technology, 2010.",
+    ):
+        result = deterministic_matcher.evaluate_criteria(education, criteria, {})
+        assert result["findings"] == [], education
+        assert result["unresolved_criterion_ids"] == ["c1"]
+
+
+def test_degree_in_the_named_field_still_matches():
+    criteria = [criterion("c1", "Bachelor's degree in IT, Computer Science or related field", "")]
+    for education in (
+        "EDUCATION\nBachelor of Computer Science, Hanoi University of Science and Technology.",
+        "EDUCATION\nB.Sc. in Information Technology, FPT University.",
+        "EDUCATION\nCử nhân Công nghệ thông tin, Đại học Bách khoa Hà Nội.",
+    ):
+        result = deterministic_matcher.evaluate_criteria(education, criteria, {})
+        assert result["findings"][0]["outcome"] == "MATCH", education
+
+
+def test_field_phrases_ignore_filler_and_pronoun_it():
+    phrases = deterministic_matcher.field_phrases
+    assert phrases("3+ years of professional experience") == ()
+    assert phrases("Bachelor's degree") == ()
+    assert phrases("Bachelor's degree in IT or related field") == (("it",),)
+    assert phrases("Master of Science in Data Science") == (("data", "science"),)
+    # Lower-case "it" is a pronoun, not the IT field.
+    assert ("it",) not in phrases("Must be able to explain it clearly")
+    # The pronoun "it" in a CV is not evidence for an IT degree.
+    assert not deterministic_matcher._field_in_text((("it",),), "made it work")
+    assert deterministic_matcher._field_in_text((("it",),), "Bachelor in IT")
