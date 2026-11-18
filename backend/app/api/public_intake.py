@@ -24,6 +24,7 @@ from app.db.database import SessionLocal
 from app.db.supabase import get_supabase_client
 from app.services.document_processor import MIME_EXTENSIONS, document_processor
 from app.services.malware_scan import ScanRejected, ScanUnavailable, scan_upload
+from app.services.portal_dispatch import DEFERRED_WHILE_BUSY
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -33,7 +34,6 @@ REFUSED = "Không thể nhận tệp này. Vui lòng kiểm tra định dạng (
 # Shown to HR only (never to the candidate) on a portal CV that arrived while the
 # position already had a job running; HR queues it with "Xử lý lại".
 LOCK_TIMEOUT = "5s"  # how long a portal request may wait for a position that HR is changing
-DEFERRED_WHILE_BUSY = "CV nộp qua cổng công khai khi vị trí đang có tác vụ xử lý; bấm Xử lý lại để chấm điểm."
 
 
 def client_address(request: Request) -> str:
@@ -198,7 +198,8 @@ def _commit_application(pos, *, filename: str, content: bytes, mime: str, declar
                             {"a": app_id, "b": settings.SUPABASE_STORAGE_BUCKET_CV, "sp": storage_path, "fn": filename,
                              "m": mime, "s": size, "sha": sha,
                              # While another job runs on the position, the CV is kept but not queued;
-                             # HR starts it with the existing "reprocess" action once the job ends.
+                             # the worker queues all held CVs of the position as one job once it is free
+                             # (services/portal_dispatch.py). HR can still use "reprocess" on one CV.
                              "st": "NEEDS_HR_REVIEW" if busy else "RECEIVED",
                              "err": DEFERRED_WHILE_BUSY if busy else None}).scalar_one()
         db.execute(text("INSERT INTO app_private.application_identities(application_id) VALUES (:a)"), {"a": app_id})
