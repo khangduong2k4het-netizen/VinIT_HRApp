@@ -157,3 +157,87 @@ def test_spamd_is_required_by_default(client, gmail_ready, monkeypatch):
     seed, _, _, _ = gmail_ready
     monkeypatch.setattr(settings, 'SPAMD_UNIX_SOCKET', '')
     assert client.post('/v1/gmail-test/sync', headers=headers(seed['hr'])).status_code == 503
+
+
+def test_retry_review_by_receipt_without_relisting(client, gmail_ready, monkeypatch):
+    seed, _, _, _ = gmail_ready
+    monkeypatch.setattr(gmail_test, 'scan_bytes', lambda *a, **k: ScanVerdict.UNAVAILABLE)
+    assert client.post('/v1/gmail-test/sync', headers=headers(seed['hr'])).status_code == 200
+    receipt = client.get('/v1/gmail-test/review', headers=headers(seed['hr'])).json()['items'][0]
+    url = f"/v1/gmail-test/review/{receipt['receipt_id']}/retry"
+    assert client.post(url, headers=headers(seed['hm'])).status_code == 403
+    monkeypatch.setattr(gmail_test.gmail_test_client, 'list_messages', Mock(side_effect=AssertionError('must not list')))
+    monkeypatch.setattr(gmail_test.gmail_test_client, 'mailbox_hash', lambda s: 'cd' * 32)
+    assert client.post(url, headers=headers(seed['hr'])).status_code == 409
+    monkeypatch.setattr(gmail_test.gmail_test_client, 'mailbox_hash', lambda s: 'ab' * 32)
+    monkeypatch.setattr(gmail_test, 'scan_bytes', lambda *a, **k: ScanVerdict.CLEAN)
+    result = client.post(url, headers=headers(seed['hr']))
+    assert result.status_code == 200 and result.json()['status'] == 'ACCEPTED'
+    assert client.post(url, headers=headers(seed['hr'])).status_code == 409
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM app_private.applications WHERE source_code='EMAIL_TEST'")).scalar_one() == 1
+
+
+def test_confirm_only_synthetic_identity_with_conflict_and_audit(client, gmail_ready, monkeypatch):
+    seed, _, _, _ = gmail_ready
+    assert client.post('/v1/gmail-test/sync', headers=headers(seed['hr'])).status_code == 200
+    receipt = client.get('/v1/gmail-test/review', headers=headers(seed['hr'])).json()['items'][0]
+    url = f"/v1/gmail-test/review/{receipt['receipt_id']}/identity"
+    assert client.get(url, headers=headers(seed['hm'])).status_code == 403
+    info = client.get(url, headers=headers(seed['hr']))
+    assert info.status_code == 200 and info.headers['cache-control'] == 'no-store'
+    body = {'display_name': 'Ứng viên giả', 'email': 'fake@example.test',
+            'expected_updated_at': info.json()['updated_at'], 'confirm_synthetic': True}
+    assert client.put(url, headers=headers(seed['hr']), json=body).status_code == 409  # worker active
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.operations SET status='COMPLETED' WHERE position_id=:pos AND capability='CV_PROCESSING'"), {'pos': seed['pos']})
+    for invalid in ({'email': 'real@gmail.com'}, {'confirm_synthetic': False}, {'display_name': '   '}):
+        assert client.put(url, headers=headers(seed['hr']), json={**body, **invalid}).status_code == 400
+    assert client.put(url, headers=headers(seed['hm']), json=body).status_code == 403
+    saved = client.put(url, headers=headers(seed['hr']), json=body)
+    assert saved.status_code == 200, saved.text
+    assert client.put(url, headers=headers(seed['hr']), json=body).status_code == 409
+    with engine.connect() as conn:
+        data = conn.execute(text("""SELECT display_name,email FROM app_private.application_identities i
+            JOIN app_private.gmail_test_messages r USING(application_id) WHERE r.receipt_id=:id"""), {'id': receipt['receipt_id']}).one()
+        assert data == ('Ứng viên giả', 'fake@example.test')
+        assert conn.execute(text("SELECT count(*) FROM app_private.audit_events WHERE action_type='GMAIL_TEST_CONFIRM_IDENTITY' AND actor_user_id=:id"), {'id': seed['hr']}).scalar_one() == 1
+        assert conn.execute(text('SELECT count(*) FROM app_private.talent_pool_consents')).scalar_one() == 0
+    monkeypatch.setattr(settings, 'GMAIL_TEST_INGEST_ENABLED', False)
+    assert client.put(url, headers=headers(seed['hr']), json=body).status_code == 404
+
+
+def test_confirm_rejects_retention_and_non_gmail_source(client, gmail_ready):
+    seed, _, _, _ = gmail_ready
+    assert client.post('/v1/gmail-test/sync', headers=headers(seed['hr'])).status_code == 200
+    item = client.get('/v1/gmail-test/review', headers=headers(seed['hr'])).json()['items'][0]
+    url = f"/v1/gmail-test/review/{item['receipt_id']}/identity"
+    data = client.get(url, headers=headers(seed['hr'])).json()
+    body = {'display_name': 'Giả', 'email': 'fake@example.test', 'expected_updated_at': data['updated_at'], 'confirm_synthetic': True}
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.operations SET status='COMPLETED' WHERE position_id=:id AND capability='CV_PROCESSING'"), {'id': seed['pos']})
+        conn.execute(text("UPDATE app_private.applications SET source_code='CAREERS' WHERE application_id=:id"), {'id': item['application_id']})
+    assert client.get(url, headers=headers(seed['hr'])).status_code == 404
+    assert client.put(url, headers=headers(seed['hr']), json=body).status_code == 404
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.applications SET source_code='EMAIL_TEST' WHERE application_id=:id"), {'id': item['application_id']})
+        policy = conn.execute(text('SELECT policy_version FROM app_private.retention_policy_versions LIMIT 1')).scalar_one()
+        conn.execute(text("""INSERT INTO app_private.application_retention_cases(application_id,position_id,policy_version,position_closed_at,due_date,status)
+            VALUES (:app,:pos,:policy,now(),now(),'PENDING')"""), {'app': item['application_id'], 'pos': seed['pos'], 'policy': policy})
+    assert client.get(url, headers=headers(seed['hr'])).status_code == 404
+    assert client.put(url, headers=headers(seed['hr']), json=body).status_code == 404
+
+
+def test_concurrent_identity_updates_have_one_winner(client, gmail_ready):
+    from concurrent.futures import ThreadPoolExecutor
+    seed, _, _, _ = gmail_ready
+    assert client.post('/v1/gmail-test/sync', headers=headers(seed['hr'])).status_code == 200
+    item = client.get('/v1/gmail-test/review', headers=headers(seed['hr'])).json()['items'][0]
+    url = f"/v1/gmail-test/review/{item['receipt_id']}/identity"
+    info = client.get(url, headers=headers(seed['hr'])).json()
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.operations SET status='COMPLETED' WHERE position_id=:id AND capability='CV_PROCESSING'"), {'id': seed['pos']})
+    body = {'display_name': 'Fake', 'email': 'fake@example.test', 'expected_updated_at': info['updated_at'], 'confirm_synthetic': True}
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(client.put, url, headers=headers(seed['hr']), json=body) for _ in range(2)]
+        assert sorted(f.result(timeout=10).status_code for f in futures) == [200, 409]

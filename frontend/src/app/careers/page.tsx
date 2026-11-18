@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { careersFailure } from '@/lib/syntheticIntake';
 import { Alert, Box, Button, Card, CardContent, Checkbox, CircularProgress, Container, FormControlLabel, Stack, TextField, Typography } from '@mui/material';
 
 type Job = { position_id: string; position_code: string; title: string; org_unit: string | null; work_location: string | null; work_mode: string | null; employment_type: string | null; application_deadline_at: string; description: string | null; can_apply_test: boolean };
@@ -54,10 +55,13 @@ export default function CareersPage() {
       data.set('pool_opt_in', optedIn ? 'true' : 'false');
       data.set('pool_token', optedIn ? poolToken : '');
       const res = await fetch(`/v1/careers/jobs/${job.position_id}/apply`, { method: 'POST', body: data, cache: 'no-store' });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.detail || 'Không thể gửi hồ sơ thử nghiệm.');
-      setSuccess('Đã nhận hồ sơ tổng hợp.'); setSavedToken(optedIn ? poolToken : ''); setJob(null);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Không thể gửi hồ sơ thử nghiệm.'); }
+      if (!res.ok) {
+        const result = await res.json().catch(() => ({}));
+        setError(careersFailure(res.status, result.detail));
+        return;
+      }
+      setSuccess('Đã tiếp nhận yêu cầu thử nghiệm; CV vẫn cần được xử lý. Gửi lại cùng yêu cầu không tạo thêm hồ sơ.'); setSavedToken(optedIn ? poolToken : ''); setJob(null);
+    } catch { setError(careersFailure(null, null)); }
     finally { setBusy(false); }
   };
   return <Container maxWidth="md" sx={{ py: 5 }}>
@@ -72,19 +76,20 @@ export default function CareersPage() {
       <Typography>{[item.position_code, item.org_unit, item.work_location, item.work_mode, item.employment_type].filter(Boolean).join(' · ')}</Typography>
       <Typography>Hạn: {new Date(item.application_deadline_at).toLocaleString('vi-VN')}</Typography>
       {item.description ? <Typography component="p" sx={{ whiteSpace: 'pre-wrap', my: 2 }}>{item.description}</Typography> : <Typography sx={{ my: 2 }}>Chưa có mô tả công việc.</Typography>}
-      <Button variant="contained" disabled={!item.can_apply_test || busy} onClick={() => selectJob(item)}>Ứng tuyển thử nghiệm</Button>
+      <Button variant="contained" disabled={!item.can_apply_test || busy || !!job} onClick={() => selectJob(item)}>Ứng tuyển thử nghiệm</Button>
       {!item.can_apply_test && <Typography variant="caption" display="block">Chưa mở nhận hồ sơ thử nghiệm hoặc rubric chưa duyệt.</Typography>}
     </CardContent></Card>)}</Stack>
     {loading && <CircularProgress aria-label="Đang tải" sx={{ mt: 2 }} />}
     {cursor && !loading && !error && <Button sx={{ mt: 2 }} variant="outlined" onClick={() => void load(cursor)}>Xem thêm</Button>}
     {job && <Box component="form" onSubmit={apply} sx={{ mt: 4 }}><Stack spacing={2}>
       <Typography variant="h2" sx={{ fontSize: 23 }}>Ứng tuyển thử nghiệm: {job.title}</Typography>
-      <TextField name="name" label="Tên tổng hợp" required inputProps={{ maxLength: 200 }} />
-      <TextField name="email" type="email" label="Email tổng hợp @example.test" required inputProps={{ maxLength: 254 }} />
-      <TextField name="phone" label="Điện thoại tổng hợp (tùy chọn)" inputProps={{ maxLength: 50 }} />
-      <label>CV tổng hợp PDF hoặc DOCX, tối đa 10 MB <input name="cv" type="file" accept=".pdf,.docx" required /></label>
-      <FormControlLabel control={<Checkbox checked={optedIn} onChange={e => setOptedIn(e.target.checked)} />} label="Tôi riêng biệt đồng ý tham gia Talent Pool thử nghiệm trong 7 ngày. Không bắt buộc để nộp." />
+      <TextField disabled={busy} name="name" label="Tên tổng hợp" required inputProps={{ maxLength: 200 }} />
+      <TextField disabled={busy} name="email" type="email" label="Email tổng hợp @example.test" required inputProps={{ maxLength: 254 }} />
+      <TextField disabled={busy} name="phone" label="Điện thoại tổng hợp (tùy chọn)" inputProps={{ maxLength: 50 }} />
+      <label>CV tổng hợp PDF hoặc DOCX, tối đa 10 MB <input disabled={busy} name="cv" type="file" accept=".pdf,.docx" required /></label>
+      <FormControlLabel control={<Checkbox disabled={busy} checked={optedIn} onChange={e => setOptedIn(e.target.checked)} />} label="Tôi riêng biệt đồng ý tham gia Talent Pool thử nghiệm trong 7 ngày. Không bắt buộc để nộp." />
       {optedIn && <Alert severity="info">Mã rút lựa chọn (sao chép trước khi gửi; nếu mất kết nối hãy giữ nguyên form để thử lại): <Box component="code" sx={{ overflowWrap: 'anywhere' }}>{poolToken}</Box>. Dùng tại /pool-withdraw; rút không tự xóa hồ sơ ứng tuyển.</Alert>}
+      <Typography variant="body2">Nếu gặp lỗi sau khi gửi, giữ nguyên form và mã rút để thử lại. Một yêu cầu mới có thể tạo thêm hồ sơ; hệ thống chưa tự phát hiện mọi hồ sơ trùng.</Typography>
       <Stack direction="row" spacing={1}><Button type="submit" variant="contained" disabled={busy}>Gửi hồ sơ thử nghiệm</Button><Button type="button" disabled={busy} onClick={() => setJob(null)}>Hủy</Button></Stack>
     </Stack></Box>}
   </Container>;

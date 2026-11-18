@@ -2,6 +2,11 @@
 import asyncio
 from email import policy
 from email.parser import BytesParser
+from datetime import datetime
+from uuid import UUID
+
+from email_validator import EmailNotValidError, validate_email
+from pydantic import BaseModel, ConfigDict, Field
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -32,6 +37,14 @@ def _ready():
 
 def _spam_mode():
     return 'GMAIL_LABELS_ONLY_TEST' if settings.GMAIL_TEST_GMAIL_SPAM_ONLY else 'SPAMD'
+
+
+class SyntheticIdentityUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    display_name: str = Field(min_length=1, max_length=200)
+    email: str = Field(min_length=1, max_length=254)
+    expected_updated_at: datetime
+    confirm_synthetic: bool
 
 
 def _require_lead(db, user_id: str):
@@ -165,3 +178,114 @@ def review(response: Response, current_user: dict = Depends(get_current_user)):
         rows = db.execute(text("""SELECT receipt_id,message_id,status,reason,application_id,updated_at
             FROM app_private.gmail_test_messages ORDER BY updated_at DESC,receipt_id DESC LIMIT 100""")).mappings().all()
         return {'items': [dict(row) for row in rows], 'spam_mode': _spam_mode()}
+
+
+@router.post('/review/{receipt_id}/retry')
+def retry_review(receipt_id: UUID, response: Response, current_user: dict = Depends(get_current_user)):
+    _ready()
+    response.headers['Cache-Control'] = 'no-store'
+    actor = current_user['user_id']
+    db = SessionLocal()
+    session = None
+    try:
+        _require_lead(db, actor)
+        row = db.execute(text("""SELECT mailbox_hash,message_id,status FROM app_private.gmail_test_messages
+            WHERE receipt_id=:id FOR UPDATE"""), {'id': str(receipt_id)}).mappings().first()
+        if not row:
+            raise HTTPException(404, 'Không tìm thấy email thử nghiệm')
+        if row['status'] != 'REVIEW':
+            raise HTTPException(409, 'Chỉ email cần kiểm tra mới được thử lại')
+        session = gmail_test_client.open_session()
+        if gmail_test_client.mailbox_hash(session) != row['mailbox_hash']:
+            raise HTTPException(409, 'Hộp thư hiện tại khác hộp thư đã nhận email')
+        try:
+            state, reason, app_id = _process_message(db, session, row['mailbox_hash'], row['message_id'])
+        except Exception:
+            state, reason, app_id = 'REVIEW', 'PROCESSING_UNAVAILABLE', None
+        db.execute(text("""UPDATE app_private.gmail_test_messages SET status=:status,reason=:reason,application_id=:app,updated_at=clock_timestamp()
+            WHERE receipt_id=:id"""), {'status': state, 'reason': reason, 'app': app_id, 'id': str(receipt_id)})
+        db.execute(text("""INSERT INTO app_private.audit_events(actor_user_id,action_type,object_type,object_id,outcome,metadata)
+            VALUES (:actor,'GMAIL_TEST_PROCESS','GMAIL_TEST_RECEIPT',:id,'SUCCESS',jsonb_build_object('status',CAST(:status AS text),'spam_mode',CAST(:mode AS text),'retry',true))"""),
+            {'actor': actor, 'id': str(receipt_id), 'status': state, 'mode': _spam_mode()})
+        db.commit()
+        return {'status': state, 'reason': reason}
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise HTTPException(503, 'Không thể kết nối hoặc xử lý Gmail thử nghiệm') from None
+    finally:
+        if session:
+            session.close()
+        db.close()
+
+
+def _identity(db, receipt_id: str):
+    return db.execute(text("""SELECT r.receipt_id,a.application_id,a.position_id,i.display_name,i.email,i.updated_at
+        FROM app_private.gmail_test_messages r JOIN app_private.applications a ON a.application_id=r.application_id
+        JOIN app_private.application_identities i ON i.application_id=a.application_id
+        WHERE r.receipt_id=:id AND r.status='ACCEPTED' AND a.source_code='EMAIL_TEST'
+        AND NOT EXISTS (SELECT 1 FROM app_private.application_retention_cases rc
+                        WHERE rc.application_id=a.application_id AND rc.status <> 'CANCELLED')"""), {'id': receipt_id}).mappings().first()
+
+
+@router.get('/review/{receipt_id}/identity')
+def get_synthetic_identity(receipt_id: UUID, response: Response, current_user: dict = Depends(get_current_user)):
+    _ready()
+    response.headers['Cache-Control'] = 'no-store'
+    with SessionLocal() as db:
+        _require_lead(db, current_user['user_id'])
+        row = _identity(db, str(receipt_id))
+        if not row:
+            raise HTTPException(404, 'Không tìm thấy hồ sơ thử nghiệm có thể chỉnh sửa')
+        return dict(row)
+
+
+@router.put('/review/{receipt_id}/identity')
+def update_synthetic_identity(receipt_id: UUID, request: SyntheticIdentityUpdate, response: Response,
+                              current_user: dict = Depends(get_current_user)):
+    _ready()
+    response.headers['Cache-Control'] = 'no-store'
+    name = request.display_name.strip()
+    try:
+        email = validate_email(request.email.strip(), check_deliverability=False, test_environment=True).normalized.lower()
+    except EmailNotValidError:
+        raise HTTPException(400, 'Chỉ chấp nhận email tổng hợp @example.test') from None
+    if (not request.confirm_synthetic or not name or not email.endswith('@example.test')
+            or request.expected_updated_at.tzinfo is None):
+        raise HTTPException(400, 'Cần xác nhận dữ liệu giả và cung cấp thông tin hợp lệ')
+    db = SessionLocal()
+    try:
+        _require_lead(db, current_user['user_id'])
+        initial = _identity(db, str(receipt_id))
+        if not initial:
+            raise HTTPException(404, 'Không tìm thấy hồ sơ thử nghiệm có thể chỉnh sửa')
+        pos, app_id = str(initial['position_id']), str(initial['application_id'])
+        db.execute(text('SELECT 1 FROM app_private.positions WHERE position_id=:id FOR UPDATE'), {'id': pos})
+        db.execute(text('SELECT 1 FROM app_private.applications WHERE application_id=:id FOR UPDATE'), {'id': app_id})
+        db.execute(text('SELECT 1 FROM app_private.gmail_test_messages WHERE receipt_id=:id FOR UPDATE'), {'id': str(receipt_id)})
+        row = _identity(db, str(receipt_id))
+        if not row or str(row['application_id']) != app_id:
+            raise HTTPException(404, 'Không tìm thấy hồ sơ thử nghiệm có thể chỉnh sửa')
+        if db.execute(text("""SELECT 1 FROM app_private.operations WHERE position_id=:pos
+            AND capability IN ('CV_PROCESSING','ASSESSMENT','RANKING') AND status IN ('PENDING','PROCESSING') LIMIT 1"""), {'pos': pos}).first():
+            raise HTTPException(409, 'Vị trí đang xử lý; đợi hoàn tất trước khi chỉnh sửa')
+        updated = db.execute(text("""UPDATE app_private.application_identities SET display_name=:name,email=:email,updated_at=clock_timestamp()
+            WHERE application_id=:app AND updated_at=:expected RETURNING updated_at"""),
+            {'name': name, 'email': email, 'app': app_id, 'expected': request.expected_updated_at}).scalar_one_or_none()
+        if updated is None:
+            raise HTTPException(409, 'Thông tin đã thay đổi. Vui lòng tải lại trước khi lưu')
+        if row['email'] != email:
+            db.execute(text("""UPDATE app_private.duplicate_signals SET review_status='DISMISSED',detector_version='identity-changed',reviewed_by=:actor,reviewed_at=now()
+                WHERE review_status='PENDING' AND (application_id_1=:app OR application_id_2=:app)"""), {'actor': current_user['user_id'], 'app': app_id})
+        db.execute(text("""INSERT INTO app_private.audit_events(actor_user_id,action_type,object_type,object_id,position_id,outcome)
+            VALUES (:actor,'GMAIL_TEST_CONFIRM_IDENTITY','APPLICATION',:app,:pos,'SUCCESS')"""),
+            {'actor': current_user['user_id'], 'app': app_id, 'pos': pos})
+        db.commit()
+        return {'updated_at': updated, 'message': 'Đã lưu thông tin giả do HR xác nhận; không xác minh danh tính thật.'}
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()

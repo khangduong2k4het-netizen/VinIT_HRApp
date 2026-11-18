@@ -138,3 +138,14 @@ def test_concurrent_duplicate_request_does_not_deadlock_or_duplicate(client, rea
         assert second.result(timeout=10).status_code == 202
     with engine.connect() as conn:
         assert conn.execute(text("SELECT count(*) FROM app_private.applications WHERE source_code='CAREERS'")).scalar_one() == 1
+
+
+def test_empty_or_oversized_cv_is_invalid_without_scanner(client, ready, monkeypatch):
+    seed, _ = ready
+    monkeypatch.setattr(settings, 'MAX_FILE_SIZE_BYTES', 5)
+    def forbid(*args, **kwargs):
+        raise AssertionError('invalid length must not reach scanner')
+    monkeypatch.setattr(careers_intake, 'scan_bytes', forbid)
+    for content in (b'', b'123456'):
+        result = send(client, seed, content, str(uuid4()))
+        assert result.status_code == 400 and result.json()['detail'] == 'CV không hợp lệ hoặc quá lớn'

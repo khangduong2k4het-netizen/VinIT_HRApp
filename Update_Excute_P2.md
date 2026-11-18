@@ -299,3 +299,10 @@ Sau khi plan được duyệt và mỗi batch triển khai hoàn thành, bổ su
 ## 25. Tài nguyên VPS cho ClamAV
 
 Operator báo Ubuntu noble arm64 package candidate ClamAV `1.5.4+dfsg-0ubuntu0.24.04.1`, RAM 3.8 GiB với 2.5 GiB available, swap 4 GiB với 1.5 GiB used, `/` còn 13 GB/45 GB. Có thể thử cài sau khi chú ý tải VPS, nhưng cần theo dõi RAM/swap và tình trạng các app sau khi nạp signature; không đảm bảo đủ. Chưa cài hoặc test scanner. CI commit `02e816b` run `44031133790` success.
+
+## 26. Hoàn thiện vòng dữ liệu giả trong lúc chờ VPS
+
+- Careers: mô tả lỗi, kết quả chưa rõ và retry cùng form/request ID, không tuyên bố chống mọi hồ sơ trùng; backend trả 400 cho tệp rỗng/quá lớn trước scanner/parse. UI phân biệt đã tiếp nhận với xử lý hoàn tất.
+- Gmail test: HR Lead/Admin có thể thử lại từng REVIEW theo receipt đúng mailbox, không tự nhập lại trạng thái SPAM/MALWARE/ACCEPTED; audit mode và retry. Có thể xác nhận tên/email giả cho EMAIL_TEST ACCEPTED sau khi tác vụ vị trí hoàn tất; khóa quyền/position/application, chống ghi đè đồng thời qua `updated_at`, không sửa hồ sơ có retention case, invalidate tín hiệu trùng PENDING khi cập nhật và audit không chép nội dung. `@example.test`/xác nhận không chứng minh dữ liệu giả, không tạo consent hay xác minh danh tính thật. Không chỉnh sửa mail; inbox list vẫn giới hạn 100 bản ghi mới nhất.
+- Talent Pool: UI nêu kết quả tìm chỉ snapshot, cần tìm lại trước khi dùng; withdrawal phản hồi đồng nhất không tiết lộ token tồn tại; chưa có cơ chế tự khôi phục token.
+- Local disposable backend **416 passed, 10 warnings**, bao gồm quyền, sai mailbox, retry/dedupe, mutation race, retention, input sai và fail-closed; FE type-check/lint/i18n/unit/build pass. Không thêm migration, không deploy hoặc thay đổi DB/VPS; chưa chạy Gmail/ClamAV/E2E thật. Runbook cập nhật `doc/VPS_THU_NGHIEM_RUT_GON.md`.

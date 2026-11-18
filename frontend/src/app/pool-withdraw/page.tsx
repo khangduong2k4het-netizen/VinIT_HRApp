@@ -15,12 +15,12 @@ export default function PoolWithdraw() {
     try {
       const response = await fetch('/v1/talent-pool/withdraw', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: token.trim() }) });
       if (!response.ok) throw new Error('Không thể thực hiện yêu cầu. Vui lòng kiểm tra mã và thử lại.');
-      setMessage('Nếu mã hợp lệ, lựa chọn Talent Pool đã được rút.'); setToken('');
+      setMessage('Đã nhận yêu cầu. Nếu mã hợp lệ, lựa chọn Talent Pool đã được rút; phản hồi không xác nhận mã có tồn tại.'); setToken('');
     } catch (err) { setError(err instanceof Error ? err.message : 'Không thể thực hiện yêu cầu.'); }
     finally { setBusy(false); }
   };
   return <Container maxWidth="sm" sx={{ py: 5 }}><Typography variant="h1" sx={{ fontSize: 28, mb: 2 }}>Rút lựa chọn Talent Pool</Typography>
-    <Alert severity="info" sx={{ mb: 2 }}>Rút lựa chọn ngừng sử dụng hồ sơ cho Talent Pool; không tự động xóa hồ sơ ứng tuyển. Nếu mất mã, vui lòng liên hệ HR để được hỗ trợ.</Alert>
+    <Alert severity="info" sx={{ mb: 2 }}>Rút lựa chọn ngừng sử dụng hồ sơ cho Talent Pool; không tự động xóa hồ sơ ứng tuyển. Phản hồi giống nhau cho mọi mã để bảo vệ thông tin; không xác nhận mã có tồn tại. Chưa có chức năng khôi phục mã tự động; nếu mất mã, liên hệ HR để xử lý thủ công.</Alert>
     {message && <Alert severity="success" sx={{ mb: 2 }}>{message}</Alert>}
     {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
     <Box component="form" onSubmit={submit}><Stack spacing={2}>

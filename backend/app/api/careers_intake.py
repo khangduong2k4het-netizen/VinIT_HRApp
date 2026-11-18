@@ -52,6 +52,8 @@ async def apply(position_id: UUID, request_id: UUID = Form(...), name: str = For
         raise HTTPException(400, 'Mã rút lựa chọn không hợp lệ')
     filename = os.path.basename((cv.filename or '').replace('\\', '/'))[:200]
     data = await cv.read(settings.MAX_FILE_SIZE_BYTES + 1)
+    if not data or len(data) > settings.MAX_FILE_SIZE_BYTES:
+        raise HTTPException(400, 'CV không hợp lệ hoặc quá lớn')
     # Antivirus always runs before ZIP/PDF validation or extraction. Scanner
     # errors/limits/timeouts fail closed, not clean.
     verdict = await run_in_threadpool(scan_bytes, data, socket_path=settings.CLAMAV_UNIX_SOCKET,

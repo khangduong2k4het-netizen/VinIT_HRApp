@@ -54,10 +54,17 @@ Thay đường dẫn ví dụ bằng socket xác định ở trên. Kết quả 
 
 ## Bước 4 — Test giả
 
-Qua tunnel, HR thử một CV giả vào Careers (có và không opt-in), xem worker và thử rút consent; gửi một email giả có nhãn `HRA_TEST`, tiêu đề `[HRA-TEST] <mã vị trí>`, đúng một CV giả, HR Lead/Admin bấm đồng bộ. Kiểm tra dedupe, trường hợp review, không tự consent pool, ClamAV bị dừng không nhận hồ sơ. Thư Spam/Trash có thể bị Gmail loại khỏi danh sách và không xuất hiện trong review. Chưa chạy những test này trên hạ tầng thật.
+Qua tunnel, HR thử một CV giả vào Careers (có và không opt-in), xem worker và thử rút consent; gửi một email giả có nhãn `HRA_TEST`, tiêu đề `[HRA-TEST] <mã vị trí>`, đúng một CV giả, HR Lead/Admin bấm đồng bộ. Kiểm tra retry từng email REVIEW (sửa nguyên nhân hoặc gửi thư mới nếu nội dung sai), dedupe, xác nhận tên/email giả của hồ sơ ACCEPTED sau khi worker dừng, không tự consent pool, ClamAV bị dừng không nhận hồ sơ. Khi mất kết nối lúc nộp form, giữ nguyên form/file/mã rút và thử lại cùng yêu cầu; một yêu cầu mới vẫn có thể tạo hồ sơ trùng. Thư Spam/Trash có thể bị Gmail loại khỏi danh sách và không xuất hiện trong review. Chưa chạy những test này trên hạ tầng thật.
 
 **Chưa sẵn sàng cho production**: cần xét lọc spam độc lập, HTTPS, chống abuse, privacy/retention/withdrawal, backup và các gate vận hành trong runbook chi tiết. Không có bước ở đây cho phép nhận dữ liệu thật.
 
 ## Kết quả kiểm tra VPS do operator gửi
 
 Snapshot: repo Ubuntu noble (24.04) arm64, candidate ClamAV `1.5.4+dfsg-0ubuntu0.24.04.1`; 3.8 GiB RAM, 2.5 GiB available, swap 4 GiB trong đó 1.5 GiB used; root filesystem 45 GB, còn 13 GB (73% used). Có thể thử cài nhưng RAM không dư dả và swap đã dùng: cần theo dõi sau khi daemon nạp signatures, tránh làm khi VPS đang tải nặng, dừng và đánh giá nếu RAM/swap tăng nhiều hoặc dịch vụ khác chậm. Không khẳng định thông số này bảo đảm đủ tài nguyên. Tại snapshot scanner chưa được cài; agent không có SSH.
+
+## Ghi chú vòng cải thiện trải nghiệm (chưa deploy)
+
+- Gmail `POST /review/{receipt_id}/retry` chỉ xử lý receipt REVIEW trong đúng mailbox, có lock/dedupe/audit; spam/malware/accepted không retry. Danh sách chỉ 100 receipt mới nhất, không phải inbox đầy đủ. Thư sai nội dung không thể chỉnh trong app; cần gửi thư giả mới.
+- Gmail `GET/PUT /review/{receipt_id}/identity`: chỉ HR Lead/Admin active, khi flag Gmail test bật, chỉ receipt ACCEPTED có application nguồn EMAIL_TEST không có retention case; chỉ cho tên giả và email `@example.test` cùng xác nhận tường minh. Chặn khi vị trí có tác vụ đang chạy, dùng `updated_at` chống ghi đè đồng thời và audit actor không ghi thông tin vào metadata. Đây không xác thực danh tính thật, không xác minh dữ liệu giả, không tạo consent hay khôi phục mã rút. Khi email đổi, các duplicate signal PENDING cũ bị dismiss; tín hiệu mới được tính khi chạy ranking sau.
+- UI Careers phân biệt lỗi CV rỗng/quá lớn, lỗi dịch vụ và kết quả không rõ; request ID chỉ bảo vệ retry có nội dung giống nhau, không phát hiện mọi ứng viên trùng. UI rút consent luôn phản hồi đồng nhất, không xác nhận mã tồn tại; HR scan là snapshot, cần tìm lại trước khi dùng.
+- Không có migration bổ sung; code và test local không chứng minh Gmail, Storage, ClamAV, OAuth hay E2E trên VPS. Không bật tính năng hoặc nhập hồ sơ thật.
