@@ -564,9 +564,13 @@ export default function PositionDetailPage() {
       return group.length === 0 || (group.every(item => /^\d{1,3}(?:\.\d{0,2})?$/.test(itemWeightDraft[item.criterion_id] || '') && Number(itemWeightDraft[item.criterion_id]) >= 0 && Number(itemWeightDraft[item.criterion_id]) <= 100) && Math.abs(draftWeightTotal(category) - 100) < 0.005);
     });
 
+  // Each pick ADDS to the batch, so HR can collect CVs from several folders.
+  // Re-picking the very same file (name, size and timestamp) is ignored.
   const handleFilesSelected = (files: File[]) => {
-    setSelectedFiles(files);
-    setUploadError(validateIntakeFiles(files).batchError);
+    const sameFile = (a: File, b: File) => a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+    const next = [...selectedFiles, ...files.filter(file => !selectedFiles.some(existing => sameFile(existing, file)))];
+    setSelectedFiles(next);
+    setUploadError(validateIntakeFiles(next).batchError);
   };
 
   const handleRemoveFile = (index: number) => {
