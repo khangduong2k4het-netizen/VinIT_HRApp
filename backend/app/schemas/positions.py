@@ -77,6 +77,8 @@ class Position(PositionBase, TimestampMixin):
     created_by: UUID
     opened_at: Optional[datetime] = None
     closed_at: Optional[datetime] = None
+    # P3-3: shown on the public /apply portal (HR opt-in per position).
+    public_apply_enabled: bool = False
 
 
 class PositionWithStats(Position):

@@ -14,6 +14,7 @@ import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import HistoryIcon from '@mui/icons-material/History';
 import InsightsIcon from '@mui/icons-material/Insights';
+import RecentActorsIcon from '@mui/icons-material/RecentActors';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 
@@ -26,6 +27,7 @@ const menuGroups = [
       { text: 'Vị trí tuyển dụng', icon: <WorkIcon />, href: '/positions' },
       { text: 'Shortlist & phản hồi', icon: <PeopleIcon />, href: '/shortlist' },
       { text: 'Thư viện rubric', icon: <LibraryBooksIcon />, href: '/rubric-library', hrOnly: true },
+      { text: 'Talent Pool', icon: <RecentActorsIcon />, href: '/talent-pool', hrOnly: true },
       { text: 'Báo cáo vận hành', icon: <InsightsIcon />, href: '/reports', hrOnly: true },
       { text: 'Chất lượng AI', icon: <InsightsIcon />, href: '/reports/ai-quality', hrOnly: true },
       { text: 'Kiểm định chất lượng', icon: <HistoryIcon />, href: '/quality', leadOnly: true },

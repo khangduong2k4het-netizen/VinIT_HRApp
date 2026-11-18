@@ -37,6 +37,7 @@ export interface Position {
   employment_type?: string;
   headcount?: number;
   status: 'OPEN' | 'PAUSED' | 'CLOSED';
+  public_apply_enabled?: boolean;
   created_by: string;
   opened_at?: string;
   closed_at?: string;

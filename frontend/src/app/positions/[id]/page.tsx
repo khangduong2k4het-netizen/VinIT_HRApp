@@ -31,6 +31,7 @@ import {
   MenuItem,
   Select,
   Checkbox,
+  Switch,
   FormControlLabel,
 } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
@@ -131,6 +132,7 @@ export default function PositionDetailPage() {
   const positionId = params.id as string;
 
   const [position, setPosition] = useState<Position | null>(null);
+  const [publicApplyBusy, setPublicApplyBusy] = useState(false);
   const [criteriaVersions, setCriteriaVersions] = useState<CriteriaVersion[]>([]);
   const [jdVersions, setJdVersions] = useState<JDVersion[]>([]);
   const [selectedJdId, setSelectedJdId] = useState('');
@@ -305,6 +307,17 @@ export default function PositionDetailPage() {
     } catch (err: any) {
       setError(err.response?.data?.detail || t("Không thể tạo đề xuất tiêu chí"));
     } finally { setGenerating(false); }
+  };
+
+  const handlePublicApply = async (_event: React.ChangeEvent<HTMLInputElement>, enabled: boolean) => {
+    if (!position || publicApplyBusy) return;
+    setPublicApplyBusy(true); setError(null);
+    try {
+      await positionsApi.setPublicApply(positionId, enabled);
+      setPosition({ ...position, public_apply_enabled: enabled });
+    } catch (err: any) {
+      setError(err.response?.data?.detail || t("Không thể cập nhật cổng ứng tuyển công khai"));
+    } finally { setPublicApplyBusy(false); }
   };
 
   const handleApprove = async (action: 'APPROVE' | 'DIRECT_APPROVE' | 'REJECT' | 'REQUEST_CHANGES', comment?: string, acceptResponsibility?: boolean) => {
@@ -665,8 +678,30 @@ export default function PositionDetailPage() {
               disabled={!approvedCriteria || position.status !== 'OPEN' || isOperationRunning}
             >{t("Tải lên CV")}</Button>
           )}
+          {isHR && (
+            <Button
+              variant="outlined"
+              component={Link}
+              href={`/positions/${positionId}/talent-pool`}
+              disabled={!approvedCriteria || position.status !== 'OPEN'}
+              sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
+            >{t("Quét Talent Pool")}</Button>
+          )}
         </Box>
       </Box>
+      {isHR && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: -1, mb: 2 }}>
+          <FormControlLabel
+            control={<Switch checked={!!position.public_apply_enabled} disabled={publicApplyBusy}
+              onChange={handlePublicApply} />}
+            label={t("Nhận hồ sơ qua cổng ứng tuyển công khai (/apply)")} />
+          <Typography variant="caption" color="text.secondary">
+            {position.public_apply_enabled && (!approvedCriteria || position.status !== 'OPEN')
+              ? t("Đang bật nhưng chưa hiện trên cổng: vị trí phải đang mở và có bộ tiêu chí đã duyệt.")
+              : t("Ứng viên tự nộp CV, bắt buộc đồng ý cho sử dụng thông tin; CV được chấm như hồ sơ HR tải lên.")}
+          </Typography>
+        </Box>
+      )}
 
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>

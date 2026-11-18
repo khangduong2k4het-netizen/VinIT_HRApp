@@ -50,6 +50,7 @@ import EvidenceCard from '@/components/candidates/EvidenceCard';
 import CVDocumentViewer from '@/components/candidates/CVDocumentViewer';
 import HRNotesPanel from '@/components/candidates/HRNotesPanel';
 import CrossDuplicatesPanel from '@/components/candidates/CrossDuplicatesPanel';
+import TalentPoolPanel from '@/components/candidates/TalentPoolPanel';
 import {
   filterAndSortApplicantItems,
   mergeRankingWithApplications,
@@ -521,6 +522,8 @@ export default function ApplicantDetailPage() {
       {application.can_manage_hr_notes && <HRNotesPanel key={applicantId} applicationId={applicantId} />}
       {application.can_update_status && <CrossDuplicatesPanel key={`duplicates-${applicantId}`} applicationId={applicantId}
         versionKey={JSON.stringify(application.identity)} />}
+      {application.can_update_status && <TalentPoolPanel key={`pool-${applicantId}`} applicationId={applicantId}
+        versionKey={application.application_status} />}
 
       {application.can_update_status && (
         <Accordion disableGutters elevation={0} sx={{ mb: 3, border: '1px solid #E4E7EC', borderRadius: '8px !important', '&:before': { display: 'none' } }}>

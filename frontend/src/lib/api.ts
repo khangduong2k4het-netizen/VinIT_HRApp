@@ -56,6 +56,19 @@ export const crossDuplicatesApi = {
   review: (id: string, decision: 'CONFIRMED' | 'DISMISSED') => apiClient.post(`/cross-duplicates/signals/${id}/review`, { decision }),
 };
 
+// P3-1 Talent Pool: marking, the pool list and scans for a new position.
+export const talentPoolApi = {
+  state: (applicationId: string) => apiClient.get(`/talent-pool/applications/${applicationId}`),
+  mark: (applicationId: string, reasonCode: string) =>
+    apiClient.post(`/talent-pool/applications/${applicationId}/mark`, { reason_code: reasonCode }),
+  unmark: (applicationId: string) => apiClient.delete(`/talent-pool/applications/${applicationId}/mark`),
+  withdrawConsent: (applicationId: string, reference?: string) =>
+    apiClient.post(`/talent-pool/applications/${applicationId}/withdraw-consent`, { reference: reference || null }),
+  list: () => apiClient.get('/talent-pool'),
+  startScan: (positionId: string) => apiClient.post(`/talent-pool/positions/${positionId}/scans`),
+  latestScan: (positionId: string) => apiClient.get(`/talent-pool/positions/${positionId}/scans/latest`),
+};
+
 // F2.09: side-by-side comparison and custom export (never contains email/phone).
 export const candidateReportsApi = {
   compare: (positionId: string, applicationIds: string[]) =>
@@ -92,6 +105,8 @@ export const positionsApi = {
     }
   },
   create: (data: any) => apiClient.post('/positions', data),
+  // P3-3: show or hide the position on the public /apply portal.
+  setPublicApply: (positionId: string, enabled: boolean) => apiClient.put(`/positions/${positionId}/public-apply`, { enabled }),
   // Fetch a public job-posting page and get back a JD draft (nothing is saved).
   importJd: (url: string) => apiClient.post('/positions/jd-import', { url }, { timeout: 90000 }),
   getById: (id: string) => apiClient.get(`/positions/${id}`),
