@@ -70,7 +70,27 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
       viewportHeight: fold,
       pageHeight: document.documentElement.scrollHeight,
       scrollPages: Math.round(document.documentElement.scrollHeight / fold * 100) / 100,
-      filterControlsAboveTable: document.querySelectorAll('thead ~ * button, [role="group"] button').length,
+      // Đếm đích nhấn thật sự nằm giữa tiêu đề trang và bảng dữ liệu: nút, ô chọn
+      // hàng đợi và ô tìm. Cách đếm cũ (`thead ~ * button`) bắt cả nút VI/EN của
+      // header và bỏ sót chip (chip là div), nên nó báo 12 trong khi số thật khác.
+      filterControlsAboveTable: (() => {
+        const table = document.querySelector('table');
+        if (!table) return null;
+        const limit = table.getBoundingClientRect().top + window.scrollY;
+        const heading = [...document.querySelectorAll('h1, h2')].find(h => h.getBoundingClientRect().top + window.scrollY > 0);
+        const start = heading ? heading.getBoundingClientRect().top + window.scrollY : 0;
+        const inRange = el => {
+          const box = el.getBoundingClientRect();
+          const top = box.top + window.scrollY;
+          return top > start && top < limit && box.width > 0 && box.height > 0;
+        };
+        // Chip hàng đợi là <button> thật, nên phải bỏ chúng khỏi phép đếm này
+        // (chúng đã được đếm riêng ở chipsWithCounts) nếu không sẽ tính hai lần.
+        const chipGroup = document.querySelector('[data-testid="queue-chip-counts"]');
+        const clickable = [...document.querySelectorAll('button, [role="button"], [role="combobox"]')]
+          .filter(el => inRange(el) && !(chipGroup && chipGroup.contains(el)));
+        return clickable.length;
+      })(),
       chipsWithCounts: queueChips.length,
       chipLabels: queueChips.map(c => (c.textContent || '').trim().replace(/\s+/g, ' ')),
       tableHeaderOffsetPx: Math.round(headerTop),

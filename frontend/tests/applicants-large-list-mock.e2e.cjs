@@ -64,10 +64,15 @@ const applications = ranking.map((item, index) => ({
   assert.equal(await page.getByRole('button', { name: 'Hiện thêm 50 hồ sơ' }).count(), 0);
   // Rank order was never rewritten by the windowing.
   assert.match(await page.locator('table tbody tr').first().innerText(), /1/);
-  // Keyboard reachability of the main controls.
-  await page.getByRole('button', { name: 'Làm mới' }).focus();
+  // Keyboard reachability of the main controls. R6-a moved "Làm mới" into the
+  // actions menu, so the primary button and that menu trigger are what must be
+  // reachable from the keyboard — and the menu item must actually be operable.
+  await page.getByRole('button', { name: 'Chạy đánh giá & xếp hạng' }).focus();
   await page.keyboard.press('Tab');
-  assert.ok((await page.evaluate(() => document.activeElement?.textContent || '')).length > 0);
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || ''), 'Hành động khác');
+  await page.getByRole('button', { name: 'Hành động khác' }).press('Enter');
+  assert.equal(await page.getByRole('menuitem', { name: 'Làm mới' }).isVisible(), true, 'the refresh action is still reachable, one level down');
+  await page.keyboard.press('Escape');
   // Switching the queue filter resets the window to 50 again.
   await page.getByRole('button', { name: /Cần xác minh/ }).click();
   await page.waitForFunction(() => document.querySelectorAll('table tbody tr').length <= 50);

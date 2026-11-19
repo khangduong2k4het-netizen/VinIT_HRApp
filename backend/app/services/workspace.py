@@ -14,11 +14,10 @@ from typing import Any
 
 COVERAGE_THRESHOLD = 0.7
 
-# Deadline warning window. Seven days is a product choice, not a technical one;
-# keep it named so HR can confirm or change it in one place.
+# Defaults only. HR can change both through the Settings screen
+# (app_private.app_settings); these values are what the app uses when a stored
+# setting is missing or out of range.
 DEADLINE_SOON_DAYS = 7
-
-# "Waiting" = sitting in screening for longer than this. Also a product choice.
 WAITING_ATTENTION_DAYS = 7
 
 # The one place that decides which applications a *work* queue may count.
@@ -101,13 +100,19 @@ def summarize_applications(applications: Iterable[Mapping[str, Any]]) -> dict[st
 
 
 def summarize_waiting(
-    applications: Iterable[Mapping[str, Any]], now: datetime | None = None
+    applications: Iterable[Mapping[str, Any]],
+    now: datetime | None = None,
+    *,
+    threshold_days: int = WAITING_ATTENTION_DAYS,
 ) -> dict[str, int | None]:
     """How long screening work has been waiting.
 
     Kept apart from ``summarize_applications`` on purpose: that function returns
     plain counts, whereas these can legitimately be unknown. Age is descriptive
     only -- it never changes ``rank_number`` or the order of a ranking run.
+
+    ``threshold_days`` comes from Settings; it decides what counts as "waiting too
+    long", never the order things are shown in.
     """
     waiting_days: list[int] = []
     for app in applications:
@@ -119,7 +124,9 @@ def summarize_waiting(
             waiting_days.append(age)
     ordered = sorted(waiting_days)
     return {
-        "waiting_over_7d": sum(age > WAITING_ATTENTION_DAYS for age in waiting_days),
+        # Key keeps its original name for clients already reading it; the threshold
+        # it compares against is the configurable one.
+        "waiting_over_7d": sum(age > threshold_days for age in waiting_days),
         # None, not 0: a position with no timestamped files has no "oldest" file.
         "oldest_waiting_days": ordered[-1] if ordered else None,
         "median_waiting_days": ordered[len(ordered) // 2] if ordered else None,
@@ -429,6 +436,7 @@ def build_work_queue_items(
     criteria_approved: bool = False,
     deadline_at: datetime | str | None = None,
     now: datetime | None = None,
+    deadline_soon_days: int = DEADLINE_SOON_DAYS,
 ) -> list[dict[str, Any]]:
     """Build role-appropriate work items for one visible position.
 
@@ -486,7 +494,7 @@ def build_work_queue_items(
         # that passed this morning is already closed even though it is "today".
         if deadline_is_passed(deadline_at, now):
             add("POSITION_DEADLINE_PASSED", "HIGH", 1, _position_target(position_id, "overview"), deadline_extra)
-        elif days_left <= DEADLINE_SOON_DAYS:
+        elif days_left <= deadline_soon_days:
             add("POSITION_DEADLINE_SOON", "MEDIUM", 1, _position_target(position_id, "overview"), deadline_extra)
 
     can_review_applications = bool(

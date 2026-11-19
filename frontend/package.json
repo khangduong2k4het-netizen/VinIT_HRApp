@@ -19,7 +19,9 @@
     "test:e2e:a11y-mock": "node tests/a11y-mock.e2e.cjs",
     "test:e2e:ranking-context": "node tests/ranking-context-mock.e2e.cjs",
     "test:e2e:drafts-mock": "node tests/draft-back-guard-mock.e2e.cjs",
-    "test:e2e:deadline-mock": "node tests/deadline-work-queue-mock.e2e.cjs"
+    "test:e2e:deadline-mock": "node tests/deadline-work-queue-mock.e2e.cjs",
+    "test:e2e:ranking-compact": "node tests/ranking-compact-mock.e2e.cjs",
+    "test:e2e:settings-mock": "node tests/settings-mock.e2e.cjs"
   },
   "dependencies": {
     "@emotion/cache": "11.14.0",

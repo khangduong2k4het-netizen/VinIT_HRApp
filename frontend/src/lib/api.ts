@@ -217,6 +217,9 @@ export const adminApi = {
   resetUserPassword: (id: string, new_password: string) =>
     apiClient.post(`/admin/users/${id}/reset-password`, { new_password }),
   listAiConfigs: () => apiClient.get('/admin/ai/config'),
+  // Ngưỡng nghiệp vụ HR tự đặt (trước đây là hằng số trong backend).
+  getSettings: () => apiClient.get('/admin/settings'),
+  updateSetting: (key: string, value: number) => apiClient.patch(`/admin/settings/${key}`, { value }),
   getLlmUsageSummary: () => apiClient.get('/admin/ai/usage-summary'),
   getLlmOperations: (params: { days: number; limit: number; offset: number }) => apiClient.get('/admin/ai/operations', { params }),
   testAiConnection: (data: any) => apiClient.post('/admin/ai/test-connection', data),

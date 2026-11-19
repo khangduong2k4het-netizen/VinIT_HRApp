@@ -35,6 +35,10 @@ import {
   Snackbar,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import Menu from '@mui/material/Menu';
+import Collapse from '@mui/material/Collapse';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import SortIcon from '@mui/icons-material/Sort';
@@ -116,6 +120,11 @@ export default function ApplicantsRankingPage() {
 
   const [rankingItems, setRankingItems] = useState<RankingItem[]>([]);
   const [loading, setLoading] = useState(true);
+  // UX-R6-a: hai hành động phụ nằm trong menu để header chỉ còn một nút chính
+  // và một nút phụ, giảm số đích nhấn ngang hàng với hành động chính.
+  const [actionsMenuAnchor, setActionsMenuAnchor] = useState<null | HTMLElement>(null);
+  // UX-R6-b: phần giải thích nghiệp vụ vẫn còn nguyên, chỉ thu gọn mặc định.
+  const [showHowToRead, setShowHowToRead] = useState(false);
   const [assessing, setAssessing] = useState(false);
   const [operationStatus, setOperationStatus] = useState<import('@/types').OperationStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -519,19 +528,9 @@ export default function ApplicantsRankingPage() {
           <Typography variant="h2" sx={{ fontSize: 22, color: '#0A2B57', mb: 0.5 }}>{t("Danh sách ứng viên")}</Typography>
           <Typography variant="body2" color="text.secondary">{t("Xếp hạng sàng lọc theo phiên bản tiêu chí mới nhất đã duyệt; số thứ hạng là tại lần chạy gần nhất.")}</Typography>
         </Box>
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-          <Button
-            variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={loadRanking}
-            sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
-          >{t("Làm mới")}</Button>
-          <Button
-            variant="outlined"
-            startIcon={<ShareIcon />}
-            onClick={handleOpenShare}
-            sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
-          >{t("Chia sẻ Shortlist")}</Button>
+        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Một hành động chính, phần còn lại vào menu: ba nút ngang hàng khiến
+              HR phải đọc cả ba mới biết nút nào là việc chính. */}
           <Button
             variant="contained"
             color="secondary"
@@ -541,6 +540,29 @@ export default function ApplicantsRankingPage() {
           >
             {assessing ? t("Đang đánh giá...") : t("Chạy đánh giá & xếp hạng")}
           </Button>
+          <IconButton
+            aria-label={t("Hành động khác")}
+            aria-haspopup="menu"
+            aria-expanded={Boolean(actionsMenuAnchor)}
+            onClick={event => setActionsMenuAnchor(event.currentTarget)}
+            sx={{ border: '1px solid #D0D7E2', borderRadius: 1 }}
+          >
+            <MoreVertIcon />
+          </IconButton>
+          <Menu
+            anchorEl={actionsMenuAnchor}
+            open={Boolean(actionsMenuAnchor)}
+            onClose={() => setActionsMenuAnchor(null)}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            <MenuItem onClick={() => { setActionsMenuAnchor(null); loadRanking(); }}>
+              <RefreshIcon fontSize="small" sx={{ mr: 1 }} />{t("Làm mới")}
+            </MenuItem>
+            <MenuItem onClick={() => { setActionsMenuAnchor(null); handleOpenShare(); }}>
+              <ShareIcon fontSize="small" sx={{ mr: 1 }} />{t("Chia sẻ Shortlist")}
+            </MenuItem>
+          </Menu>
         </Box>
       </Box>
 
@@ -558,38 +580,16 @@ export default function ApplicantsRankingPage() {
       {loading && loadingProgress != null && <Alert severity="info" sx={{ mb: 3 }} icon={<CircularProgress size={18} />}>{t("Đang tải danh sách ứng viên theo trang: {0} hồ sơ. Bộ lọc và xếp hạng áp dụng sau khi tải xong.", loadingProgress)}</Alert>}
       {rankingError && <Alert severity="error" sx={{ mb: 3 }} action={<Button color="inherit" onClick={loadRanking}>{t("Thử lại")}</Button>}>{t(rankingError)}</Alert>}
       {!rankingError && <>
-      {/* Summary cards */}
-      <Stack direction="row" spacing={2} useFlexGap sx={{ mb: 3, flexWrap: 'wrap' }}>
-        <Card sx={{ minWidth: 140, flex: '1 1 140px' }}>
-          <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
-            <Typography variant="caption" color="text.secondary">{t("Tổng hồ sơ")}</Typography>
-            <Typography variant="h4" sx={{ fontSize: 24, fontWeight: 'bold', color: '#0A2B57' }}>{totalApplications}</Typography>
-          </CardContent>
-        </Card>
-        <Card sx={{ minWidth: 140, flex: '1 1 140px' }}>
-          <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
-            <Typography variant="caption" color="text.secondary">{t("Có trong xếp hạng")}</Typography>
-            <Typography variant="h4" sx={{ fontSize: 24, fontWeight: 'bold', color: '#067647' }}>{assessedCount}</Typography>
-          </CardContent>
-        </Card>
-        <Card sx={{ minWidth: 140, flex: '1 1 140px', border: queueCounts.NEEDS_VERIFICATION > 0 ? '1px solid #FEDF89' : undefined }}>
-          <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
-            <Typography variant="caption" color="text.secondary">{t("Cần HR xác minh")}</Typography>
-            <Typography variant="h4" sx={{ fontSize: 24, fontWeight: 'bold', color: queueCounts.NEEDS_VERIFICATION > 0 ? '#B54708' : '#667085' }}>
-              {queueCounts.NEEDS_VERIFICATION}
-            </Typography>
-          </CardContent>
-        </Card>
-        {queueCounts.DUPLICATE > 0 && (
-          <Card sx={{ minWidth: 140, flex: '1 1 140px', border: '1px solid #FECDCA' }}>
-            <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
-              <Typography variant="caption" color="text.secondary">{t("Cảnh báo trùng lặp")}</Typography>
-              <Typography variant="h4" sx={{ fontSize: 24, fontWeight: 'bold', color: '#C72127' }}>
-                {queueCounts.DUPLICATE}
-              </Typography>
-            </CardContent>
-          </Card>
-        )}
+      {/* R6-c (bản cân bằng): hai con số không trùng chip nào được giữ, nhưng ở
+          dạng một dòng thay vì hai thẻ cao 89px. Hai thẻ "Cần HR xác minh" và
+          "Cảnh báo trùng lặp" đã bị bỏ vì chip hàng đợi ngay dưới đếm đúng hai
+          thứ đó, kèm số — giữ cả hai là nói cùng một câu hai lần. */}
+      <Stack direction="row" spacing={2} useFlexGap sx={{ mb: 2, alignItems: 'center', flexWrap: 'wrap' }} data-testid="applicant-funnel">
+        <Typography variant="body2" color="text.secondary">
+          {t("{0}/{1} hồ sơ đã có trong xếp hạng", assessedCount, totalApplications)}
+        </Typography>
+        <Box sx={{ flex: 1 }} />
+        <Typography variant="caption" color="text.secondary">{t("Số trên mỗi nhóm tính trên toàn bộ vị trí")}</Typography>
       </Stack>
 
       <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }} role="group" aria-label={t('Chế độ xem ứng viên')}>
@@ -635,7 +635,20 @@ export default function ApplicantsRankingPage() {
             <MenuItem value="NEWEST">{t("Mới nhất")}</MenuItem>
           </Select>
         </FormControl>
+        <Box sx={{ flex: 1 }} />
+        <Button
+          size="small"
+          startIcon={<InfoOutlinedIcon />}
+          endIcon={showHowToRead ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          aria-expanded={showHowToRead}
+          aria-controls="how-to-read-applicants"
+          onClick={() => setShowHowToRead(!showHowToRead)}
+          sx={{ px: 0.5, whiteSpace: 'nowrap' }}
+          data-testid="how-to-read-toggle"
+        >{t("Cách đọc danh sách")}</Button>
       </Box>
+      {/* Dòng đếm nằm chung hàng với ô tìm: trước đây nó chiếm một dòng riêng
+          (16px + lề) chỉ để nói "Hiển thị 4/12". */}
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 2, mt: -1.5 }}>
         <Typography variant="caption" color="text.secondary" data-testid="applicant-count">
           {t("Hiển thị {0}/{1} hồ sơ của vị trí.", filteredItems.length, rankingItems.length)}
@@ -662,9 +675,15 @@ export default function ApplicantsRankingPage() {
         </Box>
       )}
 
-      <Alert severity="info" sx={{ mb: 3 }}>
-        {t("Cách đọc danh sách: điểm một phần chỉ tính trên phần trọng số đã có bằng chứng (cột Độ phủ), chưa phải điểm cuối. Ô chọn ở đầu mỗi dòng chỉ dùng để chọn hồ sơ đã Shortlist khi chia sẻ cho Hiring Manager. Mở rộng từng dòng để xem kết quả theo từng tiêu chí.")}
-      </Alert>
+      {/* Nội dung nghiệp vụ giữ nguyên từng chữ; chỉ mặc định thu gọn vì nó
+          từng chiếm 3 dòng trước dòng dữ liệu đầu tiên. */}
+      <Box sx={{ mb: 2 }}>
+        <Collapse in={showHowToRead} timeout="auto" unmountOnExit>
+          <Alert severity="info" id="how-to-read-applicants" sx={{ mb: 1 }}>
+            {t("Cách đọc danh sách: điểm một phần chỉ tính trên phần trọng số đã có bằng chứng (cột Độ phủ), chưa phải điểm cuối. Ô chọn ở đầu mỗi dòng chỉ dùng để chọn hồ sơ đã Shortlist khi chia sẻ cho Hiring Manager. Mở rộng từng dòng để xem kết quả theo từng tiêu chí.")}
+          </Alert>
+        </Collapse>
+      </Box>
 
       {/* Cards keep the primary actions visible on narrow screens. */}
       <Box sx={{ display: { xs: 'grid', md: 'none' }, gap: 2 }}>

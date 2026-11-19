@@ -89,6 +89,9 @@ export interface WorkQueueResponse {
     positions_deadline_passed?: number;
     positions_deadline_soon?: number;
     applications_waiting_over_threshold?: number;
+    /** Ngưỡng đang áp dụng (HR đổi được trong Cài đặt HR). */
+    deadline_soon_days?: number;
+    waiting_attention_days?: number;
     /** null khi chưa có hồ sơ nào có mốc thời gian — không phải 0. */
     oldest_waiting_days?: number | null;
     median_waiting_days?: number | null;

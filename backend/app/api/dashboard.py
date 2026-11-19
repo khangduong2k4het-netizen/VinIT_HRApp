@@ -16,6 +16,7 @@ from app.services.workspace import (
     summarize_applications,
     summarize_waiting,
 )
+from app.services.app_settings import load_settings
 
 router = APIRouter()
 
@@ -255,6 +256,10 @@ def _load_work_queue(user_id: str) -> dict:
     try:
         positions = db.execute(text(_WORK_QUEUE_POSITIONS_QUERY), params).mappings().all()
         applications = db.execute(text(_APPLICATIONS_QUERY), params).mappings().all()
+        # Read once per request, while the session is still open: two thresholds,
+        # one query, and every row below uses the same numbers even if someone
+        # edits Settings mid-request.
+        thresholds = load_settings(db)
     finally:
         db.close()
 
@@ -314,6 +319,7 @@ def _load_work_queue(user_id: str) -> dict:
             share_without_feedback=int(row.get("shares_without_feedback") or 0),
             criteria_approved=bool(row.get("criteria_approved")),
             deadline_at=row.get("application_deadline_at"),
+            deadline_soon_days=thresholds["deadline_soon_days"],
         )
         items.extend(position_items)
         criteria_pending_positions += any(item["type"] in ("CRITERIA_PENDING_HR", "CRITERIA_PENDING_HM", "POSITION_SETUP") for item in position_items)
@@ -323,7 +329,9 @@ def _load_work_queue(user_id: str) -> dict:
     items.sort(key=lambda item: (priority_rank[item["priority"]], -item["count"], item["position_title"] or ""))
     # Age figures are plain numbers; missing data stays None rather than posing as
     # zero, the same way hr_override_rate does.
-    waiting = summarize_waiting(waiting_applications)
+    waiting = summarize_waiting(
+        waiting_applications, threshold_days=thresholds["waiting_attention_days"]
+    )
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -341,6 +349,10 @@ def _load_work_queue(user_id: str) -> dict:
                 1 for item in items if item["type"] == "POSITION_DEADLINE_SOON"
             ),
             "applications_waiting_over_threshold": waiting["waiting_over_7d"],
+            # The two thresholds actually applied, so the screen can say
+            # "over 5 days" instead of a number that may no longer be true.
+            "deadline_soon_days": thresholds["deadline_soon_days"],
+            "waiting_attention_days": thresholds["waiting_attention_days"],
             "oldest_waiting_days": waiting["oldest_waiting_days"],
             "median_waiting_days": waiting["median_waiting_days"],
         },

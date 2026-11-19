@@ -21,6 +21,7 @@ from app.services.ai_config import (
     validate_runtime,
 )
 from app.services.ai_runtime_controls import lock_service_for_update, service_enabled, set_service_enabled
+from app.services.app_settings import SettingError, load_settings, public_payload, save_setting
 from app.services.ai_secrets import (
     AISecretConfigurationError,
     AISecretError,
@@ -1004,6 +1005,58 @@ async def select_ltr_shadow(request: LTRSelectionRequest, current_user: dict = D
         db.commit()
         return {"selection_id": str(selection_id), "mode": request.mode,
                 "enabled": request.mode != "OFF", "worker_status": "unknown"}
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+# --- HR thresholds -----------------------------------------------------------
+# These used to be constants in code. They are business numbers (how many days is
+# "soon", how many days is "waiting too long"), so HR owns them, not a deploy.
+
+
+class SettingUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    value: int = Field(ge=0, le=10000)
+
+
+@router.get("/settings")
+def list_hr_settings(current_user: dict = Depends(require_admin_role)):
+    """Every tunable threshold with its current value, default and allowed range."""
+    db = SessionLocal()
+    try:
+        values = load_settings(db)
+        return {"settings": public_payload(values)}
+    finally:
+        db.close()
+
+
+@router.patch("/settings/{key}")
+def update_hr_setting(key: str, payload: SettingUpdateRequest, current_user: dict = Depends(require_admin_role)):
+    """Change one threshold. Admin-only, audited, and validated against its range."""
+    db = SessionLocal()
+    try:
+        before = load_settings(db).get(key)
+        try:
+            value = save_setting(db, key, payload.value, current_user["user_id"])
+        except SettingError as error:
+            db.rollback()
+            # 400, not 422: the message is written for HR and names the range.
+            raise HTTPException(status_code=400, detail=str(error))
+        db.execute(text("""
+            INSERT INTO app_private.audit_events
+                (actor_user_id, action_type, object_type, outcome, metadata)
+            VALUES (:user_id, 'UPDATE_APP_SETTING', 'APP_SETTING', 'SUCCESS', CAST(:metadata AS jsonb))
+        """), {
+            "user_id": current_user["user_id"],
+            "metadata": json.dumps({"key": key, "from": before, "to": value}),
+        })
+        db.commit()
+        return {"key": key, "value": value, "previous_value": before}
+    except HTTPException:
+        raise
     except Exception:
         db.rollback()
         raise

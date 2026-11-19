@@ -2952,3 +2952,71 @@ def test_work_queue_reports_a_passed_deadline_and_waiting_times(client, seed):
     assert body["summary"]["positions_deadline_passed"] == 1
     assert body["summary"]["applications_waiting_over_threshold"] == 1
     assert body["summary"]["oldest_waiting_days"] == 12
+
+
+def test_hr_settings_round_trip_and_reach_the_work_queue(client, seed):
+    """Bảng settings thật trên Postgres: đọc, ghi, validate và ảnh hưởng tới work queue."""
+    # Mặc định lấy từ migration, không phải từ code.
+    body = client.get("/v1/admin/settings", headers=headers(seed["hr"])).json()
+    by_key = {item["key"]: item for item in body["settings"]}
+    assert by_key["deadline_soon_days"]["value"] == 7
+    assert by_key["waiting_attention_days"]["min"] == 1 and by_key["waiting_attention_days"]["max"] == 90
+
+    # Chỉ ADMIN đổi được: HR_RECRUITER bị từ chối.
+    assert client.patch(
+        "/v1/admin/settings/deadline_soon_days", headers=headers(seed["hr"]), json={"value": 5}
+    ).status_code == 403
+
+    with engine.begin() as conn:
+        conn.execute(
+            text("INSERT INTO app_private.user_role_assignments(user_id, role_code) VALUES (:id, 'ADMIN')"),
+            {"id": seed["hr"]},
+        )
+        conn.execute(
+            text("UPDATE app_private.positions SET application_deadline_at = now() + interval '10 days' WHERE position_id = :id"),
+            {"id": seed["pos"]},
+        )
+        conn.execute(
+            text("UPDATE app_private.criteria_versions SET status = 'APPROVED' WHERE criteria_version_id = :id"),
+            {"id": seed["cv"]},
+        )
+
+    def deadline_items():
+        queue = client.get("/v1/dashboard/work-queue", headers=headers(seed["hr"])).json()
+        return [i["type"] for i in queue["items"] if i["type"].startswith("POSITION_DEADLINE_")]
+
+    # 10 ngày nữa mới hết hạn: với ngưỡng 7 thì chưa có việc.
+    assert deadline_items() == []
+
+    saved = client.patch(
+        "/v1/admin/settings/deadline_soon_days", headers=headers(seed["hr"]), json={"value": 14}
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["value"] == 14 and saved.json()["previous_value"] == 7
+
+    # Ngưỡng 14 làm vị trí còn 10 ngày thành "sắp hết hạn", không cần deploy.
+    assert deadline_items() == ["POSITION_DEADLINE_SOON"]
+    queue = client.get("/v1/dashboard/work-queue", headers=headers(seed["hr"])).json()
+    assert queue["summary"]["deadline_soon_days"] == 14, "API phải nói ngưỡng đang áp dụng"
+
+    # Ngoài khoảng: 400 kèm thông điệp nêu khoảng, và không ghi gì.
+    too_big = client.patch(
+        "/v1/admin/settings/deadline_soon_days", headers=headers(seed["hr"]), json={"value": 61}
+    )
+    assert too_big.status_code == 400
+    assert "1–60" in too_big.json()["detail"]
+    assert client.get("/v1/admin/settings", headers=headers(seed["hr"])).json()["settings"][0]["value"] == 14
+
+    # Khoá lạ: 400, không tạo dòng mới.
+    unknown = client.patch(
+        "/v1/admin/settings/not_a_setting", headers=headers(seed["hr"]), json={"value": 1}
+    )
+    assert unknown.status_code == 400
+
+    with engine.connect() as conn:
+        audit = conn.execute(text("""
+            SELECT metadata FROM app_private.audit_events
+            WHERE action_type = 'UPDATE_APP_SETTING' ORDER BY created_at DESC LIMIT 1
+        """)).scalar_one()
+        assert audit["key"] == "deadline_soon_days"
+        assert audit["from"] == 7 and audit["to"] == 14, "nhật ký phải ghi cả giá trị cũ và mới"

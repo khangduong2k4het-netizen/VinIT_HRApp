@@ -160,7 +160,7 @@ export default function DashboardPage() {
                 {/* Tuổi hồ sơ: null nghĩa là chưa đo được, không phải 0 ngày. */}
                 {workQueue && workQueue.summary.oldest_waiting_days != null && (
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                    {t("{0} hồ sơ chờ quá 7 ngày · lâu nhất {1} ngày", workQueue.summary.applications_waiting_over_threshold ?? 0, workQueue.summary.oldest_waiting_days)}
+                    {t("{0} hồ sơ chờ quá {1} ngày · lâu nhất {2} ngày", workQueue.summary.applications_waiting_over_threshold ?? 0, workQueue.summary.waiting_attention_days ?? 7, workQueue.summary.oldest_waiting_days)}
                   </Typography>
                 )}
               </Box>
