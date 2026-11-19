@@ -9,6 +9,45 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-19 — Thanh hành động nổi dùng được trên điện thoại
+
+**Vấn đề.** Đo trên Chromium 390×844 (và 360×640): thanh hành động nổi
+(`position: fixed`, `left: 50%`, không có `width`) co lại còn **195px rộng và
+311px cao** — chiếm hơn một phần ba màn hình, nhãn nút gãy dòng, và trang không
+chừa chỗ nên **dòng hồ sơ cuối nằm dưới thanh** (card cuối kết thúc ở 752px,
+thanh bắt đầu ở 521px). Nút trong thanh chỉ cao 43–45px, nút xác nhận trong hộp
+thoại còn thấp hơn mức chạm thoải mái.
+
+**Thay đổi** (`frontend/src/app/positions/[id]/applicants/page.tsx`):
+
+- Thanh trải hết bề ngang trên điện thoại (`left/right: 8px`, bỏ `translateX`),
+  giữ kiểu canh giữa trên desktop; nhãn không gãy dòng, cỡ chữ 13px trên mobile
+  để ba hành động xếp vừa hai dòng thay vì bốn.
+- Mọi nút trong thanh và hai nút của hộp thoại cao **tối thiểu 44px**; hộp thoại
+  xếp nút theo cột trên điện thoại để nút xác nhận rộng và nằm cuối tầm tay.
+- Trang đo chiều cao thật của thanh (`ResizeObserver`) và tự chừa
+  `padding-bottom` tương ứng, nên hồ sơ cuối luôn cuộn lên trên thanh thay vì bị
+  che; không dùng con số cứng vì chiều cao thanh phụ thuộc bề ngang.
+- Kết quả đo lại: 390×844 → thanh 167px cao, không chồng lấn (card cuối 581px,
+  thanh 669px); 360×640 → thanh 167px, card cuối 357px, thanh 465px.
+
+**Kiểm thử.** Bổ sung mục 5 vào `frontend/tests/bulk-actions.e2e.cjs`: chạy lại
+luồng ở 390×844 và 360×640, khẳng định thanh trải sát hai mép, cao ≤ 40% màn
+hình, đủ 4 nút với chiều cao ≥ 44px và không tràn ngang, card cuối cùng nằm trên
+thanh sau khi cuộn hết, nút xác nhận ≥ 44px và nằm trọn trong màn hình, không có
+exception phía client.
+
+| Lệnh | Kết quả |
+| --- | --- |
+| `npm run test:e2e:bulk-actions` (có kiểm tra mobile) | pass |
+| `npm run test:e2e:ranking-context`, `ranking-compact`, `duplicate-warning` | pass |
+| `npm run type-check` / `npm run lint` / `npm run test:unit` / `npm run build` | pass |
+
+**Chưa kiểm.** Chưa thử trên thiết bị thật hay trình duyệt di động khác
+(iOS Safari, thanh địa chỉ động làm `innerHeight` thay đổi); chưa xem ảnh chụp —
+chỉ đo hình học qua Chromium headless. Chưa kiểm bàn phím ảo che thanh khi gõ lý do
+chung trong hộp thoại.
+
 ## 2026-11-19 — Shortlist hàng loạt được cả hồ sơ Mới (hai bước)
 
 **Vấn đề.** Thanh hành động hàng loạt chỉ shortlist hồ sơ Đang xem; hồ sơ Mới bị

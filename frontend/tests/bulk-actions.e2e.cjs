@@ -17,6 +17,9 @@
  *     reason goes out with every record.
  *  4. The batch uses the existing per-application status endpoint and nothing
  *     else; no new API surface is invented.
+ *  5. On a 390px and a 360px phone the floating bar spans the screen, every
+ *     action and the confirm button are at least 44px tall and fully on screen,
+ *     and the last application clears the bar instead of sitting underneath it.
  */
 const { chromium } = require('playwright-core');
 const assert = require('node:assert/strict');
@@ -119,6 +122,75 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
 
   assert.deepEqual(unexpected, [], `all API calls are accounted for: ${unexpected.join(', ')}`);
 
-  console.log('Bulk actions: any screening row selectable, NEW shortlisted through NEW → IN_REVIEW → SHORTLIST with the dialog saying so, reject with one shared reason, one existing endpoint per record: OK');
+  // --- 5. On a phone the floating bar must not hide the list or shrink taps --
+  // Measured before the fix at 390x844: the bar shrink-wrapped to 195px wide and
+  // 311px tall, and the last visible application sat underneath it. The checks
+  // below are about geometry, not styling taste: full-width bar, 44px targets,
+  // and the last row reachable by scrolling.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 640 }]) {
+    const mobile = await browser.newContext({ viewport, isMobile: true, hasTouch: true });
+    await mobile.addInitScript(() => {
+      localStorage.setItem('hra_access_token', 'bulk-mobile');
+      localStorage.setItem('hra_locale', 'vi');
+    });
+    const mobileUnexpected = await installMockApi(mobile);
+    const phone = await mobile.newPage();
+    const phoneErrors = [];
+    phone.on('pageerror', error => phoneErrors.push(String(error)));
+
+    await phone.goto(`${base}/positions/p1/applicants`, { waitUntil: 'networkidle' });
+    await phone.waitForSelector('[data-testid="applicant-count"]');
+    await phone.getByRole('checkbox', { name: 'Chọn hồ sơ Nguyễn Minh Anh' }).check();
+    await phone.waitForSelector('[data-testid="bulk-action-bar"]');
+
+    // The list must be scrollable to a point where its last item is above the bar.
+    await phone.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await phone.waitForTimeout(300);
+    const geometry = await phone.evaluate(() => {
+      const bar = document.querySelector('[data-testid="bulk-action-bar"]').getBoundingClientRect();
+      const buttons = [...document.querySelectorAll('[data-testid="bulk-action-bar"] button')].map(button => {
+        const rect = button.getBoundingClientRect();
+        return { label: (button.textContent || '').trim(), height: Math.round(rect.height), left: Math.round(rect.left), right: Math.round(rect.right) };
+      });
+      const cards = [...document.querySelectorAll('a[href*="/applicants/app-"]')];
+      const lastCard = cards[cards.length - 1].getBoundingClientRect();
+      return {
+        viewport: { width: innerWidth, height: innerHeight },
+        bar: { left: Math.round(bar.left), right: Math.round(bar.right), height: Math.round(bar.height), top: Math.round(bar.top) },
+        buttons,
+        lastCardBottom: Math.round(lastCard.bottom),
+      };
+    });
+
+    const label = `${viewport.width}x${viewport.height}`;
+    assert.ok(geometry.bar.left <= 12 && geometry.bar.right >= geometry.viewport.width - 12,
+      `${label}: the bar spans the screen, got ${geometry.bar.left}–${geometry.bar.right} of ${geometry.viewport.width}`);
+    assert.ok(geometry.bar.height <= geometry.viewport.height * 0.4,
+      `${label}: the bar must not eat the screen, got ${geometry.bar.height}px of ${geometry.viewport.height}px`);
+    assert.equal(geometry.buttons.length, 4, `${label}: every batch action is reachable`);
+    for (const button of geometry.buttons) {
+      assert.ok(button.height >= 44, `${label}: "${button.label}" needs a 44px touch target, got ${button.height}px`);
+      assert.ok(button.left >= 0 && button.right <= geometry.viewport.width,
+        `${label}: "${button.label}" is fully on screen (${button.left}–${button.right})`);
+    }
+    assert.ok(geometry.lastCardBottom <= geometry.bar.top,
+      `${label}: the last application must clear the bar, card ends at ${geometry.lastCardBottom}px, bar starts at ${geometry.bar.top}px`);
+
+    // The confirmation itself is the button HR taps with a thumb.
+    await phone.getByTestId('bulk-shortlist-open').click();
+    await phone.getByTestId('bulk-dialog').waitFor();
+    const confirmBox = await phone.getByTestId('bulk-confirm').boundingBox();
+    assert.ok(confirmBox.height >= 44, `${label}: confirm needs a 44px touch target, got ${confirmBox.height}px`);
+    assert.ok(confirmBox.y >= 0 && confirmBox.y + confirmBox.height <= viewport.height,
+      `${label}: confirm is fully visible without scrolling`);
+    assert.equal(await phone.getByTestId('bulk-confirm').isDisabled(), false, `${label}: confirm is tappable once opened`);
+    await phone.getByRole('button', { name: 'Hủy' }).click();
+
+    assert.deepEqual(phoneErrors, [], `${label}: no client-side exceptions: ${phoneErrors.join(' | ')}`);
+    assert.deepEqual(mobileUnexpected, [], `${label}: all API calls are accounted for: ${mobileUnexpected.join(', ')}`);
+    await mobile.close();
+  }
+
+  console.log('Bulk actions: any screening row selectable, NEW shortlisted through NEW → IN_REVIEW → SHORTLIST with the dialog saying so, reject with one shared reason, one existing endpoint per record; on 390px and 360px the bar spans the screen, targets are 44px, and the last application clears it: OK');
   await browser.close();
 })().catch(err => { console.error(err); process.exit(1); });

@@ -505,6 +505,22 @@ export default function ApplicantsRankingPage() {
   const bulkTwoStepCount = bulkShortlistTargets.filter(item => item.application_status === 'NEW').length;
   const bulkShortlistSkipped = selectedItems.length - bulkShortlistTargets.length;
   const bulkTargets = bulkMode === 'shortlist' ? bulkShortlistTargets : selectedItems;
+  // The floating bar is fixed, so the page has to reserve exactly as much room as
+  // it actually takes: on a phone it wraps onto several rows, and a hard-coded
+  // padding would either hide the last row again or leave a gap. Measured, not
+  // guessed.
+  const bulkBarRef = useRef<HTMLDivElement>(null);
+  const [bulkBarHeight, setBulkBarHeight] = useState(0);
+  useEffect(() => {
+    const node = bulkBarRef.current;
+    if (!node) { setBulkBarHeight(0); return; }
+    const measure = () => setBulkBarHeight(Math.ceil(node.getBoundingClientRect().height));
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [selectedItems.length]);
 
   const openBulk = (mode: 'shortlist' | 'reject') => {
     setBulkMode(mode);
@@ -679,7 +695,7 @@ export default function ApplicantsRankingPage() {
   }
 
   return (
-    <Box>
+    <Box sx={{ pb: bulkBarHeight ? `${bulkBarHeight + 24}px` : 0 }}>
       <Button component={Link} href={`/positions/${positionId}`} startIcon={<ArrowBackIcon />} sx={{ mb: 1 }}>{t("Quay lại vị trí")}</Button>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2, mb: 3 }}>
         <Box>
@@ -844,25 +860,33 @@ export default function ApplicantsRankingPage() {
           mất chiều cao và người duyệt luôn thấy hành động nằm ngay tầm mắt. */}
       {selectedItems.length > 0 && (
         <Paper
+          ref={bulkBarRef}
           elevation={8}
           role="region"
           aria-label={t('Hành động cho hồ sơ đã chọn')}
           data-testid="bulk-action-bar"
           sx={{
             position: 'fixed',
-            bottom: { xs: 12, md: 24 },
-            left: '50%',
-            transform: 'translateX(-50%)',
+            // On a phone the bar spans the screen edge to edge: shrink-to-fit made
+            // it a 195px-wide column that filled a third of the viewport. Touch
+            // targets are at least 44px, and labels never wrap mid-word.
+            bottom: { xs: 8, md: 24 },
+            left: { xs: 8, md: '50%' },
+            right: { xs: 8, md: 'auto' },
+            transform: { xs: 'none', md: 'translateX(-50%)' },
             zIndex: 5,
-            px: 2,
-            py: 1.25,
+            px: { xs: 1.5, md: 2 },
+            py: { xs: 1, md: 1.25 },
             border: '1px solid #B9CBE2',
             backgroundColor: '#EFF8FF',
             display: 'flex',
             alignItems: 'center',
-            gap: 1.5,
+            gap: { xs: 1, md: 1.5 },
             flexWrap: 'wrap',
-            maxWidth: 'calc(100% - 32px)',
+            maxWidth: { xs: 'none', md: 'calc(100% - 32px)' },
+            // 44px targets, and tight enough that the three actions take two rows
+            // on a 360px phone instead of four, so the bar does not eat the list.
+            '& .MuiButton-root': { minHeight: 44, whiteSpace: 'nowrap', fontSize: { xs: 13, md: 14 }, px: { xs: 1.25, md: 2 } },
           }}
         >
           <Typography variant="body2" fontWeight={700} data-testid="bulk-selection-count">
@@ -1352,14 +1376,15 @@ export default function ApplicantsRankingPage() {
             helperText={bulkMode === 'reject' ? t("Lý do này được ghi cho mọi hồ sơ bị loại trong lần này.") : undefined}
           />
         </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={closeBulk} disabled={bulkProcessing}>{t("Hủy")}</Button>
+        <DialogActions sx={{ p: 2, flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
+          <Button onClick={closeBulk} disabled={bulkProcessing} sx={{ minHeight: 44, width: { xs: '100%', sm: 'auto' } }}>{t("Hủy")}</Button>
           <Button
             variant="contained"
             color={bulkMode === 'shortlist' ? 'secondary' : 'error'}
             onClick={handleBulkApply}
             disabled={bulkProcessing || bulkTargets.length === 0 || (bulkMode === 'reject' && !bulkReason.trim())}
             data-testid="bulk-confirm"
+            sx={{ minHeight: 44, width: { xs: '100%', sm: 'auto' } }}
           >
             {bulkProcessing
               ? t("Đang cập nhật {0} hồ sơ…", bulkTargets.length)
