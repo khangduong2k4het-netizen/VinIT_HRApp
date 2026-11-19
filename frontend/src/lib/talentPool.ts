@@ -29,7 +29,8 @@ export const OUTCOMES: Record<string, string> = {
 };
 export const SKIP_REASONS: Record<string, string> = {
   NO_EXTRACTED_TEXT: 'Chưa có văn bản CV', TEXT_UNAVAILABLE: 'Không đọc được văn bản CV', OVER_LIMIT: 'Vượt giới hạn một lượt quét',
-  ALREADY_APPLIED: 'Ứng viên đã ứng tuyển vị trí này', DUPLICATE_EMAIL: 'Trùng email, giữ hồ sơ tốt nhất', SCORING_ERROR: 'Lỗi khi chấm CV',
+  ALREADY_APPLIED: 'Ứng viên đã ứng tuyển vị trí này', DUPLICATE_EMAIL: 'Trùng email, giữ hồ sơ tốt nhất',
+  DUPLICATE_PHONE: 'Trùng số điện thoại, giữ hồ sơ tốt nhất', SCORING_ERROR: 'Lỗi khi chấm CV',
 };
 
 /** Short, non-identifying label for a pool application (no names are ever shown). */

@@ -91,15 +91,25 @@ export default function ScanPanel({ positionId }: { positionId: string }) {
     }).catch(() => setScans([]));
   }, [positionId, loadScan]);
 
-  // The worker scores the pool in the background: poll until the scan leaves PENDING/PROCESSING.
+  // The worker scores the pool in the background: poll the lightweight scan list
+  // until the active scan leaves PENDING/PROCESSING, then fetch full results once.
   const active = scanIsActive(scan?.status);
   useEffect(() => {
     if (!active || !scan) return;
     const scanId = scan.scan_id;
     const timer = setInterval(() => {
-      talentPoolApi.scanDetail(scanId).then(r => {
-        setScan(current => current?.scan_id === scanId ? r.data : current);
-        if (!scanIsActive(r.data.status)) talentPoolApi.scans(positionId).then(l => setScans(l.data.items)).catch(() => undefined);
+      talentPoolApi.scans(positionId).then(listRes => {
+        const items: ScanSummary[] = listRes.data.items || [];
+        setScans(items);
+        const match = items.find(item => item.scan_id === scanId);
+        if (!match) return;
+        if (scanIsActive(match.status)) {
+          setScan(current => current?.scan_id === scanId ? { ...current, ...match } : current);
+        } else {
+          talentPoolApi.scanDetail(scanId)
+            .then(detailRes => setScan(current => current?.scan_id === scanId ? detailRes.data : current))
+            .catch(() => undefined);
+        }
       }).catch(() => undefined);
     }, 3000);
     return () => clearInterval(timer);

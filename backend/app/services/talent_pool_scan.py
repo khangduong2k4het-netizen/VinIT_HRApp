@@ -224,24 +224,40 @@ def run_scan(db, *, scan_id: str, position_id: str, user_id: str,
             skipped["SCORING_ERROR"] += 1
             failed += 1
             continue
+        email, phone = identities.get(application_id, ("", ""))
         scored.append({"application_id": application_id, "consented_at": row["consented_at"], "result": result,
-                       "email": identities.get(application_id, ("", ""))[0]})
+                       "email": email, "phone": phone})
 
-    # One row per email: keep the best application, count the rest.
-    best: dict[str, dict] = {}
-    final: list[dict] = []
+    # One row per candidate: dedupe by email first, then by phone, keeping the best application.
+    best_email: dict[str, dict] = {}
+    after_email: list[dict] = []
     for item in scored:
         if not item["email"]:
-            final.append(item)
+            after_email.append(item)
             continue
-        current = best.get(item["email"])
+        current = best_email.get(item["email"])
         if current is None:
-            best[item["email"]] = item
+            best_email[item["email"]] = item
             continue
         skipped["DUPLICATE_EMAIL"] += 1
         if _rank_key(item) > _rank_key(current):
-            best[item["email"]] = item
-    final.extend(best.values())
+            best_email[item["email"]] = item
+    after_email.extend(best_email.values())
+
+    best_phone: dict[str, dict] = {}
+    final: list[dict] = []
+    for item in after_email:
+        if not item["phone"]:
+            final.append(item)
+            continue
+        current = best_phone.get(item["phone"])
+        if current is None:
+            best_phone[item["phone"]] = item
+            continue
+        skipped["DUPLICATE_PHONE"] += 1
+        if _rank_key(item) > _rank_key(current):
+            best_phone[item["phone"]] = item
+    final.extend(best_phone.values())
 
     for item in final:
         result = item["result"]

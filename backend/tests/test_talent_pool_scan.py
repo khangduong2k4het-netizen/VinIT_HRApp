@@ -171,6 +171,11 @@ def test_scan_runs_in_the_worker_and_allows_one_active_scan_per_position(client,
     scan_id, operation_id = queued.json()["scan_id"], queued.json()["operation_id"]
     pending = client.get(f"/v1/talent-pool/scans/{scan_id}", headers=hr2).json()
     assert pending["status"] == "PENDING" and pending["results"] == []
+    # Polling an incomplete scan must not spam VIEW_TALENT_POOL_SCAN audit rows.
+    with engine.connect() as conn:
+        views_before = conn.execute(text("""SELECT COUNT(*) FROM app_private.audit_events
+            WHERE action_type = 'VIEW_TALENT_POOL_SCAN' AND object_id = :s"""), {"s": scan_id}).scalar_one()
+    assert views_before == 0
     assert client.post(route, headers=hr2).status_code == 409  # only one active scan per position
     _run_worker()
     done = client.get(f"/v1/talent-pool/scans/{scan_id}", headers=hr2).json()
@@ -178,6 +183,9 @@ def test_scan_runs_in_the_worker_and_allows_one_active_scan_per_position(client,
     with engine.connect() as conn:
         assert conn.execute(text("SELECT status FROM app_private.operations WHERE operation_id = :o"),
                             {"o": operation_id}).scalar_one() == "COMPLETED"
+        views_after = conn.execute(text("""SELECT COUNT(*) FROM app_private.audit_events
+            WHERE action_type = 'VIEW_TALENT_POOL_SCAN' AND object_id = :s"""), {"s": scan_id}).scalar_one()
+    assert views_after == 1
     assert client.post(route, headers=hr2).status_code == 202  # a finished scan no longer blocks
 
 

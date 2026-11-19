@@ -37,7 +37,7 @@ def ineligibility_reason(*, status: str, consent_present: bool, consent_withdraw
         return "CONSENT_WITHDRAWN"
     if consented_at is None or pool_expiry(consented_at) <= now:
         return "RETENTION_EXPIRED"
-    if open_retention_status in ("SCHEDULED_FOR_DELETION", "ON_HOLD", "DELETED"):
+    if open_retention_status in ("SCHEDULED_FOR_DELETION", "ON_HOLD"):
         return "DELETION_PENDING"
     if status not in MARKABLE_STATUSES:
         return "STATUS_NOT_ELIGIBLE"
