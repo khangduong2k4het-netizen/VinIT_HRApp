@@ -73,7 +73,7 @@ export default function CreatePositionPage() {
     return () => { active = false; };
   }, [t]);
   useEffect(() => () => { if (navTimer.current) clearTimeout(navTimer.current); }, []);
-  useUnsavedChangesGuard(dirty && !created && !createdPositionId.current && progressStep === null, t('Nội dung chưa lưu sẽ bị mất. Tiếp tục?'), { fallbackHref: '/positions' });
+  useUnsavedChangesGuard(dirty && !created && !createdPositionId.current, t('Nội dung chưa lưu sẽ bị mất. Tiếp tục?'), { fallbackHref: '/positions' });
 
   const importJd = async () => {
     if (content.trim() && !window.confirm(t('Nội dung JD hiện tại sẽ được thay bằng nội dung mới. Tiếp tục?'))) return;
@@ -91,6 +91,9 @@ export default function CreatePositionPage() {
     finally { setImporting(false); }
   };
   /** Mở trang chi tiết đúng tab tiêu chí, để HR thấy ngay kết quả vừa sinh. */
+  // Chú ý: cảnh báo chỉ tắt khi vị trí đã tồn tại. Trong lúc đang gửi yêu cầu
+  // tạo (`progressStep === 'creating'`) thì vẫn còn, vì đóng tab lúc đó có thể
+  // mất nội dung mà chưa biết vị trí đã được tạo hay chưa.
   const openPosition = (positionId: string) => {
     // Vị trí đã được lưu nên nội dung form không còn là "việc chưa lưu": tắt
     // cảnh báo rời trang trước khi điều hướng, và chặn bấm hai lần sinh hai
