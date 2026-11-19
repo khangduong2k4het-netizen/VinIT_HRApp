@@ -1553,5 +1553,11 @@
   "Bỏ qua": "Skip",
   "Chưa có văn bản CV": "No CV text yet",
   "Không đọc được văn bản CV": "CV text could not be read",
-  "Vượt giới hạn một lượt quét": "Over the per-scan limit"
+  "Vượt giới hạn một lượt quét": "Over the per-scan limit",
+  "Chỉ HR Recruiter của vị trí này mới bật/tắt được nhận hồ sơ công khai.": "Only this position's HR Recruiter can turn public applications on or off.",
+  "Không thể cập nhật trạng thái nhận hồ sơ công khai.": "Could not update public applications for this position.",
+  "Nhận hồ sơ công khai qua trang /apply": "Accept public applications through /apply",
+  "Ứng viên có thể nộp CV tại": "Candidates can submit a CV at",
+  "Vị trí không ở trạng thái Đang mở nên chưa hiện trên trang /apply.": "The position is not Open, so it does not appear on /apply yet.",
+  "Cổng /apply đang tắt trên server (PUBLIC_INTAKE_ENABLED=false), nên ứng viên chưa nộp được dù đã bật ở đây.": "The /apply portal is off on the server (PUBLIC_INTAKE_ENABLED=false), so candidates cannot apply even with this switched on."
 }

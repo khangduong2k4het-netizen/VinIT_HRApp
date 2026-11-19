@@ -55,6 +55,7 @@ import NextActionCard from '@/components/workflow/NextActionCard';
 import PositionSummary from '@/components/workflow/PositionSummary';
 import OperationProgressPanel from '@/components/workflow/OperationProgressPanel';
 import CVIntakePanel from '@/components/positions/CVIntakePanel';
+import PublicApplyToggle from '@/components/positions/PublicApplyToggle';
 import { validateIntakeFiles } from '@/lib/intake';
 import type { Position, CriteriaVersion, Criterion, JDVersion, RequirementSpec, PositionWorkspace, PositionStatusEvent, TemplateMatch, JobFamily } from '@/types';
 
@@ -1067,6 +1068,15 @@ export default function PositionDetailPage() {
 
       {/* Tab 2: Applications — link to dedicated ranking page + stats */}
       <TabPanel value={activeTab} index={1}>
+        {isHR && (
+          <PublicApplyToggle
+            positionId={positionId}
+            enabled={!!position.public_apply_enabled}
+            portalEnabled={!!position.public_intake_enabled}
+            positionOpen={position.status === 'OPEN'}
+            onChange={(enabled) => setPosition(prev => prev ? { ...prev, public_apply_enabled: enabled } : prev)}
+          />
+        )}
         {isHR && (
           <CVIntakePanel
             files={selectedFiles}

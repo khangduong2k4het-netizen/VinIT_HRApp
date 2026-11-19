@@ -44,6 +44,8 @@ export interface Position {
   updated_at?: string;
   criteria_status?: 'DRAFT' | 'PENDING_HR_REVIEW' | 'PENDING_HM_APPROVAL' | 'APPROVED' | 'REJECTED' | null;
   criteria_approved?: boolean;
+  public_apply_enabled?: boolean;
+  public_intake_enabled?: boolean;
 }
 
 export type WorkQueueItemType =

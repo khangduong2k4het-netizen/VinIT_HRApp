@@ -379,6 +379,9 @@ def test_hr_publishes_position_and_hiring_manager_cannot(client, seed):
     assert client.put(route, headers=headers(seed["hr2"]), json={"enabled": True}).status_code == 403
     assert client.put(route, headers=headers(seed["hr"]), json={"enabled": True}).json() == {"public_apply_enabled": True}
     assert _count("SELECT COUNT(*) FROM app_private.audit_events WHERE action_type = 'SET_PUBLIC_APPLY'") == 1
+    detail = client.get(f"/v1/positions/{seed['pos']}", headers=headers(seed["hr"])).json()
+    assert detail["public_apply_enabled"] is True          # the position page reads the switch state from here
+    assert detail["public_intake_enabled"] == settings.PUBLIC_INTAKE_ENABLED
 
 
 # ---- Talent Pool eligibility ----

@@ -97,6 +97,8 @@ export const positionsApi = {
   getById: (id: string) => apiClient.get(`/positions/${id}`),
   getWorkspace: (id: string) => apiClient.get(`/positions/${id}/workspace`),
   update: (id: string, data: any) => apiClient.patch(`/positions/${id}`, data),
+  // Turn the public /apply form on or off for one position (HR only).
+  setPublicApply: (id: string, enabled: boolean) => apiClient.put(`/positions/${id}/public-apply`, { enabled }),
   getStatusEvents: (id: string) => apiClient.get(`/positions/${id}/status-events`),
   getJdVersions: (id: string) => apiClient.get(`/positions/${id}/jd-versions`),
   getJdVersion: (id: string, jdVersionId: string) => apiClient.get(`/positions/${id}/jd-versions/${jdVersionId}`),
