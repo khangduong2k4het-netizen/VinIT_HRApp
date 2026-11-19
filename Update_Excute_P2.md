@@ -383,5 +383,5 @@ Operator báo Ubuntu noble arm64 package candidate ClamAV `1.5.4+dfsg-0ubuntu0.2
 
 - Phát hiện vùng live region ẩn làm workspace share rộng 1905px/1280px do `position:absolute` thiếu `left/top`; đã sửa và thêm test chống tái phát.
 - Thêm `a11y-mock.e2e.cjs`: kiểm tra tên điều khiển, Tab tới ô tên vị trí, `aria-pressed`/Enter khi chọn ứng viên, mở accordion bằng Enter, không tràn ngang trên desktop/mobile. Là smoke test, không thay screen reader/contrast/zoom audit.
-- 6 bộ browser mock pass, unit 11/11, i18n 3/3, type-check/lint/build pass; backend unit 264 passed/170 skipped. Commit `8ba1160` đã push.
+- 6 bộ browser mock pass, unit 11/11, i18n 3/3, type-check/lint/build pass; backend unit 264 passed/170 skipped. Commit `8ba1160` đã push; CI xanh cả ba job. Commit tài liệu sau đó chỉ đổi `.md` nên CI bỏ qua theo cấu hình `paths-ignore`.
 - Chưa E2E thật, chưa usability, chưa deploy VPS.
