@@ -256,3 +256,100 @@ lại **nguyên văn output** cả ba bước. Anh chỉ cần nói "làm đi".
 
 Lưu ý: tôi **không** truy cập được VPS, nên bước deploy (mục 4) và smoke trên
 trình duyệt (mục 5) vẫn phải anh chạy.
+
+---
+
+## 10. Sự cố deploy 2026-11-19 — `git up` chạy nhầm script
+
+**Hiện tượng.**
+
+```
+$ bash scripts/deploy.sh --branch arena/ea6e2570-vinit-hrapp --migrations-verified
+[warn] worktree has local changes — refusing to pull automatically
+?? grep
+
+$ git up hra
+[deploy] Smart deploy — branch: main
+[skip] code already up to date (5b8fb0b)
+[skip] nextjs-dashboard restart not needed
+[skip] fastapi-backend restart not needed
+```
+
+**Hai lỗi độc lập, đừng gộp:**
+
+1. **`?? grep`** — một file tên `grep` (không có đuôi) nằm ở `/home/ubuntu/hra`.
+   Rất dễ tạo ra do gõ nhầm `grep ... > grep` hoặc dán lệnh có `>` sai chỗ.
+   Script HRA từ chối pull khi worktree bẩn (chỉ bỏ qua `ecosystem.config.cjs` và
+   `backend/build/`), nên **một file rác cũng chặn cả deploy**. Kiểm bằng
+   `cat ./grep` rồi `rm -- ./grep`.
+
+2. **`git up` là alias của project KHÁC, không phải HRA.** Ba dấu hiệu, cả ba
+   đều quyết định:
+   - Dòng đầu phải là `Smart deploy VinIT HRApp — repo: /home/ubuntu/hra —
+     branch: <branch> — PM2: hra-backend/hra-frontend`. Output thật là
+     `Smart deploy — branch: main`, **không có** chuỗi đó.
+   - `5b8fb0b` **không tồn tại** trong repo HRA (kiểm: `git cat-file -t 5b8fb0b`
+     → `fatal: Not a valid object name`). HEAD HRA là `9603e19`.
+   - Nó skip/restart `nextjs-dashboard` / `fastapi-backend`, trong khi HRA dùng
+     `hra-frontend` / `hra-backend`.
+
+   Tài liệu `VPS_DEPLOYMENT_NO_DOCKER.md` §12.1 đã cảnh báo đúng chuyện này: alias
+   `git config --global` thuộc về **OS user**, không thuộc thư mục, nên nếu
+   NarrativeHealth và HRA cùng khai báo `alias.up` thì cái khai báo sau thắng
+   **trên toàn VPS, bất kể đang đứng ở đâu**. Vì vậy HRA dùng tên riêng `uphra`.
+
+   Hệ quả nếu bỏ qua: `git up hra` **không deploy HRA gì cả** — nó chỉ nói repo
+   khác đã up-to-date. Rất dễ tưởng là "đã deploy xong" rồi đi tìm lỗi ở chỗ khác.
+
+**Cách xử lý (chạy trên VPS, đúng thứ tự).**
+
+```bash
+cd /home/ubuntu/hra
+
+# 1. Xem file rác là gì trước khi xoá — đừng xoá mù.
+ls -l -- ./grep && head -5 -- ./grep
+
+# 2. Chỉ xoá khi chắc đó là rác gõ nhầm.
+rm -- ./grep
+
+# 3. Xác nhận worktree sạch.
+git status --porcelain --untracked-files=all
+
+# 4. Kiểm alias — bước quan trọng nhất.
+git config --global --get alias.up
+git config --global --get alias.uphra
+git remote -v
+git branch --show-current
+```
+
+Nếu `alias.uphra` **rỗng**, tạo lại (đường dẫn tuyệt đối, không dùng `./`):
+
+```bash
+git config --global alias.uphra '!bash /home/ubuntu/hra/scripts/deploy.sh'
+```
+
+**5. Deploy đúng cách — dùng `uphra`, không dùng `up`:**
+
+```bash
+cd /home/ubuntu/hra
+bash scripts/deploy.sh --branch arena/ea6e2570-vinit-hrapp --migrations-verified
+```
+
+hoặc `git uphra arena/ea6e2570-vinit-hrapp` (truyền branch như **đối số**, không
+phải `--branch`).
+
+**6. Kiểm đã đúng script:** dòng đầu **phải** chứa `Smart deploy VinIT HRApp` và
+`PM2: hra-backend/hra-frontend`. Không có ⇒ vẫn chạy nhầm script, dừng lại.
+
+**7. Xác nhận đã lên đúng commit:**
+
+```bash
+cd /home/ubuntu/hra
+git rev-parse --short HEAD          # phải là 9603e19
+git branch --show-current           # phải là arena/ea6e2570-vinit-hrapp
+pm2 describe hra-backend  | grep -E 'status|script path|exec cwd'
+pm2 describe hra-frontend | grep -E 'status|script path|exec cwd'
+```
+
+**8. Đừng "sửa" alias `up`.** Nếu `alias.up` đang là của NarrativeHealth, sửa nó
+sẽ làm hỏng deploy của project kia. HRA có tên riêng là có lý do.
