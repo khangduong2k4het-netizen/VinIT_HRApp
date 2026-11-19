@@ -205,3 +205,15 @@ def test_mock_ai_generates_a_criteria_draft_through_the_api(monkeypatch):
         assert all(c["jd_reference_text"] for c in body["criteria"])
     finally:
         app.dependency_overrides.clear()
+
+
+def test_criterion_ids_survive_pii_redaction(monkeypatch):
+    # "4727-4724-9556" inside a UUID looks like a phone number to the
+    # redactor; the id must still reach the model so findings map back.
+    client = _mock_client(monkeypatch)
+    criterion_id = "889bd77e-4727-4724-9556-6cdcd13d1f2c"
+    rubric = [{"criterion_id": criterion_id, "name": "Python APIs", "description": "REST APIs in Python",
+               "expected_evidence_keywords": ["Python", "FastAPI"]}]
+    result = asyncio.run(client.match_criterion_evidence(CV, {}, rubric, "cand-1", "v1"))
+    assert [f["criterion_id"] for f in result["findings"]] == [criterion_id]
+    assert result["findings"][0]["outcome"] != "UNCLEAR"

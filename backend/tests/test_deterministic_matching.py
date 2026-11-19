@@ -119,7 +119,7 @@ def test_negated_skill_mention_is_unresolved_not_a_rule_match():
     # v1.3, and the Python years gate/framework grouping in v1.4; the
     # version is part of the assessment fingerprint, so existing
     # assessments must be recalculated after any of these changes.
-    assert result["rule_version"] == "deterministic-rules-v1.7"
+    assert result["rule_version"] == "deterministic-rules-v1.8"
 
 
 def test_positive_skill_still_matches_when_another_sentence_is_negated():
@@ -456,3 +456,19 @@ def test_abbreviated_engineering_degrees_count_as_bachelor():
     ):
         result = deterministic_matcher.evaluate_criteria(education, criteria, {})
         assert result["findings"][0]["outcome"] == "MATCH", education
+
+
+def test_degree_quote_keeps_dotted_abbreviation_whole():
+    criteria = [criterion("c1", "Bachelor's degree in Information Technology or related field", "")]
+    text = ("EDUCATION\nB.Eng. in Information Technology, Posts and Telecommunications "
+            "Institute of Technology, 2017 – 2021\nLANGUAGES\nEnglish")
+    finding = deterministic_matcher.evaluate_criteria(text, criteria, {})["findings"][0]
+    assert finding["outcome"] == "MATCH"
+    assert finding["evidence"]["verbatim_quote"].startswith("B.Eng. in Information Technology")
+
+
+def test_sentence_split_ignores_abbreviation_periods():
+    sentences = deterministic_matcher._sentences
+    assert sentences("Ph.D. in CS. Next sentence.") == ["Ph.D. in CS.", "Next sentence."]
+    assert sentences("Built it. Then left.") == ["Built it.", "Then left."]
+    assert sentences("Version 7.0 is out. Yes") == ["Version 7.0 is out.", "Yes"]

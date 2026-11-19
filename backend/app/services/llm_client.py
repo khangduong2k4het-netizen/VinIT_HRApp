@@ -774,6 +774,11 @@ EVALUATION RULES:
         for criterion in rubric:
             clean = redact_payload(criterion)
             clean["name"] = redact_text(str(criterion.get("name") or ""))
+            # The id is a system UUID, not personal data. Redacting it (a digit
+            # run such as "4727-4724-9556" looks like a phone number) made the
+            # model's finding impossible to map back to its criterion.
+            if "criterion_id" in criterion:
+                clean["criterion_id"] = str(criterion.get("criterion_id") or "")
             safe_rubric.append(clean)
 
         prompt_payload: Dict[str, Any] = {
@@ -845,7 +850,12 @@ EVALUATION RULES:
             "rubric_version": rubric_version,
             "findings": matching_engine.canonicalize_findings(rubric, parsed_findings),
         }
+        criterion_ids = [finding["criterion_id"] for finding in result["findings"]]
         result = redact_payload(result)
+        # Redaction must not touch system ids (see safe_rubric above);
+        # canonical findings keep rubric order, so restore them by position.
+        for finding, criterion_id in zip(result["findings"], criterion_ids):
+            finding["criterion_id"] = criterion_id
         result["candidate_identifier"] = candidate_identifier
         result["rubric_version"] = rubric_version
         result["_provider_metadata"] = metadata
