@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useState } from 'react';
+import Link from 'next/link';
 import { Alert, Box, Button, Card, CardContent, Container, Stack, TextField, Typography } from '@mui/material';
 import { useI18n } from '@/i18n/I18nProvider';
 import LanguageSwitcher from '@/i18n/LanguageSwitcher';
@@ -23,12 +24,21 @@ export default function WithdrawPage() {
   };
 
   return (
-    <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
-      <Container maxWidth="sm" sx={{ py: 4 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-          <Typography component="h1" variant="h6" sx={{ fontWeight: 700 }}>{t('Rút lại đồng ý Talent Pool')}</Typography>
-          <LanguageSwitcher />
-        </Stack>
+    <Box sx={{ minHeight: '100vh', bgcolor: '#F8FAFC' }}>
+      <Box component="header" sx={{ bgcolor: 'primary.main', color: '#fff', py: 1.5 }}>
+        <Container maxWidth="sm" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Box sx={{ bgcolor: '#fff', borderRadius: 1, px: 1, py: 0.5, display: 'flex' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/vinuni-logo.png" alt="VinUniversity" height={28} />
+            </Box>
+            <Typography component="h1" variant="h6" sx={{ fontWeight: 700 }}>{t('Rút lại đồng ý Talent Pool')}</Typography>
+          </Stack>
+          <LanguageSwitcher light />
+        </Container>
+      </Box>
+      <Container maxWidth="sm" sx={{ py: { xs: 3, md: 5 } }}>
+        <Button component={Link} href="/apply" size="small" sx={{ mb: 2 }}>{t('← Quay lại danh sách')}</Button>
         {state === 'done' ? (
           <Alert severity="success" role="status">{t('Nếu mã hợp lệ, lựa chọn Talent Pool đã được rút.')}</Alert>
         ) : (

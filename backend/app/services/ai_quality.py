@@ -290,15 +290,24 @@ def quality_breakdown(db, *, user_id: str, start: date, end: date, dimension: st
                 for r in data]
 
     else:  # matching_policy_version
+        # Pre-aggregate QA per assessment_id so multiple inspections on one assessment
+        # can never double-count completed assessments or skew average coverage.
         data = _rows(db, """
             SELECT COALESCE(ar.matching_policy_version, 'unknown') AS key,
                    COUNT(*) AS completed,
                    AVG(ar.evidence_coverage) AS average_evidence_coverage,
                    COUNT(*) FILTER (WHERE ar.matching_status = 'NEEDS_HR_VERIFICATION') AS needs_verification,
-                   COUNT(*) FILTER (WHERE qi.reasons ? 'RANDOM_SAMPLE' AND qi.status = 'COMPLETED') AS random_completed,
-                   COUNT(*) FILTER (WHERE qi.reasons ? 'RANDOM_SAMPLE' AND qi.verdict = 'ISSUES_FOUND') AS random_issues
+                   COALESCE(SUM(qa.random_completed), 0) AS random_completed,
+                   COALESCE(SUM(qa.random_issues), 0) AS random_issues
             FROM app_private.assessment_runs ar
-            LEFT JOIN app_private.quality_inspections qi ON qi.assessment_id = ar.assessment_id
+            LEFT JOIN (
+                SELECT qi.assessment_id,
+                       COUNT(*) FILTER (WHERE qi.reasons ? 'RANDOM_SAMPLE') AS random_completed,
+                       COUNT(*) FILTER (WHERE qi.reasons ? 'RANDOM_SAMPLE' AND qi.verdict = 'ISSUES_FOUND') AS random_issues
+                FROM app_private.quality_inspections qi
+                WHERE qi.status = 'COMPLETED'
+                GROUP BY qi.assessment_id
+            ) qa ON qa.assessment_id = ar.assessment_id
             WHERE ar.position_id IN (SELECT position_id FROM scope) AND ar.status = 'COMPLETED'
               AND ar.completed_at >= :start AND ar.completed_at < :end_excl
             GROUP BY 1 ORDER BY 1""", params)

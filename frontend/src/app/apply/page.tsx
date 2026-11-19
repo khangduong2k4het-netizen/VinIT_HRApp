@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Alert, Box, Button, Card, CardContent, Checkbox, CircularProgress, Container, FormControlLabel, Stack, Typography } from '@mui/material';
 import { useI18n } from '@/i18n/I18nProvider';
 import LanguageSwitcher from '@/i18n/LanguageSwitcher';
@@ -24,12 +25,43 @@ export default function ApplyPage() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [withdrawalToken, setWithdrawalToken] = useState<string | null>(null);
+  const [copiedToken, setCopiedToken] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError(false);
-    try { setPositions(await fetchPublicPositions()); } catch { setPositions([]); setLoadError(true); }
+    try {
+      const list = await fetchPublicPositions();
+      setPositions(list);
+      const code = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('code') : null;
+      if (code) {
+        const match = list.find(p => p.code.toLowerCase() === code.trim().toLowerCase());
+        if (match) setSelected(match);
+      }
+    } catch { setPositions([]); setLoadError(true); }
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  const copyToken = async () => {
+    if (!withdrawalToken) return;
+    try {
+      await navigator.clipboard.writeText(withdrawalToken);
+      setCopiedToken(true);
+      window.setTimeout(() => setCopiedToken(false), 2000);
+    } catch {
+      setCopiedToken(false);
+    }
+  };
+
+  const resetForAnother = () => {
+    setDone(false);
+    setSelected(null);
+    setFile(null);
+    setConsentProcessing(false);
+    setFieldError(null);
+    setFailure(null);
+    setWithdrawalToken(null);
+    setCopiedToken(false);
+  };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -71,17 +103,27 @@ export default function ApplyPage() {
       </Box>
       <Container maxWidth="md" sx={{ py: { xs: 3, md: 5 } }}>
         {done ? (
-          <Alert severity="success" role="status">
-            <Typography sx={{ fontWeight: 700 }}>{t('Đã nhận hồ sơ của bạn.')}</Typography>
-            {t('Bộ phận Nhân sự sẽ xem xét hồ sơ và liên hệ nếu phù hợp.')}
-            {withdrawalToken && (
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="body2">{t('Mã để rút lại đồng ý dùng hồ sơ cho các vị trí khác. Hãy lưu mã này, hệ thống chỉ hiển thị một lần:')}</Typography>
-                <Typography component="code" sx={{ display: 'block', wordBreak: 'break-all', fontFamily: 'monospace', mt: 0.5 }}>{withdrawalToken}</Typography>
-                <Typography variant="body2" sx={{ mt: 0.5 }}>{t('Rút lại đồng ý tại')} <a href="/apply/withdraw">/apply/withdraw</a></Typography>
-              </Box>
-            )}
-          </Alert>
+          <Stack spacing={2}>
+            <Alert severity="success" role="status">
+              <Typography sx={{ fontWeight: 700 }}>{t('Đã nhận hồ sơ của bạn.')}</Typography>
+              {t('Bộ phận Nhân sự sẽ xem xét hồ sơ và liên hệ nếu phù hợp.')}
+              {withdrawalToken && (
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="body2">{t('Mã để rút lại đồng ý dùng hồ sơ cho các vị trí khác. Hãy lưu mã này, hệ thống chỉ hiển thị một lần:')}</Typography>
+                  <Typography component="code" sx={{ display: 'block', wordBreak: 'break-all', fontFamily: 'monospace', mt: 0.5, p: 1, bgcolor: 'rgba(255,255,255,0.7)', borderRadius: 1 }}>{withdrawalToken}</Typography>
+                  <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mt: 1 }} flexWrap="wrap">
+                    <Button size="small" variant="outlined" onClick={copyToken}>
+                      {copiedToken ? t('Đã sao chép mã') : t('Sao chép mã')}
+                    </Button>
+                    <Typography variant="body2">{t('Rút lại đồng ý tại')} <Link href="/apply/withdraw">/apply/withdraw</Link></Typography>
+                  </Stack>
+                </Box>
+              )}
+            </Alert>
+            <Box>
+              <Button variant="outlined" onClick={resetForAnother}>{t('Ứng tuyển vị trí khác')}</Button>
+            </Box>
+          </Stack>
         ) : selected ? (
           <Card component="form" onSubmit={submit} noValidate>
             <CardContent>

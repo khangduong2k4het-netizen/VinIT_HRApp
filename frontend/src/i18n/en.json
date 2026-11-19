@@ -1571,5 +1571,17 @@
   "Ghi nhận ứng viên rút đồng ý": "Record candidate's consent withdrawal",
   "Xác nhận rút đồng ý": "Confirm withdrawal",
   "Số tham chiếu yêu cầu (tùy chọn, không ghi thông tin cá nhân)": "Request reference (optional, no personal data)",
-  "Hồ sơ sẽ bị gỡ khỏi Talent Pool và không còn được quét cho vị trí khác. Việc xóa dữ liệu vẫn theo hàng đợi lưu trữ.": "The application is removed from the Talent Pool and will no longer be scanned for other positions. Deletion still follows the retention queue."
+  "Hồ sơ sẽ bị gỡ khỏi Talent Pool và không còn được quét cho vị trí khác. Việc xóa dữ liệu vẫn theo hàng đợi lưu trữ.": "The application is removed from the Talent Pool and will no longer be scanned for other positions. Deletion still follows the retention queue.",
+  "Mức bất đồng đang giảm (khoảng tin cậy không chồng nhau).": "HR disagreement with AI is decreasing (confidence intervals do not overlap).",
+  "Mức bất đồng đang tăng (khoảng tin cậy không chồng nhau).": "HR disagreement with AI is increasing (confidence intervals do not overlap).",
+  "Theo phòng ban": "By department",
+  "Trùng số điện thoại, giữ hồ sơ tốt nhất": "Duplicate phone number, kept the best application",
+  "Vị trí chưa có tiêu chí được duyệt cho JD mới nhất nên chưa hiện trên trang /apply.": "This position does not have approved criteria for the latest JD yet, so it does not appear on /apply.",
+  "Sao chép link ứng tuyển": "Copy application link",
+  "Đã sao chép link": "Link copied",
+  "Sao chép mã": "Copy code",
+  "Đã sao chép mã": "Code copied",
+  "Ứng tuyển vị trí khác": "Apply for another position",
+  "Phòng ban": "Department",
+  "Khối ngành": "Job family"
 }

@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { Box, Typography } from '@mui/material';
 import { useI18n } from '@/i18n/I18nProvider';
-import { markerIndex, pct, periodLabel, type ChartPoint, type Marker } from '@/lib/aiQuality';
+import { fillMissingPeriods, markerIndex, pct, periodLabel, type ChartPoint, type Marker } from '@/lib/aiQuality';
 
 // One series per chart, one brand hue, no legend. The shaded band is the 95% interval.
 // A period with too few cases is drawn as a hollow grey tick with no rate, never as a number.
@@ -16,17 +16,18 @@ export default function RateTrendChart({ points, markers, grain, ariaLabel }: {
   points: ChartPoint[]; markers: Marker[]; grain: 'week' | 'month'; ariaLabel: string;
 }) {
   const { t } = useI18n();
+  const series = fillMissingPeriods(points, grain);
   const width = 720, height = 220, left = 44, right = 12, top = 12, bottom = 34;
   const innerW = width - left - right, innerH = height - top - bottom;
-  const n = points.length;
+  const n = series.length;
   const x = (i: number) => left + (n <= 1 ? innerW / 2 : (innerW * i) / (n - 1));
   const y = (v: number) => top + innerH * (1 - v);
-  const reliable = points.map((p, i) => ({ p, i })).filter(({ p }) => !p.insufficient && p.value != null);
+  const reliable = series.map((p, i) => ({ p, i })).filter(({ p }) => !p.insufficient && p.value != null);
   const line = reliable.map(({ p, i }, k) => `${k ? 'L' : 'M'}${x(i)},${y(p.value as number)}`).join(' ');
   const band = reliable.length > 1
     ? `M${reliable.map(({ p, i }) => `${x(i)},${y(p.high as number)}`).join(' L')} L${[...reliable].reverse().map(({ p, i }) => `${x(i)},${y(p.low as number)}`).join(' L')} Z`
     : '';
-  const periods = points.map(p => p.period);
+  const periods = series.map(p => p.period);
   const labelEvery = Math.max(1, Math.ceil(n / 8));
   return (
     <Box>
@@ -49,7 +50,7 @@ export default function RateTrendChart({ points, markers, grain, ariaLabel }: {
         })}
         {band && <path d={band} fill={BAND} />}
         {line && <path d={line} fill="none" stroke={LINE} strokeWidth="2" />}
-        {points.map((p, i) => (
+        {series.map((p, i) => (
           <g key={p.period}>
             <title>{p.insufficient
               ? `${periodLabel(p.period, grain)}: ${p.count}/${p.total} · ${t('chưa đủ dữ liệu')}`

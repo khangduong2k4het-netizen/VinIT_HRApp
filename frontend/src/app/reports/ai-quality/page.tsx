@@ -4,11 +4,12 @@ import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Grid, MenuItem, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
-import { analyticsApi, authApi } from '@/lib/api';
+import { analyticsApi, authApi, departmentsApi, positionsApi, rubricApi } from '@/lib/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import PageHeader from '@/components/common/PageHeader';
 import RateTrendChart from '@/components/reports/RateTrendChart';
-import { chartPoints, counts, pct, trendStatement, type BreakdownRow, type Marker, type Proportion, type Trends } from '@/lib/aiQuality';
+import { chartPoints, counts, localIsoDate, markerKindKey, pct, trendStatement,
+  type BreakdownRow, type Marker, type Proportion, type Trends } from '@/lib/aiQuality';
 
 const REASONS: Record<string, string> = {
   SYNONYM_TERMS: 'Từ đồng nghĩa', EQUIVALENT_CREDENTIAL: 'Chứng chỉ tương đương', IMPLICIT_EVIDENCE: 'Bằng chứng ngầm định',
@@ -19,8 +20,6 @@ const FLAGS: Record<string, string> = {
 };
 const MARKER_KINDS: Record<string, string> = { MATCHING_POLICY: 'Chính sách chấm điểm', PROMPT: 'Prompt', RULES: 'Bộ quy tắc', MANUAL: 'Ghi chú của Admin' };
 
-function isoDate(d: Date) { return d.toISOString().slice(0, 10); }
-
 function Rate({ p }: { p: Proportion }) {
   const { t } = useI18n();
   if (p.insufficient) return <Typography variant="body2" color="text.secondary">{counts(p)} · {t('chưa đủ dữ liệu')}</Typography>;
@@ -29,20 +28,30 @@ function Rate({ p }: { p: Proportion }) {
 
 export default function AiQualityPage() {
   const { t } = useI18n();
-  const today = new Date();
-  const [dateFrom, setDateFrom] = useState(isoDate(new Date(today.getTime() - 179 * 86400000)));
-  const [dateTo, setDateTo] = useState(isoDate(today));
+  const [dateFrom, setDateFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 179);
+    return localIsoDate(d);
+  });
+  const [dateTo, setDateTo] = useState(() => localIsoDate(new Date()));
   const [grain, setGrain] = useState<'week' | 'month'>('week');
+  const [departmentId, setDepartmentId] = useState('');
+  const [jobFamilyId, setJobFamilyId] = useState('');
+  const [positionId, setPositionId] = useState('');
+  const [departmentsList, setDepartmentsList] = useState<{ department_id: string; name: string }[]>([]);
+  const [jobFamiliesList, setJobFamiliesList] = useState<{ job_family_id: string; code: string; name: string }[]>([]);
+  const [positionsList, setPositionsList] = useState<{ position_id: string; position_code: string; title: string }[]>([]);
   const [trends, setTrends] = useState<Trends | null>(null);
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [reasons, setReasons] = useState<BreakdownRow[]>([]);
   const [flags, setFlags] = useState<BreakdownRow[]>([]);
   const [families, setFamilies] = useState<BreakdownRow[]>([]);
+  const [departments, setDepartments] = useState<BreakdownRow[]>([]);
   const [versions, setVersions] = useState<BreakdownRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
-  const [markerDate, setMarkerDate] = useState(isoDate(today));
+  const [markerDate, setMarkerDate] = useState(() => localIsoDate(new Date()));
   const [markerTitle, setMarkerTitle] = useState('');
   const [markerNote, setMarkerNote] = useState('');
   const [markerBusy, setMarkerBusy] = useState(false);
@@ -50,23 +59,38 @@ export default function AiQualityPage() {
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
-    const range = { date_from: dateFrom, date_to: dateTo };
+    const range = {
+      date_from: dateFrom,
+      date_to: dateTo,
+      ...(departmentId ? { department_id: departmentId } : {}),
+      ...(jobFamilyId ? { job_family_id: jobFamilyId } : {}),
+      ...(positionId ? { position_id: positionId } : {}),
+    };
     try {
-      const [tr, mk, rs, fl, fa, ve] = await Promise.all([
-        analyticsApi.qualityTrends({ ...range, grain }), analyticsApi.qualityMarkers(range),
-        analyticsApi.qualityBreakdown({ ...range, dimension: 'override_reason' }), analyticsApi.qualityBreakdown({ ...range, dimension: 'flag_category' }),
-        analyticsApi.qualityBreakdown({ ...range, dimension: 'job_family' }), analyticsApi.qualityBreakdown({ ...range, dimension: 'matching_policy_version' }),
+      const [tr, mk, rs, fl, fa, dp, ve] = await Promise.all([
+        analyticsApi.qualityTrends({ ...range, grain }),
+        analyticsApi.qualityMarkers({ date_from: dateFrom, date_to: dateTo }),
+        analyticsApi.qualityBreakdown({ ...range, dimension: 'override_reason' }),
+        analyticsApi.qualityBreakdown({ ...range, dimension: 'flag_category' }),
+        analyticsApi.qualityBreakdown({ ...range, dimension: 'job_family' }),
+        analyticsApi.qualityBreakdown({ ...range, dimension: 'department' }),
+        analyticsApi.qualityBreakdown({ ...range, dimension: 'matching_policy_version' }),
       ]);
       setTrends(tr.data); setMarkers(mk.data.markers); setReasons(rs.data.rows); setFlags(fl.data.rows);
-      setFamilies(fa.data.rows); setVersions(ve.data.rows);
+      setFamilies(fa.data.rows); setDepartments(dp.data.rows); setVersions(ve.data.rows);
     } catch (err: any) {
       setTrends(null);
       setError(err.response?.status === 403 ? t('Bạn không có quyền xem chất lượng AI.') : err.response?.status === 400
         ? t('Khoảng thời gian không hợp lệ.') : t('Không thể tải dữ liệu chất lượng AI.'));
     } finally { setLoading(false); }
-  }, [dateFrom, dateTo, grain, t]);
+  }, [dateFrom, dateTo, grain, departmentId, jobFamilyId, positionId, t]);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { authApi.me().then(r => setIsAdmin((r.data.system_roles || []).includes('ADMIN'))).catch(() => {}); }, []);
+  useEffect(() => {
+    authApi.me().then(r => setIsAdmin((r.data.system_roles || []).includes('ADMIN'))).catch(() => {});
+    departmentsApi.list().then(r => setDepartmentsList(r.data || [])).catch(() => {});
+    rubricApi.listFamilies().then(r => setJobFamiliesList(r.data || [])).catch(() => {});
+    positionsApi.listAll().then(list => setPositionsList(list || [])).catch(() => {});
+  }, []);
 
   const addMarker = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -81,13 +105,18 @@ export default function AiQualityPage() {
 
   const series = trends?.series || [];
   const minSample = trends?.min_sample ?? 20;
-  const statement = (pick: Parameters<typeof chartPoints>[1]) => {
+  const statement = (pick: Parameters<typeof chartPoints>[1], neutral = false) => {
     const s = trendStatement(chartPoints(series, pick));
+    if (neutral) {
+      return s === 'BETTER' ? t('Mức bất đồng đang giảm (khoảng tin cậy không chồng nhau).')
+        : s === 'WORSE' ? t('Mức bất đồng đang tăng (khoảng tin cậy không chồng nhau).')
+        : s === 'NO_CLEAR_CHANGE' ? t('Chưa thấy thay đổi rõ rệt.') : t('Chưa đủ dữ liệu để nói về xu hướng.');
+    }
     return s === 'BETTER' ? t('Đang cải thiện (khoảng tin cậy không chồng nhau).') : s === 'WORSE' ? t('Đang xấu đi (khoảng tin cậy không chồng nhau).')
       : s === 'NO_CLEAR_CHANGE' ? t('Chưa thấy thay đổi rõ rệt.') : t('Chưa đủ dữ liệu để nói về xu hướng.');
   };
-  const cards: { title: string; hint: string; pick: Parameters<typeof chartPoints>[1] }[] = [
-    { title: t('Tỷ lệ HR ghi đè kết quả AI'), hint: t('Đo mức bất đồng của HR với AI, không phải độ đúng.'), pick: r => r.overrides },
+  const cards: { title: string; hint: string; neutral?: boolean; pick: Parameters<typeof chartPoints>[1] }[] = [
+    { title: t('Tỷ lệ HR ghi đè kết quả AI'), hint: t('Đo mức bất đồng của HR với AI, không phải độ đúng.'), neutral: true, pick: r => r.overrides },
     { title: t('Tỷ lệ lỗi — mẫu ngẫu nhiên'), hint: t('Ước lượng tỷ lệ lỗi chung của AI. Chỉ tính ca kiểm định lấy ngẫu nhiên.'), pick: r => r.qa_random_sample },
     { title: t('Tỷ lệ lỗi — nhóm rủi ro'), hint: t('Nhóm được chọn vì nghi ngờ nên tỷ lệ cao là bình thường. Không dùng làm tỷ lệ lỗi chung.'), pick: r => r.qa_risk_group },
   ];
@@ -98,10 +127,22 @@ export default function AiQualityPage() {
         description={t('Số liệu tổng hợp theo thời gian. Không chia theo từng nhà tuyển dụng; ô có ít hơn {0} ca chỉ hiện số đếm, không hiện tỷ lệ.', minSample)} />
       <Card sx={{ mb: 2 }}><CardContent>
         <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} sm={4} md={3}><TextField fullWidth size="small" type="date" label={t('Từ ngày')} value={dateFrom} onChange={e => setDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} /></Grid>
-          <Grid item xs={12} sm={4} md={3}><TextField fullWidth size="small" type="date" label={t('Đến ngày')} value={dateTo} onChange={e => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} /></Grid>
-          <Grid item xs={12} sm={4} md={3}><TextField fullWidth size="small" select label={t('Theo')} value={grain} onChange={e => setGrain(e.target.value as 'week' | 'month')}>
+          <Grid item xs={12} sm={4} md={2}><TextField fullWidth size="small" type="date" label={t('Từ ngày')} value={dateFrom} onChange={e => setDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} /></Grid>
+          <Grid item xs={12} sm={4} md={2}><TextField fullWidth size="small" type="date" label={t('Đến ngày')} value={dateTo} onChange={e => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} /></Grid>
+          <Grid item xs={12} sm={4} md={2}><TextField fullWidth size="small" select label={t('Theo')} value={grain} onChange={e => setGrain(e.target.value as 'week' | 'month')}>
             <MenuItem value="week">{t('Tuần')}</MenuItem><MenuItem value="month">{t('Tháng')}</MenuItem></TextField></Grid>
+          <Grid item xs={12} sm={4} md={2}><TextField fullWidth size="small" select label={t('Phòng ban')} value={departmentId} onChange={e => setDepartmentId(e.target.value)}>
+            <MenuItem value="">{t('Tất cả')}</MenuItem>
+            {departmentsList.map(d => <MenuItem key={d.department_id} value={d.department_id}>{d.name}</MenuItem>)}
+          </TextField></Grid>
+          <Grid item xs={12} sm={4} md={2}><TextField fullWidth size="small" select label={t('Khối ngành')} value={jobFamilyId} onChange={e => setJobFamilyId(e.target.value)}>
+            <MenuItem value="">{t('Tất cả')}</MenuItem>
+            {jobFamiliesList.map(f => <MenuItem key={f.job_family_id} value={f.job_family_id}>{f.code} · {f.name}</MenuItem>)}
+          </TextField></Grid>
+          <Grid item xs={12} sm={4} md={2}><TextField fullWidth size="small" select label={t('Vị trí')} value={positionId} onChange={e => setPositionId(e.target.value)}>
+            <MenuItem value="">{t('Tất cả')}</MenuItem>
+            {positionsList.map(p => <MenuItem key={p.position_id} value={p.position_id}>{p.position_code} · {p.title}</MenuItem>)}
+          </TextField></Grid>
         </Grid>
       </CardContent></Card>
       {loading && <CircularProgress aria-label={t('Đang tải')} />}
@@ -115,7 +156,7 @@ export default function AiQualityPage() {
                 <Typography variant="h6" sx={{ fontWeight: 700 }}>{card.title}</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{card.hint}</Typography>
                 <RateTrendChart points={chartPoints(series, card.pick)} markers={markers} grain={trends.range.grain} ariaLabel={card.title} />
-                <Typography variant="body2" sx={{ mt: 1, fontWeight: 600 }}>{statement(card.pick)}</Typography>
+                <Typography variant="body2" sx={{ mt: 1, fontWeight: 600 }}>{statement(card.pick, card.neutral)}</Typography>
               </CardContent></Card></Grid>
             ))}
             <Grid item xs={12} md={6}><Card sx={{ height: '100%' }}><CardContent>
@@ -170,6 +211,15 @@ export default function AiQualityPage() {
                 </Box>))}
             </CardContent></Card></Grid>
             <Grid item xs={12} md={6}><Card sx={{ height: '100%' }}><CardContent>
+              <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>{t('Theo phòng ban')}</Typography>
+              {departments.length === 0 ? <Typography color="text.secondary">{t('Chưa có dữ liệu.')}</Typography> : departments.map(r => (
+                <Box key={String(r.key)} sx={{ py: 0.75 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{r.label || t('Chưa phân loại')}</Typography>
+                  <Typography variant="caption" color="text.secondary" component="div">{t('Ghi đè')}</Typography>{r.overrides && <Rate p={r.overrides} />}
+                  <Typography variant="caption" color="text.secondary" component="div">{t('Lỗi — mẫu ngẫu nhiên')}</Typography>{r.qa_random_sample && <Rate p={r.qa_random_sample} />}
+                </Box>))}
+            </CardContent></Card></Grid>
+            <Grid item xs={12} md={6}><Card sx={{ height: '100%' }}><CardContent>
               <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>{t('Theo phiên bản chính sách chấm điểm')}</Typography>
               {versions.length === 0 ? <Typography color="text.secondary">{t('Chưa có dữ liệu.')}</Typography> : versions.map(r => (
                 <Box key={String(r.key)} sx={{ py: 0.75 }}>
@@ -181,12 +231,16 @@ export default function AiQualityPage() {
 
           <Card sx={{ mt: 2 }}><CardContent>
             <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>{t('Mốc thay đổi')}</Typography>
-            {markers.length === 0 ? <Typography color="text.secondary">{t('Chưa có mốc thay đổi trong khoảng này.')}</Typography> : markers.map((m, i) => (
-              <Box key={`${m.date}-${i}`} sx={{ display: 'flex', gap: 1.5, alignItems: 'baseline', py: 0.5, flexWrap: 'wrap' }}>
-                <Typography variant="body2" sx={{ minWidth: 92 }}>{m.date}</Typography>
-                <Chip size="small" label={t(MARKER_KINDS[m.kind] || m.kind)} />
-                <Typography variant="body2">{m.title}{m.note ? ` — ${m.note}` : ''}</Typography>
-              </Box>))}
+            {markers.length === 0 ? <Typography color="text.secondary">{t('Chưa có mốc thay đổi trong khoảng này.')}</Typography> : markers.map((m, i) => {
+              const kindKey = markerKindKey(m);
+              return (
+                <Box key={`${m.date}-${i}`} sx={{ display: 'flex', gap: 1.5, alignItems: 'baseline', py: 0.5, flexWrap: 'wrap' }}>
+                  <Typography variant="body2" sx={{ minWidth: 92 }}>{m.date}</Typography>
+                  <Chip size="small" label={t(MARKER_KINDS[kindKey] || kindKey)} />
+                  <Typography variant="body2">{m.title}{m.note ? ` — ${m.note}` : ''}</Typography>
+                </Box>
+              );
+            })}
             {isAdmin && (
               <Box component="form" onSubmit={addMarker} sx={{ mt: 2, display: 'grid', gap: 1.5, maxWidth: 560 }}>
                 <Typography variant="subtitle2">{t('Thêm mốc thay đổi (chỉ Admin)')}</Typography>

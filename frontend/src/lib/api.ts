@@ -329,9 +329,9 @@ export const analyticsApi = {
   operations: (params: { date_from?: string; date_to?: string; position_id?: string; department_id?: string }) =>
     apiClient.get('/analytics/operations', { params }),
   // P3-2 — AI quality trends (aggregates only; never broken down by recruiter).
-  qualityTrends: (params: { date_from?: string; date_to?: string; grain?: string }) =>
+  qualityTrends: (params: { date_from?: string; date_to?: string; grain?: string; position_id?: string; department_id?: string; job_family_id?: string }) =>
     apiClient.get('/analytics/quality/trends', { params }),
-  qualityBreakdown: (params: { dimension: string; date_from?: string; date_to?: string }) =>
+  qualityBreakdown: (params: { dimension: string; date_from?: string; date_to?: string; position_id?: string; department_id?: string; job_family_id?: string }) =>
     apiClient.get('/analytics/quality/breakdown', { params }),
   qualityMarkers: (params: { date_from?: string; date_to?: string }) =>
     apiClient.get('/analytics/quality/markers', { params }),

@@ -1083,9 +1083,11 @@ export default function PositionDetailPage() {
         {isHR && (
           <PublicApplyToggle
             positionId={positionId}
+            positionCode={position.position_code}
             enabled={!!position.public_apply_enabled}
             portalEnabled={!!position.public_intake_enabled}
             positionOpen={position.status === 'OPEN'}
+            hasApprovedCriteria={Boolean(approvedCriteria)}
             onChange={(enabled) => setPosition(prev => prev ? { ...prev, public_apply_enabled: enabled } : prev)}
           />
         )}
