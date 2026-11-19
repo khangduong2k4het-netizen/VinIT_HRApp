@@ -1,5 +1,7 @@
 # Vòng thử nghiệm VPS — careers, Talent Pool và Gmail (chỉ dữ liệu tổng hợp)
 
+> **Cập nhật sau snapshot cũ:** operator đã cài ClamAV trên VPS, bật socket nội bộ `ubuntu:clamav` mode 0660, đặt `AlertEncrypted yes` và `AlertExceedsMax yes`. Smoke qua adapter: mẫu sạch CLEAN, EICAR INFECTED, PDF mã hóa INFECTED (chặn theo heuristic). Chưa xác minh mọi giới hạn, scanner timeout hay Storage/worker thật. Marker deploy báo HRA commit `a218217`, không có restart chờ; backend ready, frontend và proxy HTTP 200. Đây không phải kết quả E2E hay xác nhận đầy đủ smoke deploy. Các flag lúc kiểm tra trước deploy chưa đặt; trạng thái flag sau deploy chưa xác nhận; chưa chạy OAuth/Gmail thật. Operator xác nhận HRA đang mở Internet qua HTTP/IP:3005 và chọn không giới hạn mạng trong vòng demo. HTTP không mã hóa, không dùng dữ liệu/tài khoản thật; khuyến nghị tunnel cho máy demo và phải hiểu tunnel không đóng cổng công khai. Nội dung cũ bên dưới có các khuyến nghị bảo vệ mạng. Xem `BO_DEMO_TUYEN_DUNG/KICH_BAN_DEMO.md`.
+
 > **Phương án rút gọn mới được chọn:** xem `VPS_THU_NGHIEM_RUT_GON.md`. SpamAssassin được phép tạm bỏ qua chỉ bằng cờ test tường minh; những mô tả spamd bên dưới áp dụng khi dùng chế độ mặc định đầy đủ.
 
 ## Trạng thái và phạm vi

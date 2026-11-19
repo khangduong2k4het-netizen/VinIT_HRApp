@@ -1,5 +1,7 @@
 # Thử nghiệm gọn: Gmail + ClamAV, chỉ dữ liệu giả
 
+> **Cập nhật sau snapshot cũ:** operator đã cài ClamAV trên VPS, bật socket nội bộ `ubuntu:clamav` mode 0660, đặt `AlertEncrypted yes` và `AlertExceedsMax yes`. Smoke qua adapter: mẫu sạch CLEAN, EICAR INFECTED, PDF mã hóa INFECTED (chặn theo heuristic). Chưa xác minh mọi giới hạn, scanner timeout hay Storage/worker thật. Marker deploy báo HRA commit `a218217`, không có restart chờ; backend ready, frontend và proxy HTTP 200. Đây không phải kết quả E2E hay xác nhận đầy đủ smoke deploy. Các flag lúc kiểm tra trước deploy chưa đặt; trạng thái flag sau deploy chưa xác nhận; chưa chạy OAuth/Gmail thật. Operator xác nhận HRA đang mở Internet qua HTTP/IP:3005 và chọn không giới hạn mạng trong vòng demo. HTTP không mã hóa, không dùng dữ liệu/tài khoản thật; khuyến nghị tunnel cho máy demo và phải hiểu tunnel không đóng cổng công khai. Nội dung cũ bên dưới có các khuyến nghị bảo vệ mạng. Xem `BO_DEMO_TUYEN_DUNG/KICH_BAN_DEMO.md`.
+
 ## Mục tiêu
 
 Chỉ cần ClamAV và Gmail test riêng; chưa cài SpamAssassin. Gmail tự loại thư mang nhãn Spam/Trash, nhưng thư còn lại **không được bộ lọc độc lập quét spam**. Đây không phải xác nhận thư an toàn và không dùng dữ liệu thật. Nhãn `HRA_TEST`, tiêu đề `[HRA-TEST] `, `@example.test` chỉ là guard, không chứng minh dữ liệu giả. Scope OAuth đọc toàn hộp thư, không chỉ nhãn. ClamAV vẫn bắt buộc, quét email và attachment trước xử lý; mất kết nối/lỗi thì không nhập. Tính năng mặc định tắt, chỉ HR Lead/Admin đồng bộ thủ công.

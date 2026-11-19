@@ -312,3 +312,62 @@ Operator báo Ubuntu noble arm64 package candidate ClamAV `1.5.4+dfsg-0ubuntu0.2
 - Test Playwright mới `test:e2e:intake-mock` chặn và mock mọi `/v1`, chạy trên Next loopback + Chromium: Careers mất phản hồi, retry cùng request/token, withdrawal, Gmail review/retry/xác nhận, pool scan và HTML khi JavaScript tắt đều pass. Từ kiểm thử phát hiện form rút có thể hoạt động trước hydration; đã disable form cho đến khi React sẵn sàng, thông báo cần JavaScript. Kết quả là UI giả, không phải E2E Gmail/DB/Storage thật.
 - Thêm test local PostgreSQL cho đồng bộ Gmail cùng lúc và mất phản hồi sau commit, retry chỉ tạo một application/receipt. Full backend chạy lại tuần tự **418 passed, 10 warnings**; FE type-check/lint/i18n/unit/build pass sau `npm ci`. Lần chạy suite song song FE trước đó 417 pass/1 fail ở test cũ `test_superseded_worker_cannot_commit_after_database_connection_loss` (timeout chờ worker phục hồi); chạy riêng pass và full tuần tự pass, nguyên nhân chưa kết luận, cần theo dõi flaky test. CI `57f26b7` run `44231367729` success.
 - Không có migration mới, chưa cài/deploy ClamAV, chưa cấp OAuth hay chạy E2E VPS thật. Tiếp tục chỉ dữ liệu giả.
+
+## 28. VPS scanner, deploy và bộ demo dữ liệu giả
+
+- Operator báo `clamav-daemon.socket`, `clamav-daemon`, `clamav-freshclam` active; socket `/run/clamav/clamd.ctl` owner `ubuntu:clamav` mode 0660; `ScanMail`, `ScanArchive`, `AlertEncrypted`, `AlertExceedsMax` true/yes. Smoke adapter trên VPS: CLEAN mẫu sạch, INFECTED EICAR; PDF giả mã hóa bị chặn (INFECTED heuristic). Kiểm tra này không bảo đảm mọi malware, freshness hoặc xử lý mọi giới hạn/timeout; user backend dùng chung OS user ubuntu nên các process khác cùng user cũng có thể truy cập socket.
+- Operator báo `.env` VPS trỏ đúng Supabase test, được sửa trước backend start theo UTC; các cờ Careers/Pool/Gmail/demo chưa đặt ở thời điểm trước deploy. Marker deploy HRA `a218217`, không restart chờ; backend ready, frontend và API proxy HTTP 200; log cuối smoke deploy chưa được cung cấp. Hai app khác có restart do operator tự cập nhật, không liên quan kết luận test HRA. HRA có thể truy cập Internet theo operator; chưa chứng minh cô lập cổng/proxy, chưa bật cờ hoặc kết nối OAuth/Gmail, chưa E2E Storage/worker/VPS.
+- Tạo bộ `doc/BO_DEMO_TUYEN_DUNG/` gồm kịch bản có gate an toàn, 2 JD, 3 CV giả (2 DOCX, 1 PDF text), mẫu email hợp lệ/thiếu file. Local `document_processor` xác nhận 3 CV đúng loại, trích xuất trên 350 ký tự; parser MIME giả xác nhận 1 mã/1 tệp và REVIEW khi thiếu tệp. Bài test dùng detected MIME như worker. Đây không chứng minh kết quả VPS hoặc AI scoring. Kịch bản nhấn mạnh không gửi token/dữ liệu thật qua HTTP công khai, không giả mạo pass, không suy consent, không tự xóa hay chạy demo migrations.
+
+## 29. Mở rộng demo IT theo yêu cầu operator
+
+- Operator xác nhận truy cập trực tiếp HTTP qua IP công khai cổng 3005 và lựa chọn không giới hạn mạng trong vòng demo. HTTP không mã hóa và intake thiếu bảo vệ abuse; chỉ dữ liệu/tài khoản test, không coi là cấu hình an toàn/production. Không thay firewall hoặc bật tính năng thay operator. Trình duyệt thường không cho `crypto.randomUUID` ở HTTP/IP; có thể truy cập `localhost:13005` qua SSH tunnel mà không đổi firewall, tunnel không tự đóng cổng công khai.
+- Mở rộng bộ thành 5 JD IT và 30 CV tổng hợp; bảng `BANG_PHAN_BO_30_CV.md` quy định nguồn, opt-in dự kiến và gợi ý HR đối chiếu. Talent Pool scan chỉ lọc điều kiện, không chấm hay xếp hạng theo JD; CV thiên Java có thể xuất hiện khi scan sang Data nếu đủ consent/điều kiện. Không tự tạo consent hoặc seed dữ liệu, chưa chạy E2E VPS.
+
+## 30. Tiền kiểm cờ trên VPS trước demo
+
+- Operator kiểm tra theo môi trường tiến trình và `.env` hiện tại: `PUBLIC_CAREERS_ENABLED`, `PUBLIC_CAREERS_TEST_INTAKE_ENABLED`, `TALENT_POOL_STORAGE_READY`, `TALENT_POOL_REDISCOVERY_ENABLED`, `GMAIL_TEST_INGEST_ENABLED`, `GMAIL_TEST_GMAIL_SPAM_ONLY` đều false; `CLAMAV_UNIX_SOCKET` và `GMAIL_TEST_TOKEN_FILE` chưa cấu hình. Storage backend supabase; `clamav-daemon`, socket và `freshclam` active; `/health/ready` báo ready/database connected, APP_ENV production. Đây là cấu hình suy ra từ env tiến trình + file hiện tại, không bảo đảm file đã được backend nạp lúc khởi động nếu file mới thay đổi sau đó.
+- Read-only Supabase project test `myrymlqdbyqmpynesiwk`: tại thời điểm kiểm tra active operations 0, vị trí OPEN còn hạn 0, consent chưa rút còn hạn 0. Không bảo đảm các số không đổi trước restart. Dự kiến cấu hình Careers/Pool trước, Gmail sau OAuth; không chạy migration hay xóa dữ liệu. Bật public listing sẽ hiển thị mọi vị trí OPEN còn hạn, không chỉ JD demo; HTTP public chỉ thử dữ liệu giả, không phải production.
+- Operator đã chỉnh `/home/ubuntu/hra/backend/.env`: 4 cờ Careers/Pool `true`, `CLAMAV_UNIX_SOCKET=/run/clamav/clamd.ctl`; mỗi khóa có một dòng và không có trong môi trường process trước restart. Gmail vẫn chưa cấu hình. Chưa xác nhận restart/nạp cờ. Snapshot Supabase read-only kế tiếp: active operations 0, vị trí OPEN còn hạn 0; không thay thế kiểm tra trước restart.
+- Operator xác nhận restart và hậu kiểm backend ready, Careers API HTTP 200 như dự kiến. Chưa kiểm tra ứng tuyển/Storage/worker/Pool/Gmail thật. Lưu ý code tạo JD mặc định ngôn ngữ `en`, trong khi bộ JD demo là tiếng Việt: tạo phiên bản JD `vi` có thay đổi nội dung trước khi duyệt tiêu chí; đã cập nhật bộ kịch bản/ZIP.
+
+## 31. Rà soát workflow và UI/UX HR/HM — lập plan, tạm dừng demo
+
+- Theo phản hồi người dùng, tạm dừng thực nghiệm Careers/Pool/Gmail để rà soát luồng tạo vị trí/JD/duyệt/danh sách ứng viên/xếp hạng/shortlist HM; chưa thay đổi code hay deploy VPS. Plan mới: `doc/PLAN_CAI_TIEN_WORKFLOW_UX_HR_HM.md`.
+- Rà code xác nhận tạo vị trí hiện là popup, JD version đầu luôn `en`; UI applicant mặc định `REVIEW_PRIORITY` ưu tiên hồ sơ cần xử lý chứ không theo `rank_number`, nên số hạng hiển thị có thể không theo thứ tự; đã có nút sort rank, work queue, workspace và side-by-side nên cải tiến trên nền sẵn có. Unit test frontend hiện có `8 passed`, trong đó xác nhận review priority đặt lỗi file trước thứ hạng; không phải usability hay VPS E2E.
+- Công cụ đọc trang truy xuất được cả 2 link người dùng đưa, thấy heading Job Description + Requirements và form theo sau, có cả hướng dẫn ứng tuyển; chưa thử HTTP adapter HRA/egress VPS. Plan thiết kế preview/extraction theo cấu trúc, fallback, chặn SSRF, giới hạn tài nguyên; `.doc` legacy hiện chưa hỗ trợ, khác DOCX và cần converter riêng. Không dùng source công khai làm dữ liệu demo IT hay tự lưu lên VPS. Plan yêu cầu giữ RBAC, consent, tách review priority khỏi matching rank, không thay engine ngầm.
+
+## 32. Chốt phạm vi nhập JD theo HR
+
+- Anh xác nhận HR phải chọn một trong ba cách nhập (dán, upload, link); phải có nội dung JD mới tạo vị trí. Không thêm nháp vị trí không JD. Vòng đầu upload `.docx`/`.txt`, chưa hỗ trợ `.doc` legacy. Đã cập nhật `doc/PLAN_CAI_TIEN_WORKFLOW_UX_HR_HM.md`; chưa triển khai code hay thay đổi VPS.
+
+### 33. Triển khai bước đầu UX HR/HM trong workspace — chưa deploy
+
+- Tạo trang riêng `/positions/new`, JD bắt buộc, nhập bằng dán / DOCX-TXT / link VinUni Talent, có preview sửa, ngôn ngữ JD v1 và hạn; scanner fail-closed. Không thay đổi engine matching hay bỏ quyền, consent, approval.
+- Thứ tự Xếp hạng mặc định theo rank, chế độ ưu tiên rà soát tách biệt; thêm bộ lọc shortlist. JD hiển thị cạnh tiêu chí; card điều hướng có ngữ cảnh và lọc, inbox chia sẻ lọc theo vị trí, scorecard có link hồ sơ. Số liệu tổng hợp có thể bao gồm trạng thái ngoài sàng lọc.
+- Backend không DB: 262 pass, 165 skip; test import và tạo position có mock, không xác nhận transaction PostgreSQL. Frontend build/type/lint, unit 10/10, i18n 3/3; browser mock create/account và shortlist desktop/mobile pass; tất cả API bị mock.
+- **Chưa nghiệm thu:** integration PostgreSQL riêng và HR/HM end-to-end, actual URL/ClamAV/Storage trên VPS, baseline usability; URL fetch chưa đảm bảo deadline tổng cho DNS/headers, UI chưa có idempotency server-side hoặc bảo vệ mọi điều hướng khỏi mất form; workspace HM/approval trong plan còn phần chưa hoàn thiện. Xem mục 11 plan để biết chi tiết và các bước tiếp.
+- Chưa commit, push, deploy, restart hoặc sửa dữ liệu VPS. Các thay đổi chỉ ở workspace; VPS trước deploy vẫn tạo JD v1 ngôn ngữ mặc định `en`, nên hướng dẫn demo tạo version `vi` vẫn áp dụng tại đó.
+
+### 34. Tiếp tục UX: PostgreSQL disposable và workspace shortlist
+
+- Tạo cụm PostgreSQL 16 hoàn toàn riêng cho test, áp 00001–00031 **chỉ cục bộ**. Backend chạy tuần tự **431 passed**, gồm các test mới cho JD v1 vi/en + timezone, rollback cả giao dịch khi lỗi gán HM và tạo đồng thời bốn mã vị trí không trùng. Auth và `uuid-ossp`/`pgcrypto` bundled là stub; shim `digest` test-only dùng SHA-256 tích hợp của PostgreSQL. Không xem kết quả này là kiểm thử Supabase thật.
+- Tách workspace `/shortlist/[share_id]` khỏi dialog, giữ link nhắc hạn cũ, lựa ứng viên và giữ nháp scorecard khi chuyển, chỉ rõ quyền CV và khác biệt giữa JD hiện tại/snapshot; đưa link hồ sơ quay lại share. API từ chối 403/404 thì UI bỏ dữ liệu, kiểm tra lại khi tab trở nên hiển thị; không hứa revoke tức thời trong tab đang mở.
+- Thêm timeout phản hồi 20 giây cho URL preview; thread còn bị block có thể tiếp tục giữ một trong hai slot tới khi kết thúc. Test timeout có mock; chưa thử nguồn URL từ VPS.
+- Frontend type-check/lint/build, unit 10/10, i18n 3/3 và browser mock tạo vị trí/tài khoản/shortlist desktop-mobile pass. Browser tests mock toàn bộ `/v1`. Các giới hạn và bước còn lại trong mục 12 plan. Không commit/push/deploy/restart hoặc sửa DB VPS.
+
+### 35. Đợt 5: idempotency tạo vị trí, bảo toàn nháp, bằng chứng trong workspace
+
+- Thêm migration `00032_position_create_idempotency.sql` và `request_id` tùy chọn cho `POST /v1/positions`: khóa advisory theo (người dùng, mã yêu cầu), lần gửi lại trả 200 + `Idempotent-Replay`, nội dung khác trả 409, vị trí đã xóa/mất quyền trả 410/403. Không lưu JD/form, chỉ hash; RLS + chỉ `service_role`.
+- UI tạo vị trí giữ nguyên payload khi kết quả chưa rõ, khóa fieldset và có nút thử lại an toàn; hook `useUnsavedChangesGuard` chặn rời link nội bộ khi còn nháp cho form tạo vị trí, dialog JD và workspace shortlist.
+- Workspace `/shortlist/[id]` thêm khối CV/evidence cạnh scorecard qua API share-scoped hiện có; cổng `allow_cv_view`/snapshot vẫn do backend quyết định, trích dẫn nhảy trang PDF, DOCX chỉ tải.
+- URL JD có ngân sách tổng 15 giây và test xác nhận slot được trả sau timeout.
+- Backend **434 passed** trên cụm PostgreSQL 16 disposable mới (cổng 55492, migration 00001–00032 chỉ cục bộ, auth stub + shim `digest`). Lần chạy cả bộ đầu tiên fail test cũ `test_superseded_worker...` do timeout; chạy riêng pass và chạy lại cả bộ pass. FE type-check/lint/build, unit 10/10, i18n 3/3, browser mock tạo vị trí/tài khoản/workspace shortlist/lọc shortlist desktop-mobile pass với `/v1` mock.
+- **Chưa làm:** áp 00032 lên Supabase, E2E browser + backend + Supabase/Storage/ClamAV thật, URL thật từ VPS, usability/a11y, danh sách lớn, chặn Back/Forward, lưu nháp scorecard server-side. Chưa commit/push/deploy/restart VPS.
+
+### 36. Đợt 6: danh sách lớn, stale và áp migration 00032 lên Supabase
+
+- Áp migration `position_create_idempotency_00032` lên Supabase `myrymlqdbyqmpynesiwk` qua cổng migration (không dùng `supabase db push`). Postflight: bảng receipt tồn tại, RLS bật/0 policy, `service_role` INSERT được, `authenticated` không SELECT; 0 receipt, 6 vị trí, 0 OPEN còn hạn, 0 share ACTIVE, 0 scorecard. Không sửa dữ liệu sản phẩm, chưa gọi API thật.
+- Danh sách ứng viên tải theo trang có tiến độ và chỉ mount 50 dòng, mở rộng theo bước 50; lọc/sắp xếp/thứ hạng/chọn chia sẻ vẫn tính toàn danh sách. Workspace share chỉ refetch khi tab ẩn ≥30 giây và có banner dữ liệu cũ; đóng dialog JD hỏi xác nhận khi có thay đổi.
+- Thêm browser mock `applicants-large-list-mock.e2e.cjs` (123 hồ sơ) và unit test cửa sổ danh sách: unit 11/11, i18n 3/3, type-check/lint/build pass, 5 bộ browser mock pass. Backend unit không DB 264 passed/170 skipped; ruff `--select F` pass.
+- **Chưa làm:** E2E thật Supabase/Storage/ClamAV/URL từ VPS, usability và audit accessibility đầy đủ, chặn Back/Forward, lưu nháp server-side. Chưa commit/push/deploy/restart VPS.
