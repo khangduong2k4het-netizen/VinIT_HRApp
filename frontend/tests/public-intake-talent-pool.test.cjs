@@ -120,3 +120,21 @@ test('a collapsed sidebar has a clear, labelled, 40px way back near the top', ()
   assert.ok((sidebar.match(/width: 40, height: 40/g) || []).length >= 2);
   assert.match(sidebar, /width: 40,\s*height: 40,\s*color: '#64748B'/);
 });
+
+test('only the language provider stores the chosen language, so /apply cannot reset it', () => {
+  const root = path.join(__dirname, '..', 'src');
+  const writers = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.(ts|tsx)$/.test(entry.name) && fs.readFileSync(full, 'utf8').includes('hra_locale')) writers.push(path.relative(root, full).replace(/\\/g, '/'));
+    }
+  };
+  walk(root);
+  assert.deepEqual(writers, ['i18n/I18nProvider.tsx']);
+  const provider = fs.readFileSync(path.join(root, 'i18n/I18nProvider.tsx'), 'utf8');
+  // The stored choice is read on load and only written when the user picks a language.
+  assert.match(provider, /getItem\('hra_locale'\) === 'en'/);
+  assert.equal((provider.match(/setItem\('hra_locale'/g) || []).length, 1);
+});
