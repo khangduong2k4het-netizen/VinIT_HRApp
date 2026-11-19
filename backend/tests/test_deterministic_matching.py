@@ -119,7 +119,7 @@ def test_negated_skill_mention_is_unresolved_not_a_rule_match():
     # v1.3, and the Python years gate/framework grouping in v1.4; the
     # version is part of the assessment fingerprint, so existing
     # assessments must be recalculated after any of these changes.
-    assert result["rule_version"] == "deterministic-rules-v1.6"
+    assert result["rule_version"] == "deterministic-rules-v1.7"
 
 
 def test_positive_skill_still_matches_when_another_sentence_is_negated():
@@ -444,3 +444,15 @@ def test_field_phrases_ignore_filler_and_pronoun_it():
     # The pronoun "it" in a CV is not evidence for an IT degree.
     assert not deterministic_matcher._field_in_text((("it",),), "made it work")
     assert deterministic_matcher._field_in_text((("it",),), "Bachelor in IT")
+
+
+def test_abbreviated_engineering_degrees_count_as_bachelor():
+    criteria = [criterion("c1", "Bachelor's degree in Information Technology, Computer Science, "
+                          "System Engineering, or related field", "")]
+    for education in (
+        "EDUCATION\nB.Eng. in Information Technology, PTIT, 2017 - 2021.",
+        "EDUCATION\nB.Sc. Computer Science, VNU University of Engineering and Technology.",
+        "EDUCATION\nKỹ sư Công nghệ thông tin, Đại học Bách khoa Hà Nội.",
+    ):
+        result = deterministic_matcher.evaluate_criteria(education, criteria, {})
+        assert result["findings"][0]["outcome"] == "MATCH", education
