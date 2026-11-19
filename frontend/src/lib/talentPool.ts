@@ -17,6 +17,18 @@ export type ScanSummary = {
   status: ScanStatus; failed_count: number; error_message: string | null; completed_at: string | null;
 };
 export type ScanDetail = ScanSummary & { position_id: string; results: ScanResult[] };
+export type PoolContact = {
+  application_id: string;
+  display_name: string | null;
+  email: string | null;
+  phone: string | null;
+  target_position_title: string;
+  target_position_code: string;
+  source_position_title: string;
+  source_position_code: string;
+  email_subject: string;
+  email_body: string;
+};
 
 export const MARK_REASONS: Record<string, string> = {
   STRONG_FIT: 'Phù hợp tốt',
@@ -44,3 +56,28 @@ export function scoreText(score: number | null): string {
 
 /** A scan the worker has not finished: the page keeps polling while this is true. */
 export const scanIsActive = (status?: ScanStatus | null): boolean => status === 'PENDING' || status === 'PROCESSING';
+
+/** Build a mailto: URL for opening the HR-reviewed outreach draft in Outlook / default email client. */
+export function buildMailtoHref(email: string, subject: string, body: string): string {
+  return `mailto:${encodeURIComponent(email.trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+/** Filter pool marks by search query (ref, position title/code), reason code, and eligibility flag. */
+export function filterPoolMarks(
+  marks: PoolMark[],
+  opts: { query?: string; reason?: string; eligibility?: 'ALL' | 'ELIGIBLE' | 'INELIGIBLE' },
+): PoolMark[] {
+  const q = (opts.query || '').trim().toLowerCase();
+  const reason = opts.reason || '';
+  const eligibility = opts.eligibility || 'ALL';
+  return marks.filter(m => {
+    if (reason && m.reason_code !== reason) return false;
+    if (eligibility === 'ELIGIBLE' && !m.eligible) return false;
+    if (eligibility === 'INELIGIBLE' && m.eligible) return false;
+    if (q) {
+      const hay = `${poolRef(m.application_id)} ${m.position_title} ${m.position_code}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}

@@ -14,8 +14,8 @@ function load(relativePath) {
   return loaded.exports;
 }
 
-const { failureFromStatus, MAX_FILE_BYTES, validateCv } = load('src/lib/publicApply.ts');
-const { poolRef, scanIsActive, scoreText, SKIP_REASONS } = load('src/lib/talentPool.ts');
+const { buildWithdrawalReceiptText, failureFromStatus, MAX_FILE_BYTES, validateCv } = load('src/lib/publicApply.ts');
+const { buildMailtoHref, filterPoolMarks, poolRef, scanIsActive, scoreText, SKIP_REASONS } = load('src/lib/talentPool.ts');
 
 test('validateCv checks presence, extension and max file size', () => {
   assert.equal(validateCv(null), 'MISSING');
@@ -43,4 +43,29 @@ test('talentPool helpers format opaque refs, scores and active scan states', () 
   assert.equal(scanIsActive('COMPLETED'), false);
   assert.equal(scanIsActive('FAILED'), false);
   assert.ok(SKIP_REASONS.DUPLICATE_PHONE);
+});
+
+test('buildWithdrawalReceiptText includes position, token and withdraw URL', () => {
+  const txt = buildWithdrawalReceiptText('IT-01', 'Data Engineer', 'a'.repeat(64), 'https://hra.vinuni.edu.vn/');
+  assert.ok(txt.includes('IT-01') && txt.includes('Data Engineer'));
+  assert.ok(txt.includes('a'.repeat(64)));
+  assert.ok(txt.includes('https://hra.vinuni.edu.vn/apply/withdraw'));
+});
+
+test('buildMailtoHref encodes recipient, subject and body safely', () => {
+  const href = buildMailtoHref(' candidate@example.com ', 'Hello & Welcome', 'Line 1\nLine 2');
+  assert.ok(href.startsWith('mailto:candidate%40example.com?subject='));
+  assert.ok(href.includes('Hello%20%26%20Welcome') && href.includes('Line%201%0ALine%202'));
+});
+
+test('filterPoolMarks filters by query, reason and eligibility', () => {
+  const rows = [
+    { application_id: 'aaaa1111-0000-0000-0000-000000000000', reason_code: 'STRONG_FIT', position_title: 'Backend Engineer', position_code: 'ENG-01', eligible: true },
+    { application_id: 'bbbb2222-0000-0000-0000-000000000000', reason_code: 'NEAR_MISS', position_title: 'Accountant', position_code: 'FIN-02', eligible: false },
+  ];
+  assert.equal(filterPoolMarks(rows, { query: 'fin-02' }).length, 1);
+  assert.equal(filterPoolMarks(rows, { query: '#AAAA1111' }).length, 1);
+  assert.equal(filterPoolMarks(rows, { reason: 'STRONG_FIT' }).length, 1);
+  assert.equal(filterPoolMarks(rows, { eligibility: 'ELIGIBLE' }).length, 1);
+  assert.equal(filterPoolMarks(rows, { eligibility: 'INELIGIBLE' }).length, 1);
 });

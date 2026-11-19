@@ -7,6 +7,14 @@ export const ALLOWED_EXTENSIONS = ['.pdf', '.docx', '.jpg', '.jpeg', '.png'];
 export const MAX_FILE_BYTES = 10_000_000;
 
 export type PublicPosition = { code: string; title: string; unit?: string | null; location?: string | null; employment_type?: string | null };
+export type PublicPositionDetail = PublicPosition & {
+  level?: string | null;
+  work_mode?: string | null;
+  opened_at?: string | null;
+  posting_content?: string | null;
+  jd?: string | null;
+  jd_language?: string | null;
+};
 
 export type ApplyFailure = 'RATE_LIMIT' | 'UNAVAILABLE' | 'POSITION_CLOSED' | 'CONSENT' | 'FILE' | 'NETWORK';
 
@@ -26,10 +34,29 @@ export function failureFromStatus(status: number): ApplyFailure {
   return 'NETWORK';
 }
 
+export function buildWithdrawalReceiptText(positionCode: string, positionTitle: string, token: string, origin: string): string {
+  const base = origin.replace(/\/$/, '');
+  return [
+    'VinUniversity - Application Receipt & Talent Pool Withdrawal Code',
+    `Position: ${positionTitle} (${positionCode})`,
+    '',
+    'One-time Talent Pool withdrawal code (keep this private; shown once only):',
+    token,
+    '',
+    `Withdraw reuse consent at: ${base}/apply/withdraw`,
+  ].join('\n');
+}
+
 export async function fetchPublicPositions(): Promise<PublicPosition[]> {
   const response = await fetch('/v1/public/positions', { cache: 'no-store' });
   if (!response.ok) throw new Error(String(response.status));
   return (await response.json()).positions as PublicPosition[];
+}
+
+export async function fetchPublicPositionDetail(code: string): Promise<PublicPositionDetail | null> {
+  const response = await fetch(`/v1/public/positions/${encodeURIComponent(code)}`, { cache: 'no-store' });
+  if (!response.ok) return null;
+  return (await response.json()) as PublicPositionDetail;
 }
 
 export async function submitApplication(code: string, file: File, consentTalentPool: boolean, honeypot: string): Promise<{ ok: true; withdrawalToken?: string } | { ok: false; failure: ApplyFailure }> {

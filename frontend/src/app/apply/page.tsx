@@ -3,19 +3,23 @@
 import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Alert, Box, Button, Card, CardContent, Checkbox, CircularProgress, Container, FormControlLabel, Stack, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Container, Divider, FormControlLabel, Stack, Typography } from '@mui/material';
 import { useI18n } from '@/i18n/I18nProvider';
 import LanguageSwitcher from '@/i18n/LanguageSwitcher';
-import { fetchPublicPositions, submitApplication, validateCv, type ApplyFailure, type PublicPosition } from '@/lib/publicApply';
+import {
+  buildWithdrawalReceiptText, fetchPublicPositionDetail, fetchPublicPositions, submitApplication, validateCv,
+  type ApplyFailure, type PublicPosition, type PublicPositionDetail,
+} from '@/lib/publicApply';
 
-// Wording shown next to the tick boxes. HR / Legal must approve it before launch;
-// when it changes, bump PUBLIC_INTAKE_NOTICE_VERSION on the backend so the stored
-// consent records which version the candidate saw.
+// Wording shown next to the tick box (notice v2, approved by Legal).
+// When it changes, bump PUBLIC_INTAKE_NOTICE_VERSION on the backend.
 export default function ApplyPage() {
   const { t } = useI18n();
   const [positions, setPositions] = useState<PublicPosition[] | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState<PublicPosition | null>(null);
+  const [detail, setDetail] = useState<PublicPositionDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   // One mandatory consent (notice v2): use of the CV incl. AI, 5-year storage, reuse for other positions.
   const [consentProcessing, setConsentProcessing] = useState(false);
@@ -41,6 +45,17 @@ export default function ApplyPage() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (!selected) { setDetail(null); return; }
+    let active = true;
+    setDetailLoading(true);
+    fetchPublicPositionDetail(selected.code)
+      .then(d => { if (active) setDetail(d); })
+      .catch(() => { if (active) setDetail(null); })
+      .finally(() => { if (active) setDetailLoading(false); });
+    return () => { active = false; };
+  }, [selected]);
+
   const copyToken = async () => {
     if (!withdrawalToken) return;
     try {
@@ -52,9 +67,22 @@ export default function ApplyPage() {
     }
   };
 
+  const downloadReceipt = () => {
+    if (!withdrawalToken || !selected) return;
+    const content = buildWithdrawalReceiptText(selected.code, selected.title, withdrawalToken, window.location.origin);
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `vinuni-receipt-${selected.code}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const resetForAnother = () => {
     setDone(false);
     setSelected(null);
+    setDetail(null);
     setFile(null);
     setConsentProcessing(false);
     setFieldError(null);
@@ -115,6 +143,9 @@ export default function ApplyPage() {
                     <Button size="small" variant="outlined" onClick={copyToken}>
                       {copiedToken ? t('Đã sao chép mã') : t('Sao chép mã')}
                     </Button>
+                    <Button size="small" variant="outlined" onClick={downloadReceipt}>
+                      {t('Tải biên nhận (.txt)')}
+                    </Button>
                     <Typography variant="body2">{t('Rút lại đồng ý tại')} <Link href="/apply/withdraw">/apply/withdraw</Link></Typography>
                   </Stack>
                 </Box>
@@ -125,39 +156,68 @@ export default function ApplyPage() {
             </Box>
           </Stack>
         ) : selected ? (
-          <Card component="form" onSubmit={submit} noValidate>
-            <CardContent>
-              <Button size="small" onClick={() => { setSelected(null); setFailure(null); setFieldError(null); }}>{t('← Quay lại danh sách')}</Button>
-              <Typography variant="h5" sx={{ fontWeight: 700, mt: 1 }}>{selected.title}</Typography>
-              <Typography color="text.secondary" sx={{ mb: 2 }}>{[selected.unit, selected.location].filter(Boolean).join(' · ')}</Typography>
-              <Stack spacing={2}>
-                <Box>
-                  <Button variant="outlined" component="label">
-                    {file ? file.name : t('Chọn tệp CV')}
-                    <input type="file" hidden accept=".pdf,.docx,.jpg,.jpeg,.png"
-                      onChange={e => { setFile(e.target.files?.[0] || null); setFieldError(null); }} />
+          <Stack spacing={2.5}>
+            <Card variant="outlined">
+              <CardContent>
+                <Button size="small" onClick={() => { setSelected(null); setFailure(null); setFieldError(null); }}>{t('← Quay lại danh sách')}</Button>
+                <Typography variant="h5" sx={{ fontWeight: 700, mt: 1 }}>{selected.title}</Typography>
+                <Typography color="text.secondary" sx={{ mb: 1.5 }}>{[selected.unit, selected.location].filter(Boolean).join(' · ')}</Typography>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+                  <Chip size="small" label={selected.code} variant="outlined" />
+                  {selected.employment_type && <Chip size="small" label={selected.employment_type} />}
+                  {detail?.level && <Chip size="small" label={detail.level} />}
+                  {detail?.work_mode && <Chip size="small" label={detail.work_mode} />}
+                </Stack>
+                {detailLoading && <CircularProgress size={20} aria-label={t('Đang tải')} />}
+                {detail?.posting_content && (
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }}>{t('Thông tin tuyển dụng')}</Typography>
+                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{detail.posting_content}</Typography>
+                  </Box>
+                )}
+                {detail?.jd && (
+                  <Box>
+                    {detail?.posting_content && <Divider sx={{ my: 2 }} />}
+                    <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 0.5 }}>{t('Mô tả công việc')}</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-wrap', maxHeight: 360, overflowY: 'auto', pr: 1 }}>
+                      {detail.jd}
+                    </Typography>
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
+            <Card component="form" onSubmit={submit} noValidate>
+              <CardContent>
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>{t('Nộp hồ sơ ứng tuyển')}</Typography>
+                <Stack spacing={2}>
+                  <Box>
+                    <Button variant="outlined" component="label">
+                      {file ? file.name : t('Chọn tệp CV')}
+                      <input type="file" hidden accept=".pdf,.docx,.jpg,.jpeg,.png"
+                        onChange={e => { setFile(e.target.files?.[0] || null); setFieldError(null); }} />
+                    </Button>
+                    <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>{t('PDF, DOCX, JPG hoặc PNG, tối đa 10 MB.')}</Typography>
+                  </Box>
+                  <FormControlLabel
+                    required
+                    control={<Checkbox checked={consentProcessing} onChange={e => { setConsentProcessing(e.target.checked); setFieldError(null); }} />}
+                    label={t('Tôi đồng ý cho VinUniversity sử dụng thông tin trong hồ sơ này, bao gồm xử lý bằng công cụ AI, để xem xét ứng tuyển vào vị trí trên và các vị trí phù hợp khác. Hồ sơ được lưu tối đa 5 năm. Đây là điều kiện bắt buộc để nộp hồ sơ.')} />
+                  <Typography variant="caption" color="text.secondary">
+                    {t('Sau khi nộp, bạn nhận một mã để rút lại đồng ý dùng hồ sơ cho các vị trí khác; bạn cũng có thể liên hệ bộ phận Nhân sự. Hồ sơ không được dùng cho mục đích khác ngoài tuyển dụng.')}
+                  </Typography>
+                  {/* Honeypot: invisible to people and assistive technology; bots fill it in. */}
+                  <Box aria-hidden="true" sx={{ position: 'absolute', left: '-10000px', width: 1, height: 1, overflow: 'hidden' }}>
+                    <label>Website<input tabIndex={-1} autoComplete="off" value={honeypot} onChange={e => setHoneypot(e.target.value)} /></label>
+                  </Box>
+                  {fieldMessage && <Alert severity="error" role="alert">{fieldMessage}</Alert>}
+                  {failureMessage && <Alert severity="error" role="alert">{failureMessage}</Alert>}
+                  <Button type="submit" variant="contained" disabled={busy} sx={{ alignSelf: 'flex-start' }}>
+                    {busy ? <CircularProgress size={20} aria-label={t('Đang gửi')} /> : t('Gửi hồ sơ')}
                   </Button>
-                  <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>{t('PDF, DOCX, JPG hoặc PNG, tối đa 10 MB.')}</Typography>
-                </Box>
-                <FormControlLabel
-                  required
-                  control={<Checkbox checked={consentProcessing} onChange={e => { setConsentProcessing(e.target.checked); setFieldError(null); }} />}
-                  label={t('Tôi đồng ý cho VinUniversity sử dụng thông tin trong hồ sơ này, bao gồm xử lý bằng công cụ AI, để xem xét ứng tuyển vào vị trí trên và các vị trí phù hợp khác. Hồ sơ được lưu tối đa 5 năm. Đây là điều kiện bắt buộc để nộp hồ sơ.')} />
-                <Typography variant="caption" color="text.secondary">
-                  {t('Sau khi nộp, bạn nhận một mã để rút lại đồng ý dùng hồ sơ cho các vị trí khác; bạn cũng có thể liên hệ bộ phận Nhân sự. Hồ sơ không được dùng cho mục đích khác ngoài tuyển dụng.')}
-                </Typography>
-                {/* Honeypot: invisible to people and assistive technology; bots fill it in. */}
-                <Box aria-hidden="true" sx={{ position: 'absolute', left: '-10000px', width: 1, height: 1, overflow: 'hidden' }}>
-                  <label>Website<input tabIndex={-1} autoComplete="off" value={honeypot} onChange={e => setHoneypot(e.target.value)} /></label>
-                </Box>
-                {fieldMessage && <Alert severity="error" role="alert">{fieldMessage}</Alert>}
-                {failureMessage && <Alert severity="error" role="alert">{failureMessage}</Alert>}
-                <Button type="submit" variant="contained" disabled={busy} sx={{ alignSelf: 'flex-start' }}>
-                  {busy ? <CircularProgress size={20} aria-label={t('Đang gửi')} /> : t('Gửi hồ sơ')}
-                </Button>
-              </Stack>
-            </CardContent>
-          </Card>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Stack>
         ) : (
           <>
             <Typography variant="h5" sx={{ fontWeight: 700, mb: 2 }}>{t('Vị trí đang tuyển')}</Typography>

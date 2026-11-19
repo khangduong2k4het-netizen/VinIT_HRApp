@@ -9,7 +9,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { localizeServerMessage } from '@/i18n/serverMessages';
 import { MARK_REASONS } from '@/lib/talentPool';
 
-type PoolState = { marked: boolean; can_mark: boolean; reason: string | null; reason_text: string | null; expires_on: string | null };
+type PoolState = { marked: boolean; can_mark: boolean; can_withdraw_consent?: boolean; reason: string | null; reason_text: string | null; expires_on: string | null };
 
 export default function TalentPoolPanel({ applicationId }: { applicationId: string }) {
   const { t, locale } = useI18n();
@@ -58,7 +58,7 @@ export default function TalentPoolPanel({ applicationId }: { applicationId: stri
         : <Typography variant="caption" color="text.secondary">
           {state.reason_text ? localizeServerMessage(state.reason_text, locale) : t('Chưa đủ điều kiện vào Talent Pool')}
         </Typography>}
-    {state.reason !== 'NO_CONSENT' && state.reason !== 'CONSENT_WITHDRAWN' && (
+    {state.can_withdraw_consent && state.reason !== 'NO_CONSENT' && state.reason !== 'CONSENT_WITHDRAWN' && (
       <Button size="small" color="error" disabled={busy} onClick={() => { setReference(''); setWithdrawOpen(true); }}>
         {t('Ghi nhận ứng viên rút đồng ý')}
       </Button>

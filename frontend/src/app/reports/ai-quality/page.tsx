@@ -2,8 +2,8 @@
 
 import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Grid, MenuItem, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Grid, MenuItem, Stack, Table, TableBody,
+  TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { analyticsApi, authApi, departmentsApi, positionsApi, rubricApi } from '@/lib/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import PageHeader from '@/components/common/PageHeader';
@@ -19,6 +19,8 @@ const FLAGS: Record<string, string> = {
   INCORRECT_EVIDENCE: 'Bằng chứng sai', MISSING_CONTENT: 'Thiếu nội dung', INCORRECT_FACT: 'Dữ kiện sai', OCR_ERROR: 'Lỗi OCR', INCORRECT_MATCH: 'Kết luận so khớp sai',
 };
 const MARKER_KINDS: Record<string, string> = { MATCHING_POLICY: 'Chính sách chấm điểm', PROMPT: 'Prompt', RULES: 'Bộ quy tắc', MANUAL: 'Ghi chú của Admin' };
+const CRITERION_TYPES: Record<string, string> = { MUST_HAVE: 'Tiêu chí bắt buộc', NICE_TO_HAVE: 'Tiêu chí ưu tiên', UNKNOWN: 'Khác' };
+const FILE_TYPES: Record<string, string> = { PDF: 'PDF', DOCX: 'DOCX', IMAGE: 'Ảnh (JPG/PNG)', OTHER: 'Khác' };
 
 function Rate({ p }: { p: Proportion }) {
   const { t } = useI18n();
@@ -48,26 +50,33 @@ export default function AiQualityPage() {
   const [families, setFamilies] = useState<BreakdownRow[]>([]);
   const [departments, setDepartments] = useState<BreakdownRow[]>([]);
   const [versions, setVersions] = useState<BreakdownRow[]>([]);
+  const [fileTypes, setFileTypes] = useState<BreakdownRow[]>([]);
+  const [criterionTypes, setCriterionTypes] = useState<BreakdownRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [canExportGoldenSet, setCanExportGoldenSet] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState('');
   const [markerDate, setMarkerDate] = useState(() => localIsoDate(new Date()));
   const [markerTitle, setMarkerTitle] = useState('');
   const [markerNote, setMarkerNote] = useState('');
   const [markerBusy, setMarkerBusy] = useState(false);
   const [markerError, setMarkerError] = useState('');
 
+  const buildFilterParams = useCallback(() => ({
+    date_from: dateFrom,
+    date_to: dateTo,
+    ...(departmentId ? { department_id: departmentId } : {}),
+    ...(jobFamilyId ? { job_family_id: jobFamilyId } : {}),
+    ...(positionId ? { position_id: positionId } : {}),
+  }), [dateFrom, dateTo, departmentId, jobFamilyId, positionId]);
+
   const load = useCallback(async () => {
     setLoading(true); setError('');
-    const range = {
-      date_from: dateFrom,
-      date_to: dateTo,
-      ...(departmentId ? { department_id: departmentId } : {}),
-      ...(jobFamilyId ? { job_family_id: jobFamilyId } : {}),
-      ...(positionId ? { position_id: positionId } : {}),
-    };
+    const range = buildFilterParams();
     try {
-      const [tr, mk, rs, fl, fa, dp, ve] = await Promise.all([
+      const [tr, mk, rs, fl, fa, dp, ve, ft, ct] = await Promise.all([
         analyticsApi.qualityTrends({ ...range, grain }),
         analyticsApi.qualityMarkers({ date_from: dateFrom, date_to: dateTo }),
         analyticsApi.qualityBreakdown({ ...range, dimension: 'override_reason' }),
@@ -75,22 +84,47 @@ export default function AiQualityPage() {
         analyticsApi.qualityBreakdown({ ...range, dimension: 'job_family' }),
         analyticsApi.qualityBreakdown({ ...range, dimension: 'department' }),
         analyticsApi.qualityBreakdown({ ...range, dimension: 'matching_policy_version' }),
+        analyticsApi.qualityBreakdown({ ...range, dimension: 'file_type' }),
+        analyticsApi.qualityBreakdown({ ...range, dimension: 'criterion_type' }),
       ]);
       setTrends(tr.data); setMarkers(mk.data.markers); setReasons(rs.data.rows); setFlags(fl.data.rows);
       setFamilies(fa.data.rows); setDepartments(dp.data.rows); setVersions(ve.data.rows);
+      setFileTypes(ft.data.rows); setCriterionTypes(ct.data.rows);
     } catch (err: any) {
       setTrends(null);
       setError(err.response?.status === 403 ? t('Bạn không có quyền xem chất lượng AI.') : err.response?.status === 400
         ? t('Khoảng thời gian không hợp lệ.') : t('Không thể tải dữ liệu chất lượng AI.'));
     } finally { setLoading(false); }
-  }, [dateFrom, dateTo, grain, departmentId, jobFamilyId, positionId, t]);
+  }, [buildFilterParams, dateFrom, dateTo, grain, t]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    authApi.me().then(r => setIsAdmin((r.data.system_roles || []).includes('ADMIN'))).catch(() => {});
+    authApi.me().then(r => {
+      const roles: string[] = r.data.system_roles || [];
+      setIsAdmin(roles.includes('ADMIN'));
+      setCanExportGoldenSet(roles.includes('ADMIN') || roles.includes('HR_LEAD'));
+    }).catch(() => {});
     departmentsApi.list().then(r => setDepartmentsList(r.data || [])).catch(() => {});
     rubricApi.listFamilies().then(r => setJobFamiliesList(r.data || [])).catch(() => {});
     positionsApi.listAll().then(list => setPositionsList(list || [])).catch(() => {});
   }, []);
+
+  const exportGoldenSet = async (format: 'json' | 'csv') => {
+    setExportBusy(true); setExportError('');
+    try {
+      const res = await analyticsApi.exportGoldenSet({ ...buildFilterParams(), format });
+      const blob = new Blob([res.data], { type: format === 'csv' ? 'text/csv;charset=utf-8' : 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `hra-golden-set-${dateFrom}-${dateTo}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setExportError(t('Không thể xuất tập nhãn ẩn danh.'));
+    } finally {
+      setExportBusy(false);
+    }
+  };
 
   const addMarker = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -144,6 +178,20 @@ export default function AiQualityPage() {
             {positionsList.map(p => <MenuItem key={p.position_id} value={p.position_id}>{p.position_code} · {p.title}</MenuItem>)}
           </TextField></Grid>
         </Grid>
+        {canExportGoldenSet && (
+          <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 2 }}>
+            <Button size="small" variant="outlined" disabled={exportBusy} onClick={() => exportGoldenSet('json')}>
+              {t('Xuất tập nhãn ẩn danh (JSON)')}
+            </Button>
+            <Button size="small" variant="outlined" disabled={exportBusy} onClick={() => exportGoldenSet('csv')}>
+              {t('Xuất tập nhãn ẩn danh (CSV)')}
+            </Button>
+            <Typography variant="caption" color="text.secondary">
+              {t('Chỉ HR Lead/Admin. Không chứa họ tên, email, SĐT; mỗi lần xuất được ghi audit.')}
+            </Typography>
+          </Stack>
+        )}
+        {exportError && <Alert severity="error" sx={{ mt: 1.5 }}>{exportError}</Alert>}
       </CardContent></Card>
       {loading && <CircularProgress aria-label={t('Đang tải')} />}
       {error && <Alert severity="error" action={<Button color="inherit" onClick={load}>{t('Thử lại')}</Button>}>{error}</Alert>}
@@ -217,6 +265,22 @@ export default function AiQualityPage() {
                   <Typography variant="body2" sx={{ fontWeight: 600 }}>{r.label || t('Chưa phân loại')}</Typography>
                   <Typography variant="caption" color="text.secondary" component="div">{t('Ghi đè')}</Typography>{r.overrides && <Rate p={r.overrides} />}
                   <Typography variant="caption" color="text.secondary" component="div">{t('Lỗi — mẫu ngẫu nhiên')}</Typography>{r.qa_random_sample && <Rate p={r.qa_random_sample} />}
+                </Box>))}
+            </CardContent></Card></Grid>
+            <Grid item xs={12} md={6}><Card sx={{ height: '100%' }}><CardContent>
+              <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>{t('Theo loại tệp (lỗi xử lý)')}</Typography>
+              {fileTypes.length === 0 ? <Typography color="text.secondary">{t('Chưa có dữ liệu.')}</Typography> : fileTypes.map(r => (
+                <Box key={String(r.key)} sx={{ py: 0.75 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{t(FILE_TYPES[String(r.key)] || 'Khác')} · {r.completed} {t('tệp')}</Typography>
+                  {r.needs_verification && <Rate p={r.needs_verification} />}
+                </Box>))}
+            </CardContent></Card></Grid>
+            <Grid item xs={12} md={6}><Card sx={{ height: '100%' }}><CardContent>
+              <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>{t('Theo loại tiêu chí (tỷ lệ chưa rõ)')}</Typography>
+              {criterionTypes.length === 0 ? <Typography color="text.secondary">{t('Chưa có dữ liệu.')}</Typography> : criterionTypes.map(r => (
+                <Box key={String(r.key)} sx={{ py: 0.75 }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{t(CRITERION_TYPES[String(r.key)] || 'Khác')} · {r.completed} {t('kết quả')}</Typography>
+                  {r.needs_verification && <Rate p={r.needs_verification} />}
                 </Box>))}
             </CardContent></Card></Grid>
             <Grid item xs={12} md={6}><Card sx={{ height: '100%' }}><CardContent>

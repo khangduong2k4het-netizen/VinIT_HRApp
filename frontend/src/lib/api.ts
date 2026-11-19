@@ -292,12 +292,14 @@ export const talentPoolApi = {
   unmark: (applicationId: string) => apiClient.delete(`/talent-pool/applications/${applicationId}/mark`),
   withdrawConsent: (applicationId: string, reference?: string) =>
     apiClient.post(`/talent-pool/applications/${applicationId}/withdraw-consent`, { reference: reference || null }),
-  marks: () => apiClient.get('/talent-pool/marks'),
+  marks: (params?: { limit?: number; offset?: number }) => apiClient.get('/talent-pool/marks', { params }),
   scan: (positionId: string) => apiClient.post(`/talent-pool/positions/${positionId}/scan`),
   scans: (positionId: string) => apiClient.get(`/talent-pool/positions/${positionId}/scans`),
   scanDetail: (scanId: string) => apiClient.get(`/talent-pool/scans/${scanId}`),
   decide: (scanId: string, applicationId: string, decision: 'CONTACT' | 'SKIP' | 'LATER') =>
     apiClient.post(`/talent-pool/scans/${scanId}/results/${applicationId}/decision`, { decision }),
+  revealContact: (scanId: string, applicationId: string) =>
+    apiClient.post(`/talent-pool/scans/${scanId}/results/${applicationId}/contact`),
 };
 
 export const retentionApi = {
@@ -337,4 +339,6 @@ export const analyticsApi = {
     apiClient.get('/analytics/quality/markers', { params }),
   createQualityMarker: (data: { occurred_on: string; title: string; note?: string }) =>
     apiClient.post('/analytics/quality/markers', data),
+  exportGoldenSet: (params: { date_from?: string; date_to?: string; format?: 'json' | 'csv'; position_id?: string; department_id?: string; job_family_id?: string }) =>
+    apiClient.get('/analytics/quality/golden-set/export', { params, responseType: 'blob' }),
 };
