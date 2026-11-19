@@ -48,7 +48,14 @@ import CandidateProfilePanel from '@/components/candidates/CandidateProfilePanel
 import EvidenceCard from '@/components/candidates/EvidenceCard';
 import CVDocumentViewer from '@/components/candidates/CVDocumentViewer';
 import HRNotesPanel from '@/components/candidates/HRNotesPanel';
-import { readApplicantNavigation, type ApplicantNavigationContext } from '@/lib/applicantReview';
+import {
+  applicantProfileHref,
+  readApplicantNavigation,
+  readApplicantSearchParams,
+  type ApplicantNavigationContext,
+  type ApplicantQueue,
+  type ApplicantSort,
+} from '@/lib/applicantReview';
 import type { ApplicationWithAssessment } from '@/types';
 import { APPLICATION_STATUSES, APPLICATION_TRANSITIONS, isApplicationStatus } from '@/lib/applicationStatus';
 
@@ -91,6 +98,10 @@ export default function ApplicantDetailPage() {
   const [cvUrl, setCvUrl] = useState<string | null>(null);
   const [cvError, setCvError] = useState<string | null>(null);
   const [cvDownloading, setCvDownloading] = useState(false);
+  // The CV is the heaviest and most sensitive asset on this page. Load it only
+  // when the reviewer asks for it; the assessment evidence is readable without it.
+  const [cvRequested, setCvRequested] = useState(false);
+  const [cvLoading, setCvLoading] = useState(false);
   const blobUrl = useRef<string | null>(null);
   const requestId = useRef(0);
 
@@ -108,20 +119,10 @@ export default function ApplicantDetailPage() {
           if (currentRequest === requestId.current) { setHistory(events.data || []); setHistoryError(null); }
         }).catch(() => { if (currentRequest === requestId.current) setHistoryError(t("Không thể tải lịch sử trạng thái.")); });
       } else { setHistory([]); setHistoryError(null); }
-      if (res.data.can_view_cv) {
-        try {
-          const file = await applicationsApi.getCvBlob(applicantId);
-          if (currentRequest !== requestId.current) return;
-          if (blobUrl.current) { URL.revokeObjectURL(blobUrl.current); blobUrl.current = null; }
-          setCvError(null);
-          blobUrl.current = URL.createObjectURL(file.data);
-          setCvUrl(blobUrl.current);
-        } catch {
-          if (currentRequest === requestId.current) { setCvUrl(null); setCvError(t("Không thể tải CV gốc. Vui lòng thử lại sau.")); }
-        }
-      } else {
+      if (!res.data.can_view_cv) {
+        // Losing CV permission must drop any copy already held in memory.
         if (blobUrl.current) { URL.revokeObjectURL(blobUrl.current); blobUrl.current = null; }
-        setCvUrl(null); setCvError(null);
+        setCvUrl(null); setCvError(null); setCvRequested(false);
       }
     } catch (err: any) {
       if (currentRequest === requestId.current) {
@@ -136,12 +137,47 @@ export default function ApplicantDetailPage() {
     return () => { requestId.current += 1; if (blobUrl.current) { URL.revokeObjectURL(blobUrl.current); blobUrl.current = null; } };
   }, [loadData]);
 
+  const [urlContext, setUrlContext] = useState<{ queue: string; sort: string; search: string; fromList: boolean }>({ queue: '', sort: '', search: '', fromList: false });
+
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = readApplicantSearchParams(window.location.search);
+    // Links from the ranking page now carry the context, so a profile opened in a
+    // new tab (no sessionStorage) can still rebuild the filtered list.
+    setUrlContext({
+      queue: fromUrl.queue || '',
+      sort: fromUrl.sort || '',
+      search: fromUrl.search,
+      fromList: Boolean(fromUrl.queue || fromUrl.sort || fromUrl.search || params.get('from') === 'list'),
+    });
     setNavigationContext(readApplicantNavigation(positionId));
-    setShareContext(new URLSearchParams(window.location.search).get('share') || '');
+    setShareContext(params.get('share') || '');
     setSelectedEvidenceId(null);
     setSelectedPage(1);
   }, [positionId, applicantId]);
+
+  useEffect(() => {
+    // Moving to another profile must not show the previous candidate's CV.
+    if (blobUrl.current) { URL.revokeObjectURL(blobUrl.current); blobUrl.current = null; }
+    setCvUrl(null); setCvError(null); setCvRequested(false); setCvLoading(false);
+  }, [applicantId]);
+
+  const loadCv = useCallback(async () => {
+    if (cvLoading) return;
+    setCvRequested(true);
+    if (cvUrl) return;
+    setCvLoading(true); setCvError(null);
+    try {
+      const currentRequest = requestId.current;
+      const file = await applicationsApi.getCvBlob(applicantId);
+      if (currentRequest !== requestId.current) return;
+      if (blobUrl.current) URL.revokeObjectURL(blobUrl.current);
+      blobUrl.current = URL.createObjectURL(file.data);
+      setCvUrl(blobUrl.current);
+    } catch {
+      setCvUrl(null); setCvError(t("Không thể tải CV gốc. Vui lòng thử lại sau."));
+    } finally { setCvLoading(false); }
+  }, [applicantId, cvLoading, cvUrl, t]);
 
   const handleDownloadCv = async () => {
     if (cvDownloading) return;
@@ -216,7 +252,12 @@ export default function ApplicantDetailPage() {
     return () => clearInterval(timer);
   }, [reprocessOperationId, loadData, t]);
 
-  const jumpToPage = (page: number) => { if (page >= 1) setSelectedPage(page); };
+  const jumpToPage = (page: number) => {
+    if (page < 1) return;
+    setSelectedPage(page);
+    // A citation page is only meaningful against the file itself.
+    if (application?.can_view_cv && !cvUrl) void loadCv();
+  };
 
   if (loading) {
     return (
@@ -243,15 +284,24 @@ export default function ApplicantDetailPage() {
   const nextApplicantId = navigationContext && navigationIndex >= 0 && navigationIndex < navigationContext.applicationIds.length - 1
     ? navigationContext.applicationIds[navigationIndex + 1]
     : undefined;
+  // URL context wins over stored context: it is what the reviewer actually
+  // browsed, and it survives refresh, new tabs and shared links.
   const backSearch = new URLSearchParams();
-  if (navigationContext) {
-    if (navigationContext.queue !== 'ALL') backSearch.set('queue', navigationContext.queue);
-    backSearch.set('sort', navigationContext.sort);
-    if (navigationContext.search.trim()) backSearch.set('q', navigationContext.search.trim());
-  }
+  const queueForBack = urlContext.fromList ? urlContext.queue : navigationContext?.queue;
+  const sortForBack = urlContext.fromList ? urlContext.sort : navigationContext?.sort;
+  const searchForBack = urlContext.fromList ? urlContext.search : navigationContext?.search || '';
+  if (queueForBack && queueForBack !== 'ALL') backSearch.set('queue', queueForBack);
+  if (sortForBack) backSearch.set('sort', sortForBack);
+  if (searchForBack.trim()) backSearch.set('q', searchForBack.trim());
+  backSearch.set('restore', 'scroll');
   const backHref = shareContext ? `/shortlist/${encodeURIComponent(shareContext)}` : application.can_update_status
-    ? `/positions/${positionId}/applicants${backSearch.toString() ? `?${backSearch.toString()}` : ''}`
+    ? `/positions/${positionId}/applicants?${backSearch.toString()}`
     : '/shortlist';
+  // Keep stepping through the same filtered queue instead of dropping the
+  // filter after one profile. Without context, stay on the plain profile URL.
+  const keepContext = (targetId: string) => (queueForBack || urlContext.fromList
+    ? applicantProfileHref(positionId, targetId, (queueForBack || 'ALL') as ApplicantQueue, (sortForBack || 'RANK') as ApplicantSort, searchForBack)
+    : `/positions/${positionId}/applicants/${targetId}`);
 
   return (
     <Box>
@@ -278,12 +328,12 @@ export default function ApplicantDetailPage() {
             </Typography>
           </Box>
           {previousApplicantId ? (
-            <Button component={Link} href={`/positions/${positionId}/applicants/${previousApplicantId}`} variant="outlined" size="small" startIcon={<NavigateBeforeIcon />}>{t("Hồ sơ trước")}</Button>
+            <Button component={Link} href={keepContext(previousApplicantId)} variant="outlined" size="small" startIcon={<NavigateBeforeIcon />}>{t("Hồ sơ trước")}</Button>
           ) : (
             <Button variant="outlined" size="small" startIcon={<NavigateBeforeIcon />} disabled>{t("Hồ sơ trước")}</Button>
           )}
           {nextApplicantId ? (
-            <Button component={Link} href={`/positions/${positionId}/applicants/${nextApplicantId}`} variant="contained" color="secondary" size="small" endIcon={<NavigateNextIcon />}>{t("Hồ sơ tiếp theo")}</Button>
+            <Button component={Link} href={keepContext(nextApplicantId)} variant="contained" color="secondary" size="small" endIcon={<NavigateNextIcon />}>{t("Hồ sơ tiếp theo")}</Button>
           ) : (
             <Button variant="outlined" size="small" endIcon={<NavigateNextIcon />} disabled>{t("Hồ sơ tiếp theo")}</Button>
           )}
@@ -356,7 +406,7 @@ export default function ApplicantDetailPage() {
             variant="outlined"
             startIcon={<GetAppIcon />}
             onClick={handleDownloadCv}
-            disabled={!cvUrl || cvDownloading}
+            disabled={cvDownloading || !application.can_view_cv}
             sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
           >{t("Tải CV gốc")}</Button>
           {application.can_update_status && nextStatuses.length > 0 && (
@@ -492,6 +542,9 @@ export default function ApplicantDetailPage() {
             canViewCv={Boolean(application.can_view_cv)}
             selectedPage={selectedPage}
             onPageChange={jumpToPage}
+            requested={cvRequested}
+            loading={cvLoading}
+            onRequest={loadCv}
           />
         </Grid>
       </Grid>

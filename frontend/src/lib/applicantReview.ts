@@ -19,6 +19,8 @@ export interface ApplicantNavigationContext {
   search: string;
   applicationIds: string[];
   storedAt: number;
+  /** Where the list was scrolled to, so returning from a profile lands in place. */
+  scrollY?: number;
 }
 
 export const APPLICANT_QUEUES: ApplicantQueue[] = [
@@ -32,6 +34,18 @@ export const APPLICANT_QUEUES: ApplicantQueue[] = [
   'MEETS_MANDATORY',
 ];
 
+/** Vietnamese labels shared by the filter chips and the result summary. */
+export const APPLICANT_QUEUE_LABELS: Record<ApplicantQueue, string> = {
+  ALL: 'Tất cả',
+  SHORTLIST: 'Đã shortlist',
+  FILE_REVIEW: 'Cần kiểm tra file',
+  NEEDS_VERIFICATION: 'Cần xác minh',
+  DUPLICATE: 'Cảnh báo trùng',
+  POSSIBLE_MISMATCH: 'Có dấu hiệu chưa đáp ứng',
+  NOT_ASSESSED: 'Chưa matching',
+  MEETS_MANDATORY: 'Đáp ứng bắt buộc',
+};
+
 export const APPLICANT_SORTS: ApplicantSort[] = [
   'REVIEW_PRIORITY',
   'RANK',
@@ -40,8 +54,19 @@ export const APPLICANT_SORTS: ApplicantSort[] = [
   'NEWEST',
 ];
 
+/**
+ * Queue codes in URLs are UPPER_SNAKE (`?queue=FILE_REVIEW`). Work-queue deep
+ * links used to be emitted lower-case, and older links may still be in
+ * bookmarks, so accept both rather than dropping the filter on the floor.
+ */
+export function normalizeApplicantQueue(value: string | null | undefined): ApplicantQueue | null {
+  if (!value) return null;
+  const candidate = value.trim().toUpperCase();
+  return (APPLICANT_QUEUES as string[]).includes(candidate) ? (candidate as ApplicantQueue) : null;
+}
+
 export function isApplicantQueue(value: string | null | undefined): value is ApplicantQueue {
-  return !!value && APPLICANT_QUEUES.includes(value as ApplicantQueue);
+  return normalizeApplicantQueue(value) !== null;
 }
 
 export function isApplicantSort(value: string | null | undefined): value is ApplicantSort {
@@ -150,6 +175,37 @@ export function filterAndSortApplicantItems(items: RankingItem[], queue: Applica
   return sortApplicantItems(filtered, sort);
 }
 
+/** Query string for a ranking URL, omitting defaults so links stay readable. */
+export function applicantSearchParams(queue: ApplicantQueue, sort: ApplicantSort, search: string) {
+  const params = new URLSearchParams();
+  if (queue !== 'ALL') params.set('queue', queue);
+  if (sort !== 'RANK' || (queue !== 'ALL' && queue !== 'SHORTLIST')) params.set('sort', sort);
+  if (search.trim()) params.set('q', search.trim());
+  return params;
+}
+
+/** Ranking URL that carries the browse context, used by every link into a profile. */
+export function applicantListHref(positionId: string, queue: ApplicantQueue, sort: ApplicantSort, search: string) {
+  const query = applicantSearchParams(queue, sort, search).toString();
+  return `/positions/${positionId}/applicants${query ? `?${query}` : ''}`;
+}
+
+/** Profile URL that keeps the queue/sort/search context in the URL itself. */
+export function applicantProfileHref(positionId: string, applicationId: string, queue: ApplicantQueue, sort: ApplicantSort, search: string) {
+  const query = applicantSearchParams(queue, sort, search).toString();
+  return `/positions/${positionId}/applicants/${applicationId}${query ? `?${query}` : ''}`;
+}
+
+/** Read queue/sort/search from a profile URL so a deep link keeps its filter. */
+export function readApplicantSearchParams(search: string) {
+  const params = new URLSearchParams(search);
+  return {
+    queue: normalizeApplicantQueue(params.get('queue')),
+    sort: isApplicantSort(params.get('sort')) ? (params.get('sort') as ApplicantSort) : null,
+    search: params.get('q') || '',
+  };
+}
+
 export function applicantNavigationKey(positionId: string) {
   return `hra-applicant-navigation:${positionId}`;
 }
@@ -170,9 +226,10 @@ export function readApplicantNavigation(positionId: string): ApplicantNavigation
     if (parsed.positionId !== positionId || !Array.isArray(parsed.applicationIds)) return null;
     return {
       ...parsed,
-      queue: isApplicantQueue(parsed.queue) ? parsed.queue : 'ALL',
+      queue: normalizeApplicantQueue(parsed.queue) || 'ALL',
       sort: isApplicantSort(parsed.sort) ? parsed.sort : 'RANK',
       search: parsed.search || '',
+      scrollY: typeof parsed.scrollY === 'number' && parsed.scrollY > 0 ? parsed.scrollY : 0,
     };
   } catch {
     return null;

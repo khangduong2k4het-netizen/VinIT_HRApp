@@ -36,7 +36,11 @@ const json = (r,b,s=200) => r.fulfill({status:s,contentType:'application/json',b
  assert.equal(await page.getByRole('dialog').count(),0);
  const create=page.getByRole('button',{name:'Tạo vị trí và tiếp tục'});
  assert.equal(await create.isDisabled(),true);
+ // Missing fields are named up front instead of leaving a silently disabled button.
+ await page.getByText('Còn thiếu: Tên vị trí, Đơn vị / Phòng ban, Hiring Manager, Nội dung JD.').waitFor();
  await page.getByRole('textbox',{name:/Tên vị trí/}).fill('Backend giả');
+ await page.getByRole('textbox',{name:/Tên vị trí/}).blur();
+ await page.getByText('Còn thiếu: Đơn vị / Phòng ban, Hiring Manager, Nội dung JD.').waitFor();
  await page.getByLabel('Đơn vị / Phòng ban').click(); await page.getByRole('option',{name:'IT test'}).click();
  await page.getByLabel('Hiring Manager').fill('HM'); await page.getByRole('option',{name:'HM giả'}).click();
  assert.equal(await create.isDisabled(),true,'JD required');

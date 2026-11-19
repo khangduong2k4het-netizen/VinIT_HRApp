@@ -125,3 +125,73 @@ test('shortlist filter contains only currently shortlisted applications', () => 
   assert.equal(review.applicantQueueCounts(shortlist).SHORTLIST, 1);
   assert.deepEqual(review.filterAndSortApplicantItems(shortlist, 'SHORTLIST', '', 'RANK').map(item => item.application_id), ['a']);
 });
+
+
+test('queue codes from work-queue deep links are accepted in either casing', () => {
+  // The backend used to emit ?queue=file_review; the ranking page only knew
+  // FILE_REVIEW, so every "review the files" link opened an unfiltered list.
+  assert.equal(review.normalizeApplicantQueue('file_review'), 'FILE_REVIEW');
+  assert.equal(review.normalizeApplicantQueue('FILE_REVIEW'), 'FILE_REVIEW');
+  assert.equal(review.normalizeApplicantQueue('needs_verification'), 'NEEDS_VERIFICATION');
+  assert.equal(review.normalizeApplicantQueue('duplicate'), 'DUPLICATE');
+  assert.equal(review.normalizeApplicantQueue('possible_mismatch'), 'POSSIBLE_MISMATCH');
+  assert.equal(review.normalizeApplicantQueue('not_assessed'), 'NOT_ASSESSED');
+  assert.equal(review.normalizeApplicantQueue('meets_mandatory'), 'MEETS_MANDATORY');
+  assert.equal(review.normalizeApplicantQueue('shortlist'), 'SHORTLIST');
+  assert.equal(review.isApplicantQueue('file_review'), true);
+  // Unknown or empty values must not silently become "ALL" behind the reviewer's back.
+  assert.equal(review.normalizeApplicantQueue('nonsense'), null);
+  assert.equal(review.normalizeApplicantQueue(''), null);
+  assert.equal(review.normalizeApplicantQueue(null), null);
+  assert.equal(review.isApplicantQueue('nonsense'), false);
+});
+
+test('profile links carry the browse context and the list link can restore scroll', () => {
+  const profile = review.applicantProfileHref('p1', 'a1', 'NEEDS_VERIFICATION', 'REVIEW_PRIORITY', 'nguyen');
+  assert.equal(profile, '/positions/p1/applicants/a1?queue=NEEDS_VERIFICATION&sort=REVIEW_PRIORITY&q=nguyen');
+  // Defaults are omitted so links stay readable and comparable.
+  assert.equal(review.applicantProfileHref('p1', 'a1', 'ALL', 'RANK', ''), '/positions/p1/applicants/a1');
+  assert.equal(review.applicantListHref('p1', 'ALL', 'RANK', ''), '/positions/p1/applicants');
+  const list = review.applicantListHref('p1', 'FILE_REVIEW', 'RANK', '');
+  assert.equal(list, '/positions/p1/applicants?queue=FILE_REVIEW&sort=RANK');
+  // A profile link must be able to rebuild the same list URL it came from.
+  const back = new URLSearchParams(profile.split('?')[1]);
+  assert.equal(review.readApplicantSearchParams(back.toString()).queue, 'NEEDS_VERIFICATION');
+  assert.equal(review.readApplicantSearchParams(back.toString()).search, 'nguyen');
+});
+
+test('stored navigation context keeps the scroll offset and normalises old queue codes', () => {
+  const store = new Map();
+  const original = global.window;
+  global.window = {
+    sessionStorage: {
+      getItem: key => (store.has(key) ? store.get(key) : null),
+      setItem: (key, value) => store.set(key, value),
+    },
+  };
+  try {
+    review.storeApplicantNavigation({
+      positionId: 'p1', queue: 'FILE_REVIEW', sort: 'REVIEW_PRIORITY', search: 'an',
+      applicationIds: ['a1'], storedAt: 1, scrollY: 640,
+    });
+    const stored = review.readApplicantNavigation('p1');
+    assert.equal(stored.scrollY, 640);
+    assert.equal(stored.queue, 'FILE_REVIEW');
+
+    // A context written before the casing fix still filters correctly.
+    store.set('hra-applicant-navigation:p1', JSON.stringify({
+      positionId: 'p1', queue: 'needs_verification', sort: 'RANK', search: '',
+      applicationIds: [], storedAt: 1,
+    }));
+    assert.equal(review.readApplicantNavigation('p1').queue, 'NEEDS_VERIFICATION');
+  } finally {
+    global.window = original;
+  }
+});
+
+test('applicant queue labels stay in one place for chips and summaries', () => {
+  // The chips and the "Queue: ..." summary must never drift apart.
+  assert.equal(review.APPLICANT_QUEUE_LABELS.FILE_REVIEW, 'Cần kiểm tra file');
+  assert.equal(review.APPLICANT_QUEUE_LABELS.NEEDS_VERIFICATION, 'Cần xác minh');
+  assert.equal(Object.keys(review.APPLICANT_QUEUE_LABELS).length, review.APPLICANT_QUEUES.length);
+});

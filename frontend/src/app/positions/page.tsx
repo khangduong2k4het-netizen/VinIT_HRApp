@@ -22,9 +22,12 @@ import {
   Chip,
   CircularProgress,
   Alert,
+  TextField,
+  InputAdornment,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import SearchIcon from '@mui/icons-material/Search';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { positionsApi, dashboardApi, authApi } from '@/lib/api';
@@ -40,6 +43,7 @@ export default function PositionsPage() {
   const [error, setError] = useState<string | null>(null);
   const [applicationTotal, setApplicationTotal] = useState<number | null>(null);
   const [canCreate, setCanCreate] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const loadPositions = useCallback(async () => {
     try {
@@ -59,9 +63,35 @@ export default function PositionsPage() {
     }
   }, [t]);
   useEffect(() => { loadPositions(); }, [loadPositions]);
-  useEffect(() => { const status = new URLSearchParams(window.location.search).get('status'); if (status && ['OPEN','PAUSED','CLOSED'].includes(status)) setStatusFilter(status); }, []);
-  const visiblePositions = statusFilter === 'ALL' ? positions : positions.filter(p => p.status === statusFilter);
-  const selectStatus = (status: string) => { setStatusFilter(status); window.history.replaceState(null, '', status === 'ALL' ? '/positions' : `/positions?status=${status}`); };
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('status');
+    if (status && ['OPEN', 'PAUSED', 'CLOSED'].includes(status)) setStatusFilter(status);
+    setSearchQuery(params.get('q') || '');
+  }, []);
+
+  // Search covers title and code: HR knows "REQ-014" as often as the job title.
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const matchesSearch = (position: Position) => !normalizedQuery
+    || String(position.title || '').toLowerCase().includes(normalizedQuery)
+    || String(position.position_code || '').toLowerCase().includes(normalizedQuery);
+  const statusCounts = {
+    ALL: positions.length,
+    OPEN: positions.filter(p => p.status === 'OPEN').length,
+    PAUSED: positions.filter(p => p.status === 'PAUSED').length,
+    CLOSED: positions.filter(p => p.status === 'CLOSED').length,
+  };
+  const visiblePositions = positions.filter(p => (statusFilter === 'ALL' || p.status === statusFilter) && matchesSearch(p));
+  const syncUrl = (status: string, search: string) => {
+    const params = new URLSearchParams();
+    if (status !== 'ALL') params.set('status', status);
+    if (search.trim()) params.set('q', search.trim());
+    const query = params.toString();
+    window.history.replaceState(null, '', `/positions${query ? `?${query}` : ''}`);
+  };
+  const selectStatus = (status: string) => { setStatusFilter(status); syncUrl(status, searchQuery); };
+  const changeSearch = (value: string) => { setSearchQuery(value); syncUrl(statusFilter, value); };
+  const clearPositionFilters = () => { setStatusFilter('ALL'); setSearchQuery(''); syncUrl('ALL', ''); };
 
 
   const getPositionStatusBadge = (status: string) => {
@@ -169,13 +199,37 @@ export default function PositionsPage() {
         </Grid>
       </Grid>
 
-      <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }} role="group" aria-label={t("Lọc vị trí")}>
-        {([['ALL','Tất cả'],['OPEN','Đang mở'],['PAUSED','Tạm dừng'],['CLOSED','Đã đóng']] as const).map(([value,label]) => <Chip key={value} label={t(label)} onClick={() => selectStatus(value)} aria-pressed={statusFilter === value} color={statusFilter === value ? 'primary' : 'default'} />)}
+      <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', alignItems: 'center' }} role="group" aria-label={t("Lọc vị trí")}>
+        {([['ALL','Tất cả'],['OPEN','Đang mở'],['PAUSED','Tạm dừng'],['CLOSED','Đã đóng']] as const).map(([value,label]) => (
+          <Chip
+            key={value}
+            label={`${t(label)} (${statusCounts[value]})`}
+            onClick={() => selectStatus(value)}
+            aria-pressed={statusFilter === value}
+            color={statusFilter === value ? 'primary' : 'default'}
+          />
+        ))}
+        <TextField
+          size="small"
+          value={searchQuery}
+          onChange={e => changeSearch(e.target.value)}
+          placeholder={t("Tìm theo tên hoặc mã vị trí")}
+          inputProps={{ 'aria-label': t("Tìm theo tên hoặc mã vị trí") }}
+          InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" sx={{ color: '#A09F9C' }} /></InputAdornment> }}
+          sx={{ minWidth: 260, ml: { xs: 0, sm: 'auto' } }}
+        />
+        {(normalizedQuery || statusFilter !== 'ALL') && (
+          <Button size="small" onClick={clearPositionFilters}>{t("Xoá bộ lọc và tìm kiếm")}</Button>
+        )}
       </Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }} data-testid="position-count">
+        {t("Hiển thị {0}/{1} vị trí.", visiblePositions.length, positions.length)}
+        {normalizedQuery ? ` · ${t("Đang lọc theo: “{0}”.", searchQuery.trim())}` : ''}
+      </Typography>
       {/* On small screens cards keep the actions and status visible without horizontal scrolling. */}
       <Box sx={{ display: { xs: 'grid', md: 'none' }, gap: 2 }}>
         {visiblePositions.length === 0 ? (
-          <Paper sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>{t("Chưa có vị trí trong phạm vi của bạn")}</Paper>
+          <Paper sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>{positions.length ? t("Không có vị trí nào khớp bộ lọc hoặc tìm kiếm.") : t("Chưa có vị trí trong phạm vi của bạn")}</Paper>
         ) : visiblePositions.map(pos => (
           <Card key={pos.position_id} sx={{ border: '1px solid #E9EEF4' }}>
             <CardContent>
@@ -211,7 +265,7 @@ export default function PositionsPage() {
           <TableBody>
             {visiblePositions.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 8, color: 'text.secondary' }}>{t("Chưa có vị trí nào được tạo")}</TableCell>
+                <TableCell colSpan={6} align="center" sx={{ py: 8, color: 'text.secondary' }}>{positions.length ? t("Không có vị trí nào khớp bộ lọc hoặc tìm kiếm.") : t("Chưa có vị trí nào được tạo")}</TableCell>
               </TableRow>
             ) : (
               visiblePositions.map((pos) => (

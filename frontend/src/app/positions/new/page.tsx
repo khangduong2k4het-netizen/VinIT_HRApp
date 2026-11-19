@@ -34,11 +34,24 @@ export default function CreatePositionPage() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [created, setCreated] = useState(false);
   const [uncertain, setUncertain] = useState(false);
+  // Validation appears once a field was visited, not on a pristine form.
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const touch = (field: string) => setTouched(current => current[field] ? current : { ...current, [field]: true });
   const pendingRequest = useRef<Record<string, unknown> | null>(null);
   const submitting = useRef(false);
   const selectedDepartment = departments.find(d => d.department_id === department);
   const preview = selectedDepartment?.code_format.replace(/\{SEQ(?::(0+))?\}/, (_match, zeros: string | undefined) => String(selectedDepartment.next_sequence).padStart((zeros || '').length || 1, '0')) || '';
   const dirty = !!(title || department || manager || content || url || file || family || deadline || language !== 'vi');
+  const missing = [
+    !title.trim() ? t('Tên vị trí') : '',
+    !department ? t('Đơn vị / Phòng ban') : '',
+    !manager ? 'Hiring Manager' : '',
+    !content.trim() ? t('Nội dung JD') : '',
+  ].filter(Boolean);
+  const titleError = touched.title && !title.trim() ? t('Nhập tên vị trí trước khi tạo.') : '';
+  const departmentError = touched.department && !department ? t('Chọn đơn vị cho vị trí.') : '';
+  const managerError = touched.manager && !manager ? t('Chọn Hiring Manager đang hoạt động.') : '';
+  const contentError = touched.content && !content.trim() ? t('Dán, tải lên hoặc nhập JD trước khi tạo.') : '';
   // Server-side idempotency needs a UUID; fall back to the server's duplicate check.
   const idempotencySupported = typeof globalThis.crypto?.randomUUID === 'function';
 
@@ -98,9 +111,9 @@ export default function CreatePositionPage() {
     {loading ? <CircularProgress /> : <Box component="form" onSubmit={submit}>
       <Box component="fieldset" disabled={uncertain || busy} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}><Card variant="outlined" sx={{ mb: 2 }}><CardContent><Typography variant="h2" sx={{ fontSize: 20, mb: 2 }}>{t('1. Thông tin vị trí')}</Typography>
         <Grid container spacing={2}>
-          <Grid item xs={12} md={6}><TextField required fullWidth label={t('Tên vị trí')} value={title} onChange={e => setTitle(e.target.value)} inputProps={{ maxLength: 200 }} /></Grid>
-          <Grid item xs={12} md={6}><TextField required select fullWidth label={t('Đơn vị / Phòng ban')} value={department} onChange={e => setDepartment(e.target.value)}>{departments.map(d => <MenuItem key={d.department_id} value={d.department_id}>{d.name}</MenuItem>)}</TextField></Grid>
-          <Grid item xs={12} md={6}><Autocomplete options={managers} value={manager} onChange={(_, v) => setManager(v)} getOptionLabel={o => o.display_name || ''} isOptionEqualToValue={(a,b) => a.user_id === b.user_id} renderInput={params => <TextField {...params} required label="Hiring Manager" helperText={t('Chọn HM đang hoạt động, khác tài khoản HR.')} />} /></Grid>
+          <Grid item xs={12} md={6}><TextField required fullWidth label={t('Tên vị trí')} value={title} onChange={e => setTitle(e.target.value)} onBlur={() => touch('title')} inputProps={{ maxLength: 200 }} error={!!titleError} helperText={titleError || undefined} /></Grid>
+          <Grid item xs={12} md={6}><TextField required select fullWidth label={t('Đơn vị / Phòng ban')} value={department} onChange={e => setDepartment(e.target.value)} onBlur={() => touch('department')} error={!!departmentError} helperText={departmentError || undefined}>{departments.map(d => <MenuItem key={d.department_id} value={d.department_id}>{d.name}</MenuItem>)}</TextField></Grid>
+          <Grid item xs={12} md={6}><Autocomplete options={managers} value={manager} onChange={(_, v) => setManager(v)} getOptionLabel={o => o.display_name || ''} isOptionEqualToValue={(a,b) => a.user_id === b.user_id} renderInput={params => <TextField {...params} required label="Hiring Manager" onBlur={() => touch('manager')} error={!!managerError} helperText={managerError || t('Chọn HM đang hoạt động, khác tài khoản HR.')} />} /></Grid>
           <Grid item xs={12} md={6}><TextField select fullWidth label={t('Nhóm vị trí (tùy chọn)')} value={family} onChange={e => setFamily(e.target.value)}><MenuItem value="">{t('Chưa chọn')}</MenuItem>{families.map(f => <MenuItem key={f.job_family_id} value={f.job_family_id}>{f.name}</MenuItem>)}</TextField></Grid>
           <Grid item xs={12} md={6}><TextField fullWidth label={t('Mã vị trí dự kiến (tự sinh)')} value={preview} InputProps={{ readOnly: true }} helperText={t('Mã chính thức do hệ thống cấp khi tạo.')} /></Grid>
           <Grid item xs={12} md={6}><TextField fullWidth type="datetime-local" label={t('Hạn ứng tuyển (giờ trình duyệt)')} value={deadline} onChange={e => setDeadline(e.target.value)} InputLabelProps={{ shrink: true }} /></Grid>
@@ -116,9 +129,13 @@ export default function CreatePositionPage() {
         {source === 'url' && <Stack spacing={1} sx={{ mb: 2 }}><TextField fullWidth label={t('Link JD')} value={url} onChange={e => setUrl(e.target.value)} helperText={t('Hỗ trợ link việc làm careerportalvinuni.talent.vn.')} /><Button type="button" variant="outlined" disabled={importing || !url.trim()} onClick={importJd}>{importing ? t('Đang đọc...') : t('Lấy nội dung JD')}</Button></Stack>}
         {warning && <Alert severity="info" sx={{ mb: 2 }}>{t(warning)}</Alert>}
         <TextField select label={t('Ngôn ngữ JD')} value={language} onChange={e => setLanguage(e.target.value)} sx={{ mb: 2, minWidth: 160 }}><MenuItem value="vi">Tiếng Việt</MenuItem><MenuItem value="en">English</MenuItem></TextField>
-        <TextField required fullWidth multiline minRows={12} label={t('Nội dung JD')} value={content} onChange={e => setContent(e.target.value)} inputProps={{ maxLength: 100000 }} helperText={t('Bắt buộc: kiểm tra nội dung và yêu cầu công việc trước khi tạo.')} />
+        <TextField required fullWidth multiline minRows={12} label={t('Nội dung JD')} value={content} onChange={e => setContent(e.target.value)} onBlur={() => touch('content')} inputProps={{ maxLength: 100000 }} error={!!contentError} helperText={contentError || t('Bắt buộc: kiểm tra nội dung và yêu cầu công việc trước khi tạo.')} />
       </CardContent></Card>
-      </Box><Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mb: 4 }}><Button type="button" onClick={leave} disabled={busy}>{t('Hủy')}</Button><Button type="submit" variant="contained" color="secondary" disabled={busy || importing || uncertain || loadFailed || !department || !manager || !title.trim() || !content.trim()}>{busy ? t('Đang tạo...') : t('Tạo vị trí và tiếp tục')}</Button></Stack>
+      </Box>
+      {missing.length > 0 && <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'right', mb: 1 }} data-testid="missing-fields">
+        {t('Còn thiếu: {0}.', missing.join(', '))}
+      </Typography>}
+      <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mb: 4 }}><Button type="button" onClick={leave} disabled={busy}>{t('Hủy')}</Button><Button type="submit" variant="contained" color="secondary" disabled={busy || importing || uncertain || loadFailed || !department || !manager || !title.trim() || !content.trim()}>{busy ? t('Đang tạo...') : t('Tạo vị trí và tiếp tục')}</Button></Stack>
     </Box>}
   </Box>;
 }

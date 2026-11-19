@@ -62,10 +62,13 @@ import StatusBadge from '@/components/common/StatusBadge';
 import QueueFilterChips from '@/components/applicants/QueueFilterChips';
 import OperationProgressPanel from '@/components/workflow/OperationProgressPanel';
 import {
+  APPLICANT_QUEUE_LABELS,
+  applicantProfileHref,
   applicantQueueCounts,
+  applicantSearchParams,
   filterAndSortApplicantItems,
-  isApplicantQueue,
-  isApplicantSort,
+  normalizeApplicantQueue,
+  readApplicantNavigation,
   storeApplicantNavigation,
   windowApplicantItems,
   type ApplicantQueue,
@@ -282,25 +285,40 @@ export default function ApplicantsRankingPage() {
   }, [loadRanking, stopPolling, pollOperation, positionId, t]);
 
   useEffect(() => {
+    // The URL wins: it survives a refresh, a new tab and a shared link. Fall back
+    // to the stored context only when the URL was opened bare.
     const params = new URLSearchParams(window.location.search);
-    const queueParam = params.get('queue');
+    const fromUrl = normalizeApplicantQueue(params.get('queue'));
     const sortParam = params.get('sort');
-    if (isApplicantQueue(queueParam)) setQueue(queueParam);
-    if (isApplicantSort(sortParam)) setSort(sortParam);
-    else if (queueParam && queueParam !== 'ALL' && queueParam !== 'SHORTLIST') setSort('REVIEW_PRIORITY');
-    if (params.get('q')) setSearchQuery(params.get('q') || '');
+    const stored = fromUrl ? null : readApplicantNavigation(positionId);
+    const initialQueue = fromUrl || stored?.queue || 'ALL';
+    setQueue(initialQueue);
+    if (sortParam === 'REVIEW_PRIORITY' || sortParam === 'RANK' || sortParam === 'SCORE_DESC' || sortParam === 'COVERAGE_ASC' || sortParam === 'NEWEST') setSort(sortParam);
+    else if (stored && !fromUrl) setSort(stored.sort);
+    else if (params.get('queue') && initialQueue !== 'ALL' && initialQueue !== 'SHORTLIST') setSort('REVIEW_PRIORITY');
+    setSearchQuery(params.get('q') || (stored && !fromUrl ? stored.search : '') || '');
     setUrlInitialized(true);
-  }, []);
+  }, [positionId]);
 
   useEffect(() => {
     if (!urlInitialized) return;
-    const params = new URLSearchParams();
-    if (queue !== 'ALL') params.set('queue', queue);
-    if (sort !== 'RANK' || (queue !== 'ALL' && queue !== 'SHORTLIST')) params.set('sort', sort);
-    if (searchQuery.trim()) params.set('q', searchQuery.trim());
-    const query = params.toString();
+    const query = applicantSearchParams(queue, sort, searchQuery).toString();
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
   }, [queue, sort, searchQuery, urlInitialized]);
+
+  // Coming back from a profile should land where the reviewer left off, not at
+  // the top of a list that may have 50+ mounted rows.
+  const restoredScroll = useRef(false);
+  useEffect(() => {
+    if (restoredScroll.current || !urlInitialized || loading || !rankingItems.length) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('restore') !== 'scroll') return;
+    const target = readApplicantNavigation(positionId)?.scrollY || 0;
+    restoredScroll.current = true;
+    if (!target) return;
+    const timer = window.setTimeout(() => window.scrollTo({ top: target, behavior: 'auto' }), 60);
+    return () => window.clearTimeout(timer);
+  }, [urlInitialized, loading, rankingItems.length, positionId]);
 
   const handleRunAssessment = async () => {
     try {
@@ -394,6 +412,11 @@ export default function ApplicantsRankingPage() {
     }
   };
 
+  // "Clear filters" only appears when something is actually narrowed, and it
+  // resets the sort too so the reviewer is never left in a filtered-looking view.
+  const clearFilters = () => { setQueue('ALL'); setSort('RANK'); setSearchQuery(''); };
+  const filtersActive = queue !== 'ALL' || searchQuery.trim() !== '' || sort !== 'RANK';
+
   const queueCounts = applicantQueueCounts(rankingItems);
   const filteredItems = filterAndSortApplicantItems(rankingItems, queue, searchQuery, sort);
   const { visible: visibleItems, hasMore, nextLimit } = windowApplicantItems(filteredItems, visibleLimit);
@@ -407,8 +430,14 @@ export default function ApplicantsRankingPage() {
       search: searchQuery,
       applicationIds: filteredItems.map(item => item.application_id),
       storedAt: Date.now(),
+      scrollY: typeof window !== 'undefined' ? window.scrollY : 0,
     });
   };
+
+  // Every link into a profile carries the browse context, so the profile can
+  // rebuild the exact list URL when the reviewer comes back — even in a new tab
+  // where sessionStorage is empty.
+  const profileHref = (applicationId: string) => applicantProfileHref(positionId, applicationId, queue, sort, searchQuery);
 
   const getMatchingStatusBadge = (item: RankingItem) => {
     if (!inScreening(item.application_status)) return <StatusBadge type="app-new" label={t("Ngoài sàng lọc")} />;
@@ -567,7 +596,16 @@ export default function ApplicantsRankingPage() {
             <MenuItem value="NEWEST">{t("Mới nhất")}</MenuItem>
           </Select>
         </FormControl>
-        <Typography variant="caption" color="text.secondary">{t("Đang hiển thị {0} hồ sơ trong hàng đợi.", filteredItems.length)}</Typography>
+      </Box>
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 2, mt: -1.5 }}>
+        <Typography variant="caption" color="text.secondary" data-testid="applicant-count">
+          {t("Hiển thị {0}/{1} hồ sơ của vị trí.", filteredItems.length, rankingItems.length)}
+          {searchQuery.trim() ? ` · ${t("Đang lọc theo tên: “{0}”.", searchQuery.trim())}` : ` · ${t("Không lọc theo tên.")}`}
+          {queue !== 'ALL' ? ` · ${t("Hàng đợi: {0}.", t(APPLICANT_QUEUE_LABELS[queue]))}` : ''}
+        </Typography>
+        {filtersActive && (
+          <Button size="small" onClick={clearFilters} data-testid="clear-applicant-filters">{t("Xoá bộ lọc và tìm kiếm")}</Button>
+        )}
       </Box>
 
       {hasMore && (
@@ -614,7 +652,7 @@ export default function ApplicantsRankingPage() {
               {item.is_shortlisted && <FormControlLabel sx={{ display: 'flex', mt: 0.5 }} control={<Checkbox checked={selectedIds.has(item.application_id)} onChange={() => handleToggleSelect(item.application_id)} />} label={t("Chọn để chia sẻ")} />}
               {!item.is_shortlisted && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>{t("Chuyển hồ sơ sang Shortlist để chọn chia sẻ cho Hiring Manager.")}</Typography>}
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 1.5 }}>
-                <Button component={Link} href={`/positions/${positionId}/applicants/${item.application_id}`} onClick={storeNavigationContext} variant="outlined" size="small">{t("Xem chi tiết")}</Button>
+                <Button component={Link} href={profileHref(item.application_id)} onClick={storeNavigationContext} variant="outlined" size="small">{t("Xem chi tiết")}</Button>
                 {(item.is_shortlisted || item.application_status === 'IN_REVIEW') && <Button size="small" onClick={() => handleToggleShortlist(item.application_id, !!item.is_shortlisted)}>{item.is_shortlisted ? t("Bỏ shortlist") : t("Thêm vào shortlist")}</Button>}
               </Box>
             </CardContent>
@@ -804,7 +842,7 @@ export default function ApplicantsRankingPage() {
                     <Tooltip title={t("Xem chi tiết & đối chiếu bằng chứng")}>
                       <IconButton
                         component={Link}
-                        href={`/positions/${positionId}/applicants/${item.application_id}`}
+                        href={profileHref(item.application_id)}
                         onClick={storeNavigationContext}
                         aria-label={t("Xem chi tiết hồ sơ {0}", item.candidate_name || t("ứng viên"))}
                         sx={{ color: '#0A2B57' }}
@@ -820,7 +858,7 @@ export default function ApplicantsRankingPage() {
                       {renderCriterionBreakdown(item)}
                       <Button
                         component={Link}
-                        href={`/positions/${positionId}/applicants/${item.application_id}`}
+                        href={profileHref(item.application_id)}
                         onClick={storeNavigationContext}
                         size="small"
                         sx={{ mt: 1.5 }}
@@ -854,11 +892,11 @@ export default function ApplicantsRankingPage() {
           {duplicateSignals?.map(signal => (
             <Box key={signal.signal_id} sx={{ borderTop: '1px solid #eee', py: 1.5 }}>
               <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
-                <MuiLink component={Link} href={`/positions/${positionId}/applicants/${signal.application_id_1}`}>
+                <MuiLink component={Link} href={profileHref(signal.application_id_1)} onClick={storeNavigationContext}>
                   {signal.candidate_name_1 || signal.application_id_1}
                 </MuiLink>
                 <Typography>↔</Typography>
-                <MuiLink component={Link} href={`/positions/${positionId}/applicants/${signal.application_id_2}`}>
+                <MuiLink component={Link} href={profileHref(signal.application_id_2)} onClick={storeNavigationContext}>
                   {signal.candidate_name_2 || signal.application_id_2}
                 </MuiLink>
               </Stack>
