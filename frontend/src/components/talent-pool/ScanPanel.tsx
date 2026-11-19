@@ -4,7 +4,7 @@
 // Rules-only scoring: no CV text is sent to an AI provider. Contact data is revealed only after HR marks CONTACT (audited).
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Box, Button, ButtonGroup, Chip, CircularProgress, Collapse, Dialog, DialogActions, DialogContent,
-  DialogTitle, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
+  DialogTitle, LinearProgress, MenuItem, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import Link from 'next/link';
 import { talentPoolApi } from '@/lib/api';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -55,8 +55,28 @@ function ResultRow({
           {t('Từ vị trí')}: {result.source_position_title} · {result.source_position_code}
         </Typography>
       </TableCell>
-      <TableCell>{scoreText(result.matching_score)}</TableCell>
-      <TableCell>{Math.round(result.evidence_coverage * 100)}%</TableCell>
+      <TableCell className="tabular-nums">
+        <Typography variant="body2" className="mono-code" sx={{ fontWeight: 700, color: '#0A2B57' }}>
+          {scoreText(result.matching_score)}
+        </Typography>
+        {result.matching_score != null && (
+          <LinearProgress
+            variant="determinate"
+            value={Math.max(0, Math.min(100, result.matching_score))}
+            sx={{ height: 5, mt: 0.5, width: 72, '& .MuiLinearProgress-bar': { bgcolor: result.matching_score >= 75 ? '#067647' : '#0A2B57' } }}
+          />
+        )}
+      </TableCell>
+      <TableCell className="tabular-nums">
+        <Typography variant="body2" className="mono-code" sx={{ fontWeight: 600, color: result.evidence_coverage < 0.7 ? '#B54708' : '#0F172A' }}>
+          {Math.round(result.evidence_coverage * 100)}%
+        </Typography>
+        <LinearProgress
+          variant="determinate"
+          value={Math.max(0, Math.min(100, Math.round(result.evidence_coverage * 100)))}
+          sx={{ height: 5, mt: 0.5, width: 72, '& .MuiLinearProgress-bar': { bgcolor: result.evidence_coverage < 0.7 ? '#D97706' : '#134D8B' } }}
+        />
+      </TableCell>
       <TableCell>{result.unresolved_count}</TableCell>
       <TableCell>{result.pool_expires_on}</TableCell>
       <TableCell>

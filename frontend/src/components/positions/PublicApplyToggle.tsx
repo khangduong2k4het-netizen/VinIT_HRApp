@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Alert, Box, Button, Card, CardContent, FormControlLabel, Link as MuiLink, Stack, Switch, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Chip, FormControlLabel, Link as MuiLink, Stack, Switch, Typography } from '@mui/material';
 import { useI18n } from '@/i18n/I18nProvider';
 import { positionsApi } from '@/lib/api';
 
@@ -31,6 +31,7 @@ export default function PublicApplyToggle({
   const [copied, setCopied] = React.useState(false);
 
   const applyHref = positionCode ? `/apply?code=${encodeURIComponent(positionCode)}` : '/apply';
+  const isLive = enabled && portalEnabled && positionOpen && hasApprovedCriteria;
 
   const copyLink = async () => {
     try {
@@ -59,18 +60,36 @@ export default function PublicApplyToggle({
   };
 
   return (
-    <Card variant="outlined" sx={{ mb: 3 }}>
-      <CardContent>
-        <FormControlLabel
-          control={<Switch checked={enabled} onChange={(_, next) => toggle(next)} disabled={saving} />}
-          label={<Typography sx={{ fontWeight: 600 }}>{t('Nhận hồ sơ công khai qua trang /apply')}</Typography>}
-        />
-        <Box sx={{ mt: 1 }}>
-          {enabled && portalEnabled && positionOpen && hasApprovedCriteria && (
-            <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+    <Card sx={{ mb: 2.5 }}>
+      <CardContent sx={{ py: 2 }}>
+        <Stack direction="row" spacing={1.5} alignItems="center" justifyContent="space-between" flexWrap="wrap" useFlexGap>
+          <FormControlLabel
+            sx={{ m: 0 }}
+            control={<Switch checked={enabled} onChange={(_, next) => toggle(next)} disabled={saving} />}
+            label={<Typography sx={{ fontWeight: 600, fontSize: 14, color: '#0F172A' }}>{t('Nhận hồ sơ công khai qua trang /apply')}</Typography>}
+          />
+          <Chip
+            size="small"
+            label={
+              <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.7 }}>
+                <Box component="span" aria-hidden sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: isLive ? '#12B76A' : '#94A3B8' }} />
+                {isLive ? t('Đang công khai') : t('Chưa công khai')}
+              </Box>
+            }
+            sx={{
+              bgcolor: isLive ? '#ECFDF3' : '#F1F5F9',
+              color: isLive ? '#067647' : '#475569',
+              border: `1px solid ${isLive ? '#ABEFC6' : '#E2E8F0'}`,
+              fontWeight: 600,
+            }}
+          />
+        </Stack>
+        <Box sx={{ mt: 1.25 }}>
+          {isLive && (
+            <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
               <Typography variant="body2" color="text.secondary">
                 {t('Ứng viên có thể nộp CV tại')}{' '}
-                <MuiLink href={applyHref} target="_blank" rel="noopener">{applyHref}</MuiLink>
+                <MuiLink href={applyHref} target="_blank" rel="noopener" className="mono-code" sx={{ fontWeight: 600 }}>{applyHref}</MuiLink>
               </Typography>
               <Button size="small" variant="outlined" onClick={copyLink}>
                 {copied ? t('Đã sao chép link') : t('Sao chép link ứng tuyển')}
