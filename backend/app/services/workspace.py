@@ -79,10 +79,14 @@ def _position_target(position_id: str, tab: str) -> dict[str, str]:
 
 
 def _applicants_target(position_id: str, queue: str | None = None) -> dict[str, str]:
+    # Queue codes travel in the URL exactly as the ranking page names them
+    # (UPPER_SNAKE). They used to be emitted lower-case here, which the page did
+    # not recognise, so every "review the files" deep link opened an unfiltered
+    # list. Keep the two sides in step; tests/test_workspace.py checks the codes.
     return _target(
         position_id,
         f"/positions/{position_id}/applicants",
-        f"queue={queue}" if queue else "",
+        f"queue={queue.upper()}" if queue else "",
     )
 
 

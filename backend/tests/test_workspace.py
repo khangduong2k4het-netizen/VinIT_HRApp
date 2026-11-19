@@ -1,4 +1,12 @@
+import re
+
 from app.services.workspace import build_work_queue_items, build_workflow, summarize_applications
+
+# The ranking page only recognises these queue codes (frontend/src/lib/applicantReview.ts).
+RANKING_QUEUE_CODES = {
+    "ALL", "SHORTLIST", "FILE_REVIEW", "DUPLICATE",
+    "NEEDS_VERIFICATION", "POSSIBLE_MISMATCH", "NOT_ASSESSED", "MEETS_MANDATORY",
+}
 
 
 def _counts(**overrides):
@@ -60,7 +68,7 @@ def test_workflow_prioritizes_file_review_before_matching_queues():
 
     assert workflow["current_step"] == "HR_REVIEW"
     assert workflow["next_action"]["code"] == "REVIEW_FILES"
-    assert workflow["next_action"]["target"]["search"] == "queue=file_review"
+    assert workflow["next_action"]["target"]["search"] == "queue=FILE_REVIEW"
     assert workflow["steps"][2]["status"] == "COMPLETED"
 
 
@@ -145,3 +153,51 @@ def test_work_queue_waits_for_approved_criteria_before_applicant_review_items():
     )
 
     assert [item["type"] for item in items] == ["CRITERIA_PENDING_HR"]
+
+
+def _queue_from_search(search: str) -> str:
+    match = re.search(r"(?:^|&)queue=([^&]*)", search or "")
+    return match.group(1) if match else ""
+
+
+def test_every_work_queue_link_targets_a_code_the_ranking_page_understands():
+    """A deep link with an unknown queue silently opens the unfiltered list."""
+    items = build_work_queue_items(
+        position={"position_id": "pos-1", "position_code": "REQ-1", "title": "Backend", "status": "OPEN"},
+        counts=_counts(total=9, file_review=2, duplicate_pending=1, needs_verification=3,
+                      possible_mismatch=1, not_assessed=2),
+        workflow={"next_action": {"code": "REVIEW_FILES", "blocked_reason_code": None,
+                                 "target": {"pathname": "/positions/pos-1", "search": "tab=applications"}}},
+        criteria_status="APPROVED",
+        criteria_stale=False,
+        jd_exists=True,
+        is_hr=True,
+        is_hm=False,
+        share_without_feedback=1,
+        criteria_approved=True,
+    )
+
+    targets = [item["target"] for item in items if item["target"]["pathname"].endswith("/applicants")]
+    assert targets, "expected at least one applicant queue link"
+    for target in targets:
+        code = _queue_from_search(target["search"])
+        assert code in RANKING_QUEUE_CODES, f"{target['search']!r} would not filter the ranking page"
+
+
+def test_position_workspace_links_stay_inside_the_position():
+    """Work items must not point at another position's ranking page."""
+    items = build_work_queue_items(
+        position={"position_id": "pos-9", "position_code": "REQ-9", "title": "Data", "status": "OPEN"},
+        counts=_counts(total=1, needs_verification=1),
+        workflow={"next_action": {"code": "REVIEW_FILES", "blocked_reason_code": None,
+                                 "target": {"pathname": "/positions/pos-9", "search": "tab=applications"}}},
+        criteria_status="APPROVED",
+        criteria_stale=False,
+        jd_exists=True,
+        is_hr=True,
+        is_hm=False,
+        criteria_approved=True,
+    )
+
+    for item in items:
+        assert "/positions/pos-9" in item["target"]["pathname"]
