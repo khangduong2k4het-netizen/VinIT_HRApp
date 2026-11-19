@@ -106,7 +106,7 @@ export default function ApplicantsRankingPage() {
   const [duplicateSignals, setDuplicateSignals] = useState<DuplicateSignal[] | null>(null);
   const [duplicateError, setDuplicateError] = useState<string | null>(null);
   const [duplicateLoading, setDuplicateLoading] = useState(false);
-  const loadDuplicates = async () => {
+  const loadDuplicates = useCallback(async () => {
     setDuplicateLoading(true);
     setDuplicateError(null);
     try {
@@ -116,7 +116,7 @@ export default function ApplicantsRankingPage() {
       setDuplicateSignals(null);
       setDuplicateError(err.response?.data?.detail || t("Không thể tải cảnh báo trùng"));
     } finally { setDuplicateLoading(false); }
-  };
+  }, [positionId, t]);
 
   const [rankingItems, setRankingItems] = useState<RankingItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -305,6 +305,16 @@ export default function ApplicantsRankingPage() {
     }).catch(() => { if (mounted) setError(t("Không thể tải tiến trình đang xử lý.")); });
     return () => { mounted = false; stopPolling(); };
   }, [loadRanking, stopPolling, pollOperation, positionId, t]);
+
+  // Cảnh báo trùng chỉ hữu ích khi biết hồ sơ đối ứng là ai, nên dữ liệu phải có
+  // sẵn ngay khi màn hình mở — không bắt HR cuộn xuống cuối trang bấm một nút.
+  // Tải khi vào hàng đợi trùng, và cả khi danh sách có dòng bị gắn cờ.
+  useEffect(() => {
+    const hasFlaggedRow = rankingItems.some(item => item.has_duplicate_warning);
+    if (queue !== 'DUPLICATE' && !hasFlaggedRow) return;
+    if (duplicateSignals !== null || duplicateLoading) return;
+    loadDuplicates();
+  }, [queue, rankingItems, duplicateSignals, duplicateLoading, loadDuplicates]);
 
   useEffect(() => {
     // The URL wins: it survives a refresh, a new tab and a shared link. Fall back
@@ -552,6 +562,58 @@ export default function ApplicantsRankingPage() {
   // rebuild the exact list URL when the reviewer comes back — even in a new tab
   // where sessionStorage is empty.
   const profileHref = (applicationId: string) => applicantProfileHref(positionId, applicationId, queue, sort, searchQuery);
+
+  // Cặp hồ sơ đối ứng của một dòng bị gắn cờ, lấy từ chính danh sách cảnh báo.
+  const duplicateCounterparts = (applicationId: string) => {
+    const pairs: { id: string; name: string }[] = [];
+    (duplicateSignals || []).forEach(signal => {
+      const isFirst = signal.application_id_1 === applicationId;
+      const isSecond = signal.application_id_2 === applicationId;
+      if (!isFirst && !isSecond) return;
+      const otherId = isFirst ? signal.application_id_2 : signal.application_id_1;
+      const otherName = isFirst ? signal.candidate_name_2 : signal.candidate_name_1;
+      const fromList = rankingItems.find(item => item.application_id === otherId)?.candidate_name;
+      pairs.push({ id: otherId, name: otherName || fromList || otherId });
+    });
+    return pairs;
+  };
+
+  // Đích đến của cảnh báo phải nằm ngay trên dòng: một cảnh báo "trùng" mà không
+  // nói trùng với ai thì HR chỉ còn cách tự đi tìm.
+  const renderDuplicateCounterparts = (item: RankingItem) => {
+    const pairs = duplicateCounterparts(item.application_id);
+    return (
+      <Box
+        data-testid={`duplicate-counterpart-${item.application_id}`}
+        sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', alignItems: 'center', mt: 0.5 }}
+      >
+        {duplicateSignals === null ? (
+          duplicateLoading
+            ? <Typography variant="caption" color="text.secondary">{t('Đang tải hồ sơ đối ứng…')}</Typography>
+            : <Button size="small" onClick={loadDuplicates} sx={{ px: 0.5, minWidth: 0 }}>{t('Thử tải lại cảnh báo trùng')}</Button>
+        ) : pairs.length === 0 ? (
+          <Typography variant="caption" color="text.secondary">{t('Chưa có cặp hồ sơ đối ứng trong danh sách cảnh báo.')}</Typography>
+        ) : (
+          <>
+            <Typography variant="caption" color="text.secondary">{t('Trùng với:')}</Typography>
+            {pairs.map(pair => (
+              <MuiLink
+                key={pair.id}
+                component={Link}
+                href={profileHref(pair.id)}
+                onClick={storeNavigationContext}
+                variant="caption"
+                sx={{ fontWeight: 700 }}
+                aria-label={t('Mở hồ sơ đối ứng {0}', pair.name)}
+              >
+                {pair.name}
+              </MuiLink>
+            ))}
+          </>
+        )}
+      </Box>
+    );
+  };
 
   const getMatchingStatusBadge = (item: RankingItem) => {
     if (!inScreening(item.application_status)) return <StatusBadge type="app-new" label={t("Ngoài sàng lọc")} />;
@@ -846,6 +908,7 @@ export default function ApplicantsRankingPage() {
                 {item.has_duplicate_warning && <Chip size="small" color="warning" variant="outlined" label={t("Hồ sơ trùng lặp")} />}
                 {item.evidence_coverage != null && item.evidence_coverage < COVERAGE_THRESHOLD && <Chip size="small" color="warning" variant="outlined" label={t("Độ phủ thấp — cần xác minh")} />}
               </Box>
+              {item.has_duplicate_warning && renderDuplicateCounterparts(item)}
               <Typography variant="body2" sx={{ mt: 1.5 }}>{t("Điểm: ")}<strong>{item.matching_score == null ? '—' : `${item.matching_score}%`}</strong>{isPartialScore(item) && <Chip size="small" label={t("một phần")} sx={{ height: 20, fontSize: 10, ml: 0.5, backgroundColor: '#FFFAEB', color: '#B54708', fontWeight: 700 }} />}{t("· Độ phủ: ")}<strong>{item.evidence_coverage == null ? '—' : `${Math.round(item.evidence_coverage * 100)}%`}</strong></Typography>
               <Button size="small" onClick={() => toggleExpanded(item.application_id)} endIcon={expandedIds.has(item.application_id) ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />} sx={{ mt: 0.5, px: 0.5 }}>{t("Chi tiết tiêu chí")}</Button>
               {expandedIds.has(item.application_id) && <Box sx={{ mt: 1 }}>{renderCriterionBreakdown(item)}</Box>}
@@ -974,6 +1037,7 @@ export default function ApplicantsRankingPage() {
                         <Chip label={t("Đang xử lý")} size="small" sx={{ height: 20, fontSize: 10 }} />
                       )}
                     </Box>
+                    {item.has_duplicate_warning && renderDuplicateCounterparts(item)}
                   </TableCell>
                   <TableCell>{getMatchingStatusBadge(item)}</TableCell>
                   <TableCell align="center">

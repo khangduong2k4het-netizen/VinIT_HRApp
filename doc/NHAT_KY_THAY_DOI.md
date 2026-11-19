@@ -9,6 +9,56 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-19 — Cảnh báo trùng không còn ngõ cụt
+
+**Vấn đề.** Dòng bị gắn cờ chỉ hiện “Hồ sơ trùng lặp” mà không nói trùng với ai.
+Muốn biết phải cuộn xuống cuối trang và bấm “Tải cảnh báo trùng”; vào hàng đợi
+“Cảnh báo trùng” cũng không tự có dữ liệu. Cảnh báo vì thế không dẫn tới hành
+động nào.
+
+**Thay đổi (chỉ UI).**
+
+- `frontend/src/app/positions/[id]/applicants/page.tsx`
+  - Ngay trên dòng bị gắn cờ (bảng desktop và card mobile) có khối
+    `duplicate-counterpart-{application_id}`: “Trùng với:” + tên hồ sơ đối ứng,
+    là link mở thẳng hồ sơ đó (giữ nguyên queue/sort/từ khoá hiện tại).
+  - Trạng thái của khối: đang tải thì báo đang tải; lỗi thì có nút thử lại;
+    chưa có cặp thì nói rõ — không còn im lặng.
+  - Danh sách cảnh báo trùng **tự tải** khi vào hàng đợi `DUPLICATE` và khi
+    danh sách có dòng bị gắn cờ (một request cho mỗi lượt xem); `loadDuplicates`
+    chuyển thành `useCallback` để effect không lặp vô hạn khi lỗi.
+  - Card “Cặp cảnh báo trùng” ở cuối trang vẫn còn làm nơi xem toàn bộ cặp.
+- `frontend/src/i18n/en.json`: 5 chuỗi mới.
+- `frontend/tests/fixtures/hr-screens.cjs`: thêm một cặp cảnh báo trùng
+  (`app-3` ↔ `app-9`) thay cho danh sách rỗng, dùng chung cho các e2e hiện có.
+- `frontend/tests/duplicate-warning.e2e.cjs` + `npm run test:e2e:duplicate-warning`;
+  ghi chú trong `frontend/tests/README.md`.
+
+**Kiểm thử đã chạy (pass).**
+
+| Lệnh | Kết quả |
+| --- | --- |
+| `npm run type-check` | pass |
+| `npm run lint` | pass |
+| `npm run test:i18n` | 3/3 |
+| `npm run test:unit` | 43/43 |
+| `npm run build` | pass |
+| `npm run test:e2e:duplicate-warning` | pass (Chromium, mock `/v1`) |
+| `npm run test:e2e:ranking-compact` | pass (dòng đầu vẫn ở 607px) |
+| `npm run test:e2e:bulk-actions` | pass |
+| `npm run test:e2e:finish-application` | pass |
+
+E2E xác nhận: dòng bị gắn cờ hiện đúng tên đối ứng mà không cần bấm gì; chỉ
+một request cảnh báo trùng được gửi; link mở hồ sơ `app-9`; vào
+`?queue=DUPLICATE` tự tải cảnh báo và chỉ còn 2 dòng bị gắn cờ, mỗi dòng nêu
+đúng đối ứng; dòng không bị gắn cờ không có khối này; không có request `/v1`
+ngoài mock.
+
+**Chưa kiểm.** Chưa chạy với backend/DB thật (không đổi backend). Khối đối ứng
+trên card mobile nằm cùng component nhưng chỉ được kiểm ở desktop; chưa xem
+trực quan ở các breakpoint khác. `test:e2e:applicants-mock` vẫn fail sẵn trên
+HEAD vì `reactStrictMode` (đã đối chiếu ở mục trước).
+
 ## 2026-11-19 — Chọn nhiều dòng và xử lý hàng loạt trên trang xếp hạng
 
 **Vấn đề.** Mỗi lần shortlist hay loại, HR phải mở từng hồ sơ. Ô chọn ở đầu

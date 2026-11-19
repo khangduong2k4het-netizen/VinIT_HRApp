@@ -1543,5 +1543,10 @@
   "Lý do này được ghi cho mọi hồ sơ bị loại trong lần này.": "This reason is recorded for every application rejected in this batch.",
   "Đang cập nhật {0} hồ sơ…": "Updating {0} applications…",
   "Shortlist": "Shortlist",
-  "Loại hồ sơ": "Reject application"
+  "Loại hồ sơ": "Reject application",
+  "Đang tải hồ sơ đối ứng…": "Loading the matching application…",
+  "Thử tải lại cảnh báo trùng": "Retry loading duplicate warnings",
+  "Chưa có cặp hồ sơ đối ứng trong danh sách cảnh báo.": "No matching application in the duplicate warnings.",
+  "Trùng với:": "Duplicates:",
+  "Mở hồ sơ đối ứng {0}": "Open the matching application {0}"
 }

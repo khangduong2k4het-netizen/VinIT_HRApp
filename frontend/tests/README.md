@@ -63,6 +63,10 @@ Storage, ClamAV or VPS involvement).
 Run with `HRA_E2E_BASE_URL` pointing at the local server and a Chromium
 executable (see the commands in `doc/PLAN_CAI_TIEN_WORKFLOW_UX_HR_HM.md`).
 
+- `duplicate-warning.e2e.cjs` — duplicate warnings are actionable where they
+  appear: the flagged row names its counterpart and links to that profile, the
+  signal list loads automatically (no bottom-of-page button), and the duplicate
+  queue shows exactly the flagged rows with their counterparts.
 - `bulk-actions.e2e.cjs` — the ranking list's multi-select and floating
   action bar: every screening row (including NEW and not-yet-shortlisted ones)
   is selectable, bulk shortlist only touches In review rows and reports the

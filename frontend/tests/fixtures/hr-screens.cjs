@@ -147,6 +147,23 @@ const ranking = NAMES.map((name, index) => {
   };
 });
 
+// One duplicate pair so the ranking list can show who a flagged row duplicates.
+// app-3 and app-9 both carry has_duplicate_warning above.
+const DUPLICATE_SIGNALS = [
+  {
+    signal_id: 'sig-1',
+    signal_type: 'SAME_EMAIL',
+    confidence: 0.92,
+    detector_version: 'v1',
+    review_status: 'UNREVIEWED',
+    created_at: '2026-11-01T08:00:00Z',
+    application_id_1: 'app-3',
+    candidate_name_1: 'Phạm Đình Khang',
+    application_id_2: 'app-9',
+    candidate_name_2: 'Dương Hồng Yến',
+  },
+];
+
 const applications = ranking.map(item => ({
   application_id: item.application_id,
   position_id: 'p1',
@@ -284,7 +301,7 @@ function installMockApi(context, overrides = {}) {
     if (p === '/v1/assessments/ranking/latest/p1') return json(ranking);
     if (p === '/v1/applications') return json(applications);
     if (p === '/v1/operations/position/p1/active') return json(null);
-    if (p === '/v1/positions/p1/duplicate-signals') return json([]);
+    if (p === '/v1/positions/p1/duplicate-signals') return json(DUPLICATE_SIGNALS);
     if (p === '/v1/criteria/position/p1/approved') return json(RUBRIC);
     if (p === '/v1/shortlist/potential-recipients/p1') return json([]);
     if (p === '/v1/applications/app-2') {
