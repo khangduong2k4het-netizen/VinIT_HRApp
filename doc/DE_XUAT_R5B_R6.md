@@ -2,7 +2,9 @@
 
 Tài liệu này trả lời đúng câu hỏi: *"cụ thể là gì, đề xuất như thế nào"*. Mọi con số dưới đây đo trên production build, viewport 1440×900, fixture mock cố định (`frontend/tests/fixtures/hr-screens.cjs`).
 
-Trạng thái hiện tại: nhánh `arena/ea6e2570-vinit-hrapp`, HEAD `331478e`. R1–R5 (mức A) đã xong, CI **44457927230** xanh.
+Trạng thái hiện tại: nhánh `arena/ea6e2570-vinit-hrapp`, HEAD `b6cc2ab`. R1–R5 (mức A) đã xong, CI **44457927230** xanh.
+
+> **Cập nhật 2026-11-19 — đã thực hiện:** **B1 và B2 đã xong** (commit `407e695`, sửa lỗi làm tròn `b6501b0`), CI **44462243880** xanh cả 3 job; chi tiết ở `Update_Excute_P2.md` §42. Kèm theo quyết định của anh: **thẻ KPI "Vị trí đang mở" không còn đếm vị trí đã quá hạn** và ghi chú số bị ẩn ngay trên thẻ. **R6 vẫn đang chờ anh xác nhận** — chưa làm. Bảng số đo R6 ở Phần 2 giữ nguyên để anh quyết định.
 
 ---
 
