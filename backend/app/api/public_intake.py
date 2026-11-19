@@ -95,7 +95,7 @@ def _received(consent_talent_pool: bool, token: str | None = None) -> dict:
     return {"status": "received", "withdrawal_token": token or _fake_token()}
 
 
-def _admit(position_code: str, ip_hash: str):
+def _admit(position_code: str, ip_hash: str, max_per_hour: int | None = None):
     """Rate limit and look up the position. Blocking DB work: run in the threadpool."""
     db = SessionLocal()
     try:
@@ -108,7 +108,7 @@ def _admit(position_code: str, ip_hash: str):
         db.execute(text("DELETE FROM app_private.public_intake_events WHERE created_at < NOW() - INTERVAL '7 days'"))
         recent = db.execute(text("""SELECT COUNT(*) FROM app_private.public_intake_events
             WHERE ip_hash = :h AND created_at > NOW() - INTERVAL '1 hour'"""), {"h": ip_hash}).scalar_one()
-        if recent >= settings.PUBLIC_INTAKE_MAX_PER_IP_HOUR:
+        if recent >= (max_per_hour if max_per_hour is not None else settings.PUBLIC_INTAKE_MAX_PER_IP_HOUR):
             raise HTTPException(status_code=429, detail="Bạn đã gửi quá nhiều lần. Vui lòng thử lại sau.")
         pos = db.execute(text(OPEN_POSITION_SQL + " AND p.position_code = :code"), {"code": position_code}).first()
         # The attempt counts against the limit even when it fails, which blunts probing.
@@ -152,7 +152,10 @@ def _remove_cv(storage, saved_path: str) -> None:
 
 
 def _commit_application(pos, *, filename: str, content: bytes, mime: str, declared_type, size: int, sha: str,
-                        consent_talent_pool: bool, ip_hash: str) -> dict:
+                        consent_talent_pool: bool, ip_hash: str, channel: str = "PORTAL",
+                        source_code: str = "PORTAL", notice_version: str | None = None,
+                        evidence_extra: dict | None = None, audit_action: str = "RECEIVE_PUBLIC_CV",
+                        audit_extra: dict | None = None, receipt_extra: bool = False) -> dict:
     """Store the CV and create the application. Blocking: runs in the threadpool, never on the event loop."""
     db = SessionLocal()
     saved_path = None
@@ -177,6 +180,8 @@ def _commit_application(pos, *, filename: str, content: bytes, mime: str, declar
             SELECT 1 FROM app_private.application_documents d JOIN app_private.applications a USING (application_id)
             WHERE a.position_id = :p AND d.content_sha256 = :sha LIMIT 1"""), {"p": position_id, "sha": sha}).first()
         if duplicate:
+            if receipt_extra:  # a trusted partner site may know the CV was already received
+                return {"status": "duplicate"}
             return _received(consent_talent_pool)  # idempotent: no second application, no signal to the sender
         busy = db.execute(text("""SELECT 1 FROM app_private.operations WHERE position_id = :p
               AND capability IN ('CV_PROCESSING', 'ASSESSMENT', 'RANKING') AND status IN ('PENDING', 'PROCESSING') LIMIT 1"""),
@@ -187,8 +192,8 @@ def _commit_application(pos, *, filename: str, content: bytes, mime: str, declar
                 VALUES (:p, 'CV_PROCESSING', 'PENDING') RETURNING operation_id"""), {"p": position_id}).scalar_one()
             batch_id = db.execute(text("""INSERT INTO app_private.cv_batches(position_id, operation_id, status, total_files, total_size_bytes)
                 VALUES (:p, :o, 'PROCESSING', 1, :s) RETURNING batch_id"""), {"p": position_id, "o": operation_id, "s": size}).scalar_one()
-        app_id = db.execute(text("INSERT INTO app_private.applications(position_id, source_code) VALUES (:p, 'PORTAL') RETURNING application_id"),
-                            {"p": position_id}).scalar_one()
+        app_id = db.execute(text("INSERT INTO app_private.applications(position_id, source_code) VALUES (:p, :src) RETURNING application_id"),
+                            {"p": position_id, "src": source_code}).scalar_one()
         storage_path = f"{position_id}/{app_id}/{uuid4()}{MIME_EXTENSIONS[mime]}"
         saved_path = storage_path
         _write_cv(storage, storage_path, content, mime)
@@ -208,19 +213,25 @@ def _commit_application(pos, *, filename: str, content: bytes, mime: str, declar
             db.execute(text("""INSERT INTO app_private.cv_batch_items(batch_id, original_filename, declared_mime_type, detected_mime_type,
                     size_bytes, validation_result, application_id) VALUES (:b, :fn, :dm, :m, :s, 'ACCEPTED', :a)"""),
                        {"b": batch_id, "fn": filename, "dm": declared_type, "m": mime, "s": size, "a": app_id})
-        evidence = json.dumps({"ip_hash": ip_hash[:16]})
+        evidence = json.dumps({"ip_hash": ip_hash[:16], **(evidence_extra or {})})
         purposes = ["THIS_POSITION"] + (["TALENT_POOL"] if consent_talent_pool else [])
         withdrawal_token = secrets.token_hex(32) if consent_talent_pool else None
         for purpose in purposes:
             db.execute(text("""INSERT INTO app_private.application_data_consents(application_id, purpose, notice_version, channel, evidence, withdrawal_token_hash)
-                VALUES (:a, :p, :v, 'PORTAL', CAST(:e AS jsonb), :th)"""),
-                       {"a": app_id, "p": purpose, "v": settings.PUBLIC_INTAKE_NOTICE_VERSION, "e": evidence,
+                VALUES (:a, :p, :v, :ch, CAST(:e AS jsonb), :th)"""),
+                       {"a": app_id, "p": purpose, "v": notice_version or settings.PUBLIC_INTAKE_NOTICE_VERSION, "e": evidence,
+                        "ch": channel,
                         "th": hash_token(withdrawal_token) if withdrawal_token and purpose == "TALENT_POOL" else None})
         db.execute(text("""INSERT INTO app_private.audit_events(action_type, object_type, object_id, position_id, outcome, metadata)
-            VALUES ('RECEIVE_PUBLIC_CV', 'APPLICATION', :a, :p, 'SUCCESS', CAST(:m AS jsonb))"""),
-                   {"a": app_id, "p": position_id, "m": json.dumps({"talent_pool_consent": consent_talent_pool, "size_bytes": size})})
+            VALUES (:action, 'APPLICATION', :a, :p, 'SUCCESS', CAST(:m AS jsonb))"""),
+                   {"a": app_id, "p": position_id, "action": audit_action,
+                    "m": json.dumps({"talent_pool_consent": consent_talent_pool, "size_bytes": size, **(audit_extra or {})})})
         db.commit()
-        return _received(consent_talent_pool, withdrawal_token)
+        receipt = _received(consent_talent_pool, withdrawal_token)
+        if receipt_extra:
+            # Partner sites keep their own reference; give back HRA's receipt id too.
+            receipt["receipt_id"] = str(app_id)
+        return receipt
     except OperationalError as exc:
         db.rollback()
         if saved_path:
@@ -235,6 +246,31 @@ def _commit_application(pos, *, filename: str, content: bytes, mime: str, declar
         raise
     finally:
         db.close()
+
+
+async def read_checked_upload(file: UploadFile) -> tuple[str, bytes, str, int]:
+    """Size, real file type and malware scan for an Internet upload (portal or partner site)."""
+    filename = os.path.basename(file.filename or "cv")
+    file.file.seek(0, os.SEEK_END)
+    size = file.file.tell()
+    file.file.seek(0)
+    if size > settings.MAX_FILE_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail=REFUSED)
+    content = await file.read()
+    try:
+        mime = await document_processor.validate_file(content, filename, file.content_type)
+    except FileValidationError:
+        raise HTTPException(status_code=400, detail=REFUSED) from None
+    try:
+        # clamd is a blocking socket call; keep it off the event loop.
+        await run_in_threadpool(scan_upload, content)
+    except ScanRejected:
+        logger.warning("Upload rejected by malware scan")
+        raise HTTPException(status_code=400, detail=REFUSED) from None
+    except ScanUnavailable as exc:
+        logger.error("Malware scan unavailable; refusing upload", reason=str(exc))
+        raise HTTPException(status_code=503, detail="Hệ thống tạm thời chưa nhận hồ sơ. Vui lòng thử lại sau.") from None
+    return filename, content, mime, size
 
 
 @router.post("/positions/{position_code}/apply", status_code=status.HTTP_202_ACCEPTED)
@@ -257,26 +293,7 @@ async def apply(position_code: str, request: Request, file: UploadFile = File(..
     # The candidate can still withdraw the reuse part with the token shown once.
     consent_talent_pool = True
 
-    filename = os.path.basename(file.filename or "cv")
-    file.file.seek(0, os.SEEK_END)
-    size = file.file.tell()
-    file.file.seek(0)
-    if size > settings.MAX_FILE_SIZE_BYTES:
-        raise HTTPException(status_code=413, detail=REFUSED)
-    content = await file.read()
-    try:
-        mime = await document_processor.validate_file(content, filename, file.content_type)
-    except FileValidationError:
-        raise HTTPException(status_code=400, detail=REFUSED) from None
-    try:
-        # clamd is a blocking socket call; keep it off the event loop.
-        await run_in_threadpool(scan_upload, content)
-    except ScanRejected:
-        logger.warning("Public upload rejected by malware scan")
-        raise HTTPException(status_code=400, detail=REFUSED) from None
-    except ScanUnavailable as exc:
-        logger.error("Malware scan unavailable; refusing upload", reason=str(exc))
-        raise HTTPException(status_code=503, detail="Hệ thống tạm thời chưa nhận hồ sơ. Vui lòng thử lại sau.") from None
+    filename, content, mime, size = await read_checked_upload(file)
 
     return await run_in_threadpool(
         _commit_application, pos, filename=filename, content=content, mime=mime, declared_type=file.content_type,

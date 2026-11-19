@@ -36,6 +36,8 @@ def create_app() -> FastAPI:
 
     # Public endpoints take uploads from the Internet: refuse oversized bodies up front.
     # The allowance is one CV plus a little room for the multipart envelope and form fields.
+    app.add_middleware(PublicBodyLimit, prefix=f"{settings.API_V1_PREFIX}/intake/",
+                       max_bytes=lambda: settings.MAX_FILE_SIZE_BYTES + 100_000)
     app.add_middleware(PublicBodyLimit, prefix=f"{settings.API_V1_PREFIX}/public/",
                        max_bytes=lambda: settings.MAX_FILE_SIZE_BYTES + 100_000)
 

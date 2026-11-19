@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     TALENT_POOL_RETENTION_MONTHS: int = 60
     # P3-1 phase 2: most pooled applications one scan may score (each one can call the LLM).
     TALENT_POOL_SCAN_MAX_CANDIDATES: int = 200
+    # F3.03: server-to-server API for a separate candidate website (/v1/intake, header X-Intake-Key).
+    # Keys are created with scripts/intake_clients.py; without a valid key every call is 401.
+    INTAKE_API_ENABLED: bool = True
+    INTAKE_MAX_PER_CLIENT_HOUR: int = 1000
 
     # File upload limits
     MAX_FILE_SIZE_BYTES: int = 10_000_000  # 10 MB

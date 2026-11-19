@@ -1568,5 +1568,7 @@
   "Nếu mã hợp lệ, lựa chọn Talent Pool đã được rút.": "If the code is valid, your Talent Pool choice has been withdrawn.",
   "Mã rút lại đồng ý": "Withdrawal code",
   "Mã gồm 64 ký tự (0-9, a-f).": "The code has 64 characters (0-9, a-f).",
-  "Rút lại đồng ý": "Withdraw consent"
+  "Rút lại đồng ý": "Withdraw consent",
+  "Nội dung đăng tuyển (hiện cho ứng viên)": "Posting content (shown to candidates)",
+  "Giới thiệu, quyền lợi, hạn nộp… Hiện cùng JD trên trang tuyển dụng; không dùng để chấm điểm.": "Introduction, benefits, deadline… Shown with the JD on the careers site; never used for scoring."
 }
