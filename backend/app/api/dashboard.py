@@ -69,7 +69,7 @@ _APPLICATIONS_QUERY = _SCOPE_CTE + """
     JOIN visible_positions p ON p.position_id = a.position_id
     CROSS JOIN privileges priv
     LEFT JOIN LATERAL (
-        SELECT ar.matching_status, ar.evidence_coverage
+        SELECT ar.assessment_id, ar.matching_status, ar.evidence_coverage
         FROM app_private.assessment_runs ar
         WHERE ar.application_id = a.application_id AND ar.status = 'COMPLETED'
                   AND ar.profile_version_id = (SELECT profile_version_id FROM app_private.profile_versions
