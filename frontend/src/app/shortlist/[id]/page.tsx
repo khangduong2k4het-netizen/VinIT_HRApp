@@ -10,6 +10,7 @@ import CVDocumentViewer from '@/components/candidates/CVDocumentViewer';
 import { useI18n } from '@/i18n/I18nProvider';
 import { applicationsApi, shortlistApi } from '@/lib/api';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
+import { purgeShareDrafts, readDraft, removeDraft, shareFeedbackDraftKey, writeDraft } from '@/lib/localDrafts';
 import ScorecardPanel from '@/components/shortlist/ScorecardPanel';
 
 type Candidate = { application_id: string; candidate_name?: string; display_name?: string; matching_status?: string | null };
@@ -33,7 +34,9 @@ export default function ShareWorkspace() {
   const [scorecardProgress, setScorecardProgress] = useState<Record<string, number>>({});
   const [stale, setStale] = useState(false);
   const requestVersion = useRef(0);
-  const accessLost = useCallback(() => { requestVersion.current += 1; setLoading(false); setShare(null); setError('Quyền truy cập shortlist không còn hoặc shortlist không tồn tại.'); }, []);
+  // Losing access must also drop everything typed locally for this share.
+  const accessLost = useCallback(() => { requestVersion.current += 1; purgeShareDrafts(shareId); setFeedback(''); setLoading(false); setShare(null); setError('Quyền truy cập shortlist không còn hoặc shortlist không tồn tại.'); }, [shareId]);
+  const [feedbackRestored, setFeedbackRestored] = useState(false);
   const load = useCallback(async (initial = false) => {
     const version = ++requestVersion.current;
     try {
@@ -50,6 +53,19 @@ export default function ShareWorkspace() {
     } finally { if (version === requestVersion.current) setLoading(false); }
   }, [shareId, t, accessLost]);
   useEffect(() => { void load(true); return () => { requestVersion.current += 1; }; }, [load]);
+  useEffect(() => {
+    const draft = readDraft<{ content: string }>(shareFeedbackDraftKey(shareId));
+    if (draft?.content?.trim()) { setFeedback(draft.content); setFeedbackRestored(true); }
+  }, [shareId]);
+  useEffect(() => {
+    // Persist after a pause so typing does not write to storage on every key.
+    const content = feedback.trim();
+    const timer = setTimeout(() => {
+      if (content) writeDraft(shareFeedbackDraftKey(shareId), { content });
+      else removeDraft(shareFeedbackDraftKey(shareId));
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [feedback, shareId]);
   useEffect(() => {
     let hiddenAt = 0;
     const check = () => {
@@ -101,6 +117,7 @@ export default function ShareWorkspace() {
     try {
       setSending(true); setError('');
       await shortlistApi.addFeedback(shareId, feedback.trim());
+      removeDraft(shareFeedbackDraftKey(shareId)); setFeedbackRestored(false);
       setFeedback(''); await load();
     } catch (err: any) {
       if ([403, 404].includes(err.response?.status)) accessLost();
@@ -109,7 +126,7 @@ export default function ShareWorkspace() {
   };
   const matchingLabel = (status?: string | null) => ({ MEETS_MANDATORY: t('Đáp ứng bắt buộc'), NEEDS_HR_VERIFICATION: t('Cần HR xác minh'), POSSIBLE_MISMATCH: t('Cần xem xét'), NOT_ASSESSED: t('Chưa đánh giá') } as Record<string, string>)[status || ''] || t('Chưa đánh giá hoặc kết quả đã cũ');
   const unsavedMessage = t('Có thay đổi chưa lưu hoặc chưa gửi. Rời trang?');
-  useUnsavedChangesGuard(dirty || !!feedback.trim(), unsavedMessage);
+  useUnsavedChangesGuard(dirty || !!feedback.trim(), unsavedMessage, { fallbackHref: '/shortlist' });
   if (loading) return <Box sx={{ textAlign: 'center', mt: 8 }}><CircularProgress /></Box>;
   if (!share) return <Box><Button component={Link} href="/shortlist">{t('Quay lại shortlist')}</Button><Alert severity="error">{t(error || 'Không thể tải chi tiết shortlist.')}</Alert></Box>;
   const candidate = share.applications?.find(a => a.application_id === selected);
@@ -191,6 +208,7 @@ export default function ShareWorkspace() {
       {!share.feedback?.length && <Typography color="text.secondary">{t('Chưa có phản hồi nào.')}</Typography>}
       {share.feedback?.map(f => <Box key={f.feedback_id} sx={{ my: 1 }}><Typography variant="caption">{f.author_name || t('Người dùng')} · {new Date(f.created_at).toLocaleString(dateLocale)}</Typography><Typography sx={{ whiteSpace: 'pre-wrap' }}>{f.content}</Typography></Box>)}
       {share.status === 'ACTIVE' && share.share_level_feedback_blocked && <Alert severity="info">{t('Shortlist đã thay đổi do retention; hãy yêu cầu HR tạo shortlist mới để gửi phản hồi chung')}</Alert>}
+      {feedbackRestored && share.status === 'ACTIVE' && <Alert severity="info" sx={{ mt: 2 }} onClose={() => setFeedbackRestored(false)}>{t('Đã khôi phục phản hồi chưa gửi trên trình duyệt này.')}</Alert>}
       {share.status === 'ACTIVE' && !share.share_level_feedback_blocked && <><TextField fullWidth multiline rows={3} sx={{ mt: 2 }} label={t('Phản hồi của bạn')} value={feedback} onChange={e => setFeedback(e.target.value)} inputProps={{ maxLength: 3000 }} /><Button variant="contained" sx={{ mt: 1 }} onClick={submitFeedback} disabled={!feedback.trim() || sending}>{sending ? t('Đang gửi...') : t('Gửi phản hồi')}</Button></>}
     </CardContent></Card>
   </Box>;

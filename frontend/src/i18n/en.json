@@ -1344,5 +1344,10 @@
   "Đang tải danh sách ứng viên theo trang: {0} hồ sơ. Bộ lọc và xếp hạng áp dụng sau khi tải xong.": "Loading applicants page by page: {0} so far. Filters and ranking apply once loading finishes.",
   "Đang tải danh sách ứng viên...": "Loading applicants...",
   "Tải lại": "Reload",
-  "Dữ liệu có thể đã cũ sau khi bạn quay lại tab. Tải lại để thấy thay đổi hoặc thu hồi mới nhất.": "Data may be stale after returning to this tab. Reload to see the latest changes or revocation."
+  "Dữ liệu có thể đã cũ sau khi bạn quay lại tab. Tải lại để thấy thay đổi hoặc thu hồi mới nhất.": "Data may be stale after returning to this tab. Reload to see the latest changes or revocation.",
+  "Đã khôi phục nháp scorecard chưa gửi trên trình duyệt này. Kiểm tra lại rồi lưu hoặc bỏ nháp.": "Restored an unsent scorecard draft from this browser. Review it, then save or discard it.",
+  "Trình duyệt không cho lưu nháp trên máy này. Nháp scorecard chỉ tồn tại đến khi rời trang hoặc tải lại.": "This browser does not allow local drafts. The scorecard draft only lasts until you leave or reload the page.",
+  "Bỏ nháp đã khôi phục": "Discard restored draft",
+  "Không thể tải lại scorecard.": "Could not reload the scorecard.",
+  "Đã khôi phục phản hồi chưa gửi trên trình duyệt này.": "Restored an unsent comment from this browser."
 }

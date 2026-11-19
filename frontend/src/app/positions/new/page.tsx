@@ -50,7 +50,7 @@ export default function CreatePositionPage() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [t]);
-  useUnsavedChangesGuard(dirty && !created, t('Nội dung chưa lưu sẽ bị mất. Tiếp tục?'));
+  useUnsavedChangesGuard(dirty && !created, t('Nội dung chưa lưu sẽ bị mất. Tiếp tục?'), { fallbackHref: '/positions' });
 
   const importJd = async () => {
     if (content.trim() && !window.confirm(t('Nội dung JD hiện tại sẽ được thay bằng nội dung mới. Tiếp tục?'))) return;
