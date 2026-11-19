@@ -6,6 +6,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ReportProblemOutlinedIcon from '@mui/icons-material/ReportProblemOutlined';
 import { useI18n } from '@/i18n/I18nProvider';
+import { determineCriterionAction } from '@/lib/criterionAction';
 import type { Criterion, CriterionResult } from '@/types';
 
 const outcomeStyles: Record<string, { borderColor: string; label: string; color: string }> = {
@@ -129,6 +130,7 @@ export default function EvidenceCard({ result, criterion, isPdf, hasCv, selected
   const [rejectReason, setRejectReason] = React.useState('');
   const latestReview = result.hr_reviews?.[0];
   const requirement = useCriterionRequirement(criterion);
+  const action = determineCriterionAction(result);
   const style = outcomeStyles[result.outcome] || outcomeStyles.UNCLEAR;
   const citation = result.evidence?.[0];
   const verified = citation?.verification_status === 'VERIFIED' || citation?.verification_status === 'MANUAL_FIX';
@@ -185,7 +187,35 @@ export default function EvidenceCard({ result, criterion, isPdf, hasCv, selected
           {requirement.toggle}
         </Box>
         {requirement.panel}
-        {result.reasoning && <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 2 }}>{result.reasoning}</Typography>}
+        {/* One sentence saying what this criterion asks of the reviewer. Derived
+            from data (outcome + citation state + a recorded decision), never from
+            a model call, so it cannot invent a task that is not there.
+
+            It sits on its own line right under the name on purpose: HR should not
+            have to read the reasoning and the chips to work out whether anything
+            is owed here. It costs one line per card, which is the price of not
+            making people guess. */}
+        {action.weight !== 'none' && (
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.75, mt: 0.5 }} data-testid={`criterion-action-${action.code}`}>
+            {action.weight === 'act' ? (
+              <ReportProblemOutlinedIcon sx={{ fontSize: 15, color: '#B42318', mt: '2px', flexShrink: 0 }} />
+            ) : (
+              <CheckCircleOutlineIcon sx={{ fontSize: 15, color: '#667085', mt: '2px', flexShrink: 0 }} />
+            )}
+            <Typography
+              variant="caption"
+              sx={{ fontSize: 12, lineHeight: 1.45, fontWeight: action.weight === 'act' ? 600 : 400, color: action.weight === 'act' ? '#B42318' : '#475467' }}
+            >
+              {action.code === 'NEEDS_CHECK' && page ? t(action.text, page) : t(action.text)}
+            </Typography>
+          </Box>
+        )}
+        {/* The engine's reasoning repeated what the action line now says ("chưa
+            nêu số liệu trước/sau nên chưa xác minh được"), so it is kept only when
+            it adds a fact — that is, when there is no action to state it for us. */}
+        {result.reasoning && action.weight !== 'act' && (
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>{result.reasoning}</Typography>
+        )}
 
         {quote ? (
           <Paper
@@ -267,12 +297,12 @@ export default function EvidenceCard({ result, criterion, isPdf, hasCv, selected
               </Box>
             ) : canReview && onReview && result.result_id ? (
               <>
-                <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600, mb: 0.25 }}>
-                  {t('Máy đánh dấu tiêu chí này cần HR xác minh')}
-                </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                  {t('Đối chiếu trích dẫn với CV rồi ghi lại kết quả — việc này không đổi trạng thái hồ sơ.')}
-                </Typography>
+                {/* The heading and the explanation that used to live here now say
+                    the same thing as the action line above ("Đối chiếu trích dẫn
+                    với CV trang 3, rồi xác nhận"), and repeating it cost ~40px on
+                    every flagged card. One statement of the task, buttons under it.
+                    The status reassurance moved to the progress strip, where it
+                    applies to the whole application rather than one criterion. */}
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   <Button
                     size="small" variant="outlined" startIcon={<CheckCircleOutlineIcon />}

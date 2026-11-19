@@ -167,6 +167,10 @@ const workQueueSummary = {
   files_needing_review: visible.filter(item => item.file_processing_status === 'NEEDS_HR_REVIEW').length,
   applications_needing_verification: visible.filter(item => item.matching_status !== 'NOT_ASSESSED'
     && (item.matching_status === 'NEEDS_HR_VERIFICATION' || item.evidence_coverage < 0.7)).length,
+  // Mirrors the backend's verification_complete bucket: rows a reviewer finished
+  // checking. Kept separate so the dashboard can show finished work instead of
+  // only shrinking the pending number.
+  applications_verification_complete: 3,
   duplicate_alerts: visible.filter(item => item.has_duplicate_warning).length,
   criteria_pending_action: 1,
   shares_without_feedback: 2,

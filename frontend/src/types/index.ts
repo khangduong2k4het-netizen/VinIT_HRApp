@@ -83,6 +83,12 @@ export interface WorkQueueResponse {
     positions_needing_attention: number;
     files_needing_review: number;
     applications_needing_verification: number;
+    /**
+     * Applications whose flagged criteria have all been reviewed. Optional
+     * because an older backend will not send it; the screen falls back to
+     * showing the pending figure alone rather than a wrong fraction.
+     */
+    applications_verification_complete?: number;
     duplicate_alerts: number;
     criteria_pending_action: number;
     shares_without_feedback: number;

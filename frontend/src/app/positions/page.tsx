@@ -206,7 +206,14 @@ export default function PositionsPage() {
             label={`${t(label)} (${statusCounts[value]})`}
             onClick={() => selectStatus(value)}
             aria-pressed={statusFilter === value}
-            color={statusFilter === value ? 'primary' : 'default'}
+            // `color` alone left every chip looking identical, so a link like
+            // /positions?status=CLOSED rendered "0/1 vị trí" under four chips that
+            // all looked unselected — the filter was applied but invisible. The
+            // selected chip is now filled; the rest stay outlined.
+            variant={statusFilter === value ? 'filled' : 'outlined'}
+            sx={statusFilter === value
+              ? { backgroundColor: '#0A2B57', color: '#fff', fontWeight: 700, '&:hover': { backgroundColor: '#134D8B' } }
+              : undefined}
           />
         ))}
         <TextField

@@ -1440,5 +1440,15 @@
   "Đã xác minh {0}/{1} tiêu chí cần kiểm": "Verified {0}/{1} criteria that need checking",
   "Hồ sơ sẽ rời hàng đợi \"Cần xác minh\". Trạng thái hồ sơ không thay đổi.": "The application will leave the \"Needs verification\" queue. Its status does not change.",
   "Xác minh nốt {0} tiêu chí còn lại để hồ sơ rời hàng đợi \"Cần xác minh\".": "Verify the remaining {0} criteria for the application to leave the \"Needs verification\" queue.",
-  "HR": "HR"
+  "HR": "HR",
+  "Đã kiểm và xác nhận — không cần làm gì thêm": "Checked and confirmed — nothing left to do",
+  "Bạn đã đánh dấu trích dẫn này sai — cần xem lại cách đánh giá": "You flagged this quote as wrong — the verdict needs another look",
+  "Máy tìm không thấy trích dẫn trong CV — kiểm tra thủ công trước khi kết luận": "The engine could not find this quote in the CV — check by hand before concluding",
+  "CV không nêu tiêu chí này — cần hỏi thêm khi phỏng vấn": "The CV does not cover this criterion — ask about it in the interview",
+  "Đối chiếu trích dẫn với CV trang {0}, rồi xác nhận": "Compare the quote with page {0} of the CV, then confirm",
+  "Đối chiếu trích dẫn với CV rồi xác nhận": "Compare the quote with the CV, then confirm",
+  "Đã đủ bằng chứng và máy đã xác minh — không cần làm gì": "Enough evidence, verified by the engine — nothing to do",
+  "Xem trích dẫn trong CV nếu cần — máy chưa đối chiếu tiêu chí này": "Open the quote in the CV if useful — the engine did not verify this criterion",
+  "Chưa có bằng chứng rõ ràng — xem CV để kết luận": "No clear evidence — read the CV to decide",
+  "Đã xác minh xong {0} hồ sơ — số trên chỉ tính việc còn lại": "Finished verifying {0} applications — the figure above counts only what is left"
 }
