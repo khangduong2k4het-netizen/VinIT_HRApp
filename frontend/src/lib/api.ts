@@ -147,6 +147,27 @@ export const applicationsApi = {
   getCvBlob: (id: string) => apiClient.get(`/applications/${id}/cv-file`, { responseType: 'blob' }),
 };
 
+/**
+ * Loads every application of a position page by page. `listAll` above is a
+ * convenience used by pages that do not need progress; the ranking page uses
+ * this to show progress and to stop a runaway loop on a broken response.
+ */
+export async function listAllApplications(
+  positionId: string,
+  options: { pageSize?: number; onProgress?: (loaded: number) => void; maxPages?: number } = {},
+) {
+  const { pageSize = 100, onProgress, maxPages = 100 } = options;
+  const all: any[] = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const response = await apiClient.get('/applications', { params: { position_id: positionId, page, page_size: pageSize } });
+    if (!Array.isArray(response.data)) throw new Error('Unexpected application list response');
+    all.push(...response.data);
+    onProgress?.(all.length);
+    if (response.data.length < pageSize) return all;
+  }
+  throw new Error('Application list exceeds the supported pagination window');
+}
+
 export const operationsApi = {
   getStatus: (id: string) => apiClient.get(`/operations/${id}`),
   getActiveForPosition: (id: string) => apiClient.get(`/operations/position/${id}/active`),

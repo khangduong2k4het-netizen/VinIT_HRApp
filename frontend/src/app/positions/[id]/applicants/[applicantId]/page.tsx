@@ -86,6 +86,7 @@ export default function ApplicantDetailPage() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [selectedPage, setSelectedPage] = useState(1);
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
+  const [shareContext, setShareContext] = useState('');
   const [navigationContext, setNavigationContext] = useState<ApplicantNavigationContext | null>(null);
   const [cvUrl, setCvUrl] = useState<string | null>(null);
   const [cvError, setCvError] = useState<string | null>(null);
@@ -137,6 +138,7 @@ export default function ApplicantDetailPage() {
 
   useEffect(() => {
     setNavigationContext(readApplicantNavigation(positionId));
+    setShareContext(new URLSearchParams(window.location.search).get('share') || '');
     setSelectedEvidenceId(null);
     setSelectedPage(1);
   }, [positionId, applicantId]);
@@ -236,7 +238,7 @@ export default function ApplicantDetailPage() {
   const statusLabel = currentStatus ? APPLICATION_STATUSES[currentStatus] : null;
   const selectedLabel = isApplicationStatus(newStatus) ? t(APPLICATION_STATUSES[newStatus].label) : newStatus;
   const isPdf = application.documents?.[0]?.mime_type === 'application/pdf' || /\.pdf$/i.test(application.documents?.[0]?.original_filename || '');
-  const navigationIndex = navigationContext?.applicationIds.indexOf(applicantId) ?? -1;
+  const navigationIndex = application.can_update_status && !shareContext ? (navigationContext?.applicationIds.indexOf(applicantId) ?? -1) : -1;
   const previousApplicantId = navigationIndex > 0 ? navigationContext?.applicationIds[navigationIndex - 1] : undefined;
   const nextApplicantId = navigationContext && navigationIndex >= 0 && navigationIndex < navigationContext.applicationIds.length - 1
     ? navigationContext.applicationIds[navigationIndex + 1]
@@ -244,10 +246,10 @@ export default function ApplicantDetailPage() {
   const backSearch = new URLSearchParams();
   if (navigationContext) {
     if (navigationContext.queue !== 'ALL') backSearch.set('queue', navigationContext.queue);
-    if (navigationContext.sort !== 'REVIEW_PRIORITY') backSearch.set('sort', navigationContext.sort);
+    backSearch.set('sort', navigationContext.sort);
     if (navigationContext.search.trim()) backSearch.set('q', navigationContext.search.trim());
   }
-  const backHref = application.can_update_status
+  const backHref = shareContext ? `/shortlist/${encodeURIComponent(shareContext)}` : application.can_update_status
     ? `/positions/${positionId}/applicants${backSearch.toString() ? `?${backSearch.toString()}` : ''}`
     : '/shortlist';
 
@@ -260,7 +262,7 @@ export default function ApplicantDetailPage() {
         startIcon={<ArrowBackIcon />}
         sx={{ color: '#0A2B57', mb: 2 }}
       >
-        {application.can_update_status ? t("Quay lại danh sách xếp hạng") : t("Quay lại shortlist")}
+        {application.can_update_status && !shareContext ? t("Quay lại danh sách xếp hạng") : t("Quay lại shortlist")}
       </Button>
 
       <StickyActionBar>

@@ -25,22 +25,16 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  TextField,
-  Divider,
-  Avatar,
   Snackbar,
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
-import SendIcon from '@mui/icons-material/Send';
-import PersonIcon from '@mui/icons-material/Person';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import LinkOffIcon from '@mui/icons-material/LinkOff';
 import { useCallback, useEffect, useState } from 'react';
 import { shortlistApi } from '@/lib/api';
 import StatusBadge from '@/components/common/StatusBadge';
-import ScorecardPanel from '@/components/shortlist/ScorecardPanel';
 import ScorecardReminders from '@/components/shortlist/ScorecardReminders';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 interface FeedbackItem {
   feedback_id: string;
@@ -76,18 +70,15 @@ interface ShortlistShare {
 
 export default function ShortlistPage() {
   const { t, dateLocale } = useI18n();
+  const router = useRouter();
+  const [positionFilter, setPositionFilter] = useState('');
   const [shares, setShares] = useState<ShortlistShare[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [detailError, setDetailError] = useState<string | null>(null);
   const [revokeShare, setRevokeShare] = useState<ShortlistShare | null>(null);
   const [revokeLoading, setRevokeLoading] = useState(false);
   const [revokeError, setRevokeError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [selectedShare, setSelectedShare] = useState<ShortlistShare | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [feedbackText, setFeedbackText] = useState('');
-  const [submittingFeedback, setSubmittingFeedback] = useState(false);
 
   const loadData = useCallback(async (initial = false) => {
     try {
@@ -101,50 +92,14 @@ export default function ShortlistPage() {
     }
   }, [t]);
   useEffect(() => { loadData(true); }, [loadData]);
+  useEffect(() => { setPositionFilter(new URLSearchParams(window.location.search).get('position') || ''); }, []);
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get('share');
-    if (!id || loading || !shares.length) return;
-    const share = shares.find(item => item.share_id === id);
-    if (share) { void handleOpenDetail(share); window.history.replaceState(null, '', window.location.pathname); }
-    // The link is consumed once; shares and loading are the availability gate.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, shares]);
+    if (id) router.replace(`/shortlist/${encodeURIComponent(id)}`);
+  }, [router]);
 
-  const handleOpenDetail = async (share: ShortlistShare) => {
-    setSelectedShare(share);
-    setFeedbackText(''); setDetailError(null);
-    try {
-      setDetailLoading(true);
-      const res = await shortlistApi.getDetail(share.share_id);
-      setSelectedShare(current => current?.share_id === share.share_id ? res.data : current);
-    } catch (err: any) {
-      setDetailError(err.response?.data?.detail || t("Không thể tải chi tiết shortlist"));
-    } finally {
-      setDetailLoading(false);
-    }
-  };
-
-  const handleCloseDetail = () => {
-    setSelectedShare(null);
-    setFeedbackText(''); setDetailError(null);
-  };
-
-  const handleSubmitFeedback = async () => {
-    if (!selectedShare || !feedbackText.trim()) return;
-    try {
-      setSubmittingFeedback(true); setDetailError(null);
-      await shortlistApi.addFeedback(selectedShare.share_id, feedbackText.trim());
-      // Reload detail
-      const res = await shortlistApi.getDetail(selectedShare.share_id);
-      setSelectedShare(res.data);
-      setFeedbackText('');
-      // Refresh list to update counts
-      await loadData();
-    } catch (err: any) {
-      setDetailError(err.response?.data?.detail || t("Không thể gửi phản hồi"));
-    } finally {
-      setSubmittingFeedback(false);
-    }
+  const handleOpenDetail = (share: ShortlistShare) => {
+    router.push(`/shortlist/${encodeURIComponent(share.share_id)}`);
   };
 
   const handleRevoke = async () => {
@@ -158,6 +113,8 @@ export default function ShortlistPage() {
       setRevokeError(err.response?.data?.detail || t("Không thể thu hồi shortlist"));
     } finally { setRevokeLoading(false); }
   };
+
+  const visibleShares = positionFilter ? shares.filter(share => share.position_id === positionFilter) : shares;
 
   if (loading) {
     return (
@@ -175,6 +132,9 @@ export default function ShortlistPage() {
         <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => loadData()}>{t("Làm mới")}</Button>
       </Box>
 
+      {positionFilter && <Alert severity="info" sx={{ mb: 2 }} action={<Button color="inherit" onClick={() => { setPositionFilter(''); window.history.replaceState(null, '', '/shortlist'); }}>{t('Xóa bộ lọc')}</Button>}>
+        {t('Đang lọc chia sẻ theo vị trí này.')} {visibleShares[0]?.position?.title || ''}
+      </Alert>}
       <ScorecardReminders />
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} action={<Button color="inherit" onClick={() => loadData()}>{t("Thử lại")}</Button>}>
@@ -184,9 +144,9 @@ export default function ShortlistPage() {
 
       {!error && <>
       <Box sx={{ display: { xs: 'grid', md: 'none' }, gap: 2 }}>
-        {shares.length === 0 ? (
-          <Paper sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>{t("Chưa có shortlist được gửi hoặc nhận.")}</Paper>
-        ) : shares.map(share => (
+        {visibleShares.length === 0 ? (
+          <Paper sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>{positionFilter ? t('Không có chia sẻ nào cho vị trí này trong phạm vi được phép xem.') : t("Chưa có shortlist được gửi hoặc nhận.")}</Paper>
+        ) : visibleShares.map(share => (
           <Card key={share.share_id} sx={{ border: '1px solid #E9EEF4' }}>
             <CardContent>
               <Typography variant="subtitle1" fontWeight={700} color="#0A2B57">{share.position?.title || t("Vị trí tuyển dụng")}</Typography>
@@ -218,12 +178,12 @@ export default function ShortlistPage() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {shares.length === 0 ? (
+            {visibleShares.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 8, color: 'text.secondary' }}>{t("Chưa có shortlist nào được chia sẻ với bạn")}</TableCell>
+                <TableCell colSpan={7} align="center" sx={{ py: 8, color: 'text.secondary' }}>{positionFilter ? t('Không có chia sẻ nào cho vị trí này trong phạm vi được phép xem.') : t("Chưa có shortlist nào được chia sẻ với bạn")}</TableCell>
               </TableRow>
             ) : (
-              shares.map((share) => (
+              visibleShares.map((share) => (
                 <TableRow key={share.share_id} hover>
                   <TableCell>
                     <Typography variant="body2" fontWeight={500}>
@@ -283,129 +243,6 @@ export default function ShortlistPage() {
       </TableContainer>
       </>}
 
-      {/* Detail + Feedback Dialog */}
-      <Dialog open={!!selectedShare} onClose={handleCloseDetail} maxWidth="md" fullWidth>
-        {selectedShare && (
-          <>
-            <DialogTitle>
-              <Typography variant="h6" color="#0A2B57">
-                Shortlist — {selectedShare.position?.title}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">{t("                Chia sẻ bởi")} {selectedShare.created_by_profile?.display_name || 'HR'} ·{' '}
-                {selectedShare.created_at ? new Date(selectedShare.created_at).toLocaleDateString(dateLocale) : ''}
-              </Typography>
-            </DialogTitle>
-            <DialogContent dividers>
-              {detailError && <Alert severity="error" sx={{ mb: 2 }}>{t(detailError)}</Alert>}
-              {detailLoading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-                  <CircularProgress size={28} />
-                </Box>
-              ) : (
-                <>
-                  {selectedShare.note && (
-                    <Alert severity="info" sx={{ mb: 2 }}>
-                      <strong>{t("Ghi chú từ HR:")}</strong> {selectedShare.note}
-                    </Alert>
-                  )}
-
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>{t("                    Danh sách ứng viên (")}{selectedShare.applications?.length || 0})
-                  </Typography>
-                  <Box sx={{ mb: 3, border: '1px solid #F2F4F7', borderRadius: 1, maxHeight: 200, overflowY: 'auto' }}>
-                    {(selectedShare.applications || []).map((a, idx) => (
-                      <Box key={a.application_id} sx={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        py: 1,
-                        px: 2,
-                        borderBottom: idx < (selectedShare.applications?.length || 0) - 1 ? '1px solid #F2F4F7' : 'none'
-                      }}>
-                        <Button component={Link} href={`/positions/${selectedShare.position_id}/applicants/${a.application_id}`}
-                          size="small" sx={{ textAlign: 'left', px: 0.5 }}>
-                          {a.candidate_name || a.display_name || t("Ứng viên")}
-                        </Button>
-                        <Chip
-                          size="small"
-                          label={{ MEETS_MANDATORY: t("Đáp ứng bắt buộc"), NEEDS_HR_VERIFICATION: t("Cần HR xác minh"), POSSIBLE_MISMATCH: t("Cần xem xét"), NOT_ASSESSED: t("Chưa đánh giá") }[a.matching_status || ''] || t("Chưa đánh giá hoặc kết quả đã cũ")}
-                          color={a.matching_status === 'MEETS_MANDATORY' ? 'success' : 'default'}
-                        />
-                      </Box>
-                    ))}
-                    {(!selectedShare.applications || selectedShare.applications.length === 0) && (
-                      <Typography variant="body2" color="text.secondary" sx={{ py: 2, px: 2 }}>{t("Không có dữ liệu ứng viên.")}</Typography>
-                    )}
-                  </Box>
-
-                  <ScorecardPanel shareId={selectedShare.share_id} candidates={selectedShare.applications || []} />
-                  <Divider sx={{ mb: 2 }} />
-
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>{t("                    Phản hồi (")}{(selectedShare.feedback || []).length})
-                  </Typography>
-                  <Box sx={{ mb: 2, maxHeight: 180, overflowY: 'auto' }}>
-                    {(selectedShare.feedback || []).length === 0 ? (
-                      <Typography variant="body2" color="text.secondary">{t("Chưa có phản hồi nào.")}</Typography>
-                    ) : (
-                      selectedShare.feedback!.map((f) => (
-                        <Box key={f.feedback_id} sx={{ display: 'flex', gap: 1.5, mb: 2 }}>
-                          <Avatar sx={{ width: 32, height: 32, bgcolor: '#0A2B57' }}>
-                            <PersonIcon fontSize="small" />
-                          </Avatar>
-                          <Box sx={{ flex: 1 }}>
-                            <Box sx={{ display: 'flex', gap: 1, alignItems: 'baseline' }}>
-                              <Typography variant="body2" fontWeight={600}>
-                                {f.author_name || t("Người dùng")}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {new Date(f.created_at).toLocaleString(dateLocale)}
-                              </Typography>
-                            </Box>
-                            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                              {f.content}
-                            </Typography>
-                          </Box>
-                        </Box>
-                      ))
-                    )}
-                  </Box>
-
-                  {selectedShare.status === 'ACTIVE' && selectedShare.share_level_feedback_blocked && (
-                    <Alert severity="info" sx={{ mt: 2 }}>{t("Shortlist đã thay đổi do retention; hãy yêu cầu HR tạo shortlist mới để gửi phản hồi chung")}</Alert>
-                  )}
-                  {selectedShare.status === 'ACTIVE' && !selectedShare.share_level_feedback_blocked && (
-                    <Box sx={{ mt: 2 }}>
-                      <TextField
-                        label={t("Phản hồi của bạn")}
-                        multiline
-                        rows={3}
-                        fullWidth
-                        value={feedbackText}
-                        onChange={(e) => setFeedbackText(e.target.value)}
-                        inputProps={{ maxLength: 3000 }}
-                        placeholder={t("Đánh giá tổng quan shortlist, đề xuất ứng viên nên mời phỏng vấn, lý do, câu hỏi thêm cho HR...")}
-                      />
-                    </Box>
-                  )}
-                </>
-              )}
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={handleCloseDetail}>{t("Đóng")}</Button>
-              {selectedShare.status === 'ACTIVE' && !selectedShare.share_level_feedback_blocked && (
-                <Button
-                  variant="contained"
-                  color="secondary"
-                  endIcon={<SendIcon />}
-                  onClick={handleSubmitFeedback}
-                  disabled={!feedbackText.trim() || submittingFeedback || detailLoading}
-                >
-                  {submittingFeedback ? t("Đang gửi...") : t("Gửi phản hồi")}
-                </Button>
-              )}
-            </DialogActions>
-          </>
-        )}
-      </Dialog>
       <Dialog open={!!revokeShare} onClose={() => !revokeLoading && setRevokeShare(null)} maxWidth="xs" fullWidth>
         <DialogTitle>{t("Thu hồi shortlist?")}</DialogTitle>
         <DialogContent>

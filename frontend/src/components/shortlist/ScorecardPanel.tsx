@@ -10,7 +10,7 @@ type Criterion = { criterion_id: string; name: string; description: string; rati
 type Card = { scorecard_id: string; application_id: string; criteria_version_id: string | null; assessment_id: string | null; status: string; revision: number; due_at: string; overdue: boolean; waiting_for_assessment: boolean; can_edit: boolean; can_reopen: boolean; can_change_due: boolean; can_view_history: boolean; overall_recommendation: string | null; strengths: string | null; concerns: string | null; criteria: Criterion[] };
 type Candidate = { application_id: string; candidate_name?: string; display_name?: string };
 
-export default function ScorecardPanel({ shareId, candidates }: { shareId: string; candidates: Candidate[] }) {
+export default function ScorecardPanel({ shareId, candidates, selectedApplicationId, onAccessLost, onDirtyChange, onProgress }: { shareId: string; candidates: Candidate[]; selectedApplicationId?: string; onAccessLost?: () => void; onDirtyChange?: (dirty: boolean) => void; onProgress?: (completed: Record<string, number>) => void }) {
   const { t, dateLocale } = useI18n();
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,10 +24,10 @@ export default function ScorecardPanel({ shareId, candidates }: { shareId: strin
     let live = true;
     setLoading(true); setCards([]); setDirty({}); setHistory({}); setError('');
     scorecardsApi.forShare(shareId).then(res => { if (live) setCards(res.data); })
-      .catch(() => { if (live) setError(t('Không thể tải scorecard.')); })
+      .catch((err: any) => { if (live) { if ([403, 404].includes(err.response?.status)) onAccessLost?.(); else setError(t('Không thể tải scorecard.')); } })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [shareId, t]);
+  }, [shareId, t, onAccessLost]);
 
   const update = (id: string, patch: Partial<Card>) => {
     setDirty(current => ({ ...current, [id]: true }));
@@ -39,7 +39,7 @@ export default function ScorecardPanel({ shareId, candidates }: { shareId: strin
       const result = await operation();
       setCards(current => current.map(c => c.scorecard_id === result.data.scorecard_id ? result.data : c));
       setDirty(current => ({ ...current, [result.data.scorecard_id]: false }));
-    } catch (err: any) { setError(err.response?.data?.detail || t('Không thể cập nhật scorecard.')); }
+    } catch (err: any) { if ([403, 404].includes(err.response?.status)) onAccessLost?.(); else setError(err.response?.data?.detail || t('Không thể cập nhật scorecard.')); }
     finally { setBusy(false); }
   };
   const loadHistory = async (id: string) => {
@@ -47,6 +47,17 @@ export default function ScorecardPanel({ shareId, candidates }: { shareId: strin
     catch (err: any) { setError(err.response?.data?.detail || t('Không thể tải lịch sử mở lại.')); }
     finally { setBusy(false); }
   };
+  useEffect(() => { onDirtyChange?.(Object.values(dirty).some(Boolean)); }, [dirty, onDirtyChange]);
+  // Compact, non-ranking progress so a reviewer scanning the candidate list can
+  // see which scorecards still need work without opening each one.
+  useEffect(() => {
+    const completed: Record<string, number> = {};
+    for (const card of cards) {
+      const decided = card.criteria.filter(criterion => criterion.insufficient_evidence || (criterion.rating != null && criterion.rating >= 1)).length;
+      completed[card.application_id] = card.criteria.length ? Math.round((decided / card.criteria.length) * 100) : (card.overall_recommendation ? 100 : 0);
+    }
+    onProgress?.(completed);
+  }, [cards, onProgress]);
   const save = (card: Card) => run(() => scorecardsApi.save(card.scorecard_id, {
     expected_revision: card.revision, overall_recommendation: card.overall_recommendation,
     strengths: card.strengths, concerns: card.concerns,
@@ -56,8 +67,8 @@ export default function ScorecardPanel({ shareId, candidates }: { shareId: strin
     <Typography variant="subtitle1" fontWeight={700}>{t('Scorecard đánh giá')}</Typography>
     {error && <Alert severity="error" sx={{ my: 1 }}>{t(error)}</Alert>}
     {loading && <CircularProgress size={22} />}
-    {!loading && !cards.length && <Typography variant="body2">{t('Share cũ không có scorecard.')}</Typography>}
-    {cards.map(card => <Paper key={card.scorecard_id} variant="outlined" sx={{ p: 2, my: 2 }}>
+    {!loading && !error && !cards.length && <Typography variant="body2">{t('Share cũ không có scorecard.')}</Typography>}
+    {cards.map(card => <Paper key={card.scorecard_id} variant="outlined" sx={{ p: 2, my: 2, display: selectedApplicationId && card.application_id !== selectedApplicationId ? 'none' : undefined }}>
       <Stack spacing={1.5}>
         <Typography fontWeight={700}>{candidates.find(c => c.application_id === card.application_id)?.candidate_name || candidates.find(c => c.application_id === card.application_id)?.display_name || t('Ứng viên')}</Typography>
         <Typography variant="body2">{t('Trạng thái scorecard')}: {card.status === 'SUBMITTED' ? t('Đã nộp') : card.status === 'IN_PROGRESS' ? t('Đang thực hiện') : t('Chưa bắt đầu')} · {t('Hạn phản hồi')}: {new Date(card.due_at).toLocaleString(dateLocale)} {card.overdue ? `— ${t('Quá hạn')}` : ''}</Typography>

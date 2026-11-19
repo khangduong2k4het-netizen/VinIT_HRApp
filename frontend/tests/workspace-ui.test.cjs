@@ -93,3 +93,35 @@ test('rubric form preserves structured requirements and separates keyword input'
   assert.deepEqual(optionalRequirementSpec('{"kind":"YEARS","min_years":4}'), { kind: 'YEARS', min_years: 4 });
   assert.throws(() => optionalRequirementSpec('{bad'));
 });
+
+test('ranking sort follows real rank with unranked last, distinct from review priority', () => {
+  assert.deepEqual(review.sortApplicantItems(items, 'RANK').map(item => item.application_id), ['b', 'a', 'c']);
+  assert.deepEqual(review.sortApplicantItems(items, 'REVIEW_PRIORITY').map(item => item.application_id), ['c', 'b', 'a']);
+  assert.equal(items[0].rank_number, 2); // sorting does not rewrite the actual rank
+});
+
+
+test('large applicant lists mount a bounded window without changing order or ranks', () => {
+  const many = Array.from({ length: 123 }, (_, index) => ({ ...items[0], application_id: `id-${index}`, rank_number: index + 1 }));
+  const first = review.windowApplicantItems(many, 50);
+  assert.equal(first.visible.length, 50);
+  assert.equal(first.total, 123);
+  assert.equal(first.hasMore, true);
+  assert.equal(first.visible[0].application_id, 'id-0');
+  assert.equal(first.visible[49].rank_number, 50);
+  const expanded = review.windowApplicantItems(many, first.nextLimit);
+  assert.equal(expanded.visible.length, 100);
+  assert.equal(expanded.hasMore, true);
+  const all = review.windowApplicantItems(many, expanded.nextLimit);
+  assert.equal(all.visible.length, 123);
+  assert.equal(all.hasMore, false);
+  // A limit between steps is rounded up so the window never shrinks unexpectedly.
+  assert.equal(review.windowApplicantItems(many, 30).visible.length, 50);
+});
+
+
+test('shortlist filter contains only currently shortlisted applications', () => {
+  const shortlist = [{ ...items[0], application_status: 'SHORTLIST' }, items[1], items[2]];
+  assert.equal(review.applicantQueueCounts(shortlist).SHORTLIST, 1);
+  assert.deepEqual(review.filterAndSortApplicantItems(shortlist, 'SHORTLIST', '', 'RANK').map(item => item.application_id), ['a']);
+});

@@ -6,7 +6,7 @@ import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
-  Alert, Box, Button, Card, CardContent, Chip, Grid, LinearProgress, Skeleton,
+  Alert, Box, Button, Card, CardActionArea, CardContent, Chip, Grid, LinearProgress, Skeleton,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography,
 } from '@mui/material';
 import WorkOutlineIcon from '@mui/icons-material/WorkOutline';
@@ -15,7 +15,7 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { dashboardApi } from '@/lib/api';
+import { authApi, dashboardApi } from '@/lib/api';
 import { APPLICATION_STATUSES, type ApplicationStatus } from '@/lib/applicationStatus';
 import StatusBadge from '@/components/common/StatusBadge';
 import PageHeader from '@/components/common/PageHeader';
@@ -42,6 +42,7 @@ const percent = (value: number | null | undefined) =>
 
 export default function DashboardPage() {
   const { t } = useI18n();
+  const [hrAccess, setHrAccess] = useState<boolean | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [workQueue, setWorkQueue] = useState<WorkQueueResponse | null>(null);
   const [queueError, setQueueError] = useState<string | null>(null);
@@ -55,10 +56,15 @@ export default function DashboardPage() {
       if (initial) setLoading(true); else { setRefreshing(true); setReminderRefresh(n => n + 1); }
       setError(null);
       setQueueError(null);
-      const [summaryResponse, queueResponse] = await Promise.allSettled([
+      const [summaryResponse, queueResponse, meResponse] = await Promise.allSettled([
         dashboardApi.getSummary(),
         dashboardApi.getWorkQueue(),
+        authApi.me(),
       ]);
+      if (meResponse.status === 'fulfilled') {
+        const me = meResponse.value.data;
+        setHrAccess(Boolean(me.system_roles?.some((role: string) => ['ADMIN', 'HR_LEAD', 'HR_RECRUITER'].includes(role)) || me.position_assignments?.some((a: any) => ['HR_LEAD', 'HR_RECRUITER'].includes(a.position_role))));
+      } else setHrAccess(null);
       if (summaryResponse.status === 'fulfilled') {
         setSummary(summaryResponse.value.data);
       } else {
@@ -82,10 +88,10 @@ export default function DashboardPage() {
   useEffect(() => { loadData(true); }, [loadData]);
 
   const cards = summary ? [
-    { label: t("Vị trí đang mở"), value: summary.open_positions, icon: <WorkOutlineIcon />, color: '#134D8B', bg: '#EAF3FC' },
-    { label: t("Tổng hồ sơ"), value: summary.total_applications, icon: <PeopleOutlineIcon />, color: '#0A2B57', bg: '#EAF3FC' },
-    { label: t("CV cần HR kiểm tra"), value: summary.files_needing_hr_review, icon: <WarningAmberIcon />, color: '#B54708', bg: '#FFFAEB' },
-    { label: t("Đã shortlist"), value: summary.applications_by_status.SHORTLIST, icon: <FactCheckOutlinedIcon />, color: '#067647', bg: '#ECFDF3' },
+    { label: t("Vị trí đang mở"), value: summary.open_positions, icon: <WorkOutlineIcon />, color: '#134D8B', bg: '#EAF3FC', href: '/positions?status=OPEN', hint: t('Xem vị trí đang mở') },
+    { label: t("Tổng hồ sơ"), value: summary.total_applications, icon: <PeopleOutlineIcon />, color: '#0A2B57', bg: '#EAF3FC', href: '/positions', hint: t('Chọn vị trí để xem hồ sơ') },
+    { label: t("CV cần HR kiểm tra"), value: summary.files_needing_hr_review, icon: <WarningAmberIcon />, color: '#B54708', bg: '#FFFAEB', href: '#work-queue', hint: t('Xem công việc cần kiểm tra') },
+    { label: t("Đã shortlist"), value: summary.applications_by_status.SHORTLIST, icon: <FactCheckOutlinedIcon />, color: '#067647', bg: '#ECFDF3', href: hrAccess ? '/positions' : '/shortlist', hint: hrAccess ? t('Chọn vị trí để xem ứng viên shortlist') : t('Xem chia sẻ và phản hồi') },
   ] : [];
 
   return (
@@ -114,7 +120,7 @@ export default function DashboardPage() {
             {cards.map(card => (
               <Grid item xs={12} sm={6} lg={3} key={card.label}>
                 <Card sx={{ height: '100%', border: '1px solid #E9EEF4', boxShadow: '0 2px 10px rgba(10,43,87,.04)' }}>
-                  <CardContent sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
+                  <CardActionArea component={Link} href={card.href} aria-label={`${card.label}: ${card.hint}`}><CardContent sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
                     <Box>
                       <Typography variant="body2" color="text.secondary">{card.label}</Typography>
                       <Typography variant="h3" sx={{ mt: 1, fontSize: 30, fontWeight: 700, color: card.color }}>{card.value}</Typography>
@@ -122,7 +128,7 @@ export default function DashboardPage() {
                     <Box sx={{ display: 'grid', placeItems: 'center', width: 42, height: 42, borderRadius: 2, bgcolor: card.bg, color: card.color }}>
                       {card.icon}
                     </Box>
-                  </CardContent>
+                  </CardContent></CardActionArea>
                 </Card>
               </Grid>
             ))}
@@ -133,7 +139,7 @@ export default function DashboardPage() {
           )}
 
           <ScorecardReminders refreshKey={reminderRefresh} />
-          <Box sx={{ mb: 4 }}>
+          <Box id="work-queue" sx={{ mb: 4, scrollMarginTop: 90 }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 2, flexWrap: 'wrap', mb: 2 }}>
               <Box>
                 <Typography variant="h2" sx={{ fontSize: 19, color: '#0A2B57' }}>{t("Việc cần làm")}</Typography>

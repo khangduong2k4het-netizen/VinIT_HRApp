@@ -2,6 +2,7 @@ import type { RankingItem } from '@/types';
 
 export type ApplicantQueue =
   | 'ALL'
+  | 'SHORTLIST'
   | 'FILE_REVIEW'
   | 'DUPLICATE'
   | 'NEEDS_VERIFICATION'
@@ -22,6 +23,7 @@ export interface ApplicantNavigationContext {
 
 export const APPLICANT_QUEUES: ApplicantQueue[] = [
   'ALL',
+  'SHORTLIST',
   'FILE_REVIEW',
   'DUPLICATE',
   'NEEDS_VERIFICATION',
@@ -62,6 +64,8 @@ export function matchesApplicantQueue(item: RankingItem, queue: ApplicantQueue) 
   if (queue === 'ALL') return true;
   if (!inScreening(item.application_status)) return false;
   switch (queue) {
+    case 'SHORTLIST':
+      return item.application_status === 'SHORTLIST';
     case 'FILE_REVIEW':
       return item.file_processing_status === 'NEEDS_HR_REVIEW';
     case 'DUPLICATE':
@@ -167,10 +171,19 @@ export function readApplicantNavigation(positionId: string): ApplicantNavigation
     return {
       ...parsed,
       queue: isApplicantQueue(parsed.queue) ? parsed.queue : 'ALL',
-      sort: isApplicantSort(parsed.sort) ? parsed.sort : 'REVIEW_PRIORITY',
+      sort: isApplicantSort(parsed.sort) ? parsed.sort : 'RANK',
       search: parsed.search || '',
     };
   } catch {
     return null;
   }
+}
+
+/**
+ * Bounded rendering window for long applicant queues. Returns the slice that is
+ * mounted plus whether more rows exist; it never changes order or ranks.
+ */
+export function windowApplicantItems<T>(items: T[], limit: number, step = 50) {
+  const safeLimit = Math.max(step, Math.floor(limit / step) * step);
+  return { visible: items.slice(0, safeLimit), hasMore: items.length > safeLimit, nextLimit: safeLimit + step, total: items.length };
 }

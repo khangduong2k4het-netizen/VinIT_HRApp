@@ -57,7 +57,7 @@ import Autocomplete from '@mui/material/Autocomplete';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { assessmentsApi, operationsApi, applicationsApi, shortlistApi, positionsApi, type DuplicateSignal } from '@/lib/api';
+import { assessmentsApi, operationsApi, applicationsApi, listAllApplications, shortlistApi, positionsApi, type DuplicateSignal } from '@/lib/api';
 import StatusBadge from '@/components/common/StatusBadge';
 import QueueFilterChips from '@/components/applicants/QueueFilterChips';
 import OperationProgressPanel from '@/components/workflow/OperationProgressPanel';
@@ -67,6 +67,7 @@ import {
   isApplicantQueue,
   isApplicantSort,
   storeApplicantNavigation,
+  windowApplicantItems,
   type ApplicantQueue,
   type ApplicantSort,
 } from '@/lib/applicantReview';
@@ -115,10 +116,10 @@ export default function ApplicantsRankingPage() {
   const [shareError, setShareError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [queue, setQueue] = useState<ApplicantQueue>('ALL');
-  const [sort, setSort] = useState<ApplicantSort>('REVIEW_PRIORITY');
+  const [sort, setSort] = useState<ApplicantSort>('RANK');
   const [searchQuery, setSearchQuery] = useState('');
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const urlInitializedRef = useRef(false);
+  const [urlInitialized, setUrlInitialized] = useState(false);
 
   // Shortlist share dialog state
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
@@ -130,6 +131,10 @@ export default function ApplicantsRankingPage() {
   const [shareDueAt, setShareDueAt] = useState('');
   const [shareSubmitting, setShareSubmitting] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  // Large applicant lists mount a bounded window; expanding "more" only affects
+  // rendering, never ranks, filters or the set used for shortlist sharing.
+  const [visibleLimit, setVisibleLimit] = useState(50);
+  const [loadingProgress, setLoadingProgress] = useState<number | null>(null);
 
   const toggleExpanded = (appId: string) => {
     setExpandedIds(prev => {
@@ -175,7 +180,7 @@ export default function ApplicantsRankingPage() {
     try {
       const [rankRes, appsRes] = await Promise.all([
         assessmentsApi.getLatestRanking(positionId),
-        applicationsApi.listAll(positionId),
+        listAllApplications(positionId, { onProgress: (loaded) => setLoadingProgress(loaded) }),
       ]);
       const ranks: RankingItem[] = rankRes.data || [];
       const apps: any[] = appsRes;
@@ -225,10 +230,12 @@ export default function ApplicantsRankingPage() {
 
       setRankingError(null);
       setRankingItems(merged);
+      setLoadingProgress(null);
     } catch (err: any) {
       setRankingError(err.response?.data?.detail || t("Không thể tải bảng xếp hạng"));
     } finally {
       setLoading(false);
+      setLoadingProgress(null);
     }
   }, [positionId, t]);
 
@@ -266,6 +273,7 @@ export default function ApplicantsRankingPage() {
 
   useEffect(() => {
     let mounted = true;
+    // Ignore late responses after leaving the page so a stale list cannot flash back.
     loadRanking();
     operationsApi.getActiveForPosition(positionId).then(res => {
       if (mounted && res.data) { setAssessing(true); setOperationStatus(res.data); pollOperation(res.data.operation_id); }
@@ -279,19 +287,20 @@ export default function ApplicantsRankingPage() {
     const sortParam = params.get('sort');
     if (isApplicantQueue(queueParam)) setQueue(queueParam);
     if (isApplicantSort(sortParam)) setSort(sortParam);
+    else if (queueParam && queueParam !== 'ALL' && queueParam !== 'SHORTLIST') setSort('REVIEW_PRIORITY');
     if (params.get('q')) setSearchQuery(params.get('q') || '');
-    urlInitializedRef.current = true;
+    setUrlInitialized(true);
   }, []);
 
   useEffect(() => {
-    if (!urlInitializedRef.current) return;
+    if (!urlInitialized) return;
     const params = new URLSearchParams();
     if (queue !== 'ALL') params.set('queue', queue);
-    if (sort !== 'REVIEW_PRIORITY') params.set('sort', sort);
+    if (sort !== 'RANK' || (queue !== 'ALL' && queue !== 'SHORTLIST')) params.set('sort', sort);
     if (searchQuery.trim()) params.set('q', searchQuery.trim());
     const query = params.toString();
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
-  }, [queue, sort, searchQuery]);
+  }, [queue, sort, searchQuery, urlInitialized]);
 
   const handleRunAssessment = async () => {
     try {
@@ -387,6 +396,8 @@ export default function ApplicantsRankingPage() {
 
   const queueCounts = applicantQueueCounts(rankingItems);
   const filteredItems = filterAndSortApplicantItems(rankingItems, queue, searchQuery, sort);
+  const { visible: visibleItems, hasMore, nextLimit } = windowApplicantItems(filteredItems, visibleLimit);
+  useEffect(() => { setVisibleLimit(50); }, [queue, sort, searchQuery]);
 
   const storeNavigationContext = () => {
     storeApplicantNavigation({
@@ -423,8 +434,11 @@ export default function ApplicantsRankingPage() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mt: 10, gap: 2 }} role="status" aria-live="polite">
         <CircularProgress color="secondary" />
+        <Typography variant="body2" color="text.secondary">
+          {loadingProgress != null ? t("Đang tải danh sách ứng viên theo trang: {0} hồ sơ. Bộ lọc và xếp hạng áp dụng sau khi tải xong.", loadingProgress) : t("Đang tải danh sách ứng viên...")}
+        </Typography>
       </Box>
     );
   }
@@ -434,7 +448,7 @@ export default function ApplicantsRankingPage() {
       <Button component={Link} href={`/positions/${positionId}`} startIcon={<ArrowBackIcon />} sx={{ mb: 1 }}>{t("Quay lại vị trí")}</Button>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2, mb: 3 }}>
         <Box>
-          <Typography variant="h2" sx={{ fontSize: 22, color: '#0A2B57', mb: 0.5 }}>{t("Danh sách ưu tiên rà soát ứng viên")}</Typography>
+          <Typography variant="h2" sx={{ fontSize: 22, color: '#0A2B57', mb: 0.5 }}>{t("Danh sách ứng viên")}</Typography>
           <Typography variant="body2" color="text.secondary">{t("Xếp hạng sàng lọc theo phiên bản tiêu chí mới nhất đã duyệt; số thứ hạng là tại lần chạy gần nhất.")}</Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
@@ -473,6 +487,7 @@ export default function ApplicantsRankingPage() {
         <OperationProgressPanel operation={operationStatus} />
       )}
 
+      {loading && loadingProgress != null && <Alert severity="info" sx={{ mb: 3 }} icon={<CircularProgress size={18} />}>{t("Đang tải danh sách ứng viên theo trang: {0} hồ sơ. Bộ lọc và xếp hạng áp dụng sau khi tải xong.", loadingProgress)}</Alert>}
       {rankingError && <Alert severity="error" sx={{ mb: 3 }} action={<Button color="inherit" onClick={loadRanking}>{t("Thử lại")}</Button>}>{t(rankingError)}</Alert>}
       {!rankingError && <>
       {/* Summary cards */}
@@ -509,6 +524,12 @@ export default function ApplicantsRankingPage() {
         )}
       </Stack>
 
+      <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }} role="group" aria-label={t('Chế độ xem ứng viên')}>
+        <Button variant={sort === 'RANK' ? 'contained' : 'outlined'} aria-pressed={sort === 'RANK'} onClick={() => { setQueue('ALL'); setSort('RANK'); }}>{t('Xếp hạng')}</Button>
+        <Button variant={sort === 'REVIEW_PRIORITY' ? 'contained' : 'outlined'} aria-pressed={sort === 'REVIEW_PRIORITY'} onClick={() => { setQueue('ALL'); setSort('REVIEW_PRIORITY'); }}>{t('Cần rà soát')}</Button>
+      </Box>
+      {sort === 'REVIEW_PRIORITY' && <Alert severity="info" sx={{ mb: 2 }}>{t('Danh sách ưu tiên vấn đề cần xử lý, không phải thứ tự xếp hạng. Số hạng vẫn thuộc lần chạy gần nhất.')}</Alert>}
+      {sort === 'RANK' && <Alert severity="info" sx={{ mb: 2 }}>{t('Sắp theo thứ hạng của lần chạy gần nhất; hồ sơ chưa có hạng được đưa xuống cuối.')}</Alert>}
       {/* Review queues and filters */}
       <QueueFilterChips value={queue} counts={queueCounts} onChange={setQueue} />
       <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -549,6 +570,12 @@ export default function ApplicantsRankingPage() {
         <Typography variant="caption" color="text.secondary">{t("Đang hiển thị {0} hồ sơ trong hàng đợi.", filteredItems.length)}</Typography>
       </Box>
 
+      {hasMore && (
+        <Alert severity="info" sx={{ mb: 2 }} action={<Button color="inherit" size="small" onClick={() => setVisibleLimit(nextLimit)}>{t("Hiện thêm 50 hồ sơ")}</Button>}>
+          {t("Đang hiển thị {0}/{1} hồ sơ để trang nhẹ và dễ đọc. Xếp hạng, bộ lọc và lựa chọn chia sẻ vẫn áp dụng cho toàn bộ danh sách.", visibleItems.length, filteredItems.length)}
+        </Alert>
+      )}
+
       {selectedIds.size > 0 && (
         <Box sx={{ position: 'sticky', top: { xs: 72, md: 76 }, zIndex: 4, mb: 3, p: 1.5, border: '1px solid #B9CBE2', borderRadius: 2, backgroundColor: '#EFF8FF', display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
           <Typography variant="body2" fontWeight={700}>{t("Đã chọn {0} hồ sơ shortlist", selectedIds.size)}</Typography>
@@ -568,7 +595,7 @@ export default function ApplicantsRankingPage() {
           <Paper sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
             {rankingItems.length === 0 ? t("Chưa có hồ sơ nào. Tải CV lên để bắt đầu.") : t("Không có hồ sơ nào phù hợp bộ lọc.")}
           </Paper>
-        ) : filteredItems.map(item => (
+        ) : visibleItems.map(item => (
           <Card key={item.application_id} sx={{ border: '1px solid #E9EEF4' }}>
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
@@ -631,7 +658,7 @@ export default function ApplicantsRankingPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredItems.map((item) => (
+              visibleItems.map((item) => (
                 <React.Fragment key={item.application_id}>
                 <TableRow hover selected={selectedIds.has(item.application_id)}>
                   <TableCell padding="checkbox">

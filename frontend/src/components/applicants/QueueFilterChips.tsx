@@ -7,6 +7,7 @@ import type { ApplicantQueue } from '@/lib/applicantReview';
 
 const QUEUE_LABELS: Record<ApplicantQueue, string> = {
   ALL: 'Tất cả',
+  SHORTLIST: 'Đã shortlist',
   FILE_REVIEW: 'Cần kiểm tra file',
   NEEDS_VERIFICATION: 'Cần xác minh',
   DUPLICATE: 'Cảnh báo trùng',

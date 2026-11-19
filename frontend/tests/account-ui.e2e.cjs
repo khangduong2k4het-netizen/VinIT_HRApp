@@ -67,6 +67,12 @@ const json = (route, body, status = 200) => route.fulfill({ status, contentType:
         state.positions.push({ ...state.positionBody, position_id: 'position-id', status: 'OPEN', created_by: 'hr-id', created_at: new Date().toISOString() });
         return json(route, { position_id: 'position-id' }, 201);
       }
+      if (path === '/v1/departments') return json(route, [{ department_id: 'dept-id', name: 'IT Test', code_format: 'REQ-IT-{SEQ:000}', next_sequence: 1 }]);
+      if (path === '/v1/rubric-library/families') return json(route, []);
+      if (path === '/v1/positions/position-id') return json(route, { position_id: 'position-id', position_code: 'REQ-IT-001', title: 'Synthetic Engineer', status: 'OPEN' });
+      if (path === '/v1/positions/position-id/jd-versions') return json(route, [{ jd_version_id: 'jd-id', version_number: 1, content_text: 'Synthetic job description for testing.', language_code: 'vi' }]);
+      if (path === '/v1/criteria/position/position-id/versions') return json(route, []);
+      if (path === '/v1/positions/position-id/workspace') return json(route, { detail: 'Synthetic unavailable' }, 404);
       if (path === '/v1/users') { state.directoryUrl = url; return json(route, [{ user_id: 'hm-id', display_name: 'Hằng HM' }]); }
       errors.push(`Unmocked API request: ${method} ${path}`); return json(route, { detail: 'Unexpected synthetic request' }, 500);
     });
@@ -117,14 +123,23 @@ const json = (route, body, status = 200) => route.fulfill({ status, contentType:
 
   const recruiter = await browser.newContext({ viewport: { width: 1280, height: 800 } }); await setup(recruiter);
   await recruiter.addInitScript(() => localStorage.setItem('hra_access_token', 'hr-token'));
+  // The temp-password context is still mounted and can keep a navigation pending;
+  // close it before reusing the dev server so the check measures the recruiter page.
+  await temporary.close();
   const hp = await recruiter.newPage(); watch(hp); await hp.goto(base + '/positions'); await visible(hp, 'Danh sách vị trí tuyển dụng');
   assert.equal(await hp.getByRole('link', { name: 'Quản lý tài khoản' }).count(), 0);
-  await hp.getByRole('button', { name: 'Tạo vị trí mới' }).click(); dialog = hp.getByRole('dialog');
-  await dialog.getByLabel('Mã vị trí').fill('SYNTHETIC-001'); await dialog.getByLabel('Tên vị trí').fill('Synthetic Engineer');
-  await dialog.getByLabel('Hiring Manager').fill('Hằng'); await hp.getByRole('option', { name: 'Hằng HM' }).click();
-  await dialog.getByLabel('Nội dung Job Description (tiếng Anh)').fill('Synthetic job description for testing.');
-  await dialog.getByRole('button', { name: 'Tạo vị trí', exact: true }).click(); await visible(hp, 'Synthetic Engineer');
+  await hp.getByRole('button', { name: 'Tạo vị trí mới' }).click();
+  await hp.waitForURL('**/positions/new');
+  await hp.getByRole('textbox', { name: /Tên vị trí/ }).fill('Synthetic Engineer');
+  await hp.getByLabel('Đơn vị / Phòng ban').click(); await hp.getByRole('option', { name: 'IT Test' }).click();
+  await hp.getByLabel('Hiring Manager').fill('Hằng'); await hp.getByRole('option', { name: 'Hằng HM' }).click();
+  await hp.getByLabel('Nội dung JD').fill('Synthetic job description for testing.');
+  await hp.getByRole('button', { name: 'Tạo vị trí và tiếp tục' }).click();
+  // App Router navigates on the client, so only wait for the URL, not a document load.
+  await hp.waitForURL('**/positions/position-id?tab=criteria', { waitUntil: 'commit' });
   assert.equal(state.directoryUrl.searchParams.get('role'), 'HIRING_MANAGER'); assert.equal(state.positionBody.hiring_manager_user_id, 'hm-id');
+  assert.equal(state.positionBody.jd_language_code, 'vi');
+  assert.match(state.positionBody.request_id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/, 'create sends a retry-safe request id');
   await hp.goto(base + '/admin/users'); await visible(hp, 'Chỉ quản trị viên mới có quyền truy cập.');
   console.log('HR selects an HM role and cannot access account administration: OK');
 

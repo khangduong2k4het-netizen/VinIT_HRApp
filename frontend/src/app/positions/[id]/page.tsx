@@ -54,6 +54,7 @@ import CVIntakePanel from '@/components/positions/CVIntakePanel';
 import ApplyRubric from '@/components/positions/ApplyRubric';
 import HiringManagerChange from './HiringManagerChange';
 import { validateIntakeFiles } from '@/lib/intake';
+import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import type { Position, CriteriaVersion, Criterion, JDVersion, RequirementSpec, PositionWorkspace } from '@/types';
 
 interface TabPanelProps {
@@ -131,6 +132,7 @@ export default function PositionDetailPage() {
   const [jdLanguage, setJdLanguage] = useState<'vi' | 'en'>('vi');
   const [jdExpected, setJdExpected] = useState('');
   const [jdError, setJdError] = useState<string | null>(null);
+  const [jdBaseline, setJdBaseline] = useState('');
   const [savingJd, setSavingJd] = useState(false);
   const [me, setMe] = useState<any>(null);
   const [activeTab, setActiveTab] = useState(0);
@@ -172,6 +174,8 @@ export default function PositionDetailPage() {
   const [appCounts, setAppCounts] = useState<{total: number; processing: number; needs_review: number; shortlisted: number} | null>(null);
 
   const latestJd = jdVersions[0];
+  const jdDirty = jdDialogOpen && (jdContent !== jdBaseline || jdLanguage !== (latestJd?.language_code || 'vi'));
+  useUnsavedChangesGuard(jdDirty, t('Nội dung JD chưa lưu sẽ bị mất. Tiếp tục?'));
   const approvedCriteria = criteriaVersions.find(c => c.status === 'APPROVED' && c.jd_version_id === latestJd?.jd_version_id);
   // Versions are returned newest-first. A newer draft/rejected version must not
   // disappear behind a previously approved version.
@@ -545,6 +549,8 @@ export default function PositionDetailPage() {
           </Box>
         </Box>
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+          {isHR && <Button component={Link} href={`/positions/${positionId}/applicants`} variant="contained">{t('Ứng viên')} {appCounts ? `(${appCounts.total})` : ''}</Button>}
+          {!isHR && <Button component={Link} href="/shortlist" variant="outlined">{t('Shortlist được chia sẻ')}</Button>}
           {isHR && <HiringManagerChange positionId={positionId} onChanged={loadData} />}
           {isHR && <ApplyRubric positionId={positionId} onApplied={loadData} disabled={generating || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status))} />}
           {isHR && <Button variant="outlined" startIcon={<EditOutlinedIcon />} onClick={() => {
@@ -579,7 +585,7 @@ export default function PositionDetailPage() {
 
       {workspace && (
         <>
-          <PositionSummary workspace={workspace} />
+          <PositionSummary workspace={workspace} isHR={isHR} />
           <WorkflowStepper workspace={workspace} />
           <NextActionCard workspace={workspace} onAction={handleNextAction} />
         </>
@@ -632,6 +638,7 @@ export default function PositionDetailPage() {
 
       {/* Tab 1: Criteria & Approval */}
       <TabPanel value={activeTab} index={0}>
+        {latestJd && <Card variant="outlined" sx={{ mb: 2 }}><CardContent><Typography variant="h4" sx={{ mb: 1 }}>{t('JD mới nhất để đối chiếu')} · v{latestJd.version_number}</Typography><Box component="details"><Box component="summary" sx={{ cursor: 'pointer', fontWeight: 600 }}>{t('Xem mô tả công việc')}</Box><Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 1, maxHeight: 360, overflow: 'auto' }}>{latestJd.content_text}</Typography></Box></CardContent></Card>}
         {currentCriteria?.source_template_version_id && <Alert severity="info" sx={{ mb: 2 }}>{t("Nguồn phiên bản rubric")}: {currentCriteria.source_template_version_id}</Alert>}
         {criteriaStale && <Alert severity="warning" sx={{ mb: 2 }}>{t("JD đã thay đổi. Cần tạo và duyệt bộ tiêu chí cho phiên bản mới trước khi tải hoặc đánh giá CV.")}</Alert>}
         {isHM && isSameApprover && currentCriteria?.status === 'PENDING_HM_APPROVAL' && <Alert severity="warning" sx={{ mb: 2 }}>{t("Hai bước duyệt phải do hai tài khoản khác nhau thực hiện. Vui lòng nhờ Hiring Manager khác được phân công duyệt.")}</Alert>}
@@ -979,8 +986,8 @@ export default function PositionDetailPage() {
       <TabPanel value={activeTab} index={2}>
         <Card>
           <CardContent sx={{ textAlign: 'center', py: 8 }}>
-            <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>{t("Xem tất cả shortlist đã chia sẻ, trạng thái phản hồi của Hiring Manager tại trang Shortlist.")}</Typography>
-            <Button component={Link} href="/shortlist" variant="contained" color="secondary">{t("Đi đến trang Shortlist")}</Button>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>{t("Xem shortlist đã chia sẻ cho vị trí này và trạng thái phản hồi của Hiring Manager.")}</Typography>
+            <Button component={Link} href={`/shortlist?position=${positionId}`} variant="contained" color="secondary">{t("Đi đến trang Shortlist")}</Button>
           </CardContent>
         </Card>
       </TabPanel>
@@ -990,7 +997,7 @@ export default function PositionDetailPage() {
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', mb: 2 }}>
             <Typography variant="h4">{t("Mô tả công việc")}</Typography>
             {isHR && <Button variant="outlined" startIcon={<EditOutlinedIcon />} disabled={!latestJd || isOperationRunning}
-              onClick={() => { if (latestJd) { setJdContent(latestJd.content_text); setJdLanguage(latestJd.language_code); setJdExpected(latestJd.jd_version_id); setJdError(null); setJdDialogOpen(true); } }}>{t("Tạo phiên bản JD mới")}</Button>}
+              onClick={() => { if (latestJd) { setJdContent(latestJd.content_text); setJdBaseline(latestJd.content_text); setJdLanguage(latestJd.language_code); setJdExpected(latestJd.jd_version_id); setJdError(null); setJdDialogOpen(true); } }}>{t("Tạo phiên bản JD mới")}</Button>}
           </Box>
           {jdVersions.length > 0 ? <>
             <FormControl size="small" sx={{ minWidth: 180, mb: 2 }}><InputLabel id="jd-version-label">{t("Phiên bản JD")}</InputLabel>
@@ -1002,7 +1009,7 @@ export default function PositionDetailPage() {
         </CardContent></Card>
       </TabPanel>
 
-      <Dialog open={jdDialogOpen} onClose={() => !savingJd && setJdDialogOpen(false)} maxWidth="md" fullWidth>
+      <Dialog open={jdDialogOpen} onClose={() => { if (!savingJd && (!jdDirty || window.confirm(t('Nội dung JD chưa lưu sẽ bị mất. Tiếp tục?')))) setJdDialogOpen(false); }} maxWidth="md" fullWidth>
         <DialogTitle>{t("Tạo phiên bản mô tả công việc mới")}</DialogTitle>
         <DialogContent>
           <Alert severity="info" sx={{ mt: 1, mb: 2 }}>{t("Phiên bản cũ được giữ lại. Sau khi lưu, cần tạo và duyệt tiêu chí mới trước khi xử lý thêm CV.")}</Alert>
@@ -1012,7 +1019,7 @@ export default function PositionDetailPage() {
           </FormControl>
           <TextField label={t("Nội dung JD")} required fullWidth multiline minRows={12} value={jdContent} onChange={e => setJdContent(e.target.value)} inputProps={{ maxLength: 100000 }} />
         </DialogContent>
-        <DialogActions><Button onClick={() => setJdDialogOpen(false)} disabled={savingJd}>{t("Hủy")}</Button>
+        <DialogActions><Button onClick={() => { if (!jdDirty || window.confirm(t('Nội dung JD chưa lưu sẽ bị mất. Tiếp tục?'))) setJdDialogOpen(false); }} disabled={savingJd}>{t("Hủy")}</Button>
           <Button variant="contained" onClick={saveJd} disabled={savingJd || !jdContent.trim()}>{t("Lưu phiên bản mới")}</Button></DialogActions>
       </Dialog>
 

@@ -18,62 +18,28 @@ import {
   TableRow,
   Paper,
   IconButton,
+  Tooltip,
   Chip,
   CircularProgress,
   Alert,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  Autocomplete,
-  Tooltip,
-  FormControl,
-  InputLabel,
-  MenuItem,
-  Select,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { positionsApi, usersApi, dashboardApi, authApi, departmentsApi, rubricApi } from '@/lib/api';
+import { positionsApi, dashboardApi, authApi } from '@/lib/api';
 import StatusBadge from '@/components/common/StatusBadge';
-import { Department, Position, UserSummary } from '@/types';
-
-const renderDepartmentCode = (codeFormat: string, sequence: number) =>
-  codeFormat.replace(/\{SEQ(?::(0+))?\}/, (_match, zeros: string | undefined) =>
-    String(sequence).padStart((zeros || '').length || 1, '0'));
+import { Position } from '@/types';
 
 export default function PositionsPage() {
   const { t } = useI18n();
   const router = useRouter();
   const [positions, setPositions] = useState<Position[]>([]);
+  const [statusFilter, setStatusFilter] = useState('ALL');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [createError, setCreateError] = useState<string | null>(null);
   const [applicationTotal, setApplicationTotal] = useState<number | null>(null);
   const [canCreate, setCanCreate] = useState(false);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [createLoading, setCreateLoading] = useState(false);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [families, setFamilies] = useState<Array<{job_family_id: string; code: string; name: string}>>([]);
-  const [departmentsLoading, setDepartmentsLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    department_id: '',
-    job_family_id: '',
-    title: '',
-    jd_content: '',
-    hiring_manager_user_id: '',
-  });
-  const [hmSearchQuery, setHmSearchQuery] = useState('');
-  const [hmOptions, setHmOptions] = useState<UserSummary[]>([]);
-  const [hmLoading, setHmLoading] = useState(false);
-  const [hmSelectedName, setHmSelectedName] = useState('');
-  const selectedDepartment = departments.find((department) => department.department_id === formData.department_id);
-  const positionCodePreview = selectedDepartment
-    ? renderDepartmentCode(selectedDepartment.code_format, selectedDepartment.next_sequence)
-    : '';
 
   const loadPositions = useCallback(async () => {
     try {
@@ -93,65 +59,10 @@ export default function PositionsPage() {
     }
   }, [t]);
   useEffect(() => { loadPositions(); }, [loadPositions]);
+  useEffect(() => { const status = new URLSearchParams(window.location.search).get('status'); if (status && ['OPEN','PAUSED','CLOSED'].includes(status)) setStatusFilter(status); }, []);
+  const visiblePositions = statusFilter === 'ALL' ? positions : positions.filter(p => p.status === statusFilter);
+  const selectStatus = (status: string) => { setStatusFilter(status); window.history.replaceState(null, '', status === 'ALL' ? '/positions' : `/positions?status=${status}`); };
 
-  const handleCreatePosition = async () => {
-    try {
-      setCreateLoading(true); setCreateError(null);
-      const payload = {
-        department_id: formData.department_id,
-        ...(formData.job_family_id ? { job_family_id: formData.job_family_id } : {}),
-        title: formData.title,
-        jd_content: formData.jd_content,
-        hiring_manager_user_id: formData.hiring_manager_user_id,
-      };
-      await positionsApi.create(payload);
-      setCreateDialogOpen(false);
-      setFormData({ department_id: '', job_family_id: '', title: '', jd_content: '', hiring_manager_user_id: '' });
-      setHmSelectedName('');
-      setHmSearchQuery('');
-      setHmOptions([]);
-      await loadPositions();
-    } catch (err: any) {
-      setCreateError(err.response?.data?.detail || t("Không thể tạo vị trí mới"));
-    } finally {
-      setCreateLoading(false);
-    }
-  };
-
-  // Preload the department dropdown and the Hiring Manager list as soon as
-  // the create dialog opens, so both choices are visible without typing.
-  useEffect(() => {
-    if (!createDialogOpen) return;
-    let active = true;
-    setDepartmentsLoading(true);
-    setHmLoading(true);
-    Promise.allSettled([
-      departmentsApi.list(false),
-      usersApi.list({ role: 'HIRING_MANAGER' }),
-      rubricApi.families(),
-    ]).then(([departmentResult, hmResult, familiesResult]) => {
-      if (!active) return;
-      if (departmentResult.status === 'fulfilled') {
-        setDepartments(departmentResult.value.data || []);
-      } else {
-        setDepartments([]);
-        setCreateError(departmentResult.reason?.response?.data?.detail || t("Không thể tải danh sách phòng ban."));
-      }
-      if (familiesResult.status === 'fulfilled') setFamilies(familiesResult.value.data || []);
-      else { setFamilies([]); setCreateError(t('Không thể tải nhóm vị trí.')); }
-      if (hmResult.status === 'fulfilled') {
-        setHmOptions(hmResult.value.data || []);
-      } else {
-        setHmOptions([]);
-      }
-    }).finally(() => {
-      if (active) {
-        setDepartmentsLoading(false);
-        setHmLoading(false);
-      }
-    });
-    return () => { active = false; };
-  }, [createDialogOpen, t]);
 
   const getPositionStatusBadge = (status: string) => {
     switch (status) {
@@ -202,7 +113,7 @@ export default function PositionsPage() {
           variant="contained"
           color="secondary"
           startIcon={<AddIcon />}
-          onClick={() => { setCreateError(null); setCreateDialogOpen(true); }}
+          onClick={() => router.push('/positions/new')}
           size="large"
         >{t("Tạo vị trí mới")}</Button>}
       </Box>
@@ -258,11 +169,14 @@ export default function PositionsPage() {
         </Grid>
       </Grid>
 
+      <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }} role="group" aria-label={t("Lọc vị trí")}>
+        {([['ALL','Tất cả'],['OPEN','Đang mở'],['PAUSED','Tạm dừng'],['CLOSED','Đã đóng']] as const).map(([value,label]) => <Chip key={value} label={t(label)} onClick={() => selectStatus(value)} aria-pressed={statusFilter === value} color={statusFilter === value ? 'primary' : 'default'} />)}
+      </Box>
       {/* On small screens cards keep the actions and status visible without horizontal scrolling. */}
       <Box sx={{ display: { xs: 'grid', md: 'none' }, gap: 2 }}>
-        {positions.length === 0 ? (
+        {visiblePositions.length === 0 ? (
           <Paper sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>{t("Chưa có vị trí trong phạm vi của bạn")}</Paper>
-        ) : positions.map(pos => (
+        ) : visiblePositions.map(pos => (
           <Card key={pos.position_id} sx={{ border: '1px solid #E9EEF4' }}>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
@@ -295,12 +209,12 @@ export default function PositionsPage() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {positions.length === 0 ? (
+            {visiblePositions.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={6} align="center" sx={{ py: 8, color: 'text.secondary' }}>{t("Chưa có vị trí nào được tạo")}</TableCell>
               </TableRow>
             ) : (
-              positions.map((pos) => (
+              visiblePositions.map((pos) => (
                 <TableRow key={pos.position_id} hover>
                   <TableCell>
                     <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace' }}>
@@ -308,7 +222,7 @@ export default function PositionsPage() {
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2" sx={{ fontWeight: 500 }}>{pos.title}</Typography>
+                    <Button onClick={() => router.push(`/positions/${pos.position_id}`)} sx={{ textAlign: 'left', p: 0, textTransform: 'none' }}>{pos.title}</Button>
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2" color="text.secondary">{pos.department_name || pos.org_unit || '-'}</Typography>
@@ -335,133 +249,7 @@ export default function PositionsPage() {
       </TableContainer>
       </>}
 
-      {/* Create Position Dialog */}
-      <Dialog
-        open={createDialogOpen}
-        onClose={() => { if (!createLoading) setCreateDialogOpen(false); }}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle sx={{ color: '#0A2B57', fontWeight: 'bold' }}>{t("Tạo vị trí tuyển dụng mới")}</DialogTitle>
-        <DialogContent dividers>
-          {createError && <Alert severity="error" sx={{ mb: 2 }}>{t(createError)}</Alert>}
-          <Grid container spacing={3} sx={{ pt: 1 }}>
-            <Grid item xs={12}>
-              <FormControl fullWidth required>
-                <InputLabel id="create-position-department-label">{t("Đơn vị / Phòng ban")}</InputLabel>
-                <Select
-                  labelId="create-position-department-label"
-                  label={t("Đơn vị / Phòng ban")}
-                  value={formData.department_id}
-                  onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
-                  disabled={departmentsLoading}
-                >
-                  {departments.map((department) => (
-                    <MenuItem key={department.department_id} value={department.department_id}>
-                      {department.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              {departmentsLoading && <Typography variant="caption" color="text.secondary">{t("Đang tải danh sách phòng ban...")}</Typography>}
-              {!departmentsLoading && departments.length === 0 && (
-                <Alert severity="warning" sx={{ mt: 1 }}>{t("Chưa có phòng ban đang hoạt động. Admin cần tạo phòng ban trước.")}</Alert>
-              )}
-            </Grid>
-            <Grid item xs={12}>
-              <TextField select fullWidth label={t("Nhóm vị trí (tùy chọn)")} value={formData.job_family_id} onChange={e => setFormData({ ...formData, job_family_id: e.target.value })}>
-                <MenuItem value="">{t("Chưa chọn")}</MenuItem>
-                {families.map(f => <MenuItem key={f.job_family_id} value={f.job_family_id}>{f.code === 'ADMIN_OPERATIONS' ? t('Vận hành & Hành chính') : f.name}</MenuItem>)}
-              </TextField>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                label={t("Mã vị trí (tự sinh)")}
-                fullWidth
-                value={positionCodePreview}
-                placeholder={t("Chọn phòng ban để sinh mã")}
-                helperText={selectedDepartment
-                  ? t("Sinh theo mã định dạng {0}", selectedDepartment.code_format)
-                  : t("Mã được sinh theo mã định dạng của phòng ban, ví dụ REQ-IT-001")}
-                InputProps={{ readOnly: true }}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                label={t("Tên vị trí")}
-                fullWidth
-                required
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                placeholder="Senior Software Engineer"
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <Autocomplete
-                options={hmOptions}
-                loading={hmLoading}
-                getOptionLabel={(opt: any) => typeof opt === 'string' ? opt : opt.display_name || ''}
-                isOptionEqualToValue={(opt: any, val: any) => opt.user_id === val?.user_id}
-                inputValue={hmSearchQuery}
-                onInputChange={(_, val) => setHmSearchQuery(val)}
-                noOptionsText={t("Không tìm thấy Hiring Manager đang hoạt động")}
-                value={hmOptions.find((option) => option.user_id === formData.hiring_manager_user_id)
-                  || (formData.hiring_manager_user_id ? { user_id: formData.hiring_manager_user_id, display_name: hmSelectedName } as UserSummary : null)}
-                onChange={(_, val: any) => {
-                  if (val && typeof val === 'object') {
-                    setFormData({ ...formData, hiring_manager_user_id: val.user_id });
-                    setHmSelectedName(val.display_name);
-                  } else {
-                    setFormData({ ...formData, hiring_manager_user_id: '' });
-                    setHmSelectedName('');
-                  }
-                }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label="Hiring Manager" required
-                    placeholder={t("Chọn Hiring Manager")}
-                    helperText={t("Danh sách Hiring Manager đang hoạt động đã tải sẵn; nhập tên để lọc nhanh. Chỉ chọn HM khác tài khoản HR; người này sẽ duyệt chuyên môn.")}
-                    InputProps={{
-                      ...params.InputProps,
-                      endAdornment: (
-                        <>
-                          {hmLoading ? <CircularProgress size={16} /> : null}
-                          {params.InputProps.endAdornment}
-                        </>
-                      ),
-                    }}
-                  />
-                )}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                label={t("Nội dung Job Description (tiếng Anh)")}
-                fullWidth
-                required
-                multiline
-                rows={10}
-                value={formData.jd_content}
-                onChange={(e) => setFormData({ ...formData, jd_content: e.target.value })}
-                placeholder="Paste full JD content here..."
-                helperText={t("Sau khi tạo, bạn có thể yêu cầu AI đề xuất bản nháp tiêu chí từ JD")}
-              />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions sx={{ p: 3 }}>
-          <Button onClick={() => setCreateDialogOpen(false)} color="inherit">{t("Hủy")}</Button>
-          <Button
-            onClick={handleCreatePosition}
-            variant="contained"
-            color="secondary"
-            disabled={createLoading || !formData.department_id || !formData.title.trim() || !formData.jd_content.trim() || !formData.hiring_manager_user_id}
-          >
-            {createLoading ? <CircularProgress size={20} color="inherit" /> : t("Tạo vị trí")}
-          </Button>
-        </DialogActions>
-      </Dialog>
+
     </Box>
   );
 }

@@ -38,3 +38,27 @@ HRA_E2E_SYNTHETIC=1 HRA_E2E_BASE_URL=http://127.0.0.1:3000 \
 ```
 
 Có thể đặt `HRA_E2E_CHROMIUM_EXECUTABLE` và `HRA_E2E_CHROMIUM_ARGS` như test khác. Chỉ dùng server cục bộ dùng một lần. Test chủ động fail nếu gặp `/v1` ngoài mock; không truy cập thư thật hay đưa token thật vào fixture.
+
+## Mock UI checks for the HR/HM UX slice
+
+These tests drive a **disposable local** Next server and intercept every `/v1`
+call in the browser; they prove UI behaviour only (no backend, Supabase,
+Storage, ClamAV or VPS involvement).
+
+- `workflow-create-mock.e2e.cjs` — create-position page, required JD, mocked
+  DOCX/TXT and link import, optional idempotent retry after a 503 (same
+  `request_id`, unedited payload, form locked while reconciling).
+- `applicants-large-list-mock.e2e.cjs` — 123 applicant queue: paged loading
+  stops at a short page, only 50 rows mount first, "show 50 more" expands to
+  123 without changing rank order, and changing the queue resets the window.
+- `shortlist-workspace-mock.e2e.cjs` — `/shortlist/[id]` workspace on desktop
+  and mobile: per-candidate drafts survive switching, legacy `?share=` deep
+  link, share-scoped CV/evidence gate, and data removal when the API answers
+  403 after the tab becomes visible again.
+- `shortlist-filter-mock.e2e.cjs` — share inbox filtering by position.
+- `account-ui.e2e.cjs` — bootstrap/login, mandatory password change, account
+  admin, HM selection in the create form (asserts the retry-safe
+  `request_id`) and mobile layout.
+
+Run with `HRA_E2E_BASE_URL` pointing at the local server and a Chromium
+executable (see the commands in `doc/PLAN_CAI_TIEN_WORKFLOW_UX_HR_HM.md`).
