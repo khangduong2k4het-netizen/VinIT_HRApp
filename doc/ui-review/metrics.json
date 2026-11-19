@@ -1,0 +1,59 @@
+{
+  "dashboard": {
+    "viewportHeight": 900,
+    "pageHeight": 1877,
+    "scrollsToReachQueue": 0.48,
+    "queueItemCards": 7,
+    "queueActionButtons": 7,
+    "kpiCards": 4,
+    "kpiValuesAboveQueue": [
+      "4",
+      "38",
+      "1",
+      "5"
+    ]
+  },
+  "ranking": {
+    "viewportHeight": 900,
+    "pageHeight": 1639,
+    "scrollPages": 1.82,
+    "filterControlsAboveTable": 16,
+    "chipsWithCounts": 8,
+    "chipLabels": [
+      "Tất cả (12)",
+      "Đã shortlist (2)",
+      "Cần kiểm tra file (1)",
+      "Cần xác minh (6)",
+      "Cảnh báo trùng (2)",
+      "Có dấu hiệu chưa đáp ứng (2)",
+      "Chưa matching (2)",
+      "Đáp ứng bắt buộc (4)"
+    ],
+    "tableHeaderOffsetPx": 815,
+    "firstRowOffsetPx": 896,
+    "rowsWithInlineReason": 4,
+    "totalRows": 6,
+    "tableMaxHeight": "648px",
+    "stickyHeader": true
+  },
+  "candidateFromList": {
+    "prevNextEnabled": 2,
+    "prevNextTotal": 2,
+    "counterText": "Hồ sơ 3/6 trong hàng đợi",
+    "hiddenPageHeight": 1842,
+    "viewportHeight": 900,
+    "h1": "Lê Thu Hà",
+    "cvRequestedOnOpen": true
+  },
+  "candidateDeepLink": {
+    "prevNextEnabled": 0,
+    "prevNextTotal": 2,
+    "counterText": null
+  },
+  "consistency": {
+    "dashboardNeedsVerification": 4,
+    "rankingQueueSizeFromMock": 4,
+    "pageCaption": "Hiển thị 6/12 hồ sơ của vị trí. · Không lọc theo tên. · Hàng đợi: Cần xác minh.",
+    "chipNeedsVerification": "Cần xác minh (6)"
+  }
+}
