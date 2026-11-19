@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     # client-controlled to the left of the trusted entries.
     PUBLIC_INTAKE_TRUSTED_PROXY_HOPS: int = 0
     # Version of the consent wording shown next to the tick boxes.
-    PUBLIC_INTAKE_NOTICE_VERSION: str = "v2"  # v2: one mandatory consent incl. AI use, 5-year storage, reuse
+    PUBLIC_INTAKE_NOTICE_VERSION: str = "v4"  # one required consent for processing and Talent Pool reuse
     MALWARE_SCAN_MODE: Literal["off", "clamav"] = "off"
     CLAMD_HOST: str = "127.0.0.1"
     CLAMD_PORT: int = 3310

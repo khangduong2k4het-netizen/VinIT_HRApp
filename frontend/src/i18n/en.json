@@ -1568,5 +1568,9 @@
   "Nếu mã hợp lệ, lựa chọn Talent Pool đã được rút.": "If the code is valid, your Talent Pool choice has been withdrawn.",
   "Mã rút lại đồng ý": "Withdrawal code",
   "Mã gồm 64 ký tự (0-9, a-f).": "The code has 64 characters (0-9, a-f).",
-  "Rút lại đồng ý": "Withdraw consent"
+  "Rút lại đồng ý": "Withdraw consent",
+  "Tệp phải có nội dung và không vượt quá 10 MB.": "The file must not be empty and must be no larger than 10 MB.",
+  "Nội dung đồng ý đã thay đổi. Vui lòng tải lại trang trước khi nộp hồ sơ.": "The consent notice has changed. Please reload the page before applying.",
+  "Tôi đồng ý cho VinUniversity xử lý hồ sơ, bao gồm hỗ trợ đánh giá bằng AI, để ứng tuyển vị trí này và tham gia Talent Pool cho các vị trí phù hợp khác. Hồ sơ được lưu tối đa 5 năm kể từ khi vị trí tuyển dụng đóng; quyền dùng lại trong Talent Pool có hiệu lực 5 năm từ ngày đồng ý.": "I consent to VinUniversity processing my application, including AI-assisted assessment, for this position and including it in the Talent Pool for other suitable positions. My application is retained for up to 5 years after this position closes; Talent Pool reuse is permitted for 5 years from consent.",
+  "Bạn cần đồng ý để nộp hồ sơ. Sau khi nộp, bạn nhận mã để rút lại đồng ý dùng hồ sơ cho vị trí khác; mã chỉ hiển thị một lần.": "Consent is required to apply. After submitting, you receive a code to withdraw consent for reuse for other positions; it is shown only once."
 }

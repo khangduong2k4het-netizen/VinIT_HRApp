@@ -77,7 +77,7 @@ def _pooled_portal_application(client, seed, email="pool.candidate@example.org")
     res = client.post(f"/v1/public/positions/{seed['pos']}/apply",
                       files={"file": ("pool.docx", content,
                                       "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
-                      data={"consent_processing": "true", "website": ""})
+                      data={"consent_processing": "true", "consent_talent_pool": "true", "notice_version": "v4", "website": ""})
     assert res.status_code == 202, res.text
     worker._process_pending_operations()
     with engine.begin() as conn:

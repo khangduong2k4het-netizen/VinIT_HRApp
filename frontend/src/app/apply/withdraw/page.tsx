@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Box, Button, Card, CardContent, Container, Stack, TextField, Typography } from '@mui/material';
 import { useI18n } from '@/i18n/I18nProvider';
 import LanguageSwitcher from '@/i18n/LanguageSwitcher';
@@ -12,6 +12,8 @@ export default function WithdrawPage() {
   const [token, setToken] = useState('');
   const [state, setState] = useState<'idle' | 'invalid' | 'done' | 'error'>('idle');
   const [busy, setBusy] = useState(false);
+  const [ready, setReady] = useState(false);
+  useEffect(() => { setReady(true); }, []);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -35,10 +37,10 @@ export default function WithdrawPage() {
           <Card component="form" onSubmit={submit} noValidate>
             <CardContent>
               <Stack spacing={2}>
-                <TextField label={t('Mã rút lại đồng ý')} value={token} onChange={e => { setToken(e.target.value); setState('idle'); }}
+                <TextField label={t('Mã rút lại đồng ý')} disabled={!ready || busy} value={token} onChange={e => { setToken(e.target.value); setState('idle'); }}
                   error={state === 'invalid'} helperText={state === 'invalid' ? t('Mã gồm 64 ký tự (0-9, a-f).') : undefined} fullWidth />
                 {state === 'error' && <Alert severity="error">{t('Không thể kết nối. Vui lòng thử lại.')}</Alert>}
-                <Button type="submit" variant="contained" disabled={busy}>{t('Rút lại đồng ý')}</Button>
+                <Button type="submit" variant="contained" disabled={!ready || busy}>{t('Rút lại đồng ý')}</Button>
               </Stack>
             </CardContent>
           </Card>
