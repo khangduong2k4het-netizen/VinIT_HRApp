@@ -69,8 +69,12 @@ const applications = ranking.map((item, index) => ({
   // reachable from the keyboard — and the menu item must actually be operable.
   await page.getByRole('button', { name: 'Chạy đánh giá & xếp hạng' }).focus();
   await page.keyboard.press('Tab');
-  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || ''), 'Hành động khác');
-  await page.getByRole('button', { name: 'Hành động khác' }).press('Enter');
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.getAttribute('aria-label') || ''),
+    'Hành động khác: Làm mới, Chia sẻ Shortlist',
+    'the menu trigger names what is inside it',
+  );
+  await page.getByRole('button', { name: /Hành động khác/ }).press('Enter');
   assert.equal(await page.getByRole('menuitem', { name: 'Làm mới' }).isVisible(), true, 'the refresh action is still reachable, one level down');
   await page.keyboard.press('Escape');
   // Switching the queue filter resets the window to 50 again.

@@ -15,8 +15,8 @@
   },
   "ranking": {
     "viewportHeight": 900,
-    "pageHeight": 1274,
-    "scrollPages": 1.42,
+    "pageHeight": 1238,
+    "scrollPages": 1.38,
     "filterControlsAboveTable": 6,
     "chipsWithCounts": 8,
     "chipLabels": [
@@ -29,8 +29,8 @@
       "Chưa matching (2)",
       "Đáp ứng bắt buộc (4)"
     ],
-    "tableHeaderOffsetPx": 588,
-    "firstRowOffsetPx": 669,
+    "tableHeaderOffsetPx": 552,
+    "firstRowOffsetPx": 633,
     "rowsWithInlineReason": 4,
     "totalRows": 4,
     "tableMaxHeight": "648px",

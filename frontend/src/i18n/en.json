@@ -1401,6 +1401,9 @@
   "{0}/{1} hồ sơ đã có trong xếp hạng": "{0}/{1} applications are ranked",
   "Số trên mỗi nhóm tính trên toàn bộ vị trí": "Counts cover the whole position",
   "Cách đọc danh sách": "How to read this list",
+  "Đã lưu lúc {0}": "Saved at {0}",
+  "Làm mới và Chia sẻ Shortlist": "Refresh and share shortlist",
+  "Hành động khác: Làm mới, Chia sẻ Shortlist": "More actions: refresh, share shortlist",
   "Quay lại quản trị": "Back to admin",
   "Ngưỡng thời gian dùng chung cho Dashboard và danh sách ứng viên.": "Time thresholds shared by the dashboard and the applicant list."
 }

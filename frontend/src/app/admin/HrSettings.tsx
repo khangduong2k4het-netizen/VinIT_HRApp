@@ -26,10 +26,13 @@ interface Setting {
 }
 
 export default function HrSettings() {
-  const { t } = useI18n();
+  const { t, dateLocale } = useI18n();
   const [settings, setSettings] = useState<Setting[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  // Per-row confirmation: the alert at the top of the page is out of view when HR
+  // saves the second card, and "did it save?" must never be a guess.
+  const [savedAt, setSavedAt] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -65,6 +68,7 @@ export default function HrSettings() {
       setSavingKey(setting.key); setError(null); setSuccess(null);
       await adminApi.updateSetting(setting.key, value);
       await load();
+      setSavedAt(previous => ({ ...previous, [setting.key]: new Date().toLocaleTimeString(dateLocale) }));
       setSuccess(t('Đã lưu “{0}”: {1} ngày. Dashboard và danh sách ứng viên dùng con số này ngay lần tải sau.', setting.label, value));
     } catch (err: any) {
       setError(err.response?.data?.detail || t('Không lưu được cài đặt.'));
@@ -80,7 +84,9 @@ export default function HrSettings() {
   return (
     <Box>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
-      {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>{success}</Alert>}
+      <Box aria-live="polite">
+        {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>{success}</Alert>}
+      </Box>
       <Alert severity="info" sx={{ mb: 3 }}>
         {t('Đây là những con số nghiệp vụ HR tự đặt, không phải hằng số kỹ thuật. Thay đổi có hiệu lực ngay và được ghi vào nhật ký kiểm toán.')}
       </Alert>
@@ -105,7 +111,15 @@ export default function HrSettings() {
                     size="small"
                     label={t('Số ngày')}
                     value={draft}
-                    onChange={event => setDrafts({ ...drafts, [setting.key]: event.target.value })}
+                    onChange={event => {
+                      setDrafts({ ...drafts, [setting.key]: event.target.value });
+                      setSavedAt(previous => {
+                        if (!(setting.key in previous)) return previous;
+                        const next = { ...previous };
+                        delete next[setting.key];
+                        return next;
+                      });
+                    }}
                     error={dirty && invalid}
                     helperText={dirty && invalid ? t('Ngoài khoảng cho phép') : ' '}
                     inputProps={{ min: setting.min, max: setting.max, step: 1, 'aria-label': `${t(setting.label)} — ${t('Số ngày')}` }}
@@ -118,6 +132,13 @@ export default function HrSettings() {
                     disabled={!dirty || invalid || savingKey !== null}
                     sx={{ mt: 0.5 }}
                   >{savingKey === setting.key ? t('Đang lưu...') : t('Lưu')}</Button>
+                  <Box role="status" aria-live="polite" sx={{ minWidth: 96, mt: 1.5 }}>
+                    {savedAt[setting.key] && (
+                      <Typography variant="caption" sx={{ color: '#067647', fontWeight: 600, display: 'block' }}>
+                        {t('Đã lưu lúc {0}', savedAt[setting.key])}
+                      </Typography>
+                    )}
+                  </Box>
                 </Box>
               </CardContent>
             </Card>

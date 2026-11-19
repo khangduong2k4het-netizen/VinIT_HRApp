@@ -540,15 +540,20 @@ export default function ApplicantsRankingPage() {
           >
             {assessing ? t("Đang đánh giá...") : t("Chạy đánh giá & xếp hạng")}
           </Button>
-          <IconButton
-            aria-label={t("Hành động khác")}
-            aria-haspopup="menu"
-            aria-expanded={Boolean(actionsMenuAnchor)}
-            onClick={event => setActionsMenuAnchor(event.currentTarget)}
-            sx={{ border: '1px solid #D0D7E2', borderRadius: 1 }}
-          >
-            <MoreVertIcon />
-          </IconButton>
+          {/* Ba chấm một mình thì HR phải bấm mới biết bên trong có gì, nên có
+              tooltip nêu đúng hai thao tác ẩn. Tooltip chỉ để gợi ý; nhãn cho
+              trình đọc màn hình vẫn là aria-label. */}
+          <Tooltip title={t("Làm mới và Chia sẻ Shortlist")} arrow>
+            <IconButton
+              aria-label={t("Hành động khác: Làm mới, Chia sẻ Shortlist")}
+              aria-haspopup="menu"
+              aria-expanded={Boolean(actionsMenuAnchor)}
+              onClick={event => setActionsMenuAnchor(event.currentTarget)}
+              sx={{ border: '1px solid #D0D7E2', borderRadius: 1 }}
+            >
+              <MoreVertIcon />
+            </IconButton>
+          </Tooltip>
           <Menu
             anchorEl={actionsMenuAnchor}
             open={Boolean(actionsMenuAnchor)}
@@ -596,8 +601,19 @@ export default function ApplicantsRankingPage() {
         <Button variant={sort === 'RANK' ? 'contained' : 'outlined'} aria-pressed={sort === 'RANK'} onClick={() => { setQueue('ALL'); setSort('RANK'); }}>{t('Xếp hạng')}</Button>
         <Button variant={sort === 'REVIEW_PRIORITY' ? 'contained' : 'outlined'} aria-pressed={sort === 'REVIEW_PRIORITY'} onClick={() => { setQueue('ALL'); setSort('REVIEW_PRIORITY'); }}>{t('Cần rà soát')}</Button>
       </Box>
-      {sort === 'REVIEW_PRIORITY' && <Alert severity="info" sx={{ mb: 2 }}>{t('Danh sách ưu tiên vấn đề cần xử lý, không phải thứ tự xếp hạng. Số hạng vẫn thuộc lần chạy gần nhất.')}</Alert>}
-      {sort === 'RANK' && <Alert severity="info" sx={{ mb: 2 }}>{t('Sắp theo thứ hạng của lần chạy gần nhất; hồ sơ chưa có hạng được đưa xuống cuối.')}</Alert>}
+      {/* Câu giải thích chế độ xem phải nhìn thấy ngay dưới hai nút: đây là
+          thông tin nghiệp vụ, không phải chi tiết phụ, nên không đưa vào tooltip.
+          Bỏ nền alert và icon để nó thành một dòng chú thích, đỡ chiếm chiều cao. */}
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        data-testid="sort-explanation"
+        sx={{ display: 'block', mb: 2, mt: -0.5 }}
+      >
+        {sort === 'REVIEW_PRIORITY'
+          ? t('Danh sách ưu tiên vấn đề cần xử lý, không phải thứ tự xếp hạng. Số hạng vẫn thuộc lần chạy gần nhất.')
+          : t('Sắp theo thứ hạng của lần chạy gần nhất; hồ sơ chưa có hạng được đưa xuống cuối.')}
+      </Typography>
       {/* Review queues and filters */}
       <QueueFilterChips value={queue} counts={queueCounts} onChange={setQueue} />
       <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center', flexWrap: 'wrap' }}>

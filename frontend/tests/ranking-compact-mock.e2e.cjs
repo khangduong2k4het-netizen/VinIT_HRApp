@@ -39,11 +39,28 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
 
   // --- R6-a: one primary action, the rest behind an explicit menu -------------
   assert.equal(await page.getByRole('button', { name: 'Chạy đánh giá & xếp hạng' }).count(), 1);
-  assert.equal(await page.getByRole('button', { name: 'Làm mới' }).count(), 0, 'refresh is no longer a third competing button');
-  await page.getByRole('button', { name: 'Hành động khác' }).click();
+  assert.equal(await page.getByRole('button', { name: 'Làm mới', exact: true }).count(), 0, 'refresh is no longer a third competing button');
+  await page.getByRole('button', { name: /Hành động khác/ }).click();
   assert.equal(await page.getByRole('menuitem', { name: 'Làm mới' }).isVisible(), true);
   assert.equal(await page.getByRole('menuitem', { name: 'Chia sẻ Shortlist' }).isVisible(), true);
   await page.keyboard.press('Escape');
+
+  // --- Discoverability of the hidden actions --------------------------------
+  // A bare "⋮" does not tell HR that refresh and share live behind it, so the
+  // trigger must name them: in the tooltip for sighted users, in aria-label for
+  // screen readers.
+  assert.equal(
+    await page.getByRole('button', { name: /^Làm mới$/ }).count(),
+    0,
+    'no anonymous "refresh" button left in the header',
+  );
+  assert.equal(
+    await page.getByRole('button', { name: 'Hành động khác: Làm mới, Chia sẻ Shortlist' }).count(),
+    1,
+  );
+  await page.getByRole('button', { name: 'Hành động khác: Làm mới, Chia sẻ Shortlist' }).hover();
+  assert.equal(await page.getByRole('tooltip').filter({ hasText: 'Làm mới và Chia sẻ Shortlist' }).isVisible(), true, 'hovering explains what the menu holds');
+  await page.mouse.move(0, 0);
 
   // --- R6-b: the explanation still exists, word for word, one click away -----
   const toggle = page.getByTestId('how-to-read-toggle');
@@ -59,6 +76,35 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
   // instead of counting instantly and racing the transition.
   await page.locator('#how-to-read-applicants').waitFor({ state: 'detached' });
   assert.equal(await toggle.getAttribute('aria-expanded'), 'false');
+
+  // Keyboard only: the toggle must be reachable, open with the keyboard, and
+  // report its state, because it is the only way to reach the business rules.
+  await page.getByTestId('how-to-read-toggle').focus();
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'how-to-read-toggle');
+  await page.keyboard.press('Enter');
+  assert.equal(await toggle.getAttribute('aria-expanded'), 'true', 'Enter opens it');
+  await page.locator('#how-to-read-applicants').waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('data-testid')), 'how-to-read-toggle', 'focus stays on the toggle so the next Tab continues sensibly');
+  await page.keyboard.press('Enter');
+  await page.locator('#how-to-read-applicants').waitFor({ state: 'detached' });
+
+  // The sort explanation is a visible caption, not a tooltip: a new user must be
+  // able to read it without discovering anything.
+  const explanationLine = page.getByTestId('sort-explanation');
+  assert.equal(await explanationLine.isVisible(), true);
+  // Mặc định là chế độ Xếp hạng; câu giải thích phải đổi theo chế độ đang chọn.
+  assert.match(await explanationLine.innerText(), /Sắp theo thứ hạng của lần chạy gần nhất/);
+  // Đổi chế độ xem ghi lại URL, nên chờ đúng trạng thái thay vì bấm liền tay.
+  const modeGroup = page.getByRole('group', { name: 'Chế độ xem ứng viên' });
+  await modeGroup.getByRole('button', { name: 'Cần rà soát' }).click();
+  await page.waitForFunction(() => decodeURIComponent(location.search).includes('sort=REVIEW_PRIORITY'));
+  await page.getByTestId('sort-explanation').waitFor();
+  assert.match(await page.getByTestId('sort-explanation').innerText(), /không phải thứ tự xếp hạng/);
+  await modeGroup.getByRole('button', { name: 'Xếp hạng' }).click();
+  await page.waitForFunction(() => !decodeURIComponent(location.search).includes('sort=REVIEW_PRIORITY'));
+  // It must not be an alert box anymore (that is what cost 48px of height).
+  assert.equal(await explanationLine.evaluate(el => (el.closest('[role="alert"]') !== null)), false);
+  assert.equal(await page.getByRole('alert').filter({ hasText: 'không phải thứ tự xếp hạng' }).count(), 0);
 
   // --- R6-c: every filter that used to be a card still works -----------------
   // The four summary cards are gone; each of their behaviours must survive.

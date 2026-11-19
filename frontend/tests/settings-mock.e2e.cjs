@@ -60,6 +60,34 @@ const SETTINGS = [
   await page.waitForFunction(() => document.body.innerText.includes('Đã lưu'));
   assert.deepEqual(patches, [{ value: 5 }], 'the typed number is what gets saved');
 
+  // "Did it save?" must never be a guess: the row itself confirms, next to the
+  // button the person just pressed, and screen readers are told politely.
+  const row = page.locator('[data-testid="hr-settings"] > *').first();
+  assert.match(await row.innerText(), /Đã lưu lúc \d{1,2}:\d{2}/, 'the saved row confirms in place');
+  const status = row.locator('[role="status"]');
+  assert.equal(await status.getAttribute('aria-live'), 'polite');
+  assert.match(await status.innerText(), /Đã lưu lúc/);
+
+  // Editing again clears the stale confirmation so it cannot describe the old value.
+  await fields.nth(0).fill('6');
+  assert.equal(await row.innerText().then(t => /Đã lưu lúc/.test(t)), false, 'a pending edit drops the old confirmation');
+
+  // A server-side rejection must be shown, not swallowed.
+  await c.unroute('**/v1/**');
+  await c.route('**/v1/**', async r => {
+    const url = new URL(r.request().url());
+    const p = url.pathname;
+    if (p === '/v1/auth/me') return json(r, { user_id: 'admin', display_name: 'Admin', system_roles: ['ADMIN'], position_assignments: [] });
+    if (p === '/v1/admin/settings' && r.request().method() === 'GET') return json(r, { settings: SETTINGS.map(s => ({ ...s, value: 5 })) });
+    if (p === '/v1/admin/settings/waiting_attention_days' && r.request().method() === 'PATCH') return json(r, { detail: '"Số ngày hồ sơ được tính là chờ lâu" phải nằm trong khoảng 1–90 ngày' }, 400);
+    if (p.startsWith('/v1/admin/')) return json(r, {});
+    return json(r, {});
+  });
+  await fields.nth(1).fill('4');
+  await saveButtons.nth(1).click();
+  await page.getByRole('alert').filter({ hasText: 'phải nằm trong khoảng 1–90 ngày' }).waitFor();
+  assert.equal(await page.locator('[data-testid="hr-settings"]').innerText().then(t => /Đã lưu lúc/.test(t)), false, 'a failed save must not leave a success mark');
+
   if (errors.length) throw Error(errors.join('\n'));
   await c.close();
   await browser.close();

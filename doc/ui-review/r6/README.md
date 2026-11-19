@@ -12,6 +12,7 @@ Mọi ảnh đều chụp từ **ứng dụng thật** (production build, mock A
 | `after/01-dashboard.png` … `after/03-candidate-review.png` | Ứng dụng **sau** đợt này, cùng mock, cùng viewport |
 | `after/04-hr-settings-desktop.png` | Màn Cài đặt HR mới, 1440×1000 |
 | `after/05-hr-settings-mobile.png` | Cùng màn, 390×844 |
+| `after/06-header-menu-closed.png` … `after/09-how-to-read-open.png` | Ba điểm cần kiểm: menu đóng, tooltip, menu mở, khối "Cách đọc" mở |
 
 `before/` không có màn Cài đặt vì trước đợt này **chưa có** màn đó.
 
@@ -23,10 +24,10 @@ nên bảng số đo cũ không phải số ước lượng.
 
 | Chỉ số | Trước | Sau | Ghi chú |
 | --- | --- | --- | --- |
-| `firstRowOffsetPx` — dòng dữ liệu đầu tiên | **896** | **669** | −227px; ở 900px màn hình thấy 2 dòng |
-| `tableHeaderOffsetPx` — đầu bảng | 815 | 588 | −227px |
+| `firstRowOffsetPx` — dòng dữ liệu đầu tiên | **896** | **633** | −263px; ở 900px màn hình thấy 3 dòng |
+| `tableHeaderOffsetPx` — đầu bảng | 815 | 552 | −263px |
 | `filterControlsAboveTable` — đích nhấn trước bảng | **12** | **6** | xem cảnh báo bên dưới |
-| `pageHeight` | 1500 | 1274 | −226px |
+| `pageHeight` | 1500 | 1238 | −262px |
 | `scrollPages` | 1.67 | 1.42 | |
 | `chipsWithCounts` — chip lọc kèm số | 8 | **8** | không mất nhóm lọc nào |
 
@@ -44,6 +45,29 @@ Số thật trước R6 là **9** đích nhấn phía trên bảng (2 nút chế
 Nghĩa là mức cải thiện thật **nhỏ hơn** con số 12→8 mà đề xuất dự kiến, nhưng hướng
 thay đổi đúng. Em đã sửa phép đo trong `frontend/tests/ui-ux-metrics.cjs` để lần sau
 không tái diễn; số cũ trong báo cáo UX vẫn giữ nguyên để đối chiếu lịch sử.
+
+## Trạng thái: đã chốt sau vòng review
+
+Anh đã xem ảnh và chốt **R6 hoàn tất**, không mở thêm vòng chỉnh sửa giao diện.
+Ba quyết định:
+
+1. **Giữ 633px, không ép xuống 640.** Mục tiêu 640px là tham khảo, không phải tiêu chí.
+   Không bỏ hai nút chế độ xem (điều hướng nghiệp vụ), không gộp `10/12 hồ sơ` vào tiêu đề
+   (chỉ số tiến độ riêng).
+2. **Alert chế độ xem → dòng chú thích**, không chuyển thành tooltip: nội dung nghiệp vụ
+   phải nhìn thấy được, người dùng mới không phải đi khám phá. Nền xanh và icon bỏ đi,
+   chữ nhỏ lại — một dòng ngay dưới hai nút. Phần giải thích dài vẫn ở `Cách đọc danh sách`.
+   Chính thay đổi này đưa dòng đầu từ **669 → 633px**, tức là vào dưới mốc 640 mà không
+   phải bỏ thông tin nào.
+3. **Không khôi phục hai thẻ KPI trùng chip.** Giữ hai số có nghĩa khác nhau.
+
+Ba điểm anh nêu cần kiểm trước khi sang UX-02 đều đã kiểm **bằng test**, không chỉ bằng mắt:
+
+| Điểm | Cách kiểm | Ảnh |
+| --- | --- | --- |
+| Menu `⋮` có được nhận biết | `aria-label` nay là "Hành động khác: Làm mới, Chia sẻ Shortlist" + tooltip nêu đúng hai thao tác; e2e bắt buộc hover thấy tooltip và Enter mở được menu | `06`, `07`, `08` |
+| `Cách đọc danh sách` — mở/đóng, bàn phím | e2e: focus → Enter mở → Enter đóng, `aria-expanded` đổi đúng, focus ở lại nút để Tab tiếp tục hợp lý, nội dung nghiệp vụ còn nguyên | `09` |
+| Settings save — phản hồi thành công/lỗi/đang lưu | Xác nhận **ngay tại dòng vừa lưu** ("Đã lưu lúc HH:MM") trong vùng `aria-live="polite"`, tự xoá khi sửa lại; nút đổi thành "Đang lưu..."; lỗi từ server hiện thành alert và **không** để lại dấu đã lưu | `04`, `05` |
 
 ## Ba thay đổi đã làm, và một chỗ em không làm theo đề xuất
 
@@ -97,12 +121,12 @@ node tests/settings-screenshots.cjs ../doc/ui-review/r6/after
 git stash && git checkout 22888b4 -- . && npm run build   # rồi chụp vào before/
 ```
 
-## Câu hỏi cho GPT review
+## Ba câu hỏi cũ — đã có quyết định
 
-1. Dòng đầu ở 669px (mục tiêu đề xuất là ≤640) — có đáng ép thêm không, và nếu có thì
-   lấy từ đâu: bỏ hẳn 2 nút chế độ xem (đã có trong ô "Sắp xếp"), hay gộp luôn dòng
-   "10/12 hồ sơ đã có trong xếp hạng" vào tiêu đề?
-2. Alert giải thích chế độ xem ("Danh sách ưu tiên vấn đề cần xử lý…") vẫn chiếm 48px
-   mỗi lần đổi chế độ. Có nên đổi thành tooltip trên nút chế độ xem?
-3. Việc bỏ hai thẻ KPI: thông tin có còn dễ thấy không, hay nên giữ "Cần HR xác minh"
-   dạng số ngay trên dòng `10/12`?
+1. ~~Có ép 633px xuống 640?~~ **Không ép.** Giữ nguyên, 640 chỉ là tham khảo.
+2. ~~Alert chế độ xem thành tooltip?~~ **Không.** Đã thành dòng chú thích nhìn thấy được,
+   và nhờ vậy dòng đầu xuống **633px**.
+3. ~~Bỏ hai thẻ KPI có mất thông tin?~~ **Không mất.** Giữ hai số khác nghĩa, bỏ hai thẻ
+   trùng chip.
+
+Tiếp theo: **UX-02 (Candidate Review)**.
