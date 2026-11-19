@@ -109,3 +109,14 @@ test('narrow /apply clamps the job description and offers a jump to the form', (
   assert.match(clamp, /collapsedHeight = 360/);
   for (const key of ['Xem thêm', 'Thu gọn', 'Nộp hồ sơ ngay']) assert.ok(en[key], `missing English text for ${key}`);
 });
+
+test('a collapsed sidebar has a clear, labelled, 40px way back near the top', () => {
+  const sidebar = fs.readFileSync(path.join(__dirname, '..', 'src/components/layout/Sidebar.tsx'), 'utf8');
+  // One button under the header and one in the footer, both labelled and with a tooltip.
+  assert.equal((sidebar.match(/aria-label=\{t\('Mở rộng thanh bên'\)\}/g) || []).length, 2);
+  assert.equal((sidebar.match(/<Tooltip title=\{t\('Mở rộng thanh bên'\)\}/g) || []).length, 2);
+  // The top one sits before the navigation list, and every toggle is at least 40px.
+  assert.ok(sidebar.indexOf("aria-label={t('Mở rộng thanh bên')}") < sidebar.indexOf('{/* Navigation groups */}'));
+  assert.ok((sidebar.match(/width: 40, height: 40/g) || []).length >= 2);
+  assert.match(sidebar, /width: 40,\s*height: 40,\s*color: '#64748B'/);
+});

@@ -133,6 +133,8 @@ export default function Sidebar({
               aria-label={t('Thu gọn thanh bên')}
               sx={{
                 display: { xs: 'none', md: 'inline-flex' },
+                width: 40,
+                height: 40,
                 color: '#64748B',
                 '&:hover': { backgroundColor: '#F1F5F9', color: '#0A2B57' },
               }}
@@ -142,6 +144,24 @@ export default function Sidebar({
           </Tooltip>
         )}
       </Box>
+
+      {/* Collapsed: the way back is a clear button under the header, not only a tiny one in the footer */}
+      {isCollapsed && onToggleCollapse && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', pt: 1.5 }}>
+          <Tooltip title={t('Mở rộng thanh bên')} placement="right">
+            <IconButton
+              onClick={onToggleCollapse}
+              aria-label={t('Mở rộng thanh bên')}
+              sx={{
+                width: 40, height: 40, color: '#0A2B57', backgroundColor: '#FFFFFF', border: '1px solid #D5DCE6',
+                '&:hover': { backgroundColor: '#EEF4FC', borderColor: '#0A2B57' },
+              }}
+            >
+              <ChevronRightIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      )}
 
       {/* Navigation groups */}
       <List
@@ -264,7 +284,7 @@ export default function Sidebar({
               size="small"
               onClick={onToggleCollapse}
               aria-label={t('Mở rộng thanh bên')}
-              sx={{ color: '#64748B', '&:hover': { backgroundColor: '#F1F5F9', color: '#0A2B57' } }}
+              sx={{ width: 40, height: 40, color: '#64748B', '&:hover': { backgroundColor: '#F1F5F9', color: '#0A2B57' } }}
             >
               <ChevronRightIcon fontSize="small" />
             </IconButton>
