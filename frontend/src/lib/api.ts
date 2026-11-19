@@ -268,3 +268,11 @@ export const rubricApi = {
   clone: (id: string) => apiClient.post(`/rubric-library/versions/${id}/clone`),
   apply: (positionId: string, versionId: string) => apiClient.post(`/rubric-library/positions/${positionId}/apply`, { template_version_id: versionId }),
 };
+
+/** Dọn dữ liệu test. Tách khỏi adminApi để chỗ gọi lộ rõ đây là thao tác phá huỷ. */
+export const testDataApi = {
+  getScopes: () => apiClient.get('/admin/test-data/scopes'),
+  preview: (scopes: string[]) => apiClient.post('/admin/test-data/preview', { scopes }),
+  execute: (scopes: string[], confirmation: string) =>
+    apiClient.post('/admin/test-data/execute', { scopes, confirmation }),
+};

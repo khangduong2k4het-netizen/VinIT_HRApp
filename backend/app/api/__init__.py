@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from . import auth, users, positions, criteria, applications, assessments, shortlist, dashboard, admin, account_admin, operations, candidate_details, departments, retention, rubric_library, scorecards, careers_demo, careers, talent_pool, careers_intake, gmail_test, jd_import
+from . import auth, users, positions, criteria, applications, assessments, shortlist, dashboard, admin, account_admin, operations, candidate_details, departments, retention, rubric_library, scorecards, careers_demo, careers, talent_pool, careers_intake, gmail_test, jd_import, test_data
 
 api_router = APIRouter()
 api_router.include_router(jd_import.router, prefix="/jd-import", tags=["JD import preview"])
@@ -23,4 +23,5 @@ api_router.include_router(scorecards.router, prefix="/scorecards", tags=["Scorec
 api_router.include_router(rubric_library.router, prefix="/rubric-library", tags=["Rubric library"])
 api_router.include_router(retention.router, prefix="/retention", tags=["Retention & Deletion"])
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin Configuration"])
+api_router.include_router(test_data.router, prefix="/admin/test-data", tags=["Admin Test Data Purge"])
 api_router.include_router(account_admin.router, prefix="/admin/users", tags=["Admin Accounts"])

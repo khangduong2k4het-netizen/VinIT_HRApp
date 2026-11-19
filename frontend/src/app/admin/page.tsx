@@ -14,6 +14,7 @@ import { moveRoute } from '@/lib/orderedRoutes';
 import { formatUsd } from '@/lib/llmCost';
 import LlmOperations from './LlmOperations';
 import HrSettings from './HrSettings';
+import TestDataPurge from './TestDataPurge';
 
 type WorkerHealth = { pending: number; processing: number; stale_heartbeat: number; long_running: number; failed_24h: number; recoveries_24h: number; oldest_pending_seconds: number };
 type RuntimeConfig = { config_id?: string | null; provider: string; provider_name?: string | null; model_name: string; api_base?: string | null; temperature_default: number; external_api_allowed: boolean; api_key_configured?: boolean; api_key_hint?: string | null; fallbacks?: RuntimeConfig[]; input_price_per_million_usd?: number | string | null; output_price_per_million_usd?: number | string | null };
@@ -279,7 +280,7 @@ export default function AdminPage() {
       {loading ? <Box sx={{ textAlign: 'center', py: 8 }}><CircularProgress color="secondary" /></Box> : config && options && (
         <>
           <Tabs value={section} onChange={(_, value: string) => setSection(value)} variant="scrollable" scrollButtons="auto" aria-label={t("Nhóm cấu hình AI")} sx={{ mb: 3 }}>
-            <Tab id="tab-operations" aria-controls="panel-operations" value="operations" label={t("Vận hành LLM")} /><Tab id="tab-llm" aria-controls="panel-llm" value="llm" label="LLM" /><Tab id="tab-bge" aria-controls="panel-bge" value="bge" label="BGE" /><Tab id="tab-ltr" aria-controls="panel-ltr" value="ltr" label="LTR" /><Tab id="tab-queue" aria-controls="panel-queue" value="queue" label={t("Hàng đợi")} /><Tab id="tab-settings" aria-controls="panel-settings" value="settings" label={t("Cài đặt HR")} />
+            <Tab id="tab-operations" aria-controls="panel-operations" value="operations" label={t("Vận hành LLM")} /><Tab id="tab-llm" aria-controls="panel-llm" value="llm" label="LLM" /><Tab id="tab-bge" aria-controls="panel-bge" value="bge" label="BGE" /><Tab id="tab-ltr" aria-controls="panel-ltr" value="ltr" label="LTR" /><Tab id="tab-queue" aria-controls="panel-queue" value="queue" label={t("Hàng đợi")} /><Tab id="tab-settings" aria-controls="panel-settings" value="settings" label={t("Cài đặt HR")} /><Tab id="tab-test-data" aria-controls="panel-test-data" value="test-data" label={t("Dọn dữ liệu test")} />
           </Tabs>
           <Box role="tabpanel" id="panel-operations" aria-labelledby="tab-operations" hidden={section !== 'operations'}>{section === 'operations' && <LlmOperations />}</Box>
           <Box role="tabpanel" id="panel-llm" aria-labelledby="tab-llm" hidden={section !== 'llm'}>
@@ -492,6 +493,9 @@ export default function AdminPage() {
           </Box>
           <Box role="tabpanel" id="panel-settings" aria-labelledby="tab-settings" hidden={section !== 'settings'}>
             {section === 'settings' && <HrSettings />}
+          </Box>
+          <Box role="tabpanel" id="panel-test-data" aria-labelledby="tab-test-data" hidden={section !== 'test-data'}>
+            {section === 'test-data' && <TestDataPurge />}
           </Box>
           <Alert severity="warning" sx={{ mt: 3 }}>{t("Chỉ sử dụng dịch vụ AI đã được phê duyệt để xử lý dữ liệu ứng viên. Che dữ liệu nhạy cảm chỉ là biện pháp giảm thiểu, không bảo đảm ẩn danh hoàn toàn.")}</Alert>
         </>
