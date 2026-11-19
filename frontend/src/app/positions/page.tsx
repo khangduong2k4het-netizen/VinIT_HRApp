@@ -39,6 +39,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { positionsApi, usersApi, dashboardApi, authApi, departmentsApi, rubricApi } from '@/lib/api';
+import { useScrollMemory, useUrlState } from '@/lib/navMemory';
 import StatusBadge from '@/components/common/StatusBadge';
 import { Department, JobFamily, Position, UserSummary } from '@/types';
 
@@ -50,10 +51,12 @@ export default function PositionsPage() {
   const { t } = useI18n();
   const router = useRouter();
   const [positions, setPositions] = useState<Position[]>([]);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | Position['status']>('ALL');
+  // Kept in the URL (?q=&status=) so Back and the sidebar reopen the same filtered list.
+  const [search, setSearch] = useUrlState<string>('q', '');
+  const [statusFilter, setStatusFilter] = useUrlState<'ALL' | Position['status']>('status', 'ALL', ['ALL', 'OPEN', 'PAUSED', 'CLOSED']);
   const [families, setFamilies] = useState<JobFamily[]>([]);
   const [loading, setLoading] = useState(true);
+  useScrollMemory(!loading);
   const [error, setError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [applicationTotal, setApplicationTotal] = useState<number | null>(null);

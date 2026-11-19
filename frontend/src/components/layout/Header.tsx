@@ -11,6 +11,7 @@ import KeyIcon from '@mui/icons-material/Key';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { useRouter } from 'next/navigation';
 import { DRAWER_WIDTH } from './Sidebar';
+import { clearNavMemory } from '@/lib/navMemory';
 
 const APPBAR_HEIGHT = 64;
 
@@ -26,6 +27,7 @@ export default function Header({ onOpenMenu, profile }: HeaderProps) {
 
   const handleLogout = () => {
     localStorage.removeItem('hra_access_token');
+    clearNavMemory();
     setAnchor(null);
     router.replace('/');
   };

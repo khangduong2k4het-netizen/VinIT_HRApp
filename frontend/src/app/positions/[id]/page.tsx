@@ -48,6 +48,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { positionsApi, criteriaApi, applicationsApi, operationsApi, authApi, dashboardApi, rubricApi } from '@/lib/api';
+import { setUrlParam } from '@/lib/navMemory';
+
+const TAB_SLUGS = ['criteria', 'applications', 'shortlist', 'jd', 'history'] as const;
+const tabFromSlug = (slug: string | null) => { const i = (TAB_SLUGS as readonly string[]).indexOf(slug || ''); return i >= 0 ? i : null; };
 import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import StatusBadge from '@/components/common/StatusBadge';
@@ -144,6 +148,11 @@ export default function PositionDetailPage() {
   const [savingJd, setSavingJd] = useState(false);
   const [me, setMe] = useState<any>(null);
   const [activeTab, setActiveTab] = useState(0);
+  const tabUrlReady = React.useRef(false);
+  // Keep the open tab in the URL (?tab=) so returning to this page reopens it.
+  useEffect(() => {
+    if (tabUrlReady.current) setUrlParam('tab', activeTab === 0 ? null : TAB_SLUGS[activeTab]);
+  }, [activeTab]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -259,9 +268,9 @@ export default function PositionDetailPage() {
 
   useEffect(() => {
     const search = new URLSearchParams(window.location.search);
-    const tab = search.get('tab');
-    const tabIndex = { criteria: 0, applications: 1, shortlist: 2, jd: 3 }[tab || ''];
+    const tabIndex = tabFromSlug(search.get('tab'));
     if (tabIndex != null) setActiveTab(tabIndex);
+    tabUrlReady.current = true;
     if (search.get('intake') === '1') {
       const timer = window.setTimeout(() => document.getElementById('cv-intake')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 350);
       return () => window.clearTimeout(timer);
@@ -599,7 +608,7 @@ export default function PositionDetailPage() {
       return;
     }
     const search = new URLSearchParams(action.target.search || '');
-    const tabIndex = { criteria: 0, applications: 1, shortlist: 2, jd: 3 }[search.get('tab') || ''];
+    const tabIndex = tabFromSlug(search.get('tab'));
     if (tabIndex != null) setActiveTab(tabIndex);
     if (search.get('intake') === '1') scrollToIntake();
   };

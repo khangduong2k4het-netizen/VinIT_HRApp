@@ -2,6 +2,7 @@
 
 import axios, { AxiosInstance } from 'axios';
 import { localizeServerMessage } from '@/i18n/serverMessages';
+import { clearNavMemory } from './navMemory';
 import type { TemplateItemInput, ScorecardUpdateInput } from '@/types';
 
 // The browser always uses the same origin. Next.js proxies /v1 to the backend,
@@ -31,6 +32,7 @@ apiClient.interceptors.response.use(
     if (error.response?.data?.detail) error.response.data.detail = localizeServerMessage(error.response.data.detail);
     if (error.response?.status === 401 && typeof window !== 'undefined' && !error.config?.url?.includes('/auth/login')) {
       localStorage.removeItem('hra_access_token');
+      clearNavMemory();
       window.location.href = '/';
     }
     return Promise.reject(error);

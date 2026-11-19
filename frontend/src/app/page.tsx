@@ -5,6 +5,7 @@ import LanguageSwitcher from '@/i18n/LanguageSwitcher';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { clearNavMemory } from '@/lib/navMemory';
 import {
   Box,
   Card,
@@ -43,6 +44,7 @@ export default function LoginPage() {
 
       // Store token in localStorage for MVP Phase 1
       localStorage.setItem('hra_access_token', access_token);
+      clearNavMemory();  // never reopen pages remembered for a previous user
 
       // Temporary credentials can only reach the password-change screen.
       router.push(response.data.user?.must_change_password ? '/change-password' : '/positions');

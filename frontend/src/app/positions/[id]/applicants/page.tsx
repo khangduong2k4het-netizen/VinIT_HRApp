@@ -61,6 +61,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { assessmentsApi, operationsApi, applicationsApi, shortlistApi } from '@/lib/api';
+import { notifyUrlChanged, useScrollMemory } from '@/lib/navMemory';
 import StatusBadge from '@/components/common/StatusBadge';
 import QueueFilterChips from '@/components/applicants/QueueFilterChips';
 import { useOverrideGate } from '@/components/applicants/OverrideReasonDialog';
@@ -99,6 +100,7 @@ export default function ApplicantsRankingPage() {
   const overrideGate = useOverrideGate();
   const [rankingItems, setRankingItems] = useState<RankingItem[]>([]);
   const [loading, setLoading] = useState(true);
+  useScrollMemory(!loading);
   const [assessing, setAssessing] = useState(false);
   const [operationStatus, setOperationStatus] = useState<import('@/types').OperationStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -269,6 +271,7 @@ export default function ApplicantsRankingPage() {
     if (searchQuery.trim()) params.set('q', searchQuery.trim());
     const query = params.toString();
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+    notifyUrlChanged();
   }, [queue, sort, searchQuery]);
 
   const handleRunAssessment = async () => {
