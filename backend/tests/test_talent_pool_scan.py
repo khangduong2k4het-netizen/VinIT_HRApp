@@ -122,13 +122,32 @@ def test_scan_ranks_the_pool_with_evidence_and_no_pii(client, seed, pool):
 @integration
 def test_withdrawn_candidate_disappears_from_results_and_cannot_be_decided(client, seed, pool):
     hr, hr2 = headers(seed["hr"]), headers(seed["hr2"])
+    lead = headers(seed["other"])
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO app_private.user_role_assignments(user_id, role_code) VALUES (:u, 'HR_LEAD')"),
+                     {"u": seed["other"]})
+    _set_contact(pool["strong"], email="strong.pool@example.com", phone="+84 912 345 678")
     scan_id = _scan_and_run(client, seed)["scan_id"]
     route = f"/v1/talent-pool/scans/{scan_id}/results/{{}}/decision"
+    contact_route = f"/v1/talent-pool/scans/{scan_id}/results/{{}}/contact"
     assert client.post(route.format(pool["strong"]), headers=hr2, json={"decision": "MAYBE"}).status_code == 400
+    # Contact info stays hidden until HR explicitly chooses CONTACT.
+    assert client.post(contact_route.format(pool["strong"]), headers=hr2).status_code == 409
     assert client.post(route.format(pool["strong"]), headers=hr2, json={"decision": "CONTACT"}).status_code == 200
-    # Consent withdrawn after the scan: the result is removed before anything is shown.
-    assert client.post(f"/v1/talent-pool/applications/{pool['weak']}/withdraw-consent", headers=hr, json={}).status_code == 200
+    revealed = client.post(contact_route.format(pool["strong"]), headers=hr2)
+    assert revealed.status_code == 200, revealed.text
+    info = revealed.json()
+    assert info["email"] == "strong.pool@example.com" and info["phone"] == "+84 912 345 678"
+    assert info["email_subject"] and info["email_body"]
+    with engine.connect() as conn:
+        reveal_audit = conn.execute(text("""SELECT metadata::text FROM app_private.audit_events
+            WHERE action_type = 'REVEAL_TALENT_POOL_CONTACT'""")).scalar_one()
+    assert "strong.pool@example.com" not in reveal_audit and "912" not in reveal_audit
+    # Plain recruiter cannot withdraw; HR Lead can.
+    assert client.post(f"/v1/talent-pool/applications/{pool['weak']}/withdraw-consent", headers=hr, json={}).status_code == 403
+    assert client.post(f"/v1/talent-pool/applications/{pool['weak']}/withdraw-consent", headers=lead, json={}).status_code == 200
     assert client.post(route.format(pool["weak"]), headers=hr2, json={"decision": "LATER"}).status_code == 409
+    assert client.post(contact_route.format(pool["weak"]), headers=hr2).status_code == 409
     results = client.get(f"/v1/talent-pool/scans/{scan_id}", headers=hr2).json()["results"]
     assert [(r["application_id"], r["hr_decision"]) for r in results] == [(pool["strong"], "CONTACT")]
     with engine.connect() as conn:

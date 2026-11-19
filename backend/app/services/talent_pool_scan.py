@@ -384,3 +384,59 @@ def record_decision(db, *, scan_id: str, application_id: str, decision: str, use
                       {"d": decision, "u": user_id, "s": scan_id, "a": application_id}).rowcount
     return bool(done)
 
+
+def reveal_contact(db, *, scan_id: str, application_id: str) -> dict:
+    """Return candidate contact details and a suggested email preview for a pool result
+    that HR explicitly marked CONTACT. Re-verifies pool eligibility right before reveal;
+    never sends email and never creates an application in the target position."""
+    still = {str(r["application_id"]) for r in eligible_pool(db)}
+    if application_id not in still:
+        db.execute(text("DELETE FROM app_private.talent_pool_scan_results WHERE scan_id = :s AND application_id = :a"),
+                   {"s": scan_id, "a": application_id})
+        raise ScanError("Hồ sơ không còn trong Talent Pool", 409)
+    row = db.execute(text("""
+        SELECT r.hr_decision, s.status AS scan_status,
+               tp.title AS target_title, tp.position_code AS target_code,
+               sp.title AS source_title, sp.position_code AS source_code,
+               i.display_name, i.email, i.phone
+        FROM app_private.talent_pool_scan_results r
+        JOIN app_private.talent_pool_scans s ON s.scan_id = r.scan_id
+        JOIN app_private.positions tp ON tp.position_id = s.position_id
+        JOIN app_private.applications a ON a.application_id = r.application_id
+        JOIN app_private.positions sp ON sp.position_id = a.position_id
+        LEFT JOIN app_private.application_identities i ON i.application_id = r.application_id
+        WHERE r.scan_id = :s AND r.application_id = :a
+    """), {"s": scan_id, "a": application_id}).mappings().first()
+    if not row:
+        raise ScanError("Không có kết quả này trong lượt quét", 404)
+    if row["scan_status"] != "COMPLETED":
+        raise ScanError("Lượt quét chưa hoàn tất", 409)
+    if row["hr_decision"] != "CONTACT":
+        raise ScanError("Cần chọn quyết định Liên hệ trước khi xem thông tin liên hệ", 409)
+    name = (row["display_name"] or "").strip()
+    greeting = f"Chào {name}," if name else "Chào Anh/Chị,"
+    subject = f"[VinUniversity] Mời trao đổi cơ hội tuyển dụng: {row['target_title']} ({row['target_code']})"
+    body = (
+        f"{greeting}\n\n"
+        f"Bộ phận Nhân sự Trường Đại học VinUni liên hệ với bạn từ hồ sơ đã lưu trong Talent Pool "
+        f"(trước đây ứng tuyển vị trí {row['source_title']} — {row['source_code']}).\n\n"
+        f"Hiện tại VinUni đang tuyển vị trí {row['target_title']} ({row['target_code']}) và nhận thấy kinh nghiệm "
+        f"của bạn phù hợp với yêu cầu công việc. Nếu bạn quan tâm, vui lòng phản hồi email này kèm CV mới nhất "
+        f"(nếu có cập nhật) để chúng tôi trao đổi chi tiết hơn.\n\n"
+        f"Nếu bạn không còn muốn VinUni lưu hồ sơ cho các vị trí khác, bạn có thể sử dụng mã rút đồng ý đã nhận "
+        f"hoặc phản hồi trực tiếp email này để chúng tôi cập nhật ngay.\n\n"
+        f"Trân trọng,\nBộ phận Nhân sự — VinUniversity"
+    )
+    return {
+        "application_id": application_id,
+        "display_name": name or None,
+        "email": row["email"],
+        "phone": row["phone"],
+        "target_position_title": row["target_title"],
+        "target_position_code": row["target_code"],
+        "source_position_title": row["source_title"],
+        "source_position_code": row["source_code"],
+        "email_subject": subject,
+        "email_body": body,
+    }
+

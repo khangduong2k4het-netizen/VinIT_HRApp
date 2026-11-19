@@ -158,13 +158,55 @@ def test_breakdowns(client, seed):
     assert families[0]["overrides"]["total"] == 2 and families[0]["qa_random_sample"]["total"] == 2
     versions = client.get(route, headers=hr, params={"dimension": "matching_policy_version"}).json()["rows"]
     assert sum(v["completed"] for v in versions) == 4
+    file_types = client.get(route, headers=hr, params={"dimension": "file_type"}).json()["rows"]
+    assert isinstance(file_types, list)
+    crit_types = client.get(route, headers=hr, params={"dimension": "criterion_type"}).json()["rows"]
+    assert isinstance(crit_types, list)
     assert client.get(route, headers=headers(seed["hr2"]), params={"dimension": "flag_category"}).json()["rows"] == []
+
+
+@integration
+def test_golden_set_export_anonymized_and_lead_or_admin_only(client, seed):
+    apps = _quality_fixture(seed)
+    with engine.begin() as conn:
+        # An OTHER override should be excluded from the golden set per P3-2 spec §5.
+        conn.execute(text("""
+            INSERT INTO app_private.application_status_events(application_id, previous_status, new_status, changed_by,
+                   note, ai_matching_status, override_direction, override_reason_code)
+            VALUES (:a, 'IN_REVIEW', 'SHORTLIST', :u, 'misc note', 'POSSIBLE_MISMATCH', 'ADVANCED_DESPITE_AI', 'OTHER')
+        """), {"a": apps[3], "u": seed["hr"]})
+        conn.execute(text("INSERT INTO app_private.user_role_assignments(user_id, role_code) VALUES (:u, 'HR_LEAD')"),
+                     {"u": seed["other"]})
+    route = "/v1/analytics/quality/golden-set/export"
+    assert client.get(route, headers=headers(seed["hm"])).status_code == 403
+    assert client.get(route, headers=headers(seed["hr"])).status_code == 403
+
+    lead = headers(seed["other"])
+    res_json = client.get(route, headers=lead, params={"format": "json"})
+    assert res_json.status_code == 200, res_json.text
+    payload = res_json.json()
+    sources = [item["source"] for item in payload["items"]]
+    assert "QA_ISSUES_FOUND" in sources and "QA_RANDOM_CORRECT" in sources and "HR_OVERRIDE" in sources
+    assert all(item["override_reason_code"] != "OTHER" for item in payload["items"])
+    raw_text = res_json.text
+    for app_id in apps:
+        assert app_id not in raw_text
+    assert "QA 0" not in raw_text and "QA 1" not in raw_text
+
+    res_csv = client.get(route, headers=lead, params={"format": "csv"})
+    assert res_csv.status_code == 200 and "text/csv" in res_csv.headers["content-type"]
+    assert "application_opaque_id" in res_csv.text and "QA 0" not in res_csv.text
+    with engine.connect() as conn:
+        audits = conn.execute(text("""SELECT COUNT(*) FROM app_private.audit_events
+            WHERE action_type = 'EXPORT_QUALITY_GOLDEN_SET'""")).scalar_one()
+    assert audits == 2
 
 
 @integration
 def test_markers_admin_only_write_audited_without_text(client, seed):
     admin = seed["other"]
     with engine.begin() as conn:
+        conn.execute(text("DELETE FROM app_private.quality_markers"))
         conn.execute(text("INSERT INTO app_private.user_role_assignments(user_id, role_code) VALUES (:u, 'ADMIN')"), {"u": admin})
     body = {"occurred_on": date.today().isoformat(), "title": "Cập nhật từ điển đồng nghĩa khối Tài chính", "note": "v2"}
     route = "/v1/analytics/quality/markers"

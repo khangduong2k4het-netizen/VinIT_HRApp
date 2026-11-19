@@ -13,7 +13,9 @@ from app.core.permissions import check_position_access
 from app.core.security import get_current_user
 from app.db.database import SessionLocal
 from app.services.talent_pool import MARK_REASONS, application_pool_state, eligible_pool, pool_expiry
-from app.services.talent_pool_scan import ScanError, enqueue_scan, record_decision, scan_header, scan_results
+from app.services.talent_pool_scan import (
+    ScanError, enqueue_scan, record_decision, reveal_contact, scan_header, scan_results,
+)
 
 router = APIRouter()
 
@@ -58,13 +60,26 @@ async def _require_application_access(application_id: UUID, current_user: dict) 
     return state
 
 
-def _pool_state_sync(application_id: str, state: dict) -> dict:
+def _can_withdraw_consent(db, position_id: str, user_id: str) -> bool:
+    """Per P3-1 spec §7: recording a candidate's written consent withdrawal is limited to HR Lead or Admin."""
+    return db.execute(text("""
+        SELECT 1 FROM app_private.user_role_assignments
+        WHERE user_id = :u AND revoked_at IS NULL AND role_code IN ('ADMIN', 'HR_LEAD')
+        UNION ALL
+        SELECT 1 FROM app_private.position_assignments
+        WHERE position_id = :p AND user_id = :u AND revoked_at IS NULL AND position_role = 'HR_LEAD'
+        LIMIT 1
+    """), {"u": user_id, "p": position_id}).first() is not None
+
+
+def _pool_state_sync(application_id: str, state: dict, user_id: str) -> dict:
     db = SessionLocal()
     try:
         marked = db.execute(text("SELECT 1 FROM app_private.talent_pool_marks WHERE application_id = :a AND removed_at IS NULL"),
                             {"a": application_id}).first() is not None
-        return {"marked": marked, "can_mark": state["eligible"], "reason": state["reason"],
-                "reason_text": REASON_TEXT.get(state["reason"]), "expires_on": state["expires_on"]}
+        can_withdraw = _can_withdraw_consent(db, state["position_id"], user_id)
+        return {"marked": marked, "can_mark": state["eligible"], "can_withdraw_consent": can_withdraw,
+                "reason": state["reason"], "reason_text": REASON_TEXT.get(state["reason"]), "expires_on": state["expires_on"]}
     finally:
         db.close()
 
@@ -72,7 +87,7 @@ def _pool_state_sync(application_id: str, state: dict) -> dict:
 @router.get("/applications/{application_id}")
 async def pool_state(application_id: UUID, current_user: dict = Depends(get_current_user)):
     state = await _require_application_access(application_id, current_user)
-    return await run_in_threadpool(_pool_state_sync, str(application_id), state)
+    return await run_in_threadpool(_pool_state_sync, str(application_id), state, current_user["user_id"])
 
 
 def _mark_sync(application_id: str, user_id: str, reason_code: str) -> dict:
@@ -142,6 +157,8 @@ def _withdraw_sync(application_id: str, user_id: str, position_id: str, referenc
     evidence_patch = json.dumps({"withdrawal_reference": clean_ref}, ensure_ascii=False) if clean_ref else "{}"
     db = SessionLocal()
     try:
+        if not _can_withdraw_consent(db, position_id, user_id):
+            raise HTTPException(status_code=403, detail="Chỉ HR Lead hoặc Admin mới được ghi nhận ứng viên rút đồng ý")
         done = db.execute(text("""UPDATE app_private.application_data_consents
             SET withdrawn_at = NOW(), withdrawn_by = :u,
                 evidence = COALESCE(evidence, '{}'::jsonb) || CAST(:ev AS jsonb)
@@ -337,4 +354,35 @@ async def decide(scan_id: UUID, application_id: UUID, body: DecisionInput, curre
     """HR records CONTACT / SKIP / LATER. The system never contacts the candidate or creates an application."""
     header = await _require_scan_access(scan_id, current_user)
     return await run_in_threadpool(_decide_sync, str(scan_id), str(application_id), body.decision,
+                                   current_user["user_id"], str(header["position_id"]))
+
+
+def _reveal_contact_sync(scan_id: str, application_id: str, user_id: str, position_id: str) -> dict:
+    db = SessionLocal()
+    try:
+        try:
+            contact = reveal_contact(db, scan_id=scan_id, application_id=application_id)
+        except ScanError as exc:
+            db.commit()  # persist deletion if the candidate left the pool
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
+        # Audit metadata holds IDs only, never candidate name, email or phone.
+        db.execute(text("""INSERT INTO app_private.audit_events(actor_user_id, action_type, object_type, object_id, position_id, outcome, metadata)
+            VALUES (:u, 'REVEAL_TALENT_POOL_CONTACT', 'APPLICATION', :a, :p, 'SUCCESS', CAST(:m AS jsonb))"""),
+                   {"u": user_id, "a": application_id, "p": position_id, "m": json.dumps({"scan_id": scan_id})})
+        db.commit()
+        return contact
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+@router.post("/scans/{scan_id}/results/{application_id}/contact")
+async def get_scan_contact(scan_id: UUID, application_id: UUID, current_user: dict = Depends(get_current_user)):
+    """Audited contact reveal + suggested email preview after HR marks a pool result as CONTACT."""
+    header = await _require_scan_access(scan_id, current_user)
+    return await run_in_threadpool(_reveal_contact_sync, str(scan_id), str(application_id),
                                    current_user["user_id"], str(header["position_id"]))
