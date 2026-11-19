@@ -501,3 +501,13 @@ Operator báo Ubuntu noble arm64 package candidate ClamAV `1.5.4+dfsg-0ubuntu0.2
 - **Việc kiểm ngược (làm thật, không chỉ nói):** cố tình đổi `data-testid` của dòng "đã xác minh xong" → e2e **đỏ** (timeout), hoàn nguyên → xanh. Với test chip cũng vậy: chỉ kiểm `aria-pressed` là **không đủ** vì đó chính là lỗi đã ship; e2e giờ kiểm cả `filled`/`outlined`.
 - **Test:** unit **37** (thêm 10 test U5), i18n 3/3, tsc/lint/build sạch; e2e **13/13** (thêm `ux03-dashboard`). Thêm `tests/dashboard-metrics.cjs` để đo Dashboard trước/sau.
 - **Ảnh:** `doc/ui-review/ux03/before/01..02` và `after/01..03`.
+
+### 47. Hợp đồng queue code giữa backend và frontend (đóng khe hở của UX-03)
+
+`doc/DE_XUAT_UI_UX_TU_GPT.md` §3.3 mô tả đúng một lỗi thật: backend từng phát `?queue=file_review` (thường) trong khi trang xếp hạng chỉ nhận `FILE_REVIEW`, nên mọi nút từ Dashboard mở danh sách **không lọc**. Khi rà lại thì **lỗi đã được sửa** (`_applicants_target` gọi `queue.upper()`, FE `normalizeApplicantQueue` chấp nhận cả hai kiểu). Nhưng cách **kiểm** thì vẫn hở:
+
+- `backend/tests/test_workspace.py` so mã queue với `RANKING_QUEUE_CODES` — một danh sách **chép tay** ngay trong file test. Đổi tên mã ở `applicantReview.ts` thì test backend **vẫn xanh**, đúng kiểu lỗi cũ quay lại mà không ai biết.
+- Đã sửa: test backend đọc thẳng `APPLICANT_QUEUES` trong file TS của frontend (`_ranking_queue_codes_from_frontend`).
+- Thêm `frontend/tests/queue-contract.test.cjs`: đọc các mã backend **thực sự phát** từ `workspace.py`, áp đúng phép biến đổi backend dùng (`queue.upper()` — test assert luôn tên phép biến đổi để không đoán), rồi đưa qua `isApplicantQueue` thật của trang. Có case cho link cũ dạng thường (bookmark không chết) và case mã lạ phải bị từ chối.
+- **Kiểm ngược cả hai phía, làm thật:** đổi `'NEEDS_VERIFICATION'` trong mảng queue của FE → backend pytest **đỏ** (`'queue=NEEDS_VERIFICATION' would not filter the ranking page`), hoàn nguyên → 25 passed. Lần phá đầu tiên rơi vào dòng type union nên không đỏ — đúng, vì đó không phải mảng; đã phá lại đúng dòng 46.
+- **Test:** backend 292 passed / 174 skipped, `ruff --select F` sạch trên file đã sửa; FE unit **40** (thêm 3 test hợp đồng).

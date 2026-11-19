@@ -1,12 +1,26 @@
 import re
+from pathlib import Path
 
 from app.services.workspace import build_work_queue_items, build_workflow, summarize_applications
 
-# The ranking page only recognises these queue codes (frontend/src/lib/applicantReview.ts).
-RANKING_QUEUE_CODES = {
-    "ALL", "SHORTLIST", "FILE_REVIEW", "DUPLICATE",
-    "NEEDS_VERIFICATION", "POSSIBLE_MISMATCH", "NOT_ASSESSED", "MEETS_MANDATORY",
-}
+
+def _ranking_queue_codes_from_frontend() -> set[str]:
+    """Queue codes the ranking page actually accepts, read from its source.
+
+    These used to be a hand-copied set in this file, which meant renaming a code
+    in the frontend left this test green while every dashboard deep link quietly
+    opened an unfiltered list. The list now comes from the frontend itself, so
+    the two sides cannot drift without a test failing.
+    """
+    source = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "lib" / "applicantReview.ts").read_text()
+    block = re.search(r"export const APPLICANT_QUEUES: ApplicantQueue\[\] = \[(.*?)\];", source, re.S)
+    assert block, "could not find APPLICANT_QUEUES in applicantReview.ts"
+    codes = set(re.findall(r"'([A-Z_]+)'", block.group(1)))
+    assert len(codes) >= 4, f"suspiciously few queue codes: {codes}"
+    return codes
+
+
+RANKING_QUEUE_CODES = _ranking_queue_codes_from_frontend()
 
 
 def _counts(**overrides):
