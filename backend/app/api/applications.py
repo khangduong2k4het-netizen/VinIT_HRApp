@@ -3,8 +3,12 @@ from fastapi.responses import FileResponse
 from typing import List, Optional
 from uuid import UUID, uuid4
 from app.core.security import get_current_user
-from app.core.permissions import check_position_access, can_update_application_status, application_access
+from app.core.permissions import (
+    application_access, can_update_application_status, check_position_access, is_system_admin,
+)
+from app.services.ai_config import sanitize_provider_snapshot
 from app.core.config import settings
+from app.services.override_rules import REASON_CODES, classify_override, override_reason_error
 from app.core.logging import get_logger
 from app.core.exceptions import (
     FileValidationError,
@@ -24,7 +28,7 @@ from app.schemas.common import OperationResponse
 from app.db.supabase import get_supabase_client
 from app.db.database import SessionLocal
 from sqlalchemy import text
-from app.services.document_processor import document_processor
+from app.services.document_processor import MIME_EXTENSIONS, document_processor
 import os
 import json
 import aiofiles
@@ -113,7 +117,7 @@ async def create_cv_batch(position_id: UUID, files: List[UploadFile] = File(...)
                     INSERT INTO app_private.applications (position_id, created_by)
                     VALUES (:position_id, :user_id) RETURNING application_id
                 """), {"position_id": position_id_str, "user_id": user_id}).scalar_one()
-                extension = '.pdf' if detected_mime == 'application/pdf' else '.docx'
+                extension = MIME_EXTENSIONS[detected_mime]
                 storage_path = f"{position_id_str}/{app_id}/{uuid4()}{extension}"
                 # Track before I/O so even a partially written file or an
                 # upload that errors after writing is eligible for cleanup.
@@ -166,6 +170,105 @@ async def create_cv_batch(position_id: UUID, files: List[UploadFile] = File(...)
                     storage.storage.from_(settings.SUPABASE_STORAGE_BUCKET_CV).remove([path])
             except Exception as exc:
                 logger.error("Could not remove orphaned upload", error_type=type(exc).__name__)
+        raise
+    finally:
+        db.close()
+
+
+@router.post("/{application_id}/reprocess", response_model=OperationResponse, status_code=status.HTTP_202_ACCEPTED)
+async def reprocess_application_cv(application_id: UUID, current_user: dict = Depends(get_current_user)):
+    """Queue one failed CV document for extraction/profile/assessment again.
+
+    A new operation and one-item batch are created for traceability; the
+    original upload batch remains unchanged as historical evidence.
+    """
+    user_id, app_id = current_user["user_id"], str(application_id)
+    db = SessionLocal()
+    try:
+        app = db.execute(text("""
+            SELECT application_id, position_id FROM app_private.applications
+            WHERE application_id = :app_id FOR UPDATE
+        """), {"app_id": app_id}).mappings().first()
+        if not app:
+            raise NotFoundError("Application")
+        position_id = str(app["position_id"])
+        if not can_update_application_status(user_id, position_id):
+            raise HTTPException(status_code=403, detail="Chỉ HR phụ trách mới được xử lý lại CV")
+
+        position_status = db.execute(text("""
+            SELECT status FROM app_private.positions WHERE position_id = :id FOR UPDATE
+        """), {"id": position_id}).scalar_one_or_none()
+        if position_status is None:
+            raise NotFoundError("Position")
+        if position_status != "OPEN":
+            raise HTTPException(status_code=400, detail="Không thể xử lý lại CV cho vị trí đã đóng hoặc tạm dừng")
+        approved = db.execute(text("""
+            SELECT 1 FROM app_private.criteria_versions WHERE position_id = :id AND status = 'APPROVED'
+              AND jd_version_id = (SELECT jd_version_id FROM app_private.jd_versions
+                                   WHERE position_id = :id ORDER BY version_number DESC LIMIT 1) LIMIT 1
+        """), {"id": position_id}).first()
+        if not approved:
+            raise HTTPException(status_code=400, detail="Tiêu chí cần được HR và Hiring Manager duyệt trước khi tải CV")
+        active = db.execute(text("""
+            SELECT 1 FROM app_private.operations WHERE position_id = :id
+              AND capability IN ('CV_PROCESSING', 'ASSESSMENT', 'RANKING')
+              AND status IN ('PENDING', 'PROCESSING') LIMIT 1
+        """), {"id": position_id}).first()
+        if active:
+            raise HTTPException(status_code=409, detail="Vị trí đang có tác vụ xử lý. Vui lòng đợi tác vụ hoàn tất trước khi xử lý lại CV.")
+
+        doc = db.execute(text("""
+            SELECT * FROM app_private.application_documents
+            WHERE application_id = :app_id AND document_type = 'CV'
+            ORDER BY created_at DESC, document_id DESC LIMIT 1 FOR UPDATE
+        """), {"app_id": app_id}).mappings().first()
+        if not doc:
+            raise NotFoundError("CV document")
+        if doc["file_processing_status"] not in ("NEEDS_HR_REVIEW", "ERROR_UNSUPPORTED"):
+            raise HTTPException(status_code=409, detail="Hồ sơ không ở trạng thái cần xử lý lại")
+
+        operation_id = db.execute(text("""
+            INSERT INTO app_private.operations (position_id, capability, status, requested_by)
+            VALUES (:position_id, 'CV_PROCESSING', 'PENDING', :user_id) RETURNING operation_id
+        """), {"position_id": position_id, "user_id": user_id}).scalar_one()
+        batch_id = db.execute(text("""
+            INSERT INTO app_private.cv_batches
+                (position_id, uploaded_by, operation_id, status, total_files, total_size_bytes)
+            VALUES (:position_id, :user_id, :operation_id, 'PROCESSING', 1, :size) RETURNING batch_id
+        """), {"position_id": position_id, "user_id": user_id, "operation_id": operation_id,
+                "size": doc["size_bytes"]}).scalar_one()
+        db.execute(text("""
+            INSERT INTO app_private.cv_batch_items
+                (batch_id, original_filename, declared_mime_type, detected_mime_type,
+                 size_bytes, validation_result, application_id)
+            VALUES (:batch_id, :filename, :mime, :mime, :size, 'ACCEPTED', :app_id)
+        """), {"batch_id": batch_id, "filename": doc["original_filename"], "mime": doc["mime_type"],
+                "size": doc["size_bytes"], "app_id": app_id})
+        db.execute(text("""
+            INSERT INTO app_private.application_identities (application_id) VALUES (:id)
+            ON CONFLICT (application_id) DO NOTHING
+        """), {"id": app_id})
+        db.execute(text("""
+            UPDATE app_private.application_documents
+            SET file_processing_status = 'RECEIVED', processing_error = NULL
+            WHERE document_id = :document_id
+        """), {"document_id": doc["document_id"]})
+        db.execute(text("""
+            INSERT INTO app_private.document_processing_runs (document_id, operation_id, extraction_type, status)
+            VALUES (:document_id, :operation_id, 'INITIAL_EXTRACTION', 'PENDING')
+        """), {"document_id": doc["document_id"], "operation_id": operation_id})
+        db.execute(text("""
+            INSERT INTO app_private.audit_events
+                (actor_user_id, action_type, object_type, object_id, position_id, outcome, metadata)
+            VALUES (:user_id, 'REPROCESS_CV_DOCUMENT', 'APPLICATION', :app_id, :position_id, 'SUCCESS',
+                    CAST(:metadata AS jsonb))
+        """), {"user_id": user_id, "app_id": app_id, "position_id": position_id,
+                "metadata": json.dumps({"document_id": str(doc["document_id"]), "batch_id": str(batch_id)})})
+        db.commit()
+        return OperationResponse(operation_id=operation_id, status="pending",
+                                 message="Đã đưa CV vào hàng đợi xử lý lại.")
+    except Exception:
+        db.rollback()
         raise
     finally:
         db.close()
@@ -238,6 +341,9 @@ async def list_applications(
                 "matching_status": matching_status, "page_size": page_size, "offset": (page - 1) * page_size}).mappings().all()
         applications = [dict(row) for row in rows]
         for item in applications:
+            if isinstance(item.get("latest_assessment"), dict):
+                item["latest_assessment"]["provider_model_snapshot"] = sanitize_provider_snapshot(
+                    item["latest_assessment"].get("provider_model_snapshot"))
             _normalize_application(item)
             item.update({"can_view_cv": True, "can_view_assessment_evidence": bool(item["latest_assessment"]), "can_update_status": True})
         return applications
@@ -290,6 +396,11 @@ async def get_application(application_id: UUID, current_user: dict = Depends(get
             ORDER BY ar.created_at DESC, ar.assessment_id DESC LIMIT 1
         """), {"id": app_id, "hr_access": access["can_update_status"], "user_id": current_user["user_id"]}).mappings().first()
         latest = dict(assessment) if assessment else None
+        if latest:
+            latest["provider_model_snapshot"] = sanitize_provider_snapshot(
+                latest.get("provider_model_snapshot"),
+                operations_access=is_system_admin(current_user["user_id"]),
+            )
         app["can_view_assessment_evidence"] = False
         if latest:
             latest["criterion_results"] = []
@@ -358,6 +469,51 @@ async def list_application_status_events(application_id: UUID, current_user: dic
         db.close()
 
 
+def _current_ai_conclusion(db, app_id: str) -> dict:
+    """The AI conclusion HR sees now: the latest completed assessment for the
+    current profile under the approved criteria of the latest JD."""
+    row = db.execute(text("""
+        SELECT ar.assessment_id, ar.matching_status, ar.matching_score, ar.evidence_coverage
+        FROM app_private.assessment_runs ar
+        JOIN app_private.applications a ON a.application_id = ar.application_id
+        WHERE ar.application_id = :app_id AND ar.status = 'COMPLETED'
+          AND ar.profile_version_id = (SELECT profile_version_id FROM app_private.profile_versions
+              WHERE application_id = a.application_id AND status = 'COMPLETED' ORDER BY version_number DESC LIMIT 1)
+          AND ar.criteria_version_id = (SELECT c.criteria_version_id FROM app_private.criteria_versions c
+              WHERE c.position_id = a.position_id AND c.status = 'APPROVED'
+                AND c.jd_version_id = (SELECT jd_version_id FROM app_private.jd_versions
+                    WHERE position_id = a.position_id ORDER BY version_number DESC LIMIT 1)
+              ORDER BY c.version_number DESC LIMIT 1)
+        ORDER BY ar.created_at DESC LIMIT 1
+    """), {"app_id": app_id}).mappings().first()
+    return dict(row) if row else {"assessment_id": None, "matching_status": None, "matching_score": None,
+                                  "evidence_coverage": None}
+
+
+@router.get("/{application_id}/override-check")
+async def check_status_override(application_id: UUID, new_status: ApplicationStatus,
+                                current_user: dict = Depends(get_current_user)):
+    """F2.03: tell the UI whether a status change would contradict the AI, so
+    it can ask for a reason before submitting."""
+    app_id = str(application_id)
+    db = SessionLocal()
+    try:
+        position_id = db.execute(text("SELECT position_id FROM app_private.applications WHERE application_id = :id"),
+                                 {"id": app_id}).scalar_one_or_none()
+        if not position_id:
+            raise NotFoundError("Application")
+        if not can_update_application_status(current_user["user_id"], str(position_id)):
+            raise HTTPException(status_code=403, detail="Chỉ HR phụ trách mới được cập nhật trạng thái hồ sơ")
+        ai = _current_ai_conclusion(db, app_id)
+        direction = classify_override(new_status.value, ai["matching_status"])
+        return {"is_override": direction is not None, "direction": direction,
+                "ai_matching_status": ai["matching_status"], "ai_matching_score": ai["matching_score"],
+                "ai_evidence_coverage": ai["evidence_coverage"],
+                "reason_codes": [{"code": code, "label": label} for code, label in REASON_CODES.items()]}
+    finally:
+        db.close()
+
+
 @router.patch("/{application_id}/status", response_model=Application)
 async def update_application_status(
     application_id: UUID,
@@ -383,20 +539,37 @@ async def update_application_status(
         note = (update.note or "").strip() or None
         if new_status in (ApplicationStatus.REJECTED_SCREENING, ApplicationStatus.REJECTED_INTERVIEW) and not reason:
             raise HTTPException(status_code=400, detail="Vui lòng nhập lý do loại hồ sơ")
+        # F2.03: snapshot the AI conclusion at decision time; an override needs a reason code.
+        ai = _current_ai_conclusion(db, app_id)
+        direction = classify_override(new_status.value, ai["matching_status"])
+        override_reason = (update.override_reason_code or "").strip().upper() or None
+        problem = override_reason_error(direction, override_reason, note)
+        if problem:
+            raise HTTPException(status_code=400, detail=problem)
+        if direction is None:
+            override_reason = None
         changed = db.execute(text("""
             UPDATE app_private.applications SET application_status = :new_status, updated_at = NOW()
             WHERE application_id = :app_id RETURNING *
         """), {"new_status": new_status.value, "app_id": app_id}).mappings().one()
         db.execute(text("""
             INSERT INTO app_private.application_status_events
-                (application_id, previous_status, new_status, changed_by, reason_code, note)
-            VALUES (:app_id, :previous, :new_status, :user_id, :reason, :note)
+                (application_id, previous_status, new_status, changed_by, reason_code, note,
+                 ai_assessment_id, ai_matching_status, ai_matching_score, ai_evidence_coverage,
+                 override_direction, override_reason_code)
+            VALUES (:app_id, :previous, :new_status, :user_id, :reason, :note,
+                    :ai_assessment_id, :ai_status, :ai_score, :ai_coverage, :direction, :override_reason)
         """), {"app_id": app_id, "previous": current_status.value, "new_status": new_status.value,
-                "user_id": user_id, "reason": reason, "note": note})
+                "user_id": user_id, "reason": reason, "note": note,
+                "ai_assessment_id": str(ai["assessment_id"]) if ai["assessment_id"] else None,
+                "ai_status": ai["matching_status"], "ai_score": ai["matching_score"],
+                "ai_coverage": ai["evidence_coverage"], "direction": direction, "override_reason": override_reason})
         db.execute(text("""
-            INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, position_id, outcome)
-            VALUES (:user_id, 'UPDATE_APPLICATION_STATUS', 'APPLICATION', :app_id, :position_id, :outcome)
-        """), {"user_id": user_id, "app_id": app_id, "position_id": str(app["position_id"]), "outcome": new_status.value})
+            INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, position_id, outcome, metadata)
+            VALUES (:user_id, 'UPDATE_APPLICATION_STATUS', 'APPLICATION', :app_id, :position_id, :outcome, CAST(:metadata AS jsonb))
+        """), {"user_id": user_id, "app_id": app_id, "position_id": str(app["position_id"]), "outcome": new_status.value,
+                "metadata": json.dumps({"override_direction": direction, "override_reason_code": override_reason})
+                if direction else None})
         db.commit()
         return dict(changed)
     except Exception:

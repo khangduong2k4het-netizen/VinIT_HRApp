@@ -29,3 +29,8 @@ HRA_E2E_FIXTURE=/đường/dẫn/fixture-tổng-hợp.json \
 ```
 
 Có thể chỉ định `HRA_E2E_CHROMIUM_EXECUTABLE` cho binary có sẵn và `HRA_E2E_CHROMIUM_ARGS` là JSON array khi môi trường CI cô lập cần flags riêng. Không lưu fixture/token hay binary browser vào Git. Test này không chứng minh Supabase Auth/Storage, OCR, model thật hay tính an toàn production.
+
+Smoke F2.04/F2.05: `npm run test:e2e:quality`, cùng các biến opt-in/URL/fixture
+ở trên, dùng fixture riêng cho QA và duplicate. Xem
+[hướng dẫn F2.04/F2.05](../../doc/PHASE2_04_05.md#kiểm-thử) cho contract fixture.
+Đây là test có ghi dữ liệu (claim/submit inspection), chỉ dùng DB disposable.

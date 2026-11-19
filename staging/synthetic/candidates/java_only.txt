@@ -1,0 +1,16 @@
+Synthetic Java Only
+Email: candidate.java@example.test
+Phone: +84 000 000 003
+
+Summary
+Java backend engineer specialising in Spring services. No Python experience; primary production language is Java.
+
+Experience
+- Built Java Spring Boot services for payment integrations.
+- Used MySQL for transactional storage and Redis for caching.
+- Maintained Jenkins pipelines and Linux deployments.
+
+Skills
+Java, Spring Boot, MySQL, Redis, Jenkins, Linux.
+
+Note for staging expectation: the mandatory Python criterion has explicit negative evidence, while PostgreSQL and Docker remain unclear.

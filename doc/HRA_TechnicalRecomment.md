@@ -15,6 +15,8 @@ Cách này giữ được các hợp đồng CAPI/FAPI đã thiết kế, đồn
 | Đa ngôn ngữ | **next-intl** hoặc giải pháp i18n tương đương | Quản lý nhãn và nội dung UI tiếng Việt/Anh. |
 | API ứng dụng | **Python, FastAPI, Pydantic** | Thực hiện các hợp đồng `/v1` FAPI/CAPI, kiểm tra quyền và điều phối tác vụ AI bất đồng bộ. |
 | Dữ liệu | **Supabase PostgreSQL + PostgREST** | Lưu dữ liệu nghiệp vụ và cung cấp lớp truy cập dữ liệu cho API. |
+| Vector retrieval (tùy chọn) | **pgvector trong PostgreSQL** + BGE qua endpoint `/embeddings` | Lưu/truy vấn embedding của CV chunks khi semantic retrieval được bật; không cần vector database riêng ở quy mô hiện tại. |
+| Học xếp hạng (tùy chọn) | **Pairwise logistic LTR train offline** | Train/đánh giá artifact theo group/position; registry trong PostgreSQL; mặc định `OFF`, chỉ `SHADOW`/`ACTIVE` khi đạt gate. |
 | Đăng nhập | **Supabase Auth** | Tài khoản nội bộ email/mật khẩu theo phạm vi Phase 1. SSO/MFA chưa nằm trong Phase 1. |
 | Tệp | **Supabase Storage**, bucket private | Lưu CV gốc và nội dung trích xuất; API cấp quyền tải lên/tải xuống có thời hạn. |
 | Hàng đợi | **Supabase Queues/pgmq**, nếu có trong deployment được chọn | Điều phối xử lý file, matching và ranking bất đồng bộ. |
@@ -78,7 +80,9 @@ Người dùng
 - Không gửi CV thật tới API ngoài nếu chưa được phê duyệt theo chính sách sử dụng dữ liệu.
 - Chuyển kết quả model qua cấu trúc đầu ra có kiểm tra kiểu/schema; không lưu chain-of-thought.
 - Dùng **logic xác định** trong backend để tính điểm, độ phủ bằng chứng và thứ hạng theo policy đã chọn. Không giao cho model tự quyết định các phép tính này.
-- Chưa cần vector database trong Phase 1. Có thể dùng tìm kiếm toàn văn sẵn có của PostgreSQL nếu cần tìm JD hoặc nội dung đã được phép tìm kiếm.
+- Không cần vector database riêng. Bản hiện thực dùng **pgvector trong cùng PostgreSQL** cho semantic retrieval tùy chọn; lexical/rule retrieval vẫn là đường chính và semantic chỉ bổ sung candidate chunks cho LLM fallback.
+- BGE phải chạy qua endpoint embedding được phê duyệt (TEI/Xinference/vLLM hoặc dịch vụ tương thích). Không mô tả provider `hash` trong test là BGE.
+- LTR không train online và không tự kích hoạt. Artifact phải train offline từ labelled data, tách holdout theo position/group, đăng ký `DRAFT` và chỉ được phê duyệt sau khi đạt metric gate.
 - Không cần framework agent tự động cho Phase 1; ưu tiên luồng điều phối rõ ràng và danh sách tool được cho phép.
 
 ### Tác vụ bất đồng bộ
@@ -112,7 +116,7 @@ Các yêu cầu vận hành nên có trong Phase 1:
 Để hạn chế độ phức tạp, chưa khuyến nghị:
 
 - Microservices cho từng capability.
-- Vector database hoặc dịch vụ tìm kiếm riêng.
+- Vector database hoặc dịch vụ tìm kiếm riêng tách khỏi PostgreSQL/pgvector.
 - Redis/Kafka nếu hàng đợi pilot đáp ứng được.
 - Nhiều nhà cung cấp model hoặc cơ chế fallback sang provider chưa được duyệt.
 - Kết nối CRM/ATS/HRIS.
@@ -123,5 +127,7 @@ Các yêu cầu vận hành nên có trong Phase 1:
 Stack khuyến nghị cho Phase 1 là:
 
 > **Next.js/React/TypeScript + FastAPI/Python + Supabase PostgreSQL/PostgREST/Auth/Storage + hàng đợi PostgreSQL phù hợp + Python worker + xử lý PDF/DOCX/OCR + model AI cục bộ được đánh giá và phê duyệt.**
+
+Cập nhật 07/11/2026: pgvector/BGE semantic retrieval và LTR đã được thêm như lớp tùy chọn tắt mặc định trên cùng stack PostgreSQL/FastAPI/worker. Chúng không làm thay đổi kết luận stack Phase 1; điều kiện kích hoạt nằm ở [MATCHING_STABILITY.md](MATCHING_STABILITY.md).
 
 Ba quyết định cần chốt trước khi triển khai với CV thật là: **managed hay self-hosted Supabase; môi trường triển khai được VinUni phê duyệt; và khả năng chạy model cục bộ phù hợp với khối lượng pilot.**

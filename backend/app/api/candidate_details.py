@@ -11,6 +11,7 @@ from app.core.exceptions import NotFoundError
 from app.core.permissions import application_access
 from app.core.security import get_current_user
 from app.db.database import SessionLocal
+from app.services.cross_duplicates import refresh_application
 
 router = APIRouter()
 
@@ -164,6 +165,7 @@ async def update_profile(application_id: UUID, request: ProfileUpdate, current_u
                 UPDATE app_private.duplicate_signals SET review_status = 'DISMISSED', detector_version = 'identity-changed', reviewed_by = :user, reviewed_at = NOW()
                 WHERE review_status = 'PENDING' AND (application_id_1 = :id OR application_id_2 = :id)
             """), {"id": app_id, "user": current_user["user_id"]})
+        refresh_application(db, app_id)
         db.execute(text("""
             INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, position_id, outcome)
             VALUES (:user, 'UPDATE_PROFILE', 'PROFILE_VERSION', :id, :position, 'SUCCESS')

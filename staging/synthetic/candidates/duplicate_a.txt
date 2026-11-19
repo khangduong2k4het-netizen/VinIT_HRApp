@@ -1,0 +1,13 @@
+Synthetic Duplicate A
+Email: candidate.duplicate@example.test
+Phone: +84 000 000 005
+
+Summary
+Python backend engineer with 5 years of API development experience.
+
+Experience
+- Built Python backend APIs and PostgreSQL-backed services for customer support tooling.
+- Wrote SQL reports and maintained background workers.
+
+Skills
+Python, PostgreSQL, SQL, REST APIs.

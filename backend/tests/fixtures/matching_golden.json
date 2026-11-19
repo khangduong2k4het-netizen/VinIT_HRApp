@@ -1,0 +1,256 @@
+[
+  {
+    "id": "skill_alias_js",
+    "criterion": {
+      "criterion_id": "c-skill",
+      "name": "JavaScript",
+      "description": "JavaScript experience",
+      "category": "MUST_HAVE",
+      "weight_in_group": 100,
+      "expected_evidence_keywords": [
+        "JS"
+      ]
+    },
+    "cv_text": "WORK EXPERIENCE\nDeveloped JavaScript applications for four years.",
+    "candidate_profile": {},
+    "expected_outcome": "STRONG_MATCH"
+  },
+  {
+    "id": "skill_python_vietnamese_years",
+    "criterion": {
+      "criterion_id": "c-python",
+      "name": "Python",
+      "description": "Ít nhất 5 năm kinh nghiệm Python",
+      "category": "MUST_HAVE",
+      "weight_in_group": 100,
+      "expected_evidence_keywords": [
+        "Python"
+      ]
+    },
+    "cv_text": "KINH NGHIỆM LÀM VIỆC\nXây dựng hệ thống Python trong 5 năm.",
+    "candidate_profile": {},
+    "expected_outcome": "MATCH"
+  },
+  {
+    "id": "years_fragment_below_requirement_unresolved",
+    "criterion": {
+      "criterion_id": "c-years",
+      "name": "Backend experience",
+      "description": "At least 5 years of backend experience",
+      "category": "MUST_HAVE",
+      "weight_in_group": 100,
+      "expected_evidence_keywords": [
+        "backend"
+      ]
+    },
+    "cv_text": "WORK EXPERIENCE\nBackend Engineer. Built APIs for 2 years.",
+    "candidate_profile": {},
+    "expected_outcome": null
+  },
+  {
+    "id": "years_from_date_ranges",
+    "criterion": {
+      "criterion_id": "c-dates",
+      "name": "Backend experience",
+      "description": "Minimum 5 years of backend experience",
+      "category": "MUST_HAVE",
+      "weight_in_group": 100,
+      "expected_evidence_keywords": [
+        "backend"
+      ]
+    },
+    "cv_text": "WORK EXPERIENCE\nBackend Engineer 2017 - 2019. Built APIs.\n\nSenior Backend Engineer 2020 - 2022. Led services.",
+    "candidate_profile": {},
+    "expected_outcome": "MATCH"
+  },
+  {
+    "id": "degree_match_vietnamese",
+    "criterion": {
+      "criterion_id": "c-degree",
+      "name": "Education",
+      "description": "Bachelor degree required",
+      "category": "MUST_HAVE",
+      "weight_in_group": 100,
+      "expected_evidence_keywords": []
+    },
+    "cv_text": "HỌC VẤN\nCử nhân Công nghệ thông tin, Đại học Ví dụ.",
+    "candidate_profile": {},
+    "expected_outcome": "MATCH"
+  },
+  {
+    "id": "degree_below_requirement",
+    "criterion": {
+      "criterion_id": "c-degree",
+      "name": "Education",
+      "description": "Master degree required",
+      "category": "MUST_HAVE",
+      "weight_in_group": 100,
+      "expected_evidence_keywords": []
+    },
+    "cv_text": "EDUCATION\nBachelor of Computer Science, Example University.",
+    "candidate_profile": {},
+    "expected_outcome": "NO_MATCH"
+  },
+  {
+    "id": "language_ielts_match",
+    "criterion": {
+      "criterion_id": "c-lang",
+      "name": "English",
+      "description": "English language, IELTS 6.5 required",
+      "category": "NICE_TO_HAVE",
+      "weight_in_group": 100,
+      "expected_evidence_keywords": [
+        "English"
+      ]
+    },
+    "cv_text": "LANGUAGES\nEnglish IELTS 7.0.",
+    "candidate_profile": {},
+    "expected_outcome": "MATCH"
+  },
+  {
+    "id": "language_ielts_below",
+    "criterion": {
+      "criterion_id": "c-lang",
+      "name": "English",
+      "description": "English language, IELTS 6.5 required",
+      "category": "NICE_TO_HAVE",
+      "weight_in_group": 100,
+      "expected_evidence_keywords": [
+        "English"
+      ]
+    },
+    "cv_text": "LANGUAGES\nEnglish IELTS 5.5.",
+    "candidate_profile": {},
+    "expected_outcome": "NO_MATCH"
+  },
+  {
+    "id": "language_level_missing_unresolved",
+    "criterion": {
+      "criterion_id": "c-lang",
+      "name": "English",
+      "description": "English language, IELTS 6.5 required",
+      "category": "NICE_TO_HAVE",
+      "weight_in_group": 100,
+      "expected_evidence_keywords": [
+        "English"
+      ]
+    },
+    "cv_text": "LANGUAGES\nEnglish.",
+    "candidate_profile": {},
+    "expected_outcome": null
+  },
+  {
+    "id": "certification_match",
+    "criterion": {
+      "criterion_id": "c-cert",
+      "name": "AWS Certification",
+      "description": "AWS Certified Solutions Architect",
+      "category": "NICE_TO_HAVE",
+      "weight_in_group": 100,
+      "expected_evidence_keywords": [
+        "AWS"
+      ]
+    },
+    "cv_text": "CERTIFICATIONS\nAWS Certified Solutions Architect - Associate.",
+    "candidate_profile": {},
+    "expected_outcome": "MATCH"
+  },
+  {
+    "id": "absent_skill_unresolved",
+    "criterion": {
+      "criterion_id": "c-rust",
+      "name": "Rust",
+      "description": "Rust experience",
+      "category": "NICE_TO_HAVE",
+      "weight_in_group": 100,
+      "expected_evidence_keywords": [
+        "Rust"
+      ]
+    },
+    "cv_text": "WORK EXPERIENCE\nBuilt Python services for five years.",
+    "candidate_profile": {},
+    "expected_outcome": null
+  },
+  {
+    "id": "testing_skill_not_inflated_by_other_sentence",
+    "criterion": {
+      "criterion_id": "c-test",
+      "name": "Testing",
+      "description": "Testing experience",
+      "category": "NICE_TO_HAVE",
+      "weight_in_group": 100,
+      "expected_evidence_keywords": [
+        "Testing"
+      ]
+    },
+    "cv_text": "Developed Python systems for five years. Built reliable automated testing systems.",
+    "candidate_profile": {},
+    "expected_outcome": "MATCH"
+  },
+  {
+    "id": "years_sum_distinct_durations",
+    "criterion": {
+      "criterion_id": "c-years-sum",
+      "name": "Python experience",
+      "description": "At least 5 years of Python experience",
+      "category": "MUST_HAVE",
+      "weight_in_group": 100,
+      "expected_evidence_keywords": [
+        "Python"
+      ]
+    },
+    "cv_text": "WORK EXPERIENCE\nPython Engineer at A. Built APIs for 3 years.\n\nPython Engineer at B. Built services for 3 years.",
+    "candidate_profile": {},
+    "expected_outcome": "MATCH"
+  },
+  {
+    "id": "language_conflicting_levels_unresolved",
+    "criterion": {
+      "criterion_id": "c-lang-conflict",
+      "name": "English",
+      "description": "English language, IELTS 7.0 required",
+      "category": "NICE_TO_HAVE",
+      "weight_in_group": 100,
+      "expected_evidence_keywords": [
+        "English"
+      ]
+    },
+    "cv_text": "LANGUAGES\nEnglish IELTS 5.5. English IELTS 7.0.",
+    "candidate_profile": {},
+    "expected_outcome": null
+  },
+  {
+    "id": "degree_profile_only_match_unresolved",
+    "criterion": {
+      "criterion_id": "c-degree-profile",
+      "name": "Education",
+      "description": "Master degree required",
+      "category": "MUST_HAVE",
+      "weight_in_group": 100,
+      "expected_evidence_keywords": []
+    },
+    "cv_text": "EDUCATION\nBachelor of Computer Science, Example University.",
+    "candidate_profile": {
+      "education": [
+        "Master of Finance"
+      ]
+    },
+    "expected_outcome": null
+  },
+  {
+    "id": "phrase_constituent_token_unresolved",
+    "criterion": {
+      "criterion_id": "c-phrase",
+      "name": "Python programming",
+      "description": "Python programming",
+      "category": "MUST_HAVE",
+      "weight_in_group": 100,
+      "expected_evidence_keywords": [
+        "Python programming"
+      ]
+    },
+    "cv_text": "SKILLS\nProgramming reliable business systems for clients.",
+    "candidate_profile": {},
+    "expected_outcome": null
+  }
+]

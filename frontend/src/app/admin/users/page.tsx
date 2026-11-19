@@ -46,6 +46,11 @@ export default function AdminUsersPage() {
   const [confirm, setConfirm] = useState('');
   const [roles, setRoles] = useState<Role[]>(['HR_RECRUITER']);
   const [accountStatus, setAccountStatus] = useState<AccountStatus>('ACTIVE');
+  const [resetTarget, setResetTarget] = useState<Account | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetConfirm, setResetConfirm] = useState('');
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => { setPage(1); setSearch(searchInput.trim()); }, 300);
@@ -100,6 +105,26 @@ export default function AdminUsersPage() {
     } catch (err: any) { setDialogError(err.response?.data?.detail || t("Không thể lưu tài khoản.")); }
     finally { setSaving(false); }
   };
+  const openReset = (account: Account) => {
+    setResetTarget(account); setResetPassword(''); setResetConfirm(''); setResetError(null); setSuccess(null);
+  };
+  const closeReset = () => { if (!resetting) { setResetTarget(null); setResetPassword(''); setResetConfirm(''); setResetError(null); } };
+  const submitReset = async (event: React.FormEvent) => {
+    event.preventDefault(); setResetError(null);
+    if (!resetTarget) return;
+    if (resetPassword !== resetConfirm) { setResetError(t("Mật khẩu xác nhận không khớp.")); return; }
+    if ([...resetPassword].length < 12 || new TextEncoder().encode(resetPassword).length > 72) {
+      setResetError(t("Mật khẩu cần ít nhất 12 ký tự và tối đa 72 byte UTF-8.")); return;
+    }
+    try {
+      setResetting(true);
+      await adminApi.resetUserPassword(resetTarget.user_id, resetPassword);
+      setResetTarget(null); setResetPassword(''); setResetConfirm('');
+      setSuccess(t("Đã đặt lại mật khẩu. Hãy chuyển mật khẩu tạm thời qua kênh an toàn; thành viên phải đổi khi đăng nhập lại."));
+      setRevision(value => value + 1);
+    } catch (err: any) { setResetError(err.response?.data?.detail || t("Không thể đặt lại mật khẩu.")); }
+    finally { setResetting(false); }
+  };
   const roleChips = (account: Account) => <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
     {account.roles.map(role => <Chip size="small" key={role} label={t(roleKeys[role] || role)} variant="outlined" />)}
   </Box>;
@@ -135,7 +160,10 @@ export default function AdminUsersPage() {
             <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere', mb: 1 }}>{account.email || '—'}</Typography>
             {roleChips(account)}
             <Typography variant="body2" sx={{ mt: 1 }}>{t(statusKeys[account.account_status])}{account.must_change_password ? ` · ${t("Chờ đổi mật khẩu")}` : ''}</Typography>
-            <Button sx={{ mt: 1 }} onClick={() => edit(account)} aria-label={t("Chỉnh sửa tài khoản {0}", account.display_name)}>{t("Chỉnh sửa")}</Button>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
+              <Button onClick={() => edit(account)} aria-label={t("Chỉnh sửa tài khoản {0}", account.display_name)}>{t("Chỉnh sửa")}</Button>
+              {account.account_status === 'ACTIVE' && account.user_id !== currentUser && <Button color="warning" onClick={() => openReset(account)} aria-label={t("Đặt lại mật khẩu cho {0}", account.display_name)}>{t("Đặt lại mật khẩu")}</Button>}
+            </Box>
           </CardContent></Card>)}
         </Box>
         <TableContainer component={Paper} sx={{ display: { xs: 'none', md: 'block' } }}><Table aria-label={t("Danh sách tài khoản")}>
@@ -144,7 +172,10 @@ export default function AdminUsersPage() {
             <TableCell>{account.display_name}{account.user_id === currentUser && <Typography variant="caption" display="block" color="text.secondary">{t("Tài khoản của bạn")}</Typography>}</TableCell>
             <TableCell sx={{ overflowWrap: 'anywhere' }}>{account.email || '—'}</TableCell><TableCell>{roleChips(account)}</TableCell>
             <TableCell>{t(statusKeys[account.account_status])}{account.must_change_password && <Typography variant="caption" display="block" color="text.secondary">{t("Chờ đổi mật khẩu")}</Typography>}</TableCell>
-            <TableCell align="right"><Button onClick={() => edit(account)} aria-label={t("Chỉnh sửa tài khoản {0}", account.display_name)}>{t("Chỉnh sửa")}</Button></TableCell>
+            <TableCell align="right"><Box sx={{ display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 1 }}>
+              <Button onClick={() => edit(account)} aria-label={t("Chỉnh sửa tài khoản {0}", account.display_name)}>{t("Chỉnh sửa")}</Button>
+              {account.account_status === 'ACTIVE' && account.user_id !== currentUser && <Button color="warning" onClick={() => openReset(account)} aria-label={t("Đặt lại mật khẩu cho {0}", account.display_name)}>{t("Đặt lại mật khẩu")}</Button>}
+            </Box></TableCell>
           </TableRow>)}</TableBody>
         </Table></TableContainer>
       </>}
@@ -182,6 +213,22 @@ export default function AdminUsersPage() {
         </DialogContent>
         <DialogActions sx={{ p: 2 }}><Button onClick={resetForm} disabled={saving}>{t("Hủy")}</Button>
           <Button type="submit" variant="contained" color="secondary" disabled={saving}>{saving ? <CircularProgress size={20} color="inherit" /> : t("Lưu tài khoản")}</Button>
+        </DialogActions>
+      </Box>
+    </Dialog>
+
+    <Dialog open={Boolean(resetTarget)} onClose={closeReset} fullWidth maxWidth="sm">
+      <Box component="form" onSubmit={submitReset}>
+        <DialogTitle>{t("Đặt lại mật khẩu")}</DialogTitle>
+        <DialogContent dividers>
+          {resetError && <Alert severity="error" sx={{ mb: 2 }}>{t(resetError)}</Alert>}
+          <Alert severity="warning" sx={{ mb: 2 }}>{t("Thành viên sẽ phải đổi mật khẩu này khi đăng nhập lại; các phiên đăng nhập hiện tại của thành viên sẽ bị thu hồi.")}</Alert>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{resetTarget ? `${resetTarget.display_name} · ${resetTarget.email || '—'}` : ''}</Typography>
+          <TextField label={t("Mật khẩu tạm thời")} type="password" value={resetPassword} onChange={e => setResetPassword(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" helperText={t("Ít nhất 12 ký tự, tối đa 72 byte UTF-8.")} />
+          <TextField label={t("Xác nhận mật khẩu")} type="password" value={resetConfirm} onChange={e => setResetConfirm(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" />
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}><Button onClick={closeReset} disabled={resetting}>{t("Hủy")}</Button>
+          <Button type="submit" variant="contained" color="secondary" disabled={resetting}>{resetting ? <CircularProgress size={20} color="inherit" /> : t("Đặt lại mật khẩu")}</Button>
         </DialogActions>
       </Box>
     </Dialog>

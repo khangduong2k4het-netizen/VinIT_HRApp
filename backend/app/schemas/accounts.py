@@ -88,3 +88,10 @@ class PasswordChange(BaseModel):
         return value
 
     _password = field_validator("new_password")(validate_password)
+
+
+class AdminPasswordReset(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    new_password: SecretStr
+
+    _password = field_validator("new_password")(validate_password)

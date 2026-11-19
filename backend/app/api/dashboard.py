@@ -1,3 +1,5 @@
+from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Any, Mapping
 from uuid import UUID
 
@@ -6,6 +8,7 @@ from sqlalchemy import text
 
 from app.core.security import get_current_user
 from app.db.database import SessionLocal
+from app.services.workspace import build_work_queue_items, build_workflow, summarize_applications
 
 router = APIRouter()
 
@@ -37,7 +40,7 @@ _SCOPE_CTE = """
 """
 
 _APPLICATIONS_QUERY = _SCOPE_CTE + """
-    SELECT a.application_id, a.application_status,
+    SELECT a.application_id, a.position_id, a.application_status,
         EXISTS (SELECT 1 FROM app_private.application_documents d
                 WHERE d.application_id = a.application_id
                   AND d.file_processing_status IN ('RECEIVED', 'PROCESSING')) AS processing,
@@ -137,6 +140,166 @@ def _load_dashboard(user_id: str, position_id: UUID | None = None) -> dict:
         return result
     finally:
         db.close()
+
+
+_WORK_QUEUE_POSITIONS_QUERY = _SCOPE_CTE + """
+    SELECT p.position_id, p.position_code, p.title, p.status, d.name AS department_name,
+        jd.jd_version_id AS latest_jd_version_id, jd.version_number AS latest_jd_version,
+        crit.criteria_version_id AS current_criteria_version_id,
+        crit.status AS current_criteria_status, crit.version_number AS current_criteria_version,
+        crit.jd_version_id AS current_criteria_jd_version_id,
+        EXISTS (SELECT 1 FROM app_private.criteria_versions approved
+                WHERE approved.position_id = p.position_id AND approved.status = 'APPROVED'
+                  AND approved.jd_version_id = jd.jd_version_id) AS criteria_approved,
+        COALESCE((SELECT array_remove(array_agg(pa.position_role), NULL)
+                  FROM app_private.position_assignments pa
+                  WHERE pa.position_id = p.position_id AND pa.user_id = :user_id
+                    AND pa.revoked_at IS NULL), ARRAY[]::text[]) AS position_roles,
+        COALESCE((SELECT array_remove(array_agg(ur.role_code), NULL)
+                  FROM app_private.user_role_assignments ur
+                  WHERE ur.user_id = :user_id AND ur.revoked_at IS NULL), ARRAY[]::text[]) AS system_roles,
+        op.operation_id AS active_operation_id, op.status AS active_operation_status,
+        op.capability AS active_operation_stage,
+        (SELECT COUNT(*) FROM app_private.shortlist_shares s
+         WHERE s.position_id = p.position_id AND s.status = 'ACTIVE'
+           AND (s.created_by = :user_id OR s.shared_with = :user_id)
+           AND NOT EXISTS (SELECT 1 FROM app_private.shortlist_feedback f WHERE f.share_id = s.share_id)
+        ) AS shares_without_feedback,
+        (SELECT COUNT(DISTINCT si.application_id) FROM app_private.shortlist_shares s
+         JOIN app_private.shortlist_share_items si ON si.share_id = s.share_id
+         WHERE s.position_id = p.position_id AND s.status = 'ACTIVE') AS shared_shortlisted_any,
+        (SELECT COUNT(DISTINCT si.application_id) FROM app_private.shortlist_shares s
+         JOIN app_private.shortlist_share_items si ON si.share_id = s.share_id
+         WHERE s.position_id = p.position_id AND s.status = 'ACTIVE'
+           AND (s.created_by = :user_id OR s.shared_with = :user_id)) AS shared_shortlisted_own
+    FROM visible_positions vp
+    JOIN app_private.positions p ON p.position_id = vp.position_id
+    LEFT JOIN app_private.departments d ON d.department_id = p.department_id
+    LEFT JOIN LATERAL (
+        SELECT jd_version_id, version_number FROM app_private.jd_versions
+        WHERE position_id = p.position_id ORDER BY version_number DESC LIMIT 1
+    ) jd ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT criteria_version_id, status, version_number, jd_version_id FROM app_private.criteria_versions
+        WHERE position_id = p.position_id ORDER BY version_number DESC LIMIT 1
+    ) crit ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT operation_id, status, capability FROM app_private.operations
+        WHERE position_id = p.position_id AND capability IN ('CV_PROCESSING', 'ASSESSMENT', 'RANKING')
+          AND status IN ('PENDING', 'PROCESSING')
+        ORDER BY created_at ASC LIMIT 1
+    ) op ON TRUE
+    ORDER BY p.created_at DESC, p.position_id DESC
+"""
+
+
+def _viewer_flags(row: Mapping[str, Any]) -> tuple[bool, bool]:
+    position_roles = {str(role) for role in (row.get("position_roles") or []) if role}
+    system_roles = {str(role) for role in (row.get("system_roles") or []) if role}
+    is_hr = bool(position_roles & {"HR_RECRUITER", "HR_LEAD"} or system_roles & {"ADMIN", "HR_LEAD"})
+    is_hm = "HIRING_MANAGER" in position_roles
+    return is_hr, is_hm
+
+
+def load_position_application_counts(user_id: str, position_id: UUID) -> dict[str, int]:
+    """Queue counts for one visible position, scoped exactly like the dashboard."""
+    params = {"user_id": user_id, "position_id": str(position_id)}
+    db = SessionLocal()
+    try:
+        positions = db.execute(text(_SCOPE_CTE + " SELECT * FROM visible_positions"), params).mappings().all()
+        if not positions:
+            raise HTTPException(status_code=403, detail="Bạn không có quyền xem thống kê vị trí này")
+        applications = db.execute(text(_APPLICATIONS_QUERY), params).mappings().all()
+        return summarize_applications(applications)
+    finally:
+        db.close()
+
+
+def _load_work_queue(user_id: str) -> dict:
+    params = {"user_id": user_id, "position_id": None}
+    db = SessionLocal()
+    try:
+        positions = db.execute(text(_WORK_QUEUE_POSITIONS_QUERY), params).mappings().all()
+        applications = db.execute(text(_APPLICATIONS_QUERY), params).mappings().all()
+    finally:
+        db.close()
+
+    applications_by_position: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    for application in applications:
+        applications_by_position[str(application["position_id"])].append(application)
+
+    items: list[dict[str, Any]] = []
+    counts_by_position: dict[str, dict[str, int]] = {}
+    criteria_pending_positions = 0
+    shares_without_feedback = 0
+    for row in positions:
+        position_id = str(row["position_id"])
+        counts = summarize_applications(applications_by_position[position_id])
+        is_hr, is_hm = _viewer_flags(row)
+        if is_hr:
+            counts_by_position[position_id] = counts
+        criteria_stale = bool(
+            row.get("current_criteria_jd_version_id")
+            and row.get("latest_jd_version_id")
+            and str(row["current_criteria_jd_version_id"]) != str(row["latest_jd_version_id"])
+        )
+        active_operation = None
+        if row.get("active_operation_id"):
+            active_operation = {
+                "operation_id": str(row["active_operation_id"]),
+                "status": row.get("active_operation_status"),
+                "stage": row.get("active_operation_stage"),
+            }
+        shared_shortlisted = int(row.get("shared_shortlisted_any") or 0) if is_hr else int(row.get("shared_shortlisted_own") or 0)
+        workflow = build_workflow(
+            position_id=position_id,
+            position_status=row.get("status"),
+            jd_exists=bool(row.get("latest_jd_version_id")),
+            criteria_status=row.get("current_criteria_status"),
+            criteria_stale=criteria_stale,
+            criteria_approved=bool(row.get("criteria_approved")),
+            counts=counts,
+            active_operation=active_operation,
+            is_hr=is_hr,
+            is_hm=is_hm,
+            shared_shortlisted=shared_shortlisted,
+        )
+        position_items = build_work_queue_items(
+            position=row,
+            counts=counts,
+            workflow=workflow,
+            criteria_status=row.get("current_criteria_status"),
+            criteria_stale=criteria_stale,
+            jd_exists=bool(row.get("latest_jd_version_id")),
+            is_hr=is_hr,
+            is_hm=is_hm,
+            share_without_feedback=int(row.get("shares_without_feedback") or 0),
+            criteria_approved=bool(row.get("criteria_approved")),
+        )
+        items.extend(position_items)
+        criteria_pending_positions += any(item["type"] in ("CRITERIA_PENDING_HR", "CRITERIA_PENDING_HM", "POSITION_SETUP") for item in position_items)
+        shares_without_feedback += int(row.get("shares_without_feedback") or 0)
+
+    priority_rank = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+    items.sort(key=lambda item: (priority_rank[item["priority"]], -item["count"], item["position_title"] or ""))
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "summary": {
+            "positions_needing_attention": len({item["position_id"] for item in items}),
+            "files_needing_review": sum(counts["file_review"] for counts in counts_by_position.values()),
+            "applications_needing_verification": sum(counts["needs_verification"] for counts in counts_by_position.values()),
+            "duplicate_alerts": sum(counts["duplicate_pending"] for counts in counts_by_position.values()),
+            "criteria_pending_action": criteria_pending_positions,
+            "shares_without_feedback": shares_without_feedback,
+        },
+        "items": items,
+    }
+
+
+@router.get("/work-queue")
+async def get_work_queue(current_user: dict = Depends(get_current_user)):
+    """Role-scoped work items with deep links into each position workspace."""
+    return _load_work_queue(current_user["user_id"])
 
 
 @router.get("/summary")

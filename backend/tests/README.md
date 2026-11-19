@@ -22,7 +22,20 @@ for f in supabase/migrations/00001_initial_schema.sql \
          supabase/migrations/00002_audit_fixes_indexes_rls.sql \
          supabase/migrations/00003_phase1_operation_scope.sql \
          supabase/migrations/00004_recovery_and_privacy.sql \
-         supabase/migrations/00005_account_administration.sql; do
+         supabase/migrations/00005_account_administration.sql \
+         supabase/migrations/00006_openai_compatible_provider_secrets.sql \
+         supabase/migrations/00007_departments_and_position_codes.sql \
+         supabase/migrations/00008_deterministic_assessment_foundation.sql \
+         supabase/migrations/00009_structured_requirement_specs.sql \
+         supabase/migrations/00010_pgvector_bge_ltr.sql \
+         supabase/migrations/00011_ltr_model_governance.sql \
+         supabase/migrations/00012_retention_audit_integrity.sql \
+         supabase/migrations/00013_direct_criteria_approval.sql \
+         supabase/migrations/00014_phase2_workflow_core.sql \
+         supabase/migrations/00015_local_auth.sql \
+         supabase/migrations/00016_hr_override_tracking.sql \
+         supabase/migrations/00017_quality_and_cross_duplicates.sql \
+         supabase/migrations/00018_ocr_images_and_retention_automation.sql; do
   psql 'postgresql://postgres@127.0.0.1:55432/hra_phase1_test' -v ON_ERROR_STOP=1 -f "$f"
 done
 ```
@@ -41,4 +54,4 @@ Có thể dùng Unix socket qua tham số `host=/đường/dẫn/socket`; host p
 
 Không đặt `TEST_DATABASE_URL` sẽ chỉ chạy unit test và bỏ qua integration test. Test không chứng minh việc triển khai Supabase Auth/Storage, OCR scan, mô hình AI thật, Docker hoặc chất lượng matching trên CV thật; các phần đó cần kiểm thử riêng trong môi trường được phê duyệt.
 
-Integration test gồm bootstrap Admin một lần và tranh lock, tạo/sửa/khóa tài khoản, Auth giả lập và đổi mật khẩu tạm, các trạng thái lỗi/đối soát Auth–DB, chọn HM khác HR, dual approval, RBAC/ghi chú HR, version JD/profile, AI/allowlist, crash worker, phục hồi lô và metrics. Đây là test trên PostgreSQL cục bộ với dữ liệu tổng hợp; không dùng CV thật.
+Integration test gồm bootstrap Admin một lần và tranh lock, tạo/sửa/khóa tài khoản, Auth giả lập và đổi mật khẩu tạm, các trạng thái lỗi/đối soát Auth–DB, chọn HM khác HR, dual approval, RBAC/ghi chú HR, ma trận role/position cho application/dashboard và các bề mặt Admin semantic/LTR/worker, version JD/profile, AI/allowlist, crash worker, phục hồi lô và metrics. Từ Batch 5, integration test còn bao phủ retention/deletion từng hồ sơ, audit hash chain/append-only, lỗi storage không purge DB và case đã hủy được tạo lại. Đây là test trên PostgreSQL cục bộ với dữ liệu tổng hợp; không dùng CV thật.

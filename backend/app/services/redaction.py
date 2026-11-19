@@ -26,7 +26,62 @@ _NAME_LABEL = re.compile(
 )
 _EMAIL = re.compile(r"(?i)(?<![\w.+-])[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+")
 _URL = re.compile(r"(?i)\b(?:https?://|www\.)[^\s<>]+|\b(?:linkedin\.com|github\.com)/[^\s<>]+")
-_NUMBER = re.compile(r"(?<![\w\d])\+?\d[\d .()\-]{7,}\d(?![\w\d])")
+# Not right after "." or "/": "GPA 3.6/4.0 (2016 - 2020)" is not a phone number.
+_NUMBER = re.compile(r"(?<![\w\d./])\+?\d[\d .()\-]{7,}\d(?![\w\d])")
+# OCR often reads 0 as O/o and 1 as l/I/|. A run of digit-like characters is a
+# phone/ID candidate only when most of it is real digits, so ordinary words
+# are never touched.
+_DIGITISH = re.compile(r"(?<![\w./])\+?[\dOoIl|][\dOoIl| .()\-]{7,}[\dOoIl|](?![\w])")
+_YEAR_RANGE = re.compile(r"(?:19|20)\d{2}\s*[-–]\s*(?:19|20)\d{2}")
+_OCR_DIGIT = str.maketrans({"O": "0", "o": "0", "I": "1", "l": "1", "|": "1"})
+# Emails written to dodge filters or split by OCR: "a.b @ gmail . com",
+# "a.b(at)gmail(dot)com", "a.b [at] gmail.com".
+_EMAIL_LOOSE = re.compile(
+    r"(?i)(?<![\w.+-])[a-z0-9._%+-]+\s*(?:@|\(at\)|\[at\]|\{at\})\s*[a-z0-9-]+"
+    r"(?:\s*(?:\.|\(dot\)|\[dot\]|\{dot\})\s*[a-z0-9-]+)*\s*(?:\.|\(dot\)|\[dot\]|\{dot\})\s*[a-z]{2,10}\b"
+)
+# A date of birth without a "label:" prefix ("Sinh 01/01/1998", "born on 1.1.1998").
+_BIRTH_DATE = re.compile(
+    r"(?i)\b(sinh(?:\s+ngày)?|ngày\s+sinh|năm\s+sinh|DOB|born(?:\s+on)?|birth\s*(?:day|date)?)\b"
+    r"([^\n\d]{0,12})(\d{1,2}\s*[/.\-]\s*\d{1,2}\s*[/.\-]\s*(?:19|20)\d{2}|(?:19|20)\d{2})"
+)
+# Unlabelled Vietnamese street addresses: a house number, then comma-separated
+# parts ending in a city, or a ward/district/province word. Kept narrow so work
+# locations such as "FPT Software, Hanoi" stay readable.
+_CITY = (r"(?:Hà\s*Nội|Ha\s*Noi|Hanoi|Hồ\s*Chí\s*Minh|Ho\s*Chi\s*Minh|HCMC|TP\.?\s*HCM|Đà\s*Nẵng|Da\s*Nang|"
+         r"Hải\s*Phòng|Hai\s*Phong|Cần\s*Thơ|Can\s*Tho|Việt\s*Nam|Viet\s*Nam|Vietnam)")
+_HOUSE = (r"(?<![\w/.])(?:số\s*)?(?!(?:19|20)\d{2}\b)\d{1,5}[a-z]?(?:/\d{1,5}){0,3}"
+          r"(?!\s*\+?\s*(?:years?|yrs?|năm|tháng|months?|weeks?|tuần|%|người|people|members?)\b)")
+_STREET = r"(?:đường|phố|ngõ|ngách|hẻm|kiệt|street|st\.|road|rd\.|lane|alley|avenue|ave\.)"
+_ADDRESS = re.compile(
+    # "123 Nguyễn Trãi, Thanh Xuân, Hà Nội": at least two commas before the city
+    r"(?i)" + _HOUSE + r"\s+[^\n,;:]{2,40}(?:,\s*[^\n,;:]{2,40}){1,3},\s*" + _CITY + r"\b"
+    # "12 Tran Hung Dao Street, Hanoi": a street word, then the city
+    + r"|" + _HOUSE + r"\s+[^\n,;:]{0,40}\b" + _STREET + r"[^\n,;:]{0,40},\s*(?:[^\n,;:]{2,40},\s*){0,2}" + _CITY + r"\b"
+    # "Số 12/3 ngõ 45 ..., phường ..., quận ...": a ward/district/province word
+    + r"|" + _HOUSE + r"\s+[^\n;:]{0,60}?\b(?:phường|quận|huyện|thị\s*xã|thị\s*trấn|tỉnh)\b[^\n;]{0,80}"
+)
+
+
+def _mask_numbers(text: str) -> str:
+    """Phone and ID numbers (9+ digits), including OCR-garbled digits."""
+    def plain(match: re.Match) -> str:
+        value = match.group()
+        if _YEAR_RANGE.search(value):
+            return value
+        return REDACTED if len(re.sub(r"\D", "", value)) >= 9 else value
+
+    text = _NUMBER.sub(plain, text)
+
+    def garbled(match: re.Match) -> str:
+        value = match.group()
+        if _YEAR_RANGE.search(value):
+            return value
+        real = sum(ch.isdigit() for ch in value)
+        mapped = re.sub(r"\D", "", value.translate(_OCR_DIGIT))
+        return REDACTED if len(mapped) >= 9 and real >= 0.6 * len(mapped) else value
+
+    return _DIGITISH.sub(garbled, text)
 _HEADING_WORDS = {"resume", "curriculum", "vitae", "profile", "engineer", "developer", "manager",
                   "experience", "education", "skills", "summary", "professional", "software", "candidate",
                   "hồ", "sơ", "ứng", "viên", "kinh", "nghiệm", "kỹ", "năng"}
@@ -67,8 +122,11 @@ def redact_text(value: str, *, detect_first_line_name: bool = False) -> str:
             break
     result = _LABEL.sub(REDACTED, value)
     result = _EMAIL.sub(REDACTED, result)
+    result = _EMAIL_LOOSE.sub(REDACTED, result)
     result = _URL.sub(REDACTED, result)
-    result = _NUMBER.sub(lambda m: REDACTED if len(re.sub(r"\D", "", m.group())) >= 9 else m.group(), result)
+    result = _BIRTH_DATE.sub(lambda m: f"{m.group(1)}{m.group(2)}{REDACTED}", result)
+    result = _ADDRESS.sub(REDACTED, result)
+    result = _mask_numbers(result)
     for name in sorted(set(names), key=len, reverse=True):
         if _looks_like_name(name):
             result = re.sub(r"(?<!\w)" + re.escape(name) + r"(?!\w)", REDACTED, result, flags=re.IGNORECASE)

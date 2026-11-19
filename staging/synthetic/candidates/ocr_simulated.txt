@@ -1,0 +1,10 @@
+Synthetic OCR Candidate
+Email candidate.ocr@example.test
+Phone +84 000 000 008
+
+Experience
+Python backend APIs for 4 years.
+PostgreSQL schema design and SQL reporting.
+Docker staging deployments.
+
+Operator note: render or print this text as an image-only scan outside Git when validating OCR on staging. This text file alone does not prove OCR accuracy.

@@ -4,6 +4,7 @@
 > **Phiên bản:** 1.0 — Draft for Architecture Review  
 > **Trạng thái:** Kiến trúc logic, chưa được phê duyệt cuối cùng  
 > **Nguồn yêu cầu:** BRD — Requirement Analysis v1.0 và Product Definition v1.0. Cả hai hiện là tài liệu dự thảo; Product Readiness được đánh giá **AMBER**.
+> **Cập nhật triển khai (07/11/2026):** kiến trúc logic dưới đây đã có phần hiện thực gồm deterministic matching, pgvector/BGE semantic retrieval và Learning-to-Rank theo hướng tắt mặc định/có gate. Chi tiết hiện trạng, cấu hình và giới hạn production nằm ở [MATCHING_STABILITY.md](MATCHING_STABILITY.md) và [PGVECTOR_BGE_LTR_IMPLEMENTATION.md](../audit/PGVECTOR_BGE_LTR_IMPLEMENTATION.md); tài liệu này không tự tuyên bố BGE/LTR đã kích hoạt production.
 
 ## Phạm vi và cách đọc tài liệu
 
@@ -215,6 +216,8 @@ AI là năng lực lõi hỗ trợ **đề xuất, trích xuất, đối chiếu
 - **Matching Group:** Đáp ứng tiêu chí bắt buộc / Cần HR xác minh / Có dấu hiệu miss-match / Chưa đánh giá.
 - **Match Score và Evidence Coverage:** hai chỉ số riêng biệt; chỉ được tính theo quy tắc đã được phê duyệt.
 - **Ranking Snapshot:** thứ tự hỗ trợ ưu tiên rà soát trong một vị trí tại một thời điểm.
+- **Semantic Chunk Embedding:** vector phái sinh của một chunk CV, gắn với document/chunk/text hash và embedding model/index version; chỉ dùng để tìm candidate chunks cho bước đối chiếu, không phải bằng chứng độc lập.
+- **LTR Model Version:** artifact xếp hạng train offline từ dữ liệu đã gán nhãn, có holdout metrics, trạng thái phê duyệt và version riêng; không phải quyết định tuyển dụng.
 - **Duplicate Alert:** cảnh báo hồ sơ giống hệt hoặc có khả năng cùng ứng viên, không phải quyết định gộp/xóa.
 
 **Quan hệ:** mỗi Assessment Run chỉ được dùng một phiên bản rubric và một tập tài liệu xác định. Kết quả cũ phải nhận diện được là dựa trên phiên bản nào; khi JD hoặc rubric thay đổi, kết quả liên quan cần được xem là không còn hiện hành cho đến khi được đánh giá lại.
@@ -260,7 +263,7 @@ AI là năng lực lõi hỗ trợ **đề xuất, trích xuất, đối chiếu
 | **C-05 CV Intake & Document Processing** | Tiếp nhận file, kiểm tra định dạng/chất lượng và trích xuất văn bản theo định dạng được hỗ trợ. | PDF/DOCX upload và metadata vị trí. | Trạng thái file, văn bản trích xuất, cảnh báo cần kiểm tra. | C-02, C-03, C-06, C-07. | HR vận hành; IT/Security quản lý điều kiện xử lý. | Hỗ trợ AIC-02, AIC-05 và dữ liệu cho AIC-06. |
 | **C-06 Evidence & AI Assessment Records** | Quản lý nội dung trích xuất, bằng chứng, kết quả đánh giá tư vấn và provenance. | Văn bản CV, nhận định, phiên bản rubric/model/policy. | Bằng chứng, bản đánh giá, điểm/độ phủ và tham chiếu nguồn. | C-03, C-04, C-05, C-07, C-08, C-11. | HR sở hữu ý nghĩa nghiệp vụ; sản phẩm quản lý hồ sơ đánh giá. | Lưu trữ kết quả của AIC-02–06 để HR kiểm chứng. |
 | **C-07 AI Orchestration & Model Governance** | Điều phối các tác vụ AI có giới hạn; áp chính sách context, tool allowlist, model được duyệt và ranh giới dữ liệu. | Yêu cầu được ủy quyền, rubric, tài liệu, policy. | Kế hoạch tác vụ giới hạn, kết quả có nguồn gốc hoặc lỗi/ngoại lệ. | C-02, C-03, C-05, C-06, C-08, C-11. | HR Product Owner về tác vụ; IT/Security về model và dữ liệu. | Điều phối toàn bộ AIC-01–06. |
-| **C-08 Matching & Ranking** | Đối chiếu theo tiêu chí, tạo nhóm matching, ranking trong cùng vị trí, tính tín hiệu chưa chắc chắn và cảnh báo trùng. | CV/evidence, rubric đã duyệt, quy tắc điểm đã duyệt. | Nhận định theo tiêu chí, bằng chứng, score, coverage, ranking và cảnh báo. | C-03, C-04, C-06, C-07, C-11. | HR sở hữu cách sử dụng; HR/HM duyệt rubric. | Thực hiện AIC-03–06. |
+| **C-08 Matching & Ranking** | Đối chiếu theo tiêu chí, tạo nhóm matching, ranking trong cùng vị trí, tính tín hiệu chưa chắc chắn và cảnh báo trùng. Có thể dùng semantic retrieval để bổ sung candidate chunks cho LLM fallback và LTR đã phê duyệt để reorder có gate. | CV/evidence, rubric đã duyệt, quy tắc điểm đã duyệt, embedding model/index version, artifact LTR đã phê duyệt nếu bật. | Nhận định theo tiêu chí, bằng chứng, score, coverage, ranking, `ltr_score` nếu có và cảnh báo. | C-03, C-04, C-06, C-07, C-11. | HR sở hữu cách sử dụng; HR/HM duyệt rubric. | Thực hiện AIC-03–06. |
 | **C-09 Human Review & Collaboration** | Quản lý review của HR, chia sẻ shortlist, ghi chú và phản hồi Hiring Manager. | Hồ sơ được phép xem, kết quả AI, quyền chia sẻ. | Ý kiến và phản hồi có cấu trúc; chỉ thị cập nhật trạng thái do HR thực hiện. | C-02, C-04, C-06, C-08. | HR và Hiring Manager theo quyền. | Cho phép người dùng kiểm tra và phản hồi AIC-03/04/05; không tự quyết định. |
 | **C-10 Reporting & Quality Measurement** | Tổng hợp tiến độ, baseline pilot và tín hiệu chất lượng AI/quy trình. | Sự kiện vị trí, hồ sơ, trạng thái, kết quả đánh giá và thời gian. | Dashboard và số liệu tổng hợp. | C-03, C-04, C-06, C-09, C-11. | HR Lead/HR Product Owner. | Theo dõi chất lượng AIC-02–05; không dùng dữ liệu để mặc định xếp hạng hiệu suất cá nhân. |
 | **C-11 Privacy, Retention & Audit Governance** | Áp dụng giới hạn dữ liệu, ghi nhận sự kiện, quản lý danh sách hồ sơ đến hạn và xác nhận xóa theo chính sách được duyệt. | Chính sách, sự kiện nghiệp vụ, ngày đóng vị trí, xác nhận của HR. | Audit, danh sách chờ xử lý, trạng thái retention/xóa. | C-02, C-04, C-05, C-06, C-07, C-10. | Legal/Privacy xác nhận chính sách; HR thực hiện xác nhận; IT/Security giám sát. | Đặt guardrail và truy vết cho AIC-01–06; không tự ra quyết định quyền hoặc xóa dữ liệu. |
@@ -510,6 +513,7 @@ Các tool dưới đây là **năng lực logic** trong kiến trúc. Đây khô
 | **Knowledge Context** | Cung cấp định nghĩa và chính sách đã duyệt về rubric, bảo mật và dữ liệu. | Tồn tại theo phiên bản chính sách; thay đổi cần có người sở hữu và ngày hiệu lực. | HR, Legal/Privacy, IT/Security theo loại chính sách. | C-03, C-11 và tài liệu được duyệt. | Kho tri thức logic có phiên bản; thư viện template nghề chưa nằm trong MVP. | C-07, C-08. | Chỉ sử dụng nguồn đã duyệt; không thay thế rubric riêng của vị trí bằng template chưa phê duyệt. |
 | **CRM/Business Context** | Đại diện trạng thái hiện hành của vị trí, hồ sơ, tài liệu và quyết định trong sản phẩm. | Theo vòng đời hồ sơ nghiệp vụ và chính sách retention. | HR; hệ thống nghiệp vụ là nguồn chuẩn trong phạm vi sản phẩm. | C-03, C-04, C-05, C-09. | Các miền hồ sơ nghiệp vụ; CRM/ATS ngoài VinUni chưa được xác nhận. | C-01, C-07, C-08, C-10. | Kết quả AI không ghi đè JD, rubric hoặc trạng thái tuyển dụng. |
 | **Persistent Context** | Lưu những dữ liệu có mục đích nghiệp vụ đã được duyệt: CV, tiêu chí, kết quả đánh giá, trạng thái và audit. | Theo từng loại dữ liệu và chính sách được duyệt. | Chủ sở hữu theo miền: HR, Legal/Privacy, IT/Security. | C-03–C-11. | Nhóm dữ liệu logic riêng theo chủ đích và retention; không quy định công nghệ lưu trữ. | Người dùng có quyền, báo cáo, audit và quy trình retention. | Áp retention, phân quyền và deletion scope riêng; không dùng mặc định để huấn luyện model. |
+| **Derived Retrieval Context** | Vector embedding của chunk CV và điểm tương đồng semantic dùng để tìm thêm candidate chunks. | Theo vòng đời document/application và embedding index version. | C-06/C-08; IT/Security kiểm soát endpoint/model. | CV text đã redaction, requirement spec đã duyệt. | Kho vector trong cùng PostgreSQL (pgvector) ở bản hiện thực; không lưu thêm raw CV text. | C-08, LLM fallback. | Similarity không phải evidence score; chunk được chọn vẫn phải qua quote verification. Không tìm kiếm xuyên vị trí/ứng viên. |
 
 ## 7.2 Đường đi của context
 
@@ -689,6 +693,7 @@ Việc mở rộng phụ thuộc discovery hệ thống hiện hữu, thỏa thu
 | **CV gốc và trạng thái file** | Rà soát hồ sơ và xử lý ngoại lệ. | Chỉ người được cấp quyền xem hồ sơ. |
 | **Văn bản trích xuất và bằng chứng** | Hỗ trợ kiểm tra nhận định theo tiêu chí. | Chỉ người được cấp quyền; quản lý theo chính sách retention. |
 | **Kết quả AI tư vấn** | Lưu điểm, độ phủ, bằng chứng, nhóm matching và version provenance. | HR; Hiring Manager theo shortlist được chia sẻ. |
+| **Embedding và artifact LTR** | Lưu vector chunk phái sinh và model xếp hạng offline để truy vết retrieval/ranking. | Backend/worker và người vận hành được ủy quyền; không expose cho browser. |
 | **Trạng thái ứng tuyển** | Ghi nhận quyết định do HR cập nhật. | HR có quyền cập nhật; các bên khác theo quyền xem. |
 | **Audit** | Truy vết phê duyệt, quyền, trạng thái, điều chỉnh và xóa. | Người dùng có trách nhiệm giám sát. |
 | **Số liệu tổng hợp** | Đo baseline và hiệu quả pilot. | HR Lead/HR Product Owner theo quyền. |
@@ -864,6 +869,26 @@ Việc mở rộng phụ thuộc discovery hệ thống hiện hữu, thỏa thu
 - **Reason:** Tách rõ nguồn chuẩn, hành động được phép và chủ sở hữu nghiệp vụ trong khi vẫn độc lập công nghệ.
 - **Trade-offs:** Có nhiều ranh giới logic cần thống nhất; không khẳng định topology hoặc mức phân tách runtime.  
   **Traceability:** BG-01–BG-08; JTBD-01–JTBD-09; AC-01–AC-14.
+
+## ADR-17 — Semantic retrieval chỉ bổ sung candidate, không quyết định matching
+
+- **Context:** Lexical/rule retrieval có thể bỏ sót diễn đạt paraphrase trong CV.
+- **Problem:** Nếu dùng similarity để kết luận đạt/không đạt, hệ thống có thể tạo false match và mất khả năng kiểm chứng.
+- **Options:** Chỉ lexical; semantic tự quyết định; semantic bổ sung candidate cho LLM fallback.
+- **Decision:** Dùng pgvector/BGE (khi được cấu hình) để bổ sung tối đa 5 candidate chunks cho LLM fallback. Finding vẫn phải có quote được verify; deterministic outcome không bị semantic similarity ghi đè.
+- **Reason:** Tăng recall nhưng giữ evidence verification, fingerprint và deterministic gate.
+- **Trade-offs:** Cần vận hành embedding endpoint, index version và đo chất lượng trên golden set trước khi bật.
+  **Traceability:** BG-01, BG-04, BG-07; JTBD-03, JTBD-05; AC-04, AC-12.
+
+## ADR-18 — LTR train offline, có gate và không vượt mandatory/coverage gate
+
+- **Context:** Sau pilot, dữ liệu quyết định HR có thể hỗ trợ học thứ hạng ưu tiên rà soát.
+- **Problem:** LTR train từ weak label hoặc dữ liệu ít có thể khuếch đại thiên lệch quy trình và làm ranking khó giải thích.
+- **Options:** Không dùng LTR; LTR thay ranking; LTR shadow/active có gate trong cùng nhóm đủ điều kiện.
+- **Decision:** Train LTR offline theo group/position, tách holdout theo group, đăng ký artifact ở `DRAFT`, chỉ `APPROVED` mới được dùng ở `ACTIVE`. `SHADOW` không đổi thứ hạng; `ACTIVE` chỉ reorder trong cùng mandatory status và coverage-eligibility gate.
+- **Reason:** Giữ ranking policy hiện tại làm nguồn kiểm soát chính và cho phép đo tác động trước khi ảnh hưởng thứ hạng.
+- **Trade-offs:** Cần labelled dataset HR đủ lớn, quy trình phê duyệt artifact và giám sát drift/bias.
+  **Traceability:** BG-03, BG-04, BG-05, BG-07; JTBD-04, JTBD-07; AC-05, AC-11, AC-12.
 
 ---
 

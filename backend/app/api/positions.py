@@ -4,10 +4,17 @@ from uuid import UUID
 from app.core.security import get_current_user
 from app.core.exceptions import NotFoundError
 from app.core.permissions import check_position_access, can_update_application_status
-from app.schemas.positions import Position, PositionCreate, PositionUpdate, PositionWithStats, PositionStatus, JDVersionCreate
-from app.schemas.common import ErrorResponse
-from app.db.supabase import get_supabase_client
+from app.schemas.positions import (Position, PositionCreate, PositionUpdate, PositionWithStats, PositionStatus,
+                                   PositionStatusEvent, JDVersionCreate)
 from app.db.database import SessionLocal
+from app.services.retention_automation import cancel_cases_of_reopened_positions
+from app.services.departments import DepartmentError, next_position_code
+from app.services.workspace import build_workflow
+from app.services import jd_import
+from app.services.llm_client import llm_client, LLMError
+from app.core.config import settings
+from pydantic import BaseModel, Field
+from urllib.parse import urlsplit
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 import json
@@ -26,7 +33,7 @@ _POSITION_WITH_STATS = """
               AND role_code IN ('ADMIN', 'HR_LEAD')
         ) AS global_access
     )
-    SELECT p.*, latest.status AS criteria_status,
+    SELECT p.*, d.name AS department_name, d.code_format AS department_code_format, latest.status AS criteria_status,
         EXISTS (SELECT 1 FROM app_private.criteria_versions approved
                 WHERE approved.position_id = p.position_id AND approved.status = 'APPROVED'
                   AND approved.jd_version_id = (SELECT jd_version_id FROM app_private.jd_versions
@@ -34,6 +41,7 @@ _POSITION_WITH_STATS = """
         stats.total_applications, stats.new_applications, stats.in_review, stats.shortlisted
     FROM app_private.positions p
     CROSS JOIN privileges priv
+    LEFT JOIN app_private.departments d ON d.department_id = p.department_id
     LEFT JOIN LATERAL (
         SELECT status FROM app_private.criteria_versions
         WHERE position_id = p.position_id ORDER BY version_number DESC LIMIT 1
@@ -63,28 +71,117 @@ _POSITION_WITH_STATS = """
 """
 
 
+def _active_family_name(db, job_family_id) -> str:
+    """Resolve an ACTIVE job family; its name is mirrored into the legacy text column."""
+    name = db.execute(text("""
+        SELECT name FROM app_private.job_families WHERE job_family_id = :id AND status = 'ACTIVE'
+    """), {"id": str(job_family_id)}).scalar_one_or_none()
+    if not name:
+        raise HTTPException(status_code=400, detail="Nhóm ngành không tồn tại hoặc đã ngừng sử dụng")
+    return name
+
+
 @router.get("", response_model=List[PositionWithStats])
 async def list_positions(
     status_filter: Optional[PositionStatus] = Query(None, alias="status"),
+    q: Optional[str] = Query(None, max_length=200, description="Search by position title or code"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: dict = Depends(get_current_user)
 ):
     """List only positions assigned to the user or shared with them."""
+    search = (q or "").strip()
+    # Escape LIKE wildcards so the search is a plain substring match.
+    pattern = "%" + search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%" if search else None
     db = SessionLocal()
     try:
         rows = db.execute(text(_POSITION_WITH_STATS + """
             WHERE (CAST(:status_filter AS text) IS NULL OR p.status = :status_filter)
+              AND (CAST(:pattern AS text) IS NULL
+                   OR p.title ILIKE :pattern ESCAPE '\\' OR p.position_code ILIKE :pattern ESCAPE '\\')
               AND (priv.global_access OR EXISTS (
                   SELECT 1 FROM app_private.position_assignments pa
                   WHERE pa.position_id = p.position_id AND pa.user_id = :user_id AND pa.revoked_at IS NULL
               ))
             ORDER BY p.created_at DESC, p.position_id DESC LIMIT :page_size OFFSET :offset
         """), {"user_id": current_user["user_id"], "status_filter": status_filter.value if status_filter else None,
-                "page_size": page_size, "offset": (page - 1) * page_size}).mappings().all()
+                "pattern": pattern, "page_size": page_size, "offset": (page - 1) * page_size}).mappings().all()
         return [dict(row) for row in rows]
     finally:
         db.close()
+
+
+class JDImportRequest(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
+
+
+@router.post("/jd-import")
+async def import_jd_from_url(request: JDImportRequest, current_user: dict = Depends(get_current_user)):
+    """Fetch a public job-posting page and return a JD draft for HR to review.
+
+    Nothing is saved: HR edits the draft in the create-position form. Only the
+    host, extraction method and sizes are audited, never the page content.
+    """
+    if not settings.JD_IMPORT_ENABLED:
+        raise HTTPException(status_code=403, detail="Chức năng lấy JD từ đường dẫn đang tắt")
+    user_id = current_user["user_id"]
+    db = SessionLocal()
+    try:
+        account = db.execute(text("SELECT account_status FROM app_private.user_profiles WHERE user_id = :id"),
+                             {"id": user_id}).scalar_one_or_none()
+        roles = set(db.execute(text("""
+            SELECT role_code FROM app_private.user_role_assignments
+            WHERE user_id = :id AND revoked_at IS NULL AND role_code IN ('ADMIN', 'HR_LEAD', 'HR_RECRUITER')
+        """), {"id": user_id}).scalars())
+    finally:
+        db.close()
+    if account != "ACTIVE" or not roles:
+        raise HTTPException(status_code=403, detail="Chỉ HR mới được lấy JD từ đường dẫn")
+
+    host = (urlsplit(request.url.strip()).hostname or "").lower()
+    outcome, source, ai_used, chars, notes = "FAILED", None, False, 0, []
+    try:
+        try:
+            final_url, page = await jd_import.fetch_page(request.url)
+            job = jd_import.extract_job_page(page, final_url)
+        except jd_import.JDImportError as exc:
+            outcome = exc.code
+            raise HTTPException(status_code=400, detail=exc.message)
+        source, chars = job.source, len(job.text)
+        title, jd_content, language, posting_content = job.title, job.text, "en", ""
+        try:
+            draft = await llm_client.extract_jd_from_page(job.text, job.title, source_host=host)
+            if not draft["is_job_posting"]:
+                outcome = "NOT_JOB_POSTING"
+                raise HTTPException(status_code=422, detail="Trang này không giống một tin tuyển dụng. Vui lòng kiểm tra lại đường dẫn")
+            if draft["jd_content"].strip():
+                jd_content, ai_used = draft["jd_content"].strip(), True
+            title = draft["title"].strip() or title
+            posting_content = (draft.get("posting_content") or "").strip()
+            language = draft["language_code"]
+            notes = [n for n in draft["notes"] if isinstance(n, str) and n.strip()][:5]
+        except LLMError:
+            notes = ["AI không khả dụng nên JD là nguyên văn bản lấy từ trang. Vui lòng tự rà soát và rút gọn."]
+        outcome = "SUCCESS"
+        return {"source_url": request.url.strip(), "final_url": job.final_url, "extraction": job.source,
+                "ai_used": ai_used, "title": title[:200], "jd_content": jd_content, "language_code": language,
+                "posting_content": posting_content,
+                "metadata": job.metadata, "notes": notes}
+    finally:
+        audit_db = SessionLocal()
+        try:
+            audit_db.execute(text("""
+                INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, outcome, metadata)
+                VALUES (:user_id, 'IMPORT_JD_FROM_URL', 'JD_IMPORT', :outcome, CAST(:metadata AS jsonb))
+            """), {"user_id": user_id, "outcome": outcome,
+                   "metadata": json.dumps({"host": host[:255], "extraction": source, "ai_used": ai_used,
+                                           "text_characters": chars})})
+            audit_db.commit()
+        except Exception:
+            audit_db.rollback()
+            logger.warning("Could not audit JD import")
+        finally:
+            audit_db.close()
 
 
 @router.post("", response_model=Position, status_code=status.HTTP_201_CREATED)
@@ -94,10 +191,10 @@ async def create_position(
 ):
     """Create the position, JD and assignments atomically."""
     user_id = current_user["user_id"]
-    for field in ("position_code", "title", "jd_content"):
+    for field in ("title", "jd_content"):
         value = getattr(position_data, field).strip()
         if not value or (field != "jd_content" and len(value) > 200):
-            raise HTTPException(status_code=400, detail="Mã vị trí, tên vị trí và nội dung JD không được để trống")
+            raise HTTPException(status_code=400, detail="Tên vị trí và nội dung JD không được để trống")
         setattr(position_data, field, value)
     if not position_data.hiring_manager_user_id:
         raise HTTPException(status_code=400, detail="Vui lòng chọn Hiring Manager phụ trách vị trí")
@@ -128,15 +225,44 @@ async def create_position(
         """), {"user_id": hm_id}).scalars().all()
         if hm_status != 'ACTIVE' or not hm_roles:
             raise HTTPException(status_code=400, detail="Hiring Manager phải có tài khoản hoạt động và vai trò HM.")
+        department = db.execute(text("""
+            SELECT * FROM app_private.departments
+            WHERE department_id = :department_id FOR UPDATE
+        """), {"department_id": str(position_data.department_id)}).mappings().first()
+        if not department:
+            raise HTTPException(status_code=400, detail="Không tìm thấy đơn vị/phòng ban")
+        if not department["is_active"]:
+            raise HTTPException(status_code=400, detail="Đơn vị/phòng ban đã ngừng hoạt động")
+        position_code, department_sequence = next_position_code(db, dict(department))
         params = position_data.model_dump(exclude={"jd_content", "hiring_manager_user_id"})
-        params["created_by"] = user_id
+        params.update({
+            "position_code": position_code,
+            "org_unit": department["name"],
+            "department_id": str(position_data.department_id),
+            "department_sequence": department_sequence,
+            "created_by": user_id,
+            "posting_content": (position_data.posting_content or "").strip() or None,
+        })
+        # F2.01: an ACTIVE job family drives rubric template suggestions; its
+        # name is mirrored into the legacy job_family text column.
+        if params.get("job_family_id"):
+            params["job_family"] = _active_family_name(db, params["job_family_id"])
+            params["job_family_id"] = str(params["job_family_id"])
+        else:
+            params["job_family_id"] = None
         new_position = db.execute(text("""
-            INSERT INTO app_private.positions (position_code, title, job_family, org_unit, level, work_location,
-                work_mode, employment_type, headcount, created_by)
-            VALUES (:position_code, :title, :job_family, :org_unit, :level, :work_location,
-                :work_mode, :employment_type, :headcount, :created_by) RETURNING *
+            INSERT INTO app_private.positions (position_code, title, job_family, job_family_id, org_unit, level, work_location,
+                work_mode, employment_type, headcount, created_by, department_id, department_sequence, posting_content)
+            VALUES (:position_code, :title, :job_family, :job_family_id, :org_unit, :level, :work_location,
+                :work_mode, :employment_type, :headcount, :created_by, :department_id, :department_sequence,
+                :posting_content) RETURNING *
         """), params).mappings().one()
         position_id = new_position["position_id"]
+        db.execute(text("""
+            UPDATE app_private.departments
+            SET next_sequence = :next_sequence, updated_at = NOW()
+            WHERE department_id = :department_id
+        """), {"next_sequence": department_sequence + 1, "department_id": str(position_data.department_id)})
         db.execute(text("""
             INSERT INTO app_private.jd_versions (position_id, version_number, content_text, language_code, created_by)
             VALUES (:position_id, 1, :content, 'en', :user_id)
@@ -147,10 +273,16 @@ async def create_position(
                 VALUES (:position_id, :assigned_user, :role, :user_id)
             """), {"position_id": position_id, "assigned_user": assigned_user, "role": role, "user_id": user_id})
         db.commit()
-        return dict(new_position)
+        created = dict(new_position)
+        created["department_name"] = department["name"]
+        created["department_code_format"] = department["code_format"]
+        return created
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Mã vị trí đã tồn tại hoặc dữ liệu vị trí không hợp lệ")
+    except DepartmentError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     except Exception:
         db.rollback()
         raise
@@ -171,9 +303,131 @@ async def get_position(
                             {"id": str(position_id), "user_id": current_user["user_id"]}).mappings().first()
         if not result:
             raise NotFoundError("Position")
-        return dict(result)
+        return {**dict(result), "public_intake_enabled": settings.PUBLIC_INTAKE_ENABLED}
     finally:
         db.close()
+
+
+@router.get("/{position_id}/workspace")
+async def get_position_workspace(
+    position_id: UUID,
+    current_user: dict = Depends(get_current_user)
+):
+    """Workspace summary, workflow stepper and next action for one position."""
+    await check_position_access(position_id, current_user)
+    from app.api.dashboard import load_position_application_counts
+
+    db = SessionLocal()
+    try:
+        row = db.execute(text("""
+            SELECT p.position_id, p.position_code, p.title, p.status, d.name AS department_name,
+                jd.jd_version_id AS latest_jd_version_id, jd.version_number AS latest_jd_version,
+                crit.criteria_version_id AS current_criteria_version_id,
+                crit.status AS current_criteria_status, crit.version_number AS current_criteria_version,
+                crit.jd_version_id AS current_criteria_jd_version_id,
+                EXISTS (SELECT 1 FROM app_private.criteria_versions approved
+                        WHERE approved.position_id = p.position_id AND approved.status = 'APPROVED'
+                          AND approved.jd_version_id = jd.jd_version_id) AS criteria_approved,
+                COALESCE((SELECT array_remove(array_agg(pa.position_role), NULL)
+                          FROM app_private.position_assignments pa
+                          WHERE pa.position_id = p.position_id AND pa.user_id = :user_id
+                            AND pa.revoked_at IS NULL), ARRAY[]::text[]) AS position_roles,
+                COALESCE((SELECT array_remove(array_agg(ur.role_code), NULL)
+                          FROM app_private.user_role_assignments ur
+                          WHERE ur.user_id = :user_id AND ur.revoked_at IS NULL), ARRAY[]::text[]) AS system_roles,
+                op.operation_id AS active_operation_id, op.status AS active_operation_status,
+                op.capability AS active_operation_stage,
+                (SELECT COUNT(DISTINCT si.application_id) FROM app_private.shortlist_shares s
+                 JOIN app_private.shortlist_share_items si ON si.share_id = s.share_id
+                 WHERE s.position_id = p.position_id AND s.status = 'ACTIVE') AS shared_shortlisted_any,
+                (SELECT COUNT(DISTINCT si.application_id) FROM app_private.shortlist_shares s
+                 JOIN app_private.shortlist_share_items si ON si.share_id = s.share_id
+                 WHERE s.position_id = p.position_id AND s.status = 'ACTIVE'
+                   AND (s.created_by = :user_id OR s.shared_with = :user_id)) AS shared_shortlisted_own
+            FROM app_private.positions p
+            LEFT JOIN app_private.departments d ON d.department_id = p.department_id
+            LEFT JOIN LATERAL (
+                SELECT jd_version_id, version_number FROM app_private.jd_versions
+                WHERE position_id = p.position_id ORDER BY version_number DESC LIMIT 1
+            ) jd ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT criteria_version_id, status, version_number, jd_version_id FROM app_private.criteria_versions
+                WHERE position_id = p.position_id ORDER BY version_number DESC LIMIT 1
+            ) crit ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT operation_id, status, capability FROM app_private.operations
+                WHERE position_id = p.position_id AND capability IN ('CV_PROCESSING', 'ASSESSMENT', 'RANKING')
+                  AND status IN ('PENDING', 'PROCESSING')
+                ORDER BY created_at ASC LIMIT 1
+            ) op ON TRUE
+            WHERE p.position_id = :id
+        """), {"id": str(position_id), "user_id": current_user["user_id"]}).mappings().first()
+        if not row:
+            raise NotFoundError("Position")
+        row = dict(row)
+    finally:
+        db.close()
+
+    counts = load_position_application_counts(current_user["user_id"], position_id)
+    position_roles = {str(role) for role in (row.get("position_roles") or []) if role}
+    system_roles = {str(role) for role in (row.get("system_roles") or []) if role}
+    is_hr = bool(position_roles & {"HR_RECRUITER", "HR_LEAD"} or system_roles & {"ADMIN", "HR_LEAD"})
+    is_hm = "HIRING_MANAGER" in position_roles
+    criteria_stale = bool(
+        row.get("current_criteria_jd_version_id")
+        and row.get("latest_jd_version_id")
+        and str(row["current_criteria_jd_version_id"]) != str(row["latest_jd_version_id"])
+    )
+    active_operation = None
+    if row.get("active_operation_id"):
+        active_operation = {
+            "operation_id": str(row["active_operation_id"]),
+            "status": row.get("active_operation_status"),
+            "stage": row.get("active_operation_stage"),
+        }
+    shared_shortlisted = int(row.get("shared_shortlisted_any") or 0) if is_hr else int(row.get("shared_shortlisted_own") or 0)
+    workflow = build_workflow(
+        position_id=str(position_id),
+        position_status=row.get("status"),
+        jd_exists=bool(row.get("latest_jd_version_id")),
+        criteria_status=row.get("current_criteria_status"),
+        criteria_stale=criteria_stale,
+        criteria_approved=bool(row.get("criteria_approved")),
+        counts=counts,
+        active_operation=active_operation,
+        is_hr=is_hr,
+        is_hm=is_hm,
+        shared_shortlisted=shared_shortlisted,
+    )
+    return {
+        "position": {
+            "position_id": str(row["position_id"]),
+            "position_code": row.get("position_code"),
+            "title": row.get("title"),
+            "status": row.get("status"),
+            "department_name": row.get("department_name"),
+        },
+        "jd": {
+            "latest_version_id": str(row["latest_jd_version_id"]) if row.get("latest_jd_version_id") else None,
+            "version_number": row.get("latest_jd_version"),
+        },
+        "criteria": {
+            "current_version_id": str(row["current_criteria_version_id"]) if row.get("current_criteria_version_id") else None,
+            "current_status": row.get("current_criteria_status"),
+            "version_number": row.get("current_criteria_version"),
+            "approved_for_latest_jd": bool(row.get("criteria_approved")),
+            "is_stale_for_latest_jd": criteria_stale,
+        },
+        "counts": counts,
+        "active_operation": active_operation,
+        "workflow": workflow,
+        "viewer": {
+            "is_hr": is_hr,
+            "is_hm": is_hm,
+            "position_roles": sorted(position_roles),
+            "system_roles": sorted(system_roles),
+        },
+    }
 
 
 @router.patch("/{position_id}", response_model=Position)
@@ -183,9 +437,10 @@ async def update_position(position_id: UUID, update: PositionUpdate, current_use
     if not can_update_application_status(user_id, str(position_id)):
         raise HTTPException(status_code=403, detail="Chỉ HR phụ trách mới có thể cập nhật vị trí")
     values = update.model_dump(exclude_unset=True)
+    status_reason = (values.pop("status_reason", None) or "").strip() or None
     if "status" in values and values["status"] is not None:
         values["status"] = values["status"].value
-    allowed = {k: v for k, v in values.items() if k in {"title", "job_family", "org_unit", "level", "work_location", "work_mode", "employment_type", "headcount", "status"} and v is not None}
+    allowed = {k: v for k, v in values.items() if k in {"title", "job_family", "job_family_id", "org_unit", "level", "work_location", "work_mode", "employment_type", "headcount", "status", "posting_content"} and v is not None}
     if not allowed:
         raise HTTPException(status_code=400, detail="Không có nội dung cần cập nhật")
     if "title" in allowed:
@@ -197,6 +452,13 @@ async def update_position(position_id: UUID, update: PositionUpdate, current_use
         previous = db.execute(text("SELECT status FROM app_private.positions WHERE position_id = :id FOR UPDATE"), {"id": str(position_id)}).scalar_one_or_none()
         if not previous:
             raise NotFoundError("Position")
+        if "job_family_id" in allowed:
+            allowed["job_family"] = _active_family_name(db, allowed["job_family_id"])
+            allowed["job_family_id"] = str(allowed["job_family_id"])
+        if "level" in allowed:
+            allowed["level"] = allowed["level"].strip() or None
+        if "posting_content" in allowed:
+            allowed["posting_content"] = allowed["posting_content"].strip() or None
         sets = ", ".join(f"{key} = :{key}" for key in allowed)
         if "status" in allowed:
             # closed_at represents the current closure; the status-event trail
@@ -206,9 +468,14 @@ async def update_position(position_id: UUID, update: PositionUpdate, current_use
                              {**allowed, "id": str(position_id)}).mappings().one()
         if "status" in allowed and previous != allowed["status"]:
             db.execute(text("""
-                INSERT INTO app_private.position_status_events (position_id, previous_status, new_status, changed_by)
-                VALUES (:id, :previous, :new_status, :user_id)
-            """), {"id": str(position_id), "previous": previous, "new_status": allowed["status"], "user_id": user_id})
+                INSERT INTO app_private.position_status_events (position_id, previous_status, new_status, changed_by, reason)
+                VALUES (:id, :previous, :new_status, :user_id, :reason)
+            """), {"id": str(position_id), "previous": previous, "new_status": allowed["status"], "user_id": user_id,
+                    "reason": status_reason})
+            if previous == "CLOSED":
+                # F2.07: reopening restarts the retention period, so open
+                # retention cases of the previous closure must not proceed.
+                cancel_cases_of_reopened_positions(db, position_id=str(position_id), actor_user_id=user_id)
         db.execute(text("""
             INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, position_id, outcome, metadata)
             VALUES (:user_id, 'UPDATE_POSITION', 'POSITION', :id, :id, 'SUCCESS', CAST(:metadata AS jsonb))
@@ -218,6 +485,40 @@ async def update_position(position_id: UUID, update: PositionUpdate, current_use
     except Exception:
         db.rollback()
         raise
+    finally:
+        db.close()
+
+
+@router.get("/{position_id}/status-events", response_model=List[PositionStatusEvent])
+async def list_position_status_events(position_id: UUID, current_user: dict = Depends(get_current_user)):
+    """Open/Paused/Closed history of a position, oldest first."""
+    await check_position_access(position_id, current_user)
+    db = SessionLocal()
+    try:
+        return [dict(row) for row in db.execute(text("""
+            SELECT e.event_id, e.position_id, e.previous_status, e.new_status, e.changed_by, e.reason, e.changed_at,
+                   p.display_name AS changed_by_name
+            FROM app_private.position_status_events e
+            LEFT JOIN app_private.user_profiles p ON p.user_id = e.changed_by
+            WHERE e.position_id = :id ORDER BY e.changed_at, e.event_id
+        """), {"id": str(position_id)}).mappings().all()]
+    finally:
+        db.close()
+
+
+@router.get("/{position_id}/jd-versions/{jd_version_id}")
+async def get_jd_version(position_id: UUID, jd_version_id: UUID, current_user: dict = Depends(get_current_user)):
+    """Read one immutable JD version (F-11)."""
+    await check_position_access(position_id, current_user)
+    db = SessionLocal()
+    try:
+        row = db.execute(text("""
+            SELECT jd_version_id, position_id, version_number, content_text, language_code, created_by, created_at
+            FROM app_private.jd_versions WHERE position_id = :position_id AND jd_version_id = :jd_version_id
+        """), {"position_id": str(position_id), "jd_version_id": str(jd_version_id)}).mappings().first()
+        if not row:
+            raise NotFoundError("JD version")
+        return dict(row)
     finally:
         db.close()
 

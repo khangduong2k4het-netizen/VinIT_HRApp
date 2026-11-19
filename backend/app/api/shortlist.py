@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID
 
@@ -9,6 +10,7 @@ from app.core.exceptions import NotFoundError
 from app.core.permissions import can_update_application_status
 from app.core.security import get_current_user
 from app.db.database import SessionLocal
+from app.services.workflow_rules import add_business_days
 
 router = APIRouter()
 
@@ -19,6 +21,8 @@ class CreateShortlistShareRequest(BaseModel):
     application_ids: List[UUID] = Field(min_length=1, max_length=500)
     note: Optional[str] = Field(default=None, max_length=2000)
     allow_cv_view: bool = False
+    # F2.02 / D-08: scorecard deadline; defaults to 3 working days from now.
+    due_at: Optional[datetime] = None
 
 
 class ShortlistFeedbackRequest(BaseModel):
@@ -89,6 +93,12 @@ async def create_shortlist_share(request: CreateShortlistShareRequest, current_u
     ids = [str(app_id) for app_id in request.application_ids]
     if len(set(ids)) != len(ids):
         raise HTTPException(status_code=400, detail="Danh sách ứng viên có hồ sơ trùng")
+    now = datetime.now(timezone.utc)
+    due_at = request.due_at or add_business_days(now)
+    if due_at.tzinfo is None:
+        due_at = due_at.replace(tzinfo=timezone.utc)
+    if due_at <= now or due_at > now + timedelta(days=90):
+        raise HTTPException(status_code=400, detail="Hạn hoàn thành scorecard phải sau thời điểm hiện tại và trong vòng 90 ngày")
 
     db = SessionLocal()
     try:
@@ -115,7 +125,7 @@ async def create_shortlist_share(request: CreateShortlistShareRequest, current_u
         """), {"position_id": position_id, "user_id": user_id, "recipient": recipient,
                 "note": request.note, "allow_cv_view": request.allow_cv_view}).scalar_one()
         for app_id in ids:
-            db.execute(text("""
+            item = db.execute(text("""
                 INSERT INTO app_private.shortlist_share_items
                     (share_id, position_id, application_id, assessment_id, ranking_item_id)
                 VALUES (:share_id, :position_id, :application_id,
@@ -143,14 +153,34 @@ async def create_shortlist_share(request: CreateShortlistShareRequest, current_u
                             WHERE position_id = a.position_id ORDER BY version_number DESC LIMIT 1)
                       ORDER BY c.version_number DESC LIMIT 1)
                      ORDER BY rr.created_at DESC LIMIT 1))
-            """), {"share_id": share_id, "position_id": position_id, "application_id": app_id})
+                RETURNING share_item_id, assessment_id
+            """), {"share_id": share_id, "position_id": position_id, "application_id": app_id}).mappings().one()
+            # F2.02: one scorecard per share item, locked to the snapshot assessment's criteria.
+            scorecard_id = db.execute(text("""
+                INSERT INTO app_private.shortlist_scorecards (share_id, share_item_id, position_id, application_id,
+                    assessment_id, criteria_version_id, reviewer_user_id, due_at)
+                VALUES (:share_id, :share_item_id, :position_id, :application_id, :assessment_id,
+                    (SELECT criteria_version_id FROM app_private.assessment_runs WHERE assessment_id = :assessment_id),
+                    :reviewer, :due_at)
+                RETURNING scorecard_id
+            """), {"share_id": share_id, "share_item_id": item["share_item_id"], "position_id": position_id,
+                    "application_id": app_id, "assessment_id": item["assessment_id"], "reviewer": recipient,
+                    "due_at": due_at}).scalar_one()
+            db.execute(text("""
+                INSERT INTO app_private.shortlist_scorecard_criteria (scorecard_id, criterion_id)
+                SELECT :scorecard_id, ci.criterion_id
+                FROM app_private.shortlist_scorecards sc
+                JOIN app_private.criteria_items ci ON ci.criteria_version_id = sc.criteria_version_id
+                WHERE sc.scorecard_id = :scorecard_id
+            """), {"scorecard_id": scorecard_id})
         db.execute(text("""
             INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, position_id, outcome)
             VALUES (:user_id, 'SHARE_SHORTLIST', 'SHORTLIST_SHARE', :share_id, :position_id, 'SUCCESS')
         """), {"user_id": user_id, "share_id": share_id, "position_id": position_id})
         db.commit()
         return {"share_id": share_id, "status": "ACTIVE", "position_id": position_id,
-                "shared_with": recipient, "applications_count": len(ids)}
+                "shared_with": recipient, "applications_count": len(ids), "due_at": due_at,
+                "scorecards_count": len(ids)}
     except Exception:
         db.rollback()
         raise
@@ -167,8 +197,19 @@ async def get_shortlists_shared_with_me(current_user: dict = Depends(get_current
             SELECT s.*, p.title, p.position_code, creator.display_name AS creator_name,
                    recipient.display_name AS recipient_name,
                    (SELECT COUNT(*) FROM app_private.shortlist_share_items si WHERE si.share_id = s.share_id) AS application_count,
-                   (SELECT COUNT(*) FROM app_private.shortlist_feedback f WHERE f.share_id = s.share_id) AS feedback_count
+                   (SELECT COUNT(*) FROM app_private.shortlist_feedback f WHERE f.share_id = s.share_id) AS feedback_count,
+                   sc.scorecards_total, sc.scorecards_not_started, sc.scorecards_in_progress,
+                   sc.scorecards_submitted, sc.scorecards_overdue, sc.next_due_at
             FROM app_private.shortlist_shares s
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS scorecards_total,
+                       COUNT(*) FILTER (WHERE status = 'NOT_STARTED') AS scorecards_not_started,
+                       COUNT(*) FILTER (WHERE status = 'IN_PROGRESS') AS scorecards_in_progress,
+                       COUNT(*) FILTER (WHERE status = 'SUBMITTED') AS scorecards_submitted,
+                       COUNT(*) FILTER (WHERE status <> 'SUBMITTED' AND due_at < NOW()) AS scorecards_overdue,
+                       MIN(due_at) FILTER (WHERE status <> 'SUBMITTED') AS next_due_at
+                FROM app_private.shortlist_scorecards WHERE share_id = s.share_id
+            ) sc ON TRUE
             JOIN app_private.positions p ON p.position_id = s.position_id
             LEFT JOIN app_private.user_profiles creator ON creator.user_id = s.created_by
             LEFT JOIN app_private.user_profiles recipient ON recipient.user_id = s.shared_with
@@ -228,8 +269,11 @@ async def get_shortlist_detail(share_id: UUID, current_user: dict = Depends(get_
         result = _share_response(_get_share(db, str(share_id), current_user["user_id"]), current_user["user_id"])
         items = db.execute(text("""
             SELECT si.application_id, COALESCE(i.display_name, 'Chưa có tên') AS candidate_name,
-                   a.application_status, ar.matching_status, ar.matching_score, ar.evidence_coverage
+                   a.application_status, ar.matching_status, ar.matching_score, ar.evidence_coverage,
+                   sc.scorecard_id, sc.status AS scorecard_status, sc.due_at AS scorecard_due_at,
+                   sc.overall_recommendation, sc.submitted_at AS scorecard_submitted_at
             FROM app_private.shortlist_share_items si
+            LEFT JOIN app_private.shortlist_scorecards sc ON sc.share_item_id = si.share_item_id
             JOIN app_private.applications a ON a.application_id = si.application_id
             LEFT JOIN app_private.application_identities i ON i.application_id = si.application_id
             LEFT JOIN app_private.assessment_runs ar ON ar.assessment_id = si.assessment_id

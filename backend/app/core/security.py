@@ -1,43 +1,155 @@
-from fastapi import Depends, HTTPException, status, Request
-import jwt
-from jwt import PyJWTError
-from typing import Optional, Dict, Any
+import asyncio
+from functools import lru_cache
+from typing import Any, Dict, Optional
 from uuid import UUID
+
+import jwt
+from fastapi import Depends, HTTPException, Request, status
+from jwt import PyJWTError
+from jwt.exceptions import PyJWKClientConnectionError, PyJWKClientError
+
 from .config import settings
+from .logging import get_logger
+
+logger = get_logger(__name__)
+
+_ASYMMETRIC_ALGORITHMS = {
+    "ES256",
+    "ES384",
+    "ES512",
+    "RS256",
+    "RS384",
+    "RS512",
+    "PS256",
+    "PS384",
+    "PS512",
+    "EdDSA",
+}
 
 
-async def verify_supabase_jwt(request: Request) -> Dict[str, Any]:
-    """Verify Supabase JWT token from Authorization header"""
-    credentials_exception = HTTPException(
+def _credentials_exception() -> HTTPException:
+    return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
+
+def _configuration_exception() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Authentication verification is not configured",
+    )
+
+
+def _jwks_url() -> Optional[str]:
+    configured = (settings.SUPABASE_JWKS_URL or "").strip()
+    if configured:
+        return configured
+    supabase_url = (settings.SUPABASE_URL or "").strip().rstrip("/")
+    if not supabase_url:
+        return None
+    return f"{supabase_url}/auth/v1/.well-known/jwks.json"
+
+
+def _jwt_issuer() -> Optional[str]:
+    configured = (settings.SUPABASE_JWT_ISSUER or "").strip().rstrip("/")
+    if configured:
+        return configured
+    supabase_url = (settings.SUPABASE_URL or "").strip().rstrip("/")
+    if not supabase_url:
+        return None
+    return f"{supabase_url}/auth/v1"
+
+
+@lru_cache(maxsize=8)
+def _get_jwk_client(jwks_url: str, cache_seconds: int) -> jwt.PyJWKClient:
+    return jwt.PyJWKClient(
+        jwks_url,
+        cache_keys=True,
+        cache_jwk_set=True,
+        lifespan=max(30, cache_seconds),
+        timeout=10,
+    )
+
+
+async def _decode_supabase_token(token: str) -> Dict[str, Any]:
+    try:
+        header = jwt.get_unverified_header(token)
+    except PyJWTError:
+        raise _credentials_exception() from None
+
+    algorithm = header.get("alg")
+    if algorithm == "HS256":
+        if not settings.SUPABASE_JWT_SECRET:
+            raise _configuration_exception()
+        try:
+            return jwt.decode(
+                token,
+                settings.SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                audience="authenticated",
+                options={"require": ["sub", "aud", "exp"]},
+            )
+        except PyJWTError:
+            raise _credentials_exception() from None
+
+    if algorithm not in _ASYMMETRIC_ALGORITHMS:
+        raise _credentials_exception()
+
+    jwks_url = _jwks_url()
+    if not jwks_url:
+        raise _configuration_exception()
+
+    client = _get_jwk_client(jwks_url, settings.SUPABASE_JWKS_CACHE_SECONDS)
+    try:
+        signing_key = await asyncio.to_thread(client.get_signing_key_from_jwt, token)
+    except PyJWKClientConnectionError:
+        logger.warning("Unable to fetch Supabase JWKS", jwks_url=jwks_url)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication verification is temporarily unavailable",
+        ) from None
+    except PyJWKClientError:
+        raise _credentials_exception() from None
+
+    issuer = _jwt_issuer()
+    decode_options = {"require": ["sub", "aud", "exp"]}
+    decode_kwargs: Dict[str, Any] = {}
+    if issuer:
+        decode_options["require"].append("iss")
+        decode_kwargs["issuer"] = issuer
+
+    try:
+        return jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=[algorithm],
+            audience="authenticated",
+            options=decode_options,
+            **decode_kwargs,
+        )
+    except PyJWTError:
+        raise _credentials_exception() from None
+
+
+async def verify_supabase_jwt(request: Request) -> Dict[str, Any]:
+    """Verify a Supabase access token using HS256 legacy or JWKS signing keys."""
     auth_header = request.headers.get("Authorization", "")
     parts = auth_header.split()
     if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise credentials_exception
+        raise _credentials_exception()
 
-    if not settings.SUPABASE_JWT_SECRET:
-        raise HTTPException(status_code=503, detail="Authentication verification is not configured")
-    token = parts[1]
+    payload = await _decode_supabase_token(parts[1])
+    user_id: str = payload.get("sub")
+    if user_id is None:
+        raise _credentials_exception()
     try:
-        payload = jwt.decode(
-            token,
-            settings.SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            audience="authenticated",
-            options={"require": ["sub", "aud", "exp"]},
-        )
-        user_id: str = payload.get("sub")
-        if user_id is None:
-            raise credentials_exception
         # Compare canonical UUIDs in self-action and dual-approval guards.
         payload["sub"] = str(UUID(user_id))
-        return payload
-    except (PyJWTError, ValueError, TypeError):
-        raise credentials_exception
+    except (ValueError, TypeError, AttributeError):
+        raise _credentials_exception() from None
+    return payload
 
 
 def ensure_token_is_current(user_payload: Dict[str, Any], valid_after) -> None:

@@ -1,7 +1,9 @@
 # THIẾT KẾ KIẾN TRÚC ĐIỀU PHỐI & GỌI MÔ HÌNH NGÔN NGỮ LỚN (LLM ORCHESTRATION ARCHITECTURE)
 
-> **Lưu ý triển khai (05/11/2026):** Tài liệu này mô tả yêu cầu/thiết kế mục tiêu, không phải xác nhận các chức năng đã nghiệm thu. Trạng thái mã, giới hạn privacy/recovery và trạng thái migration trên project Supabase kết nối được theo dõi tại [PHASE1_GAP_ANALYSIS.md](../PHASE1_GAP_ANALYSIS.md) và [DEPLOYMENT.md](../DEPLOYMENT.md).
+> **Lưu ý triển khai (05/11/2026):** Tài liệu này mô tả yêu cầu/thiết kế mục tiêu, không phải xác nhận các chức năng đã nghiệm thu. Trạng thái mã, giới hạn privacy/recovery và trạng thái migration trên project Supabase kết nối được theo dõi tại [PHASE1_GAP_ANALYSIS.md](../audit/PHASE1_GAP_ANALYSIS.md) và [DEPLOYMENT.md](../DEPLOYMENT.md).
 ## Dự án: VinUni AI-Native CV Matching & Ranking (HRA)
+
+> **Cập nhật triển khai (07/11/2026):** pipeline hiện tại chạy deterministic rule engine trước; LLM chỉ fallback cho tiêu chí chưa quyết định. pgvector/BGE semantic retrieval và LTR đã có trong mã nhưng tắt mặc định và không thay thế LLM/rule/score. Nguồn sự thật về luồng hiện tại, fingerprint và gate nằm ở [MATCHING_STABILITY.md](MATCHING_STABILITY.md).
 
 | Thuộc tính | Giá trị chuẩn hóa |
 |---|---|
@@ -346,7 +348,7 @@ Toàn bộ phép toán và thuật toán phân loại được viết bằng mã
 ---
 
 ### 4.2. Thuật toán Xếp hạng Ưu tiên Rà soát (`T-REC-02`)
-Thay vì sắp xếp đơn thuần theo điểm số từ cao xuống thấp (dễ dẫn đến việc ứng viên thiếu kỹ năng bắt buộc nhưng điểm ưu tiên cao vẫn lên top), hệ thống áp dụng thuật toán **Sắp xếp Đa tầng (Multi-tier Priority Sorting)**:
+Thay vì sắp xếp đơn thuần theo điểm số từ cao xuống thấp (dễ dẫn đến việc ứng viên thiếu kỹ năng bắt buộc nhưng điểm ưu tiên cao vẫn lên top), hệ thống áp dụng thuật toán **Sắp xếp Đa tầng (Multi-tier Priority Sorting)**. Bản hiện thực dùng `matching_status` làm gate đầu tiên, sau đó là score và coverage; LTR (nếu `ACTIVE` và đạt gate) chỉ chen vào giữa gate trạng thái/coverage và score như mô tả ở mục 4.5:
 
 ```python
 def ranking_comparator(candidate_a, candidate_b):
@@ -369,6 +371,26 @@ Hồ sơ được tự động gom vào 4 nhóm nghiệp vụ để HR ưu tiên
 2. **Nhóm 2 — Cần HR xác minh (Needs HR Verification):** Có ít nhất một tiêu chí bắt buộc ở mức `UNCLEAR` hoặc độ phủ bằng chứng $< 70\%$.
 3. **Nhóm 3 — Có dấu hiệu miss-match (Mismatch Signals):** Có ít nhất một tiêu chí bắt buộc rơi vào `NO_MATCH`.
 4. **Nhóm 4 — File cần kiểm tra kỹ thuật (Technical Check Required):** Bản scan mờ, PDF khóa password, lỗi bóc tách text.
+
+### 4.4. Semantic retrieval bằng pgvector/BGE (không phải LLM)
+
+Khi `SEMANTIC_RETRIEVAL_ENABLED=true`, worker dùng embedding provider để tạo vector cho các chunk CV và cho query suy ra từ `requirement_spec` của tiêu chí chưa quyết định. Provider production dự kiến là BGE qua endpoint OpenAI-compatible `/embeddings`; provider `hash` chỉ phục vụ test plumbing và không có ý nghĩa chất lượng semantic.
+
+Luồng kiểm soát:
+
+1. Chunk CV đã redaction được embed và lưu vào `app_private.cv_chunk_embeddings` theo document/chunk/text hash/model/index version.
+2. pgvector truy vấn cosine similarity trong đúng document đang đánh giá; không tìm xuyên ứng viên/vị trí.
+3. Semantic chunks được merge với lexical chunks, ưu tiên chunk có cả hai nguồn, và bị giới hạn tối đa 5 chunks cho mỗi criterion trước khi gửi LLM fallback.
+4. Similarity chỉ là tín hiệu retrieval. Nó không tạo finding, không cộng điểm và không thay đổi outcome của rule engine. Quote từ chunk semantic vẫn phải qua verbatim verification như chunk lexical.
+5. Lỗi endpoint, dimension mismatch hoặc pgvector không sẵn sàng đều fallback về lexical/in-memory; assessment không fail chỉ vì semantic retrieval lỗi.
+
+### 4.5. Learning-to-Rank (LTR) sau deterministic ranking
+
+LTR không phải một lần gọi LLM và không tham gia chấm từng criterion. Đây là pairwise logistic ranker train offline từ ví dụ đã gán nhãn theo group/position, tách holdout theo nguyên group. Artifact phải đạt NDCG@10/pairwise accuracy và gate kích thước holdout mới được nạp.
+
+- `OFF`: ranking giữ nguyên `matching_status -> matching_score -> evidence_coverage -> application_id`.
+- `SHADOW`: tính và lưu `ltr_score` để đối chiếu, không đổi thứ hạng.
+- `ACTIVE`: LTR chỉ reorder bên trong cùng `matching_status` và cùng coverage-eligibility gate; sau đó mới dùng score/coverage làm tie-break. LTR không giúp hồ sơ vượt `POSSIBLE_MISMATCH`, `NOT_ASSESSED` hoặc coverage dưới ngưỡng.
 
 ---
 

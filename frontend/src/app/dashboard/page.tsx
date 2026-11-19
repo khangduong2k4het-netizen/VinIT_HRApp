@@ -18,6 +18,9 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { dashboardApi } from '@/lib/api';
 import { APPLICATION_STATUSES, type ApplicationStatus } from '@/lib/applicationStatus';
 import StatusBadge from '@/components/common/StatusBadge';
+import PageHeader from '@/components/common/PageHeader';
+import WorkQueueList from '@/components/workflow/WorkQueueList';
+import type { WorkQueueResponse } from '@/types';
 
 interface DashboardSummary {
   open_positions: number;
@@ -39,6 +42,8 @@ const percent = (value: number | null | undefined) =>
 export default function DashboardPage() {
   const { t } = useI18n();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [workQueue, setWorkQueue] = useState<WorkQueueResponse | null>(null);
+  const [queueError, setQueueError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,8 +52,23 @@ export default function DashboardPage() {
     try {
       if (initial) setLoading(true); else setRefreshing(true);
       setError(null);
-      const response = await dashboardApi.getSummary();
-      setSummary(response.data);
+      setQueueError(null);
+      const [summaryResponse, queueResponse] = await Promise.allSettled([
+        dashboardApi.getSummary(),
+        dashboardApi.getWorkQueue(),
+      ]);
+      if (summaryResponse.status === 'fulfilled') {
+        setSummary(summaryResponse.value.data);
+      } else {
+        const err: any = summaryResponse.reason;
+        setError(err.response?.data?.detail || t("Không thể tải dữ liệu tổng hợp. Vui lòng thử lại."));
+      }
+      if (queueResponse.status === 'fulfilled') {
+        setWorkQueue(queueResponse.value.data);
+      } else {
+        const err: any = queueResponse.reason;
+        setQueueError(err.response?.data?.detail || t("Không thể tải hàng đợi công việc. Vui lòng thử lại."));
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || t("Không thể tải dữ liệu tổng hợp. Vui lòng thử lại."));
     } finally {
@@ -68,16 +88,16 @@ export default function DashboardPage() {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap', mb: 3 }}>
-        <Box>
-          <Typography variant="overline" color="secondary.main">{t("TỔNG QUAN TUYỂN DỤNG")}</Typography>
-          <Typography component="h1" variant="h1" sx={{ color: '#0A2B57', mt: 0.5 }}>{t("Bảng điều khiển")}</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>{t("Số liệu theo vị trí và hồ sơ bạn được phép xem.")}</Typography>
-        </Box>
-        <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => loadData()} disabled={refreshing || loading}>
-          {refreshing ? t("Đang cập nhật…") : t("Làm mới")}
-        </Button>
-      </Box>
+      <PageHeader
+        eyebrow={t("HÀNG ĐỢI CÔNG VIỆC")}
+        title={t("Tổng quan công việc")}
+        description={t("Bắt đầu từ việc cần xử lý, sau đó xem số liệu tổng quan theo phạm vi bạn được phép xem.")}
+        actions={(
+          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => loadData()} disabled={refreshing || loading}>
+            {refreshing ? t("Đang cập nhật…") : t("Làm mới")}
+          </Button>
+        )}
+      />
 
       {error && <Alert severity="error" sx={{ mb: 3 }} action={<Button color="inherit" onClick={() => loadData(!summary)}>{t("Thử lại")}</Button>}>{t(error)}</Alert>}
       {loading && (
@@ -110,6 +130,23 @@ export default function DashboardPage() {
             <Alert severity="info" sx={{ mb: 3 }} action={<Button component={Link} href="/positions" color="inherit">{t("Xem vị trí")}</Button>}>{t("Chưa có hồ sơ trong phạm vi bạn được phép xem. Hãy bắt đầu từ một vị trí tuyển dụng.")}</Alert>
           )}
 
+          <Box sx={{ mb: 4 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 2, flexWrap: 'wrap', mb: 2 }}>
+              <Box>
+                <Typography variant="h2" sx={{ fontSize: 19, color: '#0A2B57' }}>{t("Việc cần làm")}</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                  {workQueue
+                    ? t("{0} vị trí cần chú ý · {1} file cần kiểm tra · {2} hồ sơ cần xác minh", workQueue.summary.positions_needing_attention, workQueue.summary.files_needing_review, workQueue.summary.applications_needing_verification)
+                    : t("Danh sách việc theo từng vị trí và hành động tiếp theo.")}
+                </Typography>
+              </Box>
+              {workQueue && <Chip label={t("Cập nhật theo quyền truy cập")} size="small" variant="outlined" />}
+            </Box>
+            {queueError && <Alert severity="warning" sx={{ mb: 2 }} action={<Button color="inherit" onClick={() => loadData()}>{t("Thử lại")}</Button>}>{t(queueError)}</Alert>}
+            {workQueue ? <WorkQueueList items={workQueue.items} /> : !queueError ? <Skeleton variant="rounded" height={180} /> : null}
+          </Box>
+
+          <Typography variant="h2" sx={{ fontSize: 19, color: '#0A2B57', mb: 2 }}>{t("Tổng quan phân tích")}</Typography>
           <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
               <Card sx={{ height: '100%', border: '1px solid #E9EEF4' }}>

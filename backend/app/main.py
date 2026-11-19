@@ -2,11 +2,14 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from app.core.body_limit import PublicBodyLimit
 from app.core.exceptions import HRAException
 from app.core.config import settings
 from app.core.logging import setup_logging, get_logger
 from app.api import api_router
+from app.services.langfuse_observability import shutdown as shutdown_langfuse
 from app.workers.processor import worker
+from app.workers.retention_scheduler import retention_scheduler
 
 # Setup logging first
 setup_logging()
@@ -30,6 +33,13 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Public endpoints take uploads from the Internet: refuse oversized bodies up front.
+    # The allowance is one CV plus a little room for the multipart envelope and form fields.
+    app.add_middleware(PublicBodyLimit, prefix=f"{settings.API_V1_PREFIX}/intake/",
+                       max_bytes=lambda: settings.MAX_FILE_SIZE_BYTES + 100_000)
+    app.add_middleware(PublicBodyLimit, prefix=f"{settings.API_V1_PREFIX}/public/",
+                       max_bytes=lambda: settings.MAX_FILE_SIZE_BYTES + 100_000)
 
     @app.exception_handler(HRAException)
     async def handle_hra_error(request: Request, exc: HRAException):
@@ -85,11 +95,16 @@ def create_app() -> FastAPI:
         if settings.APP_ENV != "testing":
             worker.start()
             logger.info("Background processing worker started automatically")
+        # F2.07: off by default until Legal & Privacy approves the process.
+        if settings.APP_ENV != "testing" and settings.RETENTION_SCHEDULER_ENABLED:
+            retention_scheduler.start()
 
     @app.on_event("shutdown")
     async def shutdown_event():
         logger.info("Shutting down VinUni HRA Backend")
         worker.stop()
+        retention_scheduler.stop()
+        shutdown_langfuse()
 
     return app
 

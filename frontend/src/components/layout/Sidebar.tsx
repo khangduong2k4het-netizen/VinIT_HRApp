@@ -9,19 +9,43 @@ import PeopleIcon from '@mui/icons-material/People';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import SettingsIcon from '@mui/icons-material/Settings';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
+import ApartmentIcon from '@mui/icons-material/Apartment';
+import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
+import HistoryIcon from '@mui/icons-material/History';
+import InsightsIcon from '@mui/icons-material/Insights';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 
 const DRAWER_WIDTH = 260;
-const menuItems = [
-  { text: 'Vị trí tuyển dụng', icon: <WorkIcon />, href: '/positions' },
-  { text: 'Shortlist chia sẻ', icon: <PeopleIcon />, href: '/shortlist' },
-  { text: 'Bảng điều khiển', icon: <BarChartIcon />, href: '/dashboard' },
-  { text: 'Quản trị AI', icon: <SettingsIcon />, href: '/admin', adminOnly: true },
-  { text: 'Quản lý tài khoản', icon: <ManageAccountsIcon />, href: '/admin/users', adminOnly: true },
+const menuGroups = [
+  {
+    label: 'Công việc tuyển dụng',
+    items: [
+      { text: 'Tổng quan công việc', icon: <BarChartIcon />, href: '/dashboard' },
+      { text: 'Vị trí tuyển dụng', icon: <WorkIcon />, href: '/positions' },
+      { text: 'Shortlist & phản hồi', icon: <PeopleIcon />, href: '/shortlist' },
+      { text: 'Thư viện rubric', icon: <LibraryBooksIcon />, href: '/rubric-library', hrOnly: true },
+      { text: 'Báo cáo vận hành', icon: <InsightsIcon />, href: '/reports', hrOnly: true },
+      { text: 'Chất lượng AI', icon: <InsightsIcon />, href: '/reports/ai-quality', hrOnly: true },
+      { text: 'Kiểm định chất lượng', icon: <HistoryIcon />, href: '/quality', leadOnly: true },
+      { text: 'Talent Pool', icon: <PeopleIcon />, href: '/talent-pool', hrOnly: true },
+      { text: 'Lưu trữ & xóa dữ liệu', icon: <DeleteSweepIcon />, href: '/retention', hrOnly: true },
+    ],
+  },
+  {
+    label: 'Quản trị',
+    adminOnly: true,
+    items: [
+      { text: 'Quản trị AI', icon: <SettingsIcon />, href: '/admin' },
+      { text: 'Quản lý tài khoản', icon: <ManageAccountsIcon />, href: '/admin/users' },
+      { text: 'Quản lý phòng ban', icon: <ApartmentIcon />, href: '/admin/departments' },
+      { text: 'Nhật ký audit', icon: <HistoryIcon />, href: '/admin/audit' },
+    ],
+  },
 ];
 
-export default function Sidebar({ mobileOpen, onClose, isAdmin }: { mobileOpen: boolean; onClose: () => void; isAdmin: boolean }) {
+export default function Sidebar({ mobileOpen, onClose, isAdmin, isHr = false, isLead = false }: { mobileOpen: boolean; onClose: () => void; isAdmin: boolean; isHr?: boolean; isLead?: boolean }) {
   const { t } = useI18n();
   const pathname = usePathname();
   const content = (
@@ -30,21 +54,31 @@ export default function Sidebar({ mobileOpen, onClose, isAdmin }: { mobileOpen: 
         <Box sx={{ backgroundColor: '#fff', borderRadius: 1.5, px: 2, py: 1.5, mb: 1.5, display: 'flex', justifyContent: 'center' }}>
           <Box component="img" src="/vinuni-logo.png" alt="VinUniversity" sx={{ height: 32, width: 'auto', maxWidth: '100%' }} />
         </Box>
-        <Typography variant="overline" sx={{ color: 'rgba(255,255,255,.75)', display: 'block', textAlign: 'center' }}>{t("Sàng lọc CV với AI")}</Typography>
+        <Typography variant="overline" sx={{ color: 'rgba(255,255,255,.75)', display: 'block', textAlign: 'center' }}>CV Screening Application</Typography>
       </Box>
       <Divider sx={{ borderColor: 'rgba(255,255,255,.12)' }} />
       <List sx={{ pt: 2 }} component="nav" aria-label={t("Điều hướng chính")}>
-        {menuItems.filter(item => !('adminOnly' in item) || isAdmin).map(item => (
-          <ListItem key={item.href} disablePadding sx={{ mb: 0.5 }}>
-            <ListItemButton component={Link} href={item.href} onClick={onClose} selected={item.href === '/admin' ? pathname === '/admin' : pathname.startsWith(item.href)}
-              aria-current={(item.href === '/admin' ? pathname === '/admin' : pathname.startsWith(item.href)) ? 'page' : undefined}
-              sx={{ mx: 1, borderRadius: 2, minHeight: 46, transition: 'background-color .18s ease',
-                '&.Mui-selected': { backgroundColor: '#941616', '&:hover': { backgroundColor: '#7a1212' }, '& .MuiListItemIcon-root': { color: 'white' } },
-                '&:hover': { backgroundColor: 'rgba(255,255,255,.08)' } }}>
-              <ListItemIcon sx={{ color: 'rgba(255,255,255,.75)', minWidth: 40 }}>{item.icon}</ListItemIcon>
-              <ListItemText primary={t(item.text)} primaryTypographyProps={{ fontSize: 14, fontWeight: 500 }} />
-            </ListItemButton>
-          </ListItem>
+        {menuGroups.filter(group => !group.adminOnly || isAdmin).map(group => (
+          <React.Fragment key={group.label}>
+            <Typography variant="overline" sx={{ display: 'block', px: 3, pt: 1.5, pb: 0.75, color: 'rgba(255,255,255,.62)', fontSize: 10 }}>
+              {t(group.label)}
+            </Typography>
+            {group.items.filter(item => (!('hrOnly' in item) || isHr) && (!('leadOnly' in item) || isLead)).map(item => {
+              const selected = ['/admin', '/reports'].includes(item.href) ? pathname === item.href : pathname.startsWith(item.href);
+              return (
+                <ListItem key={item.href} disablePadding sx={{ mb: 0.5 }}>
+                  <ListItemButton component={Link} href={item.href} onClick={onClose} selected={selected}
+                    aria-current={selected ? 'page' : undefined}
+                    sx={{ mx: 1, borderRadius: 2, minHeight: 46, transition: 'background-color .18s ease',
+                      '&.Mui-selected': { backgroundColor: '#941616', '&:hover': { backgroundColor: '#7a1212' }, '& .MuiListItemIcon-root': { color: 'white' } },
+                      '&:hover': { backgroundColor: 'rgba(255,255,255,.08)' } }}>
+                    <ListItemIcon sx={{ color: 'rgba(255,255,255,.75)', minWidth: 40 }}>{item.icon}</ListItemIcon>
+                    <ListItemText primary={t(item.text)} primaryTypographyProps={{ fontSize: 14, fontWeight: 500 }} />
+                  </ListItemButton>
+                </ListItem>
+              );
+            })}
+          </React.Fragment>
         ))}
       </List>
       <Box sx={{ flexGrow: 1 }} />

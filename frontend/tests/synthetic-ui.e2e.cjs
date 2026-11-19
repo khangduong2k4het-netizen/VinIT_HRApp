@@ -114,7 +114,7 @@ const waitText=async (page,text)=>page.getByText(text,{exact:false}).filter({vis
  const mobile=await browser.newContext({viewport:{width:390,height:844}});await mobile.addInitScript(([token])=>{localStorage.setItem('hra_access_token',token);localStorage.setItem('hra_locale','en')},[f.hr_token]);
  const mp=await mobile.newPage();watch(mp,'mobile');await mp.goto(base+'/positions',{waitUntil:'domcontentloaded'});await waitText(mp,'Software Engineer (dữ liệu giả)');
  const width=await mp.evaluate(()=>({scroll:document.documentElement.scrollWidth,client:document.documentElement.clientWidth}));assert.ok(width.scroll<=width.client+1,JSON.stringify(width));
- await mp.getByRole('button',{name:'Open navigation menu'}).click();await mp.getByRole('link',{name:'Dashboard'}).click();await waitText(mp,'Total applications');
+ await mp.getByRole('button',{name:'Open navigation menu'}).click();await mp.getByRole('link',{name:'Work overview'}).click();await waitText(mp,'Total applications');
  await mp.getByRole('button',{name:'Tiếng Việt',exact:true}).click();await waitText(mp,'Tổng hồ sơ');
  console.log(`Mobile navigation, bilingual toggle, width ${width.scroll}/${width.client}: OK`);
  await browser.close();if(errors.length)throw Error(errors.join('\n'));console.log('No browser page errors or HTTP 5xx responses');

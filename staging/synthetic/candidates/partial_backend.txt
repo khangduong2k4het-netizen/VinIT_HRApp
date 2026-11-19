@@ -1,0 +1,16 @@
+Synthetic Partial Backend
+Email: candidate.partial@example.test
+Phone: +84 000 000 002
+
+Summary
+Backend developer with 2 years of Python experience and strong relational database work.
+
+Experience
+- Developed Python backend APIs for order processing and internal dashboards.
+- Built PostgreSQL reports, designed SQL views and improved query performance for finance exports.
+- Worked with Linux servers and Git-based deployment scripts.
+
+Skills
+Python, PostgreSQL, SQL, Linux, Git.
+
+Note for staging expectation: this synthetic CV intentionally does not claim Docker or container delivery experience.

@@ -1,0 +1,12 @@
+Synthetic Retention Due
+Email: candidate.retention.due@example.test
+Phone: +84 000 000 006
+
+Summary
+Synthetic candidate attached to a closed staging position solely for retention deletion testing.
+
+Experience
+- Python backend APIs with PostgreSQL in a synthetic staging project.
+
+Skills
+Python, PostgreSQL, SQL.

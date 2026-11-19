@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hra-backend-local",
+      "runtimeExecutable": "C:/Users/khang/AppData/Local/Temp/claude/75b5dd53ae26efb0/99b2e4f0-fc9f-4256-9146-45f84580be9f/scratchpad/venv/Scripts/python.exe",
+      "runtimeArgs": ["C:/Users/khang/AppData/Local/Temp/claude/75b5dd53ae26efb0/99b2e4f0-fc9f-4256-9146-45f84580be9f/scratchpad/run_backend_env.py"],
+      "port": 8000
+    },
+    {
+      "name": "hra-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
+      "port": 3000
+    }
+  ]
+}

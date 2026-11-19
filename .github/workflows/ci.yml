@@ -1,0 +1,226 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - "arena/**"
+    # Documentation-only pushes do not change runtime behaviour. Mixed
+    # pushes still run CI because GitHub only skips when every changed
+    # file matches paths-ignore.
+    paths-ignore:
+      - "**.md"
+  pull_request:
+    paths-ignore:
+      - "**.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-unit:
+    name: Backend unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install backend
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e './backend[dev]'
+
+      - name: Run backend tests without integration database
+        run: python -m pytest backend/tests -q
+
+      - name: Ruff on upgraded matching, semantic and LTR surfaces
+        run: >-
+          python -m ruff check --select F
+          backend/app/services/embedding.py
+          backend/app/services/semantic_diagnostics.py
+          backend/app/services/ltr.py
+          backend/app/services/matching.py
+          backend/app/services/retention.py
+          backend/app/services/audit_integrity.py
+          backend/app/workers/processor.py
+          backend/app/api/admin.py
+          backend/app/api/retention.py
+          backend/app/api/quality.py
+          backend/app/api/cross_duplicates.py
+          backend/app/services/quality.py
+          backend/app/services/cross_duplicates.py
+          backend/app/services/identity_matching.py
+          backend/app/services/review_access.py
+          backend/scripts
+          backend/tests
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run i18n tests
+        run: npm run test:i18n
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  backend-integration:
+    name: Backend integration (disposable PostgreSQL + pgvector)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      PGPASSWORD: postgres
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/hra_phase1_test
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install backend and PostgreSQL client
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e './backend[dev]'
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Create disposable test database and auth stub
+        run: |
+          createdb -h 127.0.0.1 -U postgres hra_phase1_test
+          psql -h 127.0.0.1 -U postgres -d hra_phase1_test -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+              CREATE ROLE anon NOLOGIN;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+              CREATE ROLE authenticated NOLOGIN;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+              CREATE ROLE service_role NOLOGIN BYPASSRLS;
+            END IF;
+          END $$;
+          CREATE SCHEMA auth;
+          CREATE TABLE auth.users (id UUID PRIMARY KEY, email TEXT UNIQUE);
+          CREATE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT NULL::UUID $$;
+          SQL
+
+      - name: Apply migrations in filename order
+        run: |
+          for migration in supabase/migrations/*.sql; do
+            echo "Applying ${migration}"
+            psql -h 127.0.0.1 -U postgres -d hra_phase1_test -v ON_ERROR_STOP=1 -f "${migration}"
+          done
+
+      - name: Run backend tests against disposable database
+        run: python -m pytest backend/tests -q --junitxml=integration-results.xml -o junit_logging=all
+
+      - name: Upload integration test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-integration-junit
+          path: integration-results.xml
+          if-no-files-found: warn
+
+      - name: Publish integration failures as annotations
+        if: failure()
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          report = Path("integration-results.xml")
+          if not report.exists():
+              raise SystemExit(0)
+
+          def escape(value: str) -> str:
+              return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+          root = ET.parse(report).getroot()
+          failures = []
+          for testcase in root.iter("testcase"):
+              for tag in ("failure", "error"):
+                  node = testcase.find(tag)
+                  if node is not None:
+                      failures.append((testcase, node))
+
+          global_captured = "\n".join(filter(None, [
+              *(node.text for node in root.iter("system-out")),
+              *(node.text for node in root.iter("system-err")),
+          ]))
+
+          def diagnostic_snippets(value: str) -> str:
+              snippets = []
+              for marker in ("Operation failed", "error_type=", "Traceback", "psycopg2", "sqlalchemy"):
+                  start = 0
+                  while len(snippets) < 8:
+                      index = value.find(marker, start)
+                      if index < 0:
+                          break
+                      snippets.append(value[max(0, index - 500):index + 1500])
+                      start = index + len(marker)
+              return "\n---DIAGNOSTIC SNIPPET---\n".join(snippets)
+
+          for testcase, node in failures[:10]:
+              title = f"{testcase.get('classname')}::{testcase.get('name')}"
+              captured = "\n".join(filter(None, [
+                  testcase.findtext("system-out"),
+                  testcase.findtext("system-err"),
+                  global_captured,
+              ]))
+              detail = ((node.get("message") or "") + "\n" + (node.text or "") +
+                        "\nDIAGNOSTICS:\n" + diagnostic_snippets(captured))[-6000:]
+              print(f"::error title=Integration failure::{escape(title + chr(10) + detail)}")
+          PY

@@ -80,7 +80,7 @@ export default function LoginPage() {
               sx={{ height: 56, width: 'auto', mb: 2 }}
             />
             <Typography variant="h1" sx={{ fontSize: 24, color: '#0A2B57', mb: 1 }}>
-              {t("Sàng lọc CV với AI")}
+              CV Screening Application
             </Typography>
             <Typography variant="body2" color="text.secondary">{t("Dành cho HR Recruiter & Hiring Manager tại VinUniversity")}</Typography>
           </Box>

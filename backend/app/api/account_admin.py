@@ -9,8 +9,8 @@ from sqlalchemy import text
 from app.api.admin import _lock_active_admin
 from app.core.permissions import require_admin_role
 from app.db.database import SessionLocal
-from app.schemas.accounts import AccountStatus, AdminUserCreate, AdminUserUpdate, Role
-from app.services.accounts import provision_user
+from app.schemas.accounts import AccountStatus, AdminPasswordReset, AdminUserCreate, AdminUserUpdate, Role
+from app.services.accounts import provision_user, reset_user_password
 
 router = APIRouter()
 
@@ -72,6 +72,24 @@ def create_managed_user(request: AdminUserCreate, current_user: dict = Depends(r
                                  display_name=request.display_name, roles=list(request.roles),
                                  actor_id=current_user["user_id"], bootstrap=False)
         return {"user_id": user_id, "must_change_password": True}
+    finally:
+        db.close()
+
+
+@router.post("/{user_id}/reset-password")
+def reset_managed_user_password(user_id: UUID, request: AdminPasswordReset,
+                                current_user: dict = Depends(require_admin_role)):
+    """Give a member a new temporary password and revoke earlier sessions."""
+    db = SessionLocal()
+    try:
+        _lock_management(db, current_user["user_id"])
+        reset_user_password(db, target_user_id=str(user_id),
+                            new_password=request.new_password.get_secret_value(),
+                            actor_id=current_user["user_id"])
+        return {"user_id": str(user_id), "must_change_password": True}
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 

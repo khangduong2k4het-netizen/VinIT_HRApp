@@ -15,9 +15,19 @@ export default function ChangePasswordPage() {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(true);
+  const [forced, setForced] = useState(true);
   const [success, setSuccess] = useState(false);
 
-  useEffect(() => { if (!localStorage.getItem('hra_access_token')) router.replace('/'); }, [router]);
+  useEffect(() => {
+    if (!localStorage.getItem('hra_access_token')) { router.replace('/'); return; }
+    let active = true;
+    authApi.me()
+      .then(response => { if (active) setForced(Boolean(response.data.must_change_password)); })
+      .catch(() => { if (active) { localStorage.removeItem('hra_access_token'); router.replace('/'); } })
+      .finally(() => { if (active) setChecking(false); });
+    return () => { active = false; };
+  }, [router]);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); setError(null);
     if (password !== confirm) { setError(t("Mật khẩu xác nhận không khớp.")); return; }
@@ -36,18 +46,18 @@ export default function ChangePasswordPage() {
   return <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#F8FAFC', p: 2 }}>
     <Card sx={{ width: '100%', maxWidth: 500 }}><CardContent sx={{ p: { xs: 3, sm: 4 } }}>
       <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}><LanguageSwitcher /></Box>
-      <Typography variant="h1" sx={{ fontSize: 24, color: '#0A2B57', mb: 1 }}>{t("Đổi mật khẩu tạm thời")}</Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>{t("Bạn cần đổi mật khẩu do Admin cấp trước khi sử dụng hệ thống.")}</Typography>
+      <Typography variant="h1" sx={{ fontSize: 24, color: '#0A2B57', mb: 1 }}>{forced ? t("Đổi mật khẩu tạm thời") : t("Đổi mật khẩu")}</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>{forced ? t("Bạn cần đổi mật khẩu do Admin cấp trước khi sử dụng hệ thống.") : t("Nhập mật khẩu hiện tại để xác minh trước khi đặt mật khẩu mới.")}</Typography>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{t(error)}</Alert>}
-      {success ? <Alert severity="success">{t("Đã đổi mật khẩu. Vui lòng chờ vài giây rồi đăng nhập lại.")}</Alert> : <Box component="form" onSubmit={submit}>
-        <TextField label={t("Mật khẩu tạm thời")} type="password" value={current} onChange={e => setCurrent(e.target.value)} fullWidth required margin="normal" autoComplete="current-password" />
+      {checking ? <Box sx={{ textAlign: 'center', py: 4 }}><CircularProgress color="secondary" aria-label={t("Đang kiểm tra")} /></Box> : success ? <Alert severity="success">{t("Đã đổi mật khẩu. Vui lòng chờ vài giây rồi đăng nhập lại.")}</Alert> : <Box component="form" onSubmit={submit}>
+        <TextField label={forced ? t("Mật khẩu tạm thời") : t("Mật khẩu hiện tại")} type="password" value={current} onChange={e => setCurrent(e.target.value)} fullWidth required margin="normal" autoComplete="current-password" />
         <TextField label={t("Mật khẩu mới")} type="password" value={password} onChange={e => setPassword(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" helperText={t("Ít nhất 12 ký tự, tối đa 72 byte UTF-8.")} />
         <TextField label={t("Xác nhận mật khẩu")} type="password" value={confirm} onChange={e => setConfirm(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" />
         <Button type="submit" variant="contained" color="secondary" fullWidth disabled={loading} sx={{ mt: 2 }}>
           {loading ? <CircularProgress size={22} color="inherit" /> : t("Đổi mật khẩu")}
         </Button>
       </Box>}
-      <Button fullWidth sx={{ mt: 2 }} onClick={() => { localStorage.removeItem('hra_access_token'); router.push('/'); }}>{t("Quay lại đăng nhập")}</Button>
+      {success || forced ? <Button fullWidth sx={{ mt: 2 }} onClick={() => { localStorage.removeItem('hra_access_token'); router.push('/'); }}>{t("Quay lại đăng nhập")}</Button> : <Button fullWidth sx={{ mt: 2 }} onClick={() => router.push('/positions')}>{t("Quay về trang chính")}</Button>}
     </CardContent></Card>
   </Box>;
 }

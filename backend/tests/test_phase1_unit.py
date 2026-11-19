@@ -20,9 +20,49 @@ def test_matching_uses_weights_confidence_and_coverage():
     score, coverage, status, _, review = matching_engine.calculate_assessment_scores(criteria, findings)
     assert (score, coverage, status, review) == (94.0, 1.0, "MEETS_MANDATORY", False)
     score, coverage, status, _, review = matching_engine.calculate_assessment_scores(criteria, findings[1:])
-    assert (score, coverage, status, review) == (24.0, 0.3, "NEEDS_HR_VERIFICATION", True)
+    assert (score, coverage, status, review) == (80.0, 0.3, "NEEDS_HR_VERIFICATION", True)
     findings[0]["outcome"] = "NO_MATCH"
     assert matching_engine.calculate_assessment_scores(criteria, findings)[2] == "POSSIBLE_MISMATCH"
+
+
+def test_unclear_is_excluded_from_score_but_counts_against_coverage():
+    criteria = [
+        {"criterion_id": "must", "category": "MUST_HAVE", "weight_in_group": 100},
+        {"criterion_id": "nice", "category": "NICE_TO_HAVE", "weight_in_group": 100},
+    ]
+    group_weights = {"MUST_HAVE": .5, "NICE_TO_HAVE": .5}
+    findings = [
+        {"criterion_id": "must", "outcome": "STRONG_MATCH", "confidence": .9,
+         "confidence_band": "HIGH"},
+    ]
+    score, coverage, status, augmented, review = matching_engine.calculate_assessment_scores(
+        criteria, findings, group_weights)
+    assert score == 100.0
+    assert coverage == 0.5
+    assert status == "NEEDS_HR_VERIFICATION"
+    assert review is True
+    assert augmented[1]["outcome"] == "UNCLEAR"
+    assert augmented[1]["score"] is None
+
+
+def test_no_scored_criteria_has_no_score_and_scored_no_match_is_zero():
+    criteria = [
+        {"criterion_id": "must", "category": "MUST_HAVE", "weight_in_group": 100},
+        {"criterion_id": "nice", "category": "NICE_TO_HAVE", "weight_in_group": 100},
+    ]
+    score, coverage, status, _, _ = matching_engine.calculate_assessment_scores(criteria, [])
+    assert score is None
+    assert coverage == 0
+    assert status == "NEEDS_HR_VERIFICATION"
+
+    findings = [
+        {"criterion_id": "must", "outcome": "NO_MATCH", "confidence": .9,
+         "confidence_band": "HIGH"},
+    ]
+    score, coverage, status, _, _ = matching_engine.calculate_assessment_scores(criteria, findings)
+    assert score == 0.0
+    assert coverage == 0.7
+    assert status == "POSSIBLE_MISMATCH"
 
 
 def test_unverified_quotes_and_duplicates_are_not_authoritative():
@@ -36,6 +76,30 @@ def test_unverified_quotes_and_duplicates_are_not_authoritative():
             {"application_id": "b", "identity": {"email": "test@example.com"}},
             {"application_id": "c", "identity": {}}]
     assert matching_engine.detect_duplicates(apps) == [("a", "b", .98, "EMAIL_MATCH")]
+
+
+def test_quote_span_tolerates_accents_punctuation_and_spacing():
+    text = "--- Page 1 ---\nKinh nghiệm: xây dựng Python, FastAPI cho 5 năm."
+    quote = "xay dung python fastapi cho 5 nam"
+    span = matching_engine.find_quote_span(quote, text)
+    assert span is not None
+    assert "Python, FastAPI" in text[span[0]:span[1]]
+    assert matching_engine.quote_pages(quote, text) == [1]
+
+
+def test_matching_canonicalizes_findings_and_has_no_confidence_cliff():
+    criteria = [
+        {"criterion_id": "must", "category": "MUST_HAVE", "weight_in_group": 100},
+        {"criterion_id": "nice", "category": "NICE_TO_HAVE", "weight_in_group": 100},
+    ]
+    low = [{"criterion_id": "must", "outcome": "MATCH", "confidence": .59, "confidence_band": "LOW"}]
+    high = [{"criterion_id": "must", "outcome": "MATCH", "confidence": .61, "confidence_band": "MEDIUM"}]
+    low_result = matching_engine.calculate_assessment_scores(criteria, low)
+    high_result = matching_engine.calculate_assessment_scores(criteria, high)
+    assert low_result[3][0]["outcome"] == high_result[3][0]["outcome"] == "MATCH"
+    assert low_result[0] == high_result[0] == 80.0
+    assert [item["criterion_id"] for item in low_result[3]] == ["must", "nice"]
+    assert low_result[3][1]["outcome"] == "UNCLEAR"
 
 
 @pytest.mark.asyncio
@@ -103,8 +167,8 @@ def test_versioned_group_weights_are_used_and_invalid_confidence_is_unclear():
     assert result[:3] == (90.0, 1.0, "MEETS_MANDATORY")
     findings[0]["confidence_band"] = "not a real band"
     result = matching_engine.calculate_assessment_scores(criteria, findings, {"MUST_HAVE": .5, "NICE_TO_HAVE": .5})
-    assert result[2] == "NEEDS_HR_VERIFICATION"
-    assert result[3][0]["outcome"] == "UNCLEAR" and result[3][0]["requires_verification"]
+    assert result[2] == "MEETS_MANDATORY"
+    assert result[3][0]["outcome"] == "STRONG_MATCH" and not result[3][0]["requires_verification"]
     findings[0].update(confidence=5, confidence_band="HIGH")
     assert matching_engine.calculate_assessment_scores(criteria, findings)[3][0]["outcome"] == "UNCLEAR"
 
@@ -241,6 +305,88 @@ Professional experience: 2015 - 2024.
     assert structured["languages"][0]["name"] == "English"
     assert structured["projects"][0]["name"] == "Search Platform"
     assert "name" not in structured["work_history"][0]
+
+
+def test_profile_page_numbers_are_sanitized_before_database_insert():
+    from app.services.llm_client import normalize_profile_page_number, sanitize_profile_page_numbers
+
+    assert normalize_profile_page_number(1) == 1
+    assert normalize_profile_page_number("2") == 2
+    assert normalize_profile_page_number(3.0) == 3
+    assert normalize_profile_page_number("Page 1") is None
+    assert normalize_profile_page_number(["1"]) is None
+    assert normalize_profile_page_number(True) is None
+    assert normalize_profile_page_number(0) is None
+
+    profile = sanitize_profile_page_numbers({
+        "education": [{"page_number": "Page 1"}],
+        "work_history": [{"page_number": "2"}],
+        "certifications": [{"page_number": 1.0}],
+        "languages": [{"page_number": {"page": 1}}],
+        "projects": ["Synthetic project"],
+    })
+    assert profile["education"][0]["page_number"] is None
+    assert profile["work_history"][0]["page_number"] == 2
+    assert profile["certifications"][0]["page_number"] == 1
+    assert profile["languages"][0]["page_number"] is None
+
+
+def test_criteria_direct_approval_roles():
+    from fastapi import HTTPException
+
+    from app.api.criteria import criteria_decision
+    from app.schemas.criteria import ApprovalAction
+
+    # The original HR -> HM workflow remains unchanged.
+    assert criteria_decision("DRAFT", ApprovalAction.APPROVE, {"HR_RECRUITER"}, set()) == (
+        "PENDING_HM_APPROVAL", "HR_RECRUITER")
+    assert criteria_decision("PENDING_HM_APPROVAL", ApprovalAction.APPROVE, {"HIRING_MANAGER"}, set()) == (
+        "APPROVED", "HIRING_MANAGER")
+
+    # The supplementary path is available to Admin/HR Lead and to the assigned
+    # HR Recruiter (who must also accept responsibility, checked by the endpoint)
+    # from every non-final approval state, but never to an HM or an outsider.
+    for status in ("DRAFT", "PENDING_HR_REVIEW", "PENDING_HM_APPROVAL"):
+        assert criteria_decision(status, ApprovalAction.DIRECT_APPROVE, {"HR_RECRUITER"}, set()) == (
+            "APPROVED", "HR_RECRUITER")
+        # Someone who is both HR Lead and the assigned recruiter acts as HR Lead.
+        assert criteria_decision(status, ApprovalAction.DIRECT_APPROVE, {"HR_RECRUITER"}, {"HR_LEAD"}) == (
+            "APPROVED", "HR_LEAD")
+        assert criteria_decision(status, ApprovalAction.DIRECT_APPROVE, set(), {"ADMIN"}) == (
+            "APPROVED", "ADMIN")
+        assert criteria_decision(status, ApprovalAction.DIRECT_APPROVE, {"HR_LEAD"}, set()) == (
+            "APPROVED", "HR_LEAD")
+        assert criteria_decision(status, ApprovalAction.DIRECT_APPROVE, set(), {"HR_LEAD"}) == (
+            "APPROVED", "HR_LEAD")
+        for position_roles, system_roles in (({"HIRING_MANAGER"}, set()), (set(), {"HR_RECRUITER"}), (set(), set())):
+            with pytest.raises(HTTPException) as exc:
+                criteria_decision(status, ApprovalAction.DIRECT_APPROVE, position_roles, system_roles)
+            assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_profile_accepts_certifications_returned_as_plain_names(monkeypatch):
+    """gpt-4o-mini lists certifications as strings; that must not fail the CV."""
+    from app.services.llm_client import LLMClient
+    class FakeResponse:
+        def raise_for_status(self): pass
+        def json(self): return {"choices": [{"message": {"content": __import__("json").dumps({
+            "candidate_identifier": "fake", "total_years_experience": 3, "education": [], "work_history": [],
+            "skills": ["Python"], "certifications": ["AWS Solutions Architect", {"name": "CCNA"}],
+            "languages": [], "projects": []})}}]}
+    class FakeClient:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def post(self, url, **kwargs): return FakeResponse()
+    monkeypatch.setattr("app.services.llm_client.httpx.AsyncClient", FakeClient)
+    from app.core.config import settings
+    monkeypatch.setattr(settings, "LLM_API_BASE", "http://127.0.0.1:11434/v1")
+    monkeypatch.setattr("app.services.llm_client.get_active_runtime", lambda db: {
+        "provider": "local", "model_name": settings.LLM_MODEL_NAME, "api_base": settings.LLM_API_BASE, "temperature_default": .1})
+    llm = LLMClient(); llm.base_url = "http://127.0.0.1:11434/v1"
+    profile = await llm.extract_candidate_profile("Synthetic CV with AWS and CCNA certificates.", "synthetic-id")
+    assert [c["name"] for c in profile["certifications"]] == ["AWS Solutions Architect", "CCNA"]
 
 
 @pytest.mark.asyncio

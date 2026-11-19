@@ -26,4 +26,13 @@ if url:
         raise RuntimeError("TEST_DATABASE_URL must point to an explicit local disposable database named *_test")
     os.environ["DATABASE_URL"] = url
 os.environ["APP_ENV"] = "testing"
+# Tests must not inherit a developer's backend/.env (environment variables take
+# precedence over it). Individual tests monkeypatch settings when they need the
+# local auth backend or the mock AI.
+os.environ["AUTH_BACKEND"] = "supabase"
+os.environ["LLM_PROVIDER"] = "local"
+os.environ["STORAGE_BACKEND"] = "local"
+# Popping a variable would let .env supply it again, so secrets are set to empty.
+os.environ["SUPABASE_JWT_SECRET"] = ""
+os.environ["ADMIN_BOOTSTRAP_TOKEN"] = ""
 os.environ["DEBUG"] = "false"

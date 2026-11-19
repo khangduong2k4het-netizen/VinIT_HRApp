@@ -4,22 +4,25 @@ import { useI18n } from '@/i18n/I18nProvider';
 import LanguageSwitcher from '@/i18n/LanguageSwitcher';
 
 import * as React from 'react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { AppBar, Avatar, Box, Divider, IconButton, Menu, MenuItem, Toolbar, Tooltip, Typography } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
+import KeyIcon from '@mui/icons-material/Key';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { useRouter } from 'next/navigation';
-import { authApi } from '@/lib/api';
 import { DRAWER_WIDTH } from './Sidebar';
 
 const APPBAR_HEIGHT = 64;
 
-export default function Header({ onOpenMenu }: { onOpenMenu: () => void }) {
+interface HeaderProps {
+  onOpenMenu: () => void;
+  profile?: { display_name?: string; email?: string } | null;
+}
+
+export default function Header({ onOpenMenu, profile }: HeaderProps) {
   const { t } = useI18n();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
-  const [profile, setProfile] = useState<{ display_name?: string; email?: string } | null>(null);
   const router = useRouter();
-  useEffect(() => { authApi.me().then(res => setProfile(res.data)).catch(() => {}); }, []);
 
   const handleLogout = () => {
     localStorage.removeItem('hra_access_token');
@@ -33,8 +36,7 @@ export default function Header({ onOpenMenu }: { onOpenMenu: () => void }) {
       <Toolbar sx={{ minHeight: `${APPBAR_HEIGHT}px !important`, gap: 1.5 }}>
         <IconButton color="inherit" onClick={onOpenMenu} aria-label={t("Mở menu điều hướng")} edge="start" sx={{ display: { xs: 'inline-flex', md: 'none' } }}><MenuIcon /></IconButton>
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-          <Typography variant="body2" sx={{ color: '#fff', fontWeight: 700 }}>{t("Không gian tuyển dụng")}</Typography>
-          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,.7)', display: { xs: 'none', sm: 'block' } }}>{t("AI hỗ trợ · Con người quyết định")}</Typography>
+          <Typography variant="body2" sx={{ color: '#fff', fontWeight: 700 }}>HR Resource Workspace</Typography>
         </Box>
         <LanguageSwitcher light />
         <Tooltip title={t("Tài khoản")}>
@@ -49,6 +51,7 @@ export default function Header({ onOpenMenu }: { onOpenMenu: () => void }) {
         <Box sx={{ px: 2, py: 1 }}><Typography variant="body2" fontWeight={700}>{name}</Typography>
           {profile?.email && <Typography variant="caption" color="text.secondary">{profile.email}</Typography>}</Box>
         <Divider />
+        <MenuItem onClick={() => { setAnchor(null); router.push('/change-password'); }} sx={{ gap: 1 }}><KeyIcon fontSize="small" />{t("Đổi mật khẩu")}</MenuItem>
         <MenuItem onClick={handleLogout} sx={{ gap: 1, color: 'error.main' }}><LogoutIcon fontSize="small" />{t("Đăng xuất")}</MenuItem>
       </Menu>
     </AppBar>

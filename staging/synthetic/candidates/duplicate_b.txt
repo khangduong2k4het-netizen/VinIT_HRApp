@@ -1,0 +1,13 @@
+Synthetic Duplicate B
+Email: candidate.duplicate@example.test
+Phone: +84 000 000 005
+
+Summary
+Backend engineer focused on Python services and data integrations.
+
+Experience
+- Delivered Python APIs integrated with PostgreSQL databases.
+- Packaged internal tools with Docker for staging use.
+
+Skills
+Python, PostgreSQL, Docker, SQL.

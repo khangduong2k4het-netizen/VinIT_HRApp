@@ -1,0 +1,14 @@
+Synthetic Vietnamese Backend
+Email: candidate.vietnamese@example.test
+Phone: +84 000 000 004
+
+Tóm tắt
+Kỹ sư backend với 5 năm kinh nghiệm phát triển API Python cho hệ thống nội bộ.
+
+Kinh nghiệm
+- Phát triển backend APIs bằng Python và FastAPI cho quy trình phê duyệt và báo cáo.
+- Thiết kế cơ sở dữ liệu PostgreSQL, viết SQL và tối ưu truy vấn cho báo cáo vận hành.
+- Đóng gói dịch vụ bằng Docker và triển khai lên môi trường staging.
+
+Kỹ năng
+Python, FastAPI, PostgreSQL, SQL, Docker, REST API.

@@ -36,7 +36,9 @@ import PersonIcon from '@mui/icons-material/Person';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import LinkOffIcon from '@mui/icons-material/LinkOff';
 import { useCallback, useEffect, useState } from 'react';
-import { shortlistApi } from '@/lib/api';
+import { scorecardApi, shortlistApi } from '@/lib/api';
+import ScorecardDialog, { RECOMMENDATION_LABELS, SCORECARD_STATUS_LABELS } from '@/components/shortlist/ScorecardDialog';
+import type { Recommendation, Scorecard } from '@/types';
 import StatusBadge from '@/components/common/StatusBadge';
 import Link from 'next/link';
 
@@ -62,13 +64,26 @@ interface ShortlistShare {
   created_at?: string;
   note?: string;
   feedback?: FeedbackItem[];
+  scorecards_total?: number;
+  scorecards_submitted?: number;
+  scorecards_overdue?: number;
+  next_due_at?: string | null;
   applications?: Array<{
     application_id: string;
     candidate_name?: string;
     display_name?: string;
     matching_score?: number;
     matching_status?: string;
+    scorecard_id?: string | null;
+    scorecard_status?: string | null;
+    scorecard_due_at?: string | null;
+    overall_recommendation?: Recommendation | null;
   }>;
+}
+
+interface MyScorecards {
+  summary: { total: number; not_started: number; in_progress: number; submitted: number; overdue: number };
+  items: Scorecard[];
 }
 
 export default function ShortlistPage() {
@@ -85,12 +100,15 @@ export default function ShortlistPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [myScorecards, setMyScorecards] = useState<MyScorecards | null>(null);
+  const [openScorecardId, setOpenScorecardId] = useState<string | null>(null);
 
   const loadData = useCallback(async (initial = false) => {
     try {
       if (initial) setLoading(true);
-      const res = await shortlistApi.getSharedWithMe();
+      const [res, mine] = await Promise.all([shortlistApi.getSharedWithMe(), scorecardApi.mine().catch(() => null)]);
       setShares(res.data || []); setError(null);
+      setMyScorecards(mine?.data || null);
     } catch (err: any) {
       setError(err.response?.data?.detail || t("Không thể tải danh sách shortlist"));
     } finally {
@@ -110,6 +128,13 @@ export default function ShortlistPage() {
       setDetailError(err.response?.data?.detail || t("Không thể tải chi tiết shortlist"));
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const handleScorecardChanged = async () => {
+    await loadData();
+    if (selectedShare) {
+      try { setSelectedShare((await shortlistApi.getDetail(selectedShare.share_id)).data); } catch { /* keep current detail */ }
     }
   };
 
@@ -170,6 +195,34 @@ export default function ShortlistPage() {
         </Alert>
       )}
 
+      {!error && myScorecards && myScorecards.summary.total > 0 && (
+        <Card variant="outlined" sx={{ mb: 3, borderLeft: '4px solid #941616' }}><CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
+            <Typography variant="h4" sx={{ fontSize: 18 }}>{t("Scorecard cần chấm")}</Typography>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <Chip size="small" label={t("Chưa bắt đầu: {0}", myScorecards.summary.not_started)} />
+              <Chip size="small" color="warning" label={t("Đang chấm: {0}", myScorecards.summary.in_progress)} />
+              <Chip size="small" color="success" label={t("Đã nộp: {0}", myScorecards.summary.submitted)} />
+              {myScorecards.summary.overdue > 0 && <Chip size="small" color="error" label={t("Quá hạn: {0}", myScorecards.summary.overdue)} />}
+            </Box>
+          </Box>
+          {myScorecards.items.filter(item => item.status !== 'SUBMITTED').length === 0 ? (
+            <Typography variant="body2" color="text.secondary">{t("Bạn đã nộp tất cả scorecard được giao.")}</Typography>
+          ) : myScorecards.items.filter(item => item.status !== 'SUBMITTED').map(item => (
+            <Box key={item.scorecard_id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, flexWrap: 'wrap', py: 1, borderTop: '1px solid #F2F4F7' }}>
+              <Box>
+                <Typography variant="body2" fontWeight={600}>{item.candidate_name}</Typography>
+                <Typography variant="caption" color={item.is_overdue ? 'error' : 'text.secondary'}>
+                  {item.position_title} · {item.is_overdue ? t("Quá hạn") : t("Hạn")} {new Date(item.due_at).toLocaleDateString(dateLocale)} · {t(SCORECARD_STATUS_LABELS[item.status])}
+                </Typography>
+              </Box>
+              <Button size="small" variant="contained" color="secondary" onClick={() => setOpenScorecardId(item.scorecard_id)}>
+                {item.status === 'NOT_STARTED' ? t("Bắt đầu chấm") : t("Tiếp tục chấm")}</Button>
+            </Box>
+          ))}
+        </CardContent></Card>
+      )}
+
       {!error && <>
       <Box sx={{ display: { xs: 'grid', md: 'none' }, gap: 2 }}>
         {shares.length === 0 ? (
@@ -182,6 +235,9 @@ export default function ShortlistPage() {
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1.5 }}>
                 <Chip size="small" label={t("{0} ứng viên", share.application_count ?? 0)} />
                 <Chip size="small" label={t("{0} phản hồi", share.feedback_count ?? 0)} />
+                {(share.scorecards_total ?? 0) > 0 && <Chip size="small" color={share.scorecards_submitted === share.scorecards_total ? 'success' : 'default'}
+                  label={t("Scorecard {0}/{1}", share.scorecards_submitted ?? 0, share.scorecards_total ?? 0)} />}
+                {(share.scorecards_overdue ?? 0) > 0 && <Chip size="small" color="error" label={t("Quá hạn: {0}", share.scorecards_overdue ?? 0)} />}
                 <StatusBadge type={share.allow_cv_view ? 'file-completed' : 'file-review'} label={share.allow_cv_view ? t("Được xem CV") : t("Chỉ xem tóm tắt")} />
               </Box>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
@@ -228,6 +284,13 @@ export default function ShortlistPage() {
                   </TableCell>
                   <TableCell>
                     <Chip label={t("{0} ứng viên", share.application_count || 0)} size="small" />
+                    {(share.scorecards_total ?? 0) > 0 && (
+                      <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
+                        <Chip size="small" color={share.scorecards_submitted === share.scorecards_total ? 'success' : 'default'}
+                          label={t("Scorecard {0}/{1}", share.scorecards_submitted ?? 0, share.scorecards_total ?? 0)} />
+                        {(share.scorecards_overdue ?? 0) > 0 && <Chip size="small" color="error" label={t("Quá hạn: {0}", share.scorecards_overdue ?? 0)} />}
+                      </Box>
+                    )}
                     {(share.feedback_count || 0) > 0 && <Typography variant="caption" display="block">{share.feedback_count}{t("phản hồi")}</Typography>}
                   </TableCell>
                   <TableCell>
@@ -276,7 +339,8 @@ export default function ShortlistPage() {
         {selectedShare && (
           <>
             <DialogTitle>
-              <Typography variant="h6" color="#0A2B57">
+              {/* DialogTitle is already an <h2>; a nested heading element (<h6>) is invalid HTML. */}
+              <Typography component="span" variant="h6" color="#0A2B57" sx={{ display: 'block' }}>
                 Shortlist — {selectedShare.position?.title}
               </Typography>
               <Typography variant="caption" color="text.secondary">{t("                Chia sẻ bởi")} {selectedShare.created_by_profile?.display_name || 'HR'} ·{' '}
@@ -313,11 +377,22 @@ export default function ShortlistPage() {
                           size="small" sx={{ textAlign: 'left', px: 0.5 }}>
                           {a.candidate_name || a.display_name || t("Ứng viên")}
                         </Button>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                         <Chip
                           size="small"
                           label={{ MEETS_MANDATORY: t("Đáp ứng bắt buộc"), NEEDS_HR_VERIFICATION: t("Cần HR xác minh"), POSSIBLE_MISMATCH: t("Cần xem xét"), NOT_ASSESSED: t("Chưa đánh giá") }[a.matching_status || ''] || t("Chưa đánh giá hoặc kết quả đã cũ")}
                           color={a.matching_status === 'MEETS_MANDATORY' ? 'success' : 'default'}
                         />
+                        {a.scorecard_id && (
+                          <>
+                            <Chip size="small" variant="outlined"
+                              color={a.scorecard_status === 'SUBMITTED' ? 'success' : a.scorecard_status === 'IN_PROGRESS' ? 'warning' : 'default'}
+                              label={a.scorecard_status === 'SUBMITTED' && a.overall_recommendation
+                                ? t(RECOMMENDATION_LABELS[a.overall_recommendation]) : t(SCORECARD_STATUS_LABELS[a.scorecard_status || 'NOT_STARTED'])} />
+                            <Button size="small" onClick={() => setOpenScorecardId(a.scorecard_id || null)}>{t("Scorecard")}</Button>
+                          </>
+                        )}
+                        </Box>
                       </Box>
                     ))}
                     {(!selectedShare.applications || selectedShare.applications.length === 0) && (
@@ -399,6 +474,7 @@ export default function ShortlistPage() {
         <DialogActions><Button onClick={() => setRevokeShare(null)} disabled={revokeLoading}>{t("Hủy")}</Button>
           <Button color="error" variant="contained" onClick={handleRevoke} disabled={revokeLoading}>{revokeLoading ? t("Đang thu hồi…") : t("Thu hồi")}</Button></DialogActions>
       </Dialog>
+      <ScorecardDialog scorecardId={openScorecardId} onClose={() => setOpenScorecardId(null)} onChanged={handleScorecardChanged} />
       <Snackbar open={!!notice} message={notice ? t(notice) : ""} autoHideDuration={5000} onClose={() => setNotice(null)} />
     </Box>
   );

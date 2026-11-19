@@ -1,6 +1,6 @@
 # TÀI LIỆU KIẾN TRÚC HỆ THỐNG & SƠ ĐỒ LUỒNG DỮ LIỆU — PHASE 1 (MVP PILOT)
 
-> **Lưu ý triển khai (05/11/2026):** Tài liệu này mô tả yêu cầu/thiết kế mục tiêu, không phải xác nhận các chức năng đã nghiệm thu. Trạng thái mã, giới hạn privacy/recovery và trạng thái migration trên project Supabase kết nối được theo dõi tại [PHASE1_GAP_ANALYSIS.md](../PHASE1_GAP_ANALYSIS.md) và [DEPLOYMENT.md](../DEPLOYMENT.md).
+> **Lưu ý triển khai (05/11/2026):** Tài liệu này mô tả yêu cầu/thiết kế mục tiêu, không phải xác nhận các chức năng đã nghiệm thu. Trạng thái mã, giới hạn privacy/recovery và trạng thái migration trên project Supabase kết nối được theo dõi tại [PHASE1_GAP_ANALYSIS.md](../audit/PHASE1_GAP_ANALYSIS.md) và [DEPLOYMENT.md](../DEPLOYMENT.md).
 ## Dự án: VinUni AI-Native CV Matching & Ranking (HRA)
 
 | Thuộc tính | Giá trị chuẩn hóa |
@@ -299,4 +299,19 @@ flowchart LR
 | **F1.11: Ưu tiên Xử lý Cục bộ** | `C-07` Model Gov | `T-UTL-06` | - | Mô hình chạy on-premise; không gửi dữ liệu CV production ra cloud công cộng. |
 | **F1.12: Giao diện Song ngữ** | `C-01` Workspace | `C-01` UI | - | Chuyển đổi song ngữ Việt - Anh linh hoạt, mặc định tiếng Việt. |
 | **F1.13: Đánh giá Nghiệm thu Pilot** | `C-10` Reporting | `C-10` Metrics | `D6` | Kiểm thử trên 200–300 mẫu chuẩn IT (Macro-F1 $\ge 0.80$, False Negatives $\le 5\%$). |
+
+---
+
+## 6. Cập nhật triển khai sau baseline Phase 1 (07/11/2026)
+
+Tài liệu trên là baseline thiết kế Phase 1. Phần hiện thực hiện tại bổ sung hai lớp tùy chọn trong cùng `C-08 Matching & Ranking Engine`, không tạo service riêng và không thay đổi ranh giới quyết định của HR:
+
+| Lớp bổ sung | Vị trí kiến trúc | Trạng thái/gate |
+|---|---|---|
+| **Semantic retrieval (pgvector/BGE)** | `C-07` điều phối embedding provider; `C-06` lưu vector phái sinh; `C-08` merge lexical + semantic candidate chunks trước LLM fallback. | Tắt mặc định (`SEMANTIC_RETRIEVAL_ENABLED=false`). Khi bật, chỉ bổ sung tối đa 5 candidate chunks/criterion; similarity không tạo finding và quote vẫn phải verify. |
+| **Learning-to-Rank (LTR)** | `C-08` tính `ltr_score` sau deterministic score/coverage; registry artifact thuộc dữ liệu vận hành/model governance. | Mặc định `OFF`. `SHADOW` không đổi thứ hạng; `ACTIVE` chỉ reorder trong cùng mandatory status/coverage gate khi artifact đạt holdout gate và được phê duyệt. |
+
+Trong sơ đồ pipeline, semantic retrieval nằm giữa bước đối chiếu rule và LLM fallback cho criterion chưa quyết định; LTR nằm sau bước tính score/coverage và trước khi lưu ranking snapshot. Dữ liệu vector không dùng để tìm kiếm xuyên vị trí và không triển khai Talent Pool/Candidate Rediscovery trong cập nhật này.
+
+Chi tiết cấu hình, fingerprint, migration và điều kiện kích hoạt: [MATCHING_STABILITY.md](MATCHING_STABILITY.md), [HRA_DatabaseDesign.md](HRA_DatabaseDesign.md), [DEPLOYMENT.md](../DEPLOYMENT.md).
 

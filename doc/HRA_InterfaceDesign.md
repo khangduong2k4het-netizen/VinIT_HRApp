@@ -238,6 +238,8 @@ Sau khi hoàn tất, `GET /v1/operations/{operationId}` cung cấp `resultRefere
 
 `applicationIds` có thể bỏ qua để hệ thống xét hồ sơ của vị trí theo quyền và điều kiện đánh giá. Không có tham số Top‑N.
 
+**Cập nhật contract hiện thực:** API ranking đang dùng trả `ltr_score` (snake_case) cùng `rank_number`, `matching_score` và `evidence_coverage`. Embedding vectors, semantic similarity nội bộ, LTR weights và training data không phải DTO public cho frontend; chúng chỉ nằm trong backend/database/artifact vận hành.
+
 ---
 
 # Artifact 3 — Foundation API Design
@@ -420,7 +422,7 @@ Các API này không truy cập trực tiếp từ Frontend, không chứa AI re
 | **CvAssessmentResultReferenceDTO** | Tham chiếu assessment đã lưu. | `assessmentId`, `applicationId`, `positionId`, `criteriaVersionId`. | Được dùng bởi ranking và giao diện review. |
 | **PositionRankingRequestDTO** | Đầu vào CAPI-04. | `requestId`, `positionId`, `criteriaVersionId`, `applicationIds[]` tùy chọn. | IDs cùng một vị trí; không có Top‑N, không nhận ngưỡng tùy caller. |
 | **RankingResultDTO** | Kết quả xếp hạng. | `rankingId`, `positionId`, `criteriaVersionId`, `status`, `rankingStability`, `entries[]`, `createdAt`, `scorePolicyVersion` tùy chọn. | Ranking chỉ thuộc một vị trí/version. |
-| **RankingEntryDTO** | Hồ sơ trong kết quả ranking. | `applicationId`, `rank` tùy chọn, `rankabilityStatus`, `matchScore` tùy policy, `evidenceCoverage`, `confidenceIndicator`, `assessmentId`, `reasonForNoRank` tùy chọn. | Hồ sơ chưa đủ dữ liệu vẫn có thể xuất hiện nhưng không bị gán thứ hạng ổn định. |
+| **RankingEntryDTO** | Hồ sơ trong kết quả ranking. | `applicationId`, `rank` tùy chọn, `rankabilityStatus`, `matchScore` tùy policy, `evidenceCoverage`, `ltrScore` tùy chọn, `confidenceIndicator`, `assessmentId`, `reasonForNoRank` tùy chọn. | Hồ sơ chưa đủ dữ liệu vẫn có thể xuất hiện nhưng không bị gán thứ hạng ổn định. `ltrScore` chỉ có khi LTR ở `SHADOW`/`ACTIVE`; ở `SHADOW` nó không ảnh hưởng thứ hạng. |
 | **RankingStability** | Độ ổn định dữ liệu để ranking. | `STABLE`, `INSUFFICIENT_DATA`, `NOT_EVALUATED`. | Ngưỡng dùng để chuyển trạng thái cần HR/PO phê duyệt; đề xuất 70% coverage không mặc định được bật. |
 
 ## 4.7 Trạng thái, shortlist và báo cáo

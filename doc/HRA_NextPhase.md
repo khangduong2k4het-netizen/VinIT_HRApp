@@ -11,6 +11,8 @@ Sản phẩm được phát triển theo lộ trình chuẩn hóa **8 tuần li�
 * **Phase 3 (Tuần 5 – Tuần 6):** Tích hợp hai chiều với ATS/HRIS của VinUni, tự động tiếp nhận CV từ email/cổng tuyển dụng, xây dựng Talent Pool tái sàng lọc (Candidate Rediscovery) kèm cơ chế Consent độc lập, quản lý lịch phỏng vấn & scorecard, và xử lý đa ngôn ngữ Việt – Anh.
 * **Phase 4 (Tuần 7 – Tuần 8):** Phân tích hiệu quả phễu tuyển dụng, kiểm toán chống thiên lệch thuật toán (DEI/Anti-bias), triển khai Cổng ứng viên tự phục vụ (Candidate Portal) và Trợ lý ảo AI hỗ trợ ứng viên 24/7.
 
+> **Cập nhật triển khai (07/11/2026):** nền tảng pgvector/BGE semantic retrieval và LTR đã có trong mã/migration nhưng **chưa kích hoạt production**. Đây là hạ tầng hỗ trợ cho F1.05/F1.06, không phải Talent Pool/Candidate Rediscovery của Phase 3: semantic retrieval hiện chỉ tìm chunk trong đúng CV đang đánh giá, không tìm xuyên vị trí/ứng viên và không thay đổi yêu cầu consent. LTR chỉ được chuyển từ `OFF` sang `SHADOW`/`ACTIVE` sau khi có labelled dataset HR, holdout gate và phê duyệt artifact.
+
 ---
 
 ## 2. Đặc tả Chi tiết các Phase Phát triển 
@@ -57,6 +59,7 @@ Sản phẩm được phát triển theo lộ trình chuẩn hóa **8 tuần li�
   * Mọi nhận định đánh giá đều phải hiển thị trích dẫn cụ thể (kèm số trang, đoạn văn trong CV gốc).
   * Trường hợp không tìm thấy bằng chứng trong CV phải hiển thị trạng thái "Chưa rõ" kèm lý do chi tiết.
 * **Nguyên tắc & Ràng buộc:** Tuyệt đối không đánh đồng trạng thái "Chưa rõ / Chưa tìm thấy bằng chứng" với "Không đáp ứng".
+* **Cập nhật:** Khi semantic retrieval được bật, BGE/pgvector có thể bổ sung candidate chunks bị lexical retrieval bỏ sót; kết quả vẫn phải qua cùng rule/LLM fallback và verbatim verification.
 
 #### F1.06. Điểm số & Xếp hạng Ứng viên Minh bạch (Explainable Ranking)
 * **Mô tả chức năng:**
@@ -64,6 +67,7 @@ Sản phẩm được phát triển theo lộ trình chuẩn hóa **8 tuần li�
   * Hiển thị chỉ số **Độ phủ bằng chứng (Evidence Coverage)**. Nếu độ phủ dưới 70%, hệ thống gắn cảnh báo: *"Chưa đủ dữ liệu để xếp hạng ổn định"*.
   * Bảng giải thích chi tiết điểm số (Score Breakdown): Cho phép HR nhấp vào xem cách tính điểm từ trọng số và kết quả từng tiêu chí.
 * **Nguyên tắc & Ràng buộc:** Không sử dụng điểm số như một ngưỡng tự động quyết định đỗ/trượt; thứ tự xếp hạng chỉ nhằm hỗ trợ HR ưu tiên thứ tự đọc hồ sơ.
+* **Cập nhật:** LTR (nếu được phê duyệt) chỉ reorder trong cùng mandatory/coverage gate; không dùng LTR để vượt hồ sơ bị `POSSIBLE_MISMATCH` hoặc chưa đủ coverage.
 
 #### F1.07. Xử lý Ngoại lệ & Cảnh báo Trùng cùng Vị trí (Duplicate Warning)
 * **Mô tả chức năng:**

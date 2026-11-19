@@ -1,0 +1,12 @@
+Synthetic Retention Not Due
+Email: candidate.retention.notdue@example.test
+Phone: +84 000 000 007
+
+Summary
+Synthetic candidate attached to a recently closed staging position solely to verify retention due-date blocking.
+
+Experience
+- Python backend APIs with PostgreSQL in a synthetic staging project.
+
+Skills
+Python, PostgreSQL, SQL.

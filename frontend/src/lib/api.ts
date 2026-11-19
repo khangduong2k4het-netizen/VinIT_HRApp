@@ -2,6 +2,7 @@
 
 import axios, { AxiosInstance } from 'axios';
 import { localizeServerMessage } from '@/i18n/serverMessages';
+import type { TemplateItemInput, ScorecardUpdateInput } from '@/types';
 
 // The browser always uses the same origin. Next.js proxies /v1 to the backend,
 // which also works when the UI is viewed through a remote preview host.
@@ -38,6 +39,35 @@ apiClient.interceptors.response.use(
 
 export default apiClient;
 
+export const qualityApi = {
+  list: (params: { position_id?: string; status?: string; offset?: number }) => apiClient.get('/quality/inspections', { params }),
+  sample: (positionId: string) => apiClient.post(`/quality/positions/${positionId}/sample`),
+  detail: (id: string) => apiClient.get(`/quality/inspections/${id}`),
+  source: (id: string) => apiClient.get(`/quality/inspections/${id}/source`, { responseType: 'blob' }),
+  text: (id: string) => apiClient.get(`/quality/inspections/${id}/text`),
+  feedback: (id: string) => apiClient.get(`/quality/inspections/${id}/feedback`),
+  claim: (id: string, revision: number) => apiClient.post(`/quality/inspections/${id}/claim`, { expected_revision: revision }),
+  submit: (id: string, data: unknown) => apiClient.post(`/quality/inspections/${id}/submit`, data),
+};
+
+export const crossDuplicatesApi = {
+  list: (id: string) => apiClient.get(`/cross-duplicates/applications/${id}`),
+  scan: (id: string) => apiClient.post(`/cross-duplicates/applications/${id}/scan`),
+  review: (id: string, decision: 'CONFIRMED' | 'DISMISSED') => apiClient.post(`/cross-duplicates/signals/${id}/review`, { decision }),
+};
+
+// F2.09: side-by-side comparison and custom export (never contains email/phone).
+export const candidateReportsApi = {
+  compare: (positionId: string, applicationIds: string[]) =>
+    apiClient.get(`/candidate-reports/positions/${positionId}/comparison`, {
+      params: { application_ids: applicationIds },
+      paramsSerializer: { indexes: null },
+    }),
+  export: (positionId: string, data: {
+    format: 'xlsx' | 'pdf'; columns: string[]; application_ids?: string[]; language: 'vi' | 'en';
+  }) => apiClient.post(`/candidate-reports/positions/${positionId}/export`, data, { responseType: 'blob' }),
+};
+
 // API Functions
 export const authApi = {
   login: (email: string, password: string) =>
@@ -51,8 +81,8 @@ export const authApi = {
 };
 
 export const positionsApi = {
-  list: (status?: string) =>
-    apiClient.get('/positions', { params: { status } }),
+  list: (status?: string, q?: string) =>
+    apiClient.get('/positions', { params: { status, q: q || undefined } }),
   listAll: async () => {
     const all: any[] = [];
     for (let page = 1; ; page += 1) {
@@ -62,10 +92,24 @@ export const positionsApi = {
     }
   },
   create: (data: any) => apiClient.post('/positions', data),
+  // Fetch a public job-posting page and get back a JD draft (nothing is saved).
+  importJd: (url: string) => apiClient.post('/positions/jd-import', { url }, { timeout: 90000 }),
   getById: (id: string) => apiClient.get(`/positions/${id}`),
+  getWorkspace: (id: string) => apiClient.get(`/positions/${id}/workspace`),
   update: (id: string, data: any) => apiClient.patch(`/positions/${id}`, data),
+  // Turn the public /apply form on or off for one position (HR only).
+  setPublicApply: (id: string, enabled: boolean) => apiClient.put(`/positions/${id}/public-apply`, { enabled }),
+  getStatusEvents: (id: string) => apiClient.get(`/positions/${id}/status-events`),
   getJdVersions: (id: string) => apiClient.get(`/positions/${id}/jd-versions`),
+  getJdVersion: (id: string, jdVersionId: string) => apiClient.get(`/positions/${id}/jd-versions/${jdVersionId}`),
   createJdVersion: (id: string, data: { content_text: string; language_code: string; expected_jd_version_id: string }) => apiClient.post(`/positions/${id}/jd-versions`, data),
+};
+
+export const departmentsApi = {
+  list: (includeInactive = false) => apiClient.get('/departments', { params: { include_inactive: includeInactive } }),
+  create: (data: { name: string; code_format: string; is_active: boolean }) => apiClient.post('/departments', data),
+  update: (id: string, data: { name?: string; code_format?: string; is_active?: boolean }) => apiClient.patch(`/departments/${id}`, data),
+  delete: (id: string) => apiClient.delete(`/departments/${id}`),
 };
 
 export const criteriaApi = {
@@ -74,15 +118,69 @@ export const criteriaApi = {
   getById: (id: string) => apiClient.get(`/criteria/${id}`),
   generateDraft: (positionId: string) =>
     apiClient.post(`/criteria/generate/${positionId}`),
-  approve: (id: string, action: 'APPROVE' | 'REJECT' | 'REQUEST_CHANGES', comment?: string) =>
-    apiClient.post(`/criteria/${id}/approve`, { action, comment }),
+  approve: (id: string, action: 'APPROVE' | 'DIRECT_APPROVE' | 'REJECT' | 'REQUEST_CHANGES', comment?: string, acceptResponsibility?: boolean) =>
+    apiClient.post(`/criteria/${id}/approve`, { action, comment, accept_responsibility: !!acceptResponsibility }),
   getApprovalEvents: (id: string) => apiClient.get(`/criteria/${id}/approval-events`),
-  updateItem: (versionId: string, itemId: string, data: { name: string; description: string; weight_in_group: number }) =>
+  createItem: (versionId: string, data: { name: string; description: string; category: 'MUST_HAVE' | 'NICE_TO_HAVE'; weight_in_group: number; expected_evidence_keywords: string[]; requirement_spec?: import('@/types').RequirementSpec | null }) =>
+    apiClient.post(`/criteria/${versionId}/items`, data),
+  updateItem: (versionId: string, itemId: string, data: { name: string; description: string; category: 'MUST_HAVE' | 'NICE_TO_HAVE'; weight_in_group: number; expected_evidence_keywords: string[]; requirement_spec?: import('@/types').RequirementSpec | null }) =>
     apiClient.patch(`/criteria/${versionId}/items/${itemId}`, data),
+  deleteItem: (versionId: string, itemId: string) =>
+    apiClient.delete(`/criteria/${versionId}/items/${itemId}`),
+  updateItemWeights: (versionId: string, items: { criterion_id: string; weight_in_group: number }[]) =>
+    apiClient.patch(`/criteria/${versionId}/items/weights`, { items }),
   updateWeights: (versionId: string, mandatory: number, nice: number) =>
     apiClient.patch(`/criteria/${versionId}/weights`, { mandatory_weight_total: mandatory, nice_to_have_weight_total: nice }),
   getApproved: (positionId: string) =>
     apiClient.get(`/criteria/position/${positionId}/approved`),
+  // F1.02: copy an approved/rejected rubric into a new HR draft.
+  createNewVersion: (versionId: string) =>
+    apiClient.post(`/criteria/${versionId}/new-version`),
+  // F2.01: apply a published rubric template as a criteria draft.
+  getTemplateMatches: (positionId: string) =>
+    apiClient.get(`/criteria/position/${positionId}/template-matches`),
+  applyTemplate: (positionId: string, templateVersionId: string) =>
+    apiClient.post(`/criteria/position/${positionId}/apply-template`, { template_version_id: templateVersionId }),
+};
+
+// F2.01 — Rubric library
+export const rubricApi = {
+  listFamilies: (includeInactive = false) =>
+    apiClient.get('/rubric-library/families', { params: { include_inactive: includeInactive || undefined } }),
+  createFamily: (data: { code: string; name: string; description?: string | null; display_order?: number }) =>
+    apiClient.post('/rubric-library/families', data),
+  updateFamily: (id: string, data: { name?: string; description?: string | null; status?: 'ACTIVE' | 'INACTIVE'; display_order?: number }) =>
+    apiClient.patch(`/rubric-library/families/${id}`, data),
+  listTemplates: (params: { job_family_id?: string; level_band?: string; status?: 'PUBLISHED' | 'DRAFT_ONLY' | 'ALL'; q?: string }) =>
+    apiClient.get('/rubric-library/templates', { params }),
+  createTemplate: (data: { job_family_id: string; title: string; level_band?: string | null; change_note?: string | null }) =>
+    apiClient.post('/rubric-library/templates', data),
+  getTemplate: (id: string) => apiClient.get(`/rubric-library/templates/${id}`),
+  createVersion: (templateId: string, data: { source_version_id?: string; change_note?: string | null }) =>
+    apiClient.post(`/rubric-library/templates/${templateId}/versions`, data),
+  getVersion: (id: string) => apiClient.get(`/rubric-library/template-versions/${id}`),
+  updateVersion: (id: string, data: { mandatory_weight_total?: number; nice_to_have_weight_total?: number; change_note?: string | null }) =>
+    apiClient.patch(`/rubric-library/template-versions/${id}`, data),
+  addItem: (versionId: string, data: TemplateItemInput) =>
+    apiClient.post(`/rubric-library/template-versions/${versionId}/items`, data),
+  updateItem: (itemId: string, data: Partial<TemplateItemInput>) =>
+    apiClient.patch(`/rubric-library/template-items/${itemId}`, data),
+  deleteItem: (itemId: string) => apiClient.delete(`/rubric-library/template-items/${itemId}`),
+  publish: (versionId: string, comment?: string) =>
+    apiClient.post(`/rubric-library/template-versions/${versionId}/publish`, { comment: comment || null }),
+  archive: (versionId: string, comment?: string) =>
+    apiClient.post(`/rubric-library/template-versions/${versionId}/archive`, { comment: comment || null }),
+};
+
+// F2.02 — Structured scorecards
+export const scorecardApi = {
+  mine: (status?: 'NOT_STARTED' | 'IN_PROGRESS' | 'SUBMITTED' | 'OVERDUE' | 'OPEN') =>
+    apiClient.get('/shortlist/my-scorecards', { params: { status } }),
+  get: (id: string) => apiClient.get(`/shortlist/scorecards/${id}`),
+  save: (id: string, data: ScorecardUpdateInput) => apiClient.patch(`/shortlist/scorecards/${id}`, data),
+  submit: (id: string) => apiClient.post(`/shortlist/scorecards/${id}/submit`),
+  reopen: (id: string, reason: string) => apiClient.post(`/shortlist/scorecards/${id}/reopen`, { reason }),
+  summary: (shareId: string) => apiClient.get(`/shortlist/${shareId}/scorecard-summary`),
 };
 
 export const applicationsApi = {
@@ -117,8 +215,12 @@ export const applicationsApi = {
   getPrivateNotes: (id: string) => apiClient.get(`/applications/${id}/private-notes`),
   addPrivateNote: (id: string, content: string) => apiClient.post(`/applications/${id}/private-notes`, { content }),
   getStatusEvents: (id: string) => apiClient.get(`/applications/${id}/status-events`),
-  updateStatus: (id: string, newStatus: string, reason?: string, note?: string) =>
-    apiClient.patch(`/applications/${id}/status`, { new_status: newStatus, reason, note }),
+  reprocess: (id: string) => apiClient.post(`/applications/${id}/reprocess`),
+  updateStatus: (id: string, newStatus: string, reason?: string, note?: string, overrideReasonCode?: string) =>
+    apiClient.patch(`/applications/${id}/status`, { new_status: newStatus, reason, note, override_reason_code: overrideReasonCode }),
+  // F2.03: does this decision contradict the AI conclusion (and so need a reason)?
+  checkOverride: (id: string, newStatus: string) =>
+    apiClient.get(`/applications/${id}/override-check`, { params: { new_status: newStatus } }),
   getCvUrl: (id: string) => apiClient.get(`/applications/${id}/cv-download-url`),
   getCvBlob: (id: string) => apiClient.get(`/applications/${id}/cv-file`, { responseType: 'blob' }),
 };
@@ -158,6 +260,7 @@ export const shortlistApi = {
 
 export const dashboardApi = {
   getSummary: () => apiClient.get('/dashboard/summary'),
+  getWorkQueue: () => apiClient.get('/dashboard/work-queue'),
   getPosition: (id: string) => apiClient.get(`/dashboard/position/${id}`),
 };
 
@@ -168,10 +271,70 @@ export const adminApi = {
     apiClient.post('/admin/users', data),
   updateUser: (id: string, data: { display_name: string; account_status: string; roles: string[] }) =>
     apiClient.patch(`/admin/users/${id}`, data),
+  resetUserPassword: (id: string, new_password: string) =>
+    apiClient.post(`/admin/users/${id}/reset-password`, { new_password }),
   listAiConfigs: () => apiClient.get('/admin/ai/config'),
+  testAiConnection: (data: any) => apiClient.post('/admin/ai/test-connection', data),
   createAiConfig: (data: any) => apiClient.post('/admin/ai/config', data),
   enableAiConfig: (id: string) => apiClient.post(`/admin/ai/config/${id}/enable`),
   getActiveAiConfig: () => apiClient.get('/admin/ai/active-config'),
   getWorkerHealth: () => apiClient.get('/admin/worker/health'),
   getAiOptions: () => apiClient.get('/admin/ai/options'),
+};
+
+// F1.10 / S-19 — retention queue and explicit, audited deletion.
+// F2.07 — exception hold, reminders and a one-time code before purge.
+// P3-1 Talent Pool: marking (phase 1) and scanning against a new position (phase 2). No CV content or contact data.
+export const talentPoolApi = {
+  state: (applicationId: string) => apiClient.get(`/talent-pool/applications/${applicationId}`),
+  mark: (applicationId: string, reasonCode: string) =>
+    apiClient.post(`/talent-pool/applications/${applicationId}/mark`, { reason_code: reasonCode }),
+  unmark: (applicationId: string) => apiClient.delete(`/talent-pool/applications/${applicationId}/mark`),
+  withdrawConsent: (applicationId: string, reference?: string) =>
+    apiClient.post(`/talent-pool/applications/${applicationId}/withdraw-consent`, { reference: reference || null }),
+  marks: () => apiClient.get('/talent-pool/marks'),
+  scan: (positionId: string) => apiClient.post(`/talent-pool/positions/${positionId}/scan`),
+  scans: (positionId: string) => apiClient.get(`/talent-pool/positions/${positionId}/scans`),
+  scanDetail: (scanId: string) => apiClient.get(`/talent-pool/scans/${scanId}`),
+  decide: (scanId: string, applicationId: string, decision: 'CONTACT' | 'SKIP' | 'LATER') =>
+    apiClient.post(`/talent-pool/scans/${scanId}/results/${applicationId}/decision`, { decision }),
+};
+
+export const retentionApi = {
+  queue: (status?: 'PENDING' | 'SCHEDULED_FOR_DELETION' | 'ON_HOLD' | 'DELETED' | 'CANCELLED') =>
+    apiClient.get('/retention/queue', { params: { status } }),
+  generate: (positionId: string) => apiClient.post(`/retention/positions/${positionId}/cases/generate`),
+  confirm: (caseId: string) => apiClient.post(`/retention/cases/${caseId}/confirm`, {}),
+  cancel: (caseId: string) => apiClient.post(`/retention/cases/${caseId}/cancel`, {}),
+  requestPurgeOtp: (caseId: string) => apiClient.post(`/retention/cases/${caseId}/purge-otp`),
+  execute: (caseId: string, challengeId?: string, otp?: string) =>
+    apiClient.post(`/retention/cases/${caseId}/execute`, challengeId ? { challenge_id: challengeId, otp } : {}),
+  hold: (caseId: string, data: { reason_code: string; legal_approval_reference: string; hold_until?: string | null }) =>
+    apiClient.post(`/retention/cases/${caseId}/hold`, data),
+  releaseHold: (caseId: string) => apiClient.post(`/retention/cases/${caseId}/release-hold`),
+  notifications: (unreadOnly = false) => apiClient.get('/retention/notifications', { params: { unread_only: unreadOnly } }),
+  markNotificationRead: (id: string) => apiClient.post(`/retention/notifications/${id}/read`),
+  runCycle: () => apiClient.post('/retention/cycle/run'),
+};
+
+// F1.10 / S-20 — audit trail (Admin only; metadata is never returned).
+export const auditApi = {
+  list: (params: { action_type?: string; actor_user_id?: string; position_id?: string; date_from?: string; date_to?: string; page?: number; page_size?: number }) =>
+    apiClient.get('/admin/audit/events', { params }),
+  verify: () => apiClient.get('/admin/audit/verify'),
+};
+
+// F2.03 — operational analytics (pilot report).
+export const analyticsApi = {
+  operations: (params: { date_from?: string; date_to?: string; position_id?: string; department_id?: string }) =>
+    apiClient.get('/analytics/operations', { params }),
+  // P3-2 — AI quality trends (aggregates only; never broken down by recruiter).
+  qualityTrends: (params: { date_from?: string; date_to?: string; grain?: string }) =>
+    apiClient.get('/analytics/quality/trends', { params }),
+  qualityBreakdown: (params: { dimension: string; date_from?: string; date_to?: string }) =>
+    apiClient.get('/analytics/quality/breakdown', { params }),
+  qualityMarkers: (params: { date_from?: string; date_to?: string }) =>
+    apiClient.get('/analytics/quality/markers', { params }),
+  createQualityMarker: (data: { occurred_on: string; title: string; note?: string }) =>
+    apiClient.post('/analytics/quality/markers', data),
 };

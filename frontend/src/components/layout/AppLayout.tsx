@@ -10,6 +10,12 @@ import Sidebar from './Sidebar';
 import Header, { APPBAR_HEIGHT } from './Header';
 import { authApi } from '@/lib/api';
 
+// Pages that never require (or show) the signed-in workspace: login, first-admin
+// setup, forced password change, and the candidate-facing application portal.
+function isPublicPath(pathname: string): boolean {
+  return ['/', '/bootstrap', '/change-password'].includes(pathname) || pathname === '/apply' || pathname.startsWith('/apply/');
+}
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { t } = useI18n();
   const router = useRouter();
@@ -17,12 +23,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [systemRoles, setSystemRoles] = useState<string[]>([]);
+  const [positionLead, setPositionLead] = useState(false);
+  const [profile, setProfile] = useState<{ display_name?: string; email?: string } | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    if (['/', '/bootstrap', '/change-password'].includes(pathname)) { setIsLoading(false); setAuthenticated(false); return; }
+    if (isPublicPath(pathname)) { setIsLoading(false); setAuthenticated(false); return; }
     let active = true;
     const checkAuth = async () => {
       const token = localStorage.getItem('hra_access_token');
@@ -33,7 +41,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         if (active && response.data.must_change_password) {
           setAuthenticated(false); router.replace('/change-password'); return;
         }
-        if (active) { setSystemRoles(response.data.system_roles || []); setAuthenticated(true); setAuthError(null); }
+        if (active) { setProfile(response.data); setSystemRoles(response.data.system_roles || []);
+          setPositionLead((response.data.position_assignments || []).some((a: { position_role: string }) => a.position_role === 'HR_LEAD'));
+          setAuthenticated(true); setAuthError(null); }
       } catch (err: any) {
         if (active && err.response?.status !== 401) {
           setAuthenticated(false);
@@ -48,7 +58,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, router, attempt]);
 
-  if (['/', '/bootstrap', '/change-password'].includes(pathname)) return <>{children}</>;
+  if (isPublicPath(pathname)) return <>{children}</>;
   if (isLoading || (!authenticated && !authError)) return (
     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', bgcolor: '#F8FAFC' }}>
       <CircularProgress color="secondary" aria-label={t("Đang xác thực")} />
@@ -64,8 +74,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
-      <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} isAdmin={systemRoles.includes('ADMIN')} />
-      <Header onOpenMenu={() => setMobileOpen(true)} />
+      <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} isAdmin={systemRoles.includes('ADMIN')}
+        isLead={systemRoles.includes('HR_LEAD') || positionLead}
+        isHr={systemRoles.some(role => ['ADMIN', 'HR_LEAD', 'HR_RECRUITER'].includes(role))} />
+      <Header onOpenMenu={() => setMobileOpen(true)} profile={profile} />
       <Box component="main" sx={{ flexGrow: 1, minWidth: 0, backgroundColor: '#F8FAFC', minHeight: '100vh' }}>
         <Box sx={{ mt: `${APPBAR_HEIGHT}px`, p: { xs: 2, sm: 3, lg: 4 } }}>{children}</Box>
       </Box>

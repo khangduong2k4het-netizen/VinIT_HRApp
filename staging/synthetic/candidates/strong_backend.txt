@@ -1,0 +1,14 @@
+Synthetic Strong Backend
+Email: candidate.strong@example.test
+Phone: +84 000 000 001
+
+Summary
+Backend engineer with 6 years of experience building production Python backend APIs for internal platforms.
+
+Experience
+- Built Python backend APIs with FastAPI and PostgreSQL for workflow systems used by multiple departments.
+- Designed PostgreSQL schema changes, wrote SQL migrations and performed query optimisation for reporting workloads.
+- Delivered services with Docker containers and CI pipelines; maintained containerised staging deployments.
+
+Skills
+Python, FastAPI, PostgreSQL, SQL, Docker, REST APIs, query optimisation.

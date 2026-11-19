@@ -146,6 +146,19 @@ async def check_position_access(
         db.close()
 
 
+def is_system_admin(user_id: str) -> bool:
+    """True when the account holds the ADMIN system role."""
+    db = SessionLocal()
+    try:
+        return db.execute(text("""
+            SELECT 1 FROM app_private.user_role_assignments
+            WHERE user_id = :user_id AND revoked_at IS NULL AND role_code = 'ADMIN'
+            LIMIT 1
+        """), {"user_id": user_id}).fetchone() is not None
+    finally:
+        db.close()
+
+
 def can_update_application_status(user_id: str, position_id: str) -> bool:
     """Check if user can update application status (HR_RECRUITER on the position, or ADMIN/HR_LEAD)."""
     db = SessionLocal()

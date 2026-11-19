@@ -16,7 +16,8 @@ dependencies = [
     "pytesseract>=0.3.10",
     "pdf2image>=1.17.0",
     "Pillow>=10.0.0",
-    "PyJWT>=2.10.1",
+    "PyJWT[crypto]>=2.10.1",
+    "cryptography>=42.0.0",
     "passlib[bcrypt]>=1.7.4",
     "structlog>=23.2.0",
     "python-dotenv>=1.0.0",
@@ -26,6 +27,9 @@ dependencies = [
     "aiofiles>=23.0.0",
     "sqlalchemy>=2.0.0",
     "psycopg2-binary>=2.9.0",
+    "langfuse>=4,<5",
+    "openpyxl>=3.1",
+    "fpdf2>=2.7.9",
 ]
 
 [project.optional-dependencies]

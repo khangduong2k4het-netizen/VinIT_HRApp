@@ -25,6 +25,7 @@ def seed():
     with engine.begin() as conn:
         # Only positions (and dependent data) are truncated; the default scoring policy remains intact.
         conn.execute(text("TRUNCATE app_private.positions CASCADE"))
+        conn.execute(text("TRUNCATE app_private.departments CASCADE"))
         conn.execute(text("UPDATE app_private.ai_configuration_versions SET status='DISABLED' WHERE status='ACTIVE'"))
         for key in ("hr", "hm", "other", "hr2"):
             conn.execute(text("INSERT INTO auth.users(id) VALUES (:id)"), {"id": ids[key]})
@@ -66,8 +67,33 @@ def client():
     client.close()
 
 
+def purge_with_otp(client, case_id, user):
+    """F2.07 purge flow: request a one-time code, then execute with it."""
+    from app.core.config import settings
+    previous = settings.RETENTION_OTP_DEV_ECHO
+    settings.RETENTION_OTP_DEV_ECHO = True
+    try:
+        challenge = client.post(f"/v1/retention/cases/{case_id}/purge-otp", headers=headers(user))
+        assert challenge.status_code == 200, challenge.text
+        body = challenge.json()
+        assert body["channel"] == "DEV_ECHO" and len(body["dev_code"]) == 6
+    finally:
+        settings.RETENTION_OTP_DEV_ECHO = previous
+    return client.post(f"/v1/retention/cases/{case_id}/execute", headers=headers(user),
+                       json={"challenge_id": body["challenge_id"], "otp": body["dev_code"]})
+
+
 def headers(user):
     return {"x-test-user": user}
+
+
+def create_test_department():
+    with engine.begin() as conn:
+        return str(conn.execute(text("""
+            INSERT INTO app_private.departments (name, code_format)
+            VALUES ('Phòng Công nghệ thông tin', 'REQ-IT-{SEQ:000}')
+            RETURNING department_id
+        """)).scalar_one())
 
 
 def test_position_scope_and_dashboard_counts(client, seed):
@@ -86,6 +112,32 @@ def test_position_scope_and_dashboard_counts(client, seed):
     assert r.status_code == 200 and r.json()["total_applications"] == 0
     r = client.get(f"/v1/dashboard/position/{seed['pos2']}", headers=headers(seed["hr"]))
     assert r.status_code == 403
+
+
+def test_workspace_and_work_queue_are_position_scoped(client, seed):
+    workspace = client.get(f"/v1/positions/{seed['pos']}/workspace", headers=headers(seed["hr"]))
+    assert workspace.status_code == 200, workspace.text
+    body = workspace.json()
+    assert body["viewer"]["is_hr"] is True
+    assert body["criteria"]["current_status"] == "DRAFT"
+    assert body["counts"]["total"] == 1
+    assert body["counts"]["not_assessed"] == 1
+    assert body["workflow"]["next_action"]["code"] == "REVIEW_CRITERIA_HR"
+
+    queue = client.get("/v1/dashboard/work-queue", headers=headers(seed["hr"]))
+    assert queue.status_code == 200, queue.text
+    items = queue.json()["items"]
+    assert [(item["type"], item["position_id"]) for item in items] == [("CRITERIA_PENDING_HR", seed["pos"])]
+    assert queue.json()["summary"]["criteria_pending_action"] == 1
+
+    hm_queue = client.get("/v1/dashboard/work-queue", headers=headers(seed["hm"]))
+    assert hm_queue.status_code == 200, hm_queue.text
+    assert hm_queue.json()["items"] == []
+    assert hm_queue.json()["summary"]["files_needing_review"] == 0
+
+    assert client.get(f"/v1/positions/{seed['pos']}/workspace", headers=headers(seed["other"])).status_code == 403
+    other_queue = client.get("/v1/dashboard/work-queue", headers=headers(seed["other"]))
+    assert other_queue.status_code == 200 and other_queue.json()["items"] == []
 
 
 def test_dual_approval_changes_and_immutable_approved_rubric(client, seed):
@@ -125,6 +177,115 @@ def test_dual_approval_requires_distinct_accounts_even_with_both_roles(client, s
     assert row["status"] == "PENDING_HM_APPROVAL" and row["approved_by_hm"] is None and events == 1
     final = client.post(url, headers=headers(seed["hm"]), json={"action": "APPROVE"})
     assert final.status_code == 200 and final.json()["status"] == "APPROVED"
+
+
+def test_admin_and_hr_lead_can_directly_approve_without_hm(client, seed):
+    admin, lead = uid(), uid()
+    with engine.begin() as conn:
+        for user_id, role in ((admin, "ADMIN"), (lead, "HR_LEAD")):
+            conn.execute(text("INSERT INTO auth.users(id) VALUES (:id)"), {"id": user_id})
+            conn.execute(text("INSERT INTO app_private.user_profiles(user_id, display_name) VALUES (:id, :name)"),
+                         {"id": user_id, "name": role.title()})
+            conn.execute(text("INSERT INTO app_private.user_role_assignments(user_id, role_code) VALUES (:id, :role)"),
+                         {"id": user_id, "role": role})
+
+    route = f"/v1/criteria/{seed['cv']}/approve"
+    # The assigned HR may approve directly only after accepting responsibility.
+    assert client.post(route, headers=headers(seed["hr"]), json={"action": "DIRECT_APPROVE"}).status_code == 400
+    assert client.post(route, headers=headers(seed["hm"]), json={"action": "DIRECT_APPROVE"}).status_code == 403
+
+    # HR Lead can finalize a draft directly; HM approval remains bypassed,
+    # not impersonated, so approved_by_hm stays empty.
+    response = client.post(route, headers=headers(lead), json={"action": "DIRECT_APPROVE"})
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "APPROVED"
+    with engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT status, approved_by_hr, approved_by_hm
+            FROM app_private.criteria_versions WHERE criteria_version_id = :id
+        """), {"id": seed["cv"]}).mappings().one()
+        events = conn.execute(text("""
+            SELECT reviewer_role, decision FROM app_private.criteria_approval_events
+            WHERE criteria_version_id = :id ORDER BY decided_at, event_id
+        """), {"id": seed["cv"]}).mappings().all()
+    assert row["status"] == "APPROVED" and row["approved_by_hm"] is None
+    assert [(event["reviewer_role"], event["decision"]) for event in events] == [("HR_LEAD", "DIRECT_APPROVE")]
+
+    # Admin can also finalize after the normal HR step, preserving the HR
+    # approver while still recording that HM was bypassed.
+    version_id, item_id = uid(), uid()
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO app_private.criteria_versions
+                (criteria_version_id, position_id, jd_version_id, version_number, status)
+            VALUES (:id, :pos, :jd, 2, 'DRAFT')
+        """), {"id": version_id, "pos": seed["pos"], "jd": seed["jd"]})
+        conn.execute(text("""
+            INSERT INTO app_private.criteria_items
+                (criterion_id, criteria_version_id, name, description, category, weight_in_group, display_order)
+            VALUES (:id, :version, 'Python', 'Python experience', 'MUST_HAVE', 100, 1)
+        """), {"id": item_id, "version": version_id})
+    route2 = f"/v1/criteria/{version_id}/approve"
+    assert client.post(route2, headers=headers(seed["hr"]), json={"action": "APPROVE"}).json()["status"] == "PENDING_HM_APPROVAL"
+    response = client.post(route2, headers=headers(admin), json={"action": "DIRECT_APPROVE"})
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "APPROVED"
+    with engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT status, approved_by_hr::text AS approved_by_hr, approved_by_hm
+            FROM app_private.criteria_versions WHERE criteria_version_id = :id
+        """), {"id": version_id}).mappings().one()
+        events = conn.execute(text("""
+            SELECT reviewer_role, decision FROM app_private.criteria_approval_events
+            WHERE criteria_version_id = :id ORDER BY decided_at, event_id
+        """), {"id": version_id}).mappings().all()
+    assert row["approved_by_hr"] == seed["hr"] and row["approved_by_hm"] is None
+    assert [(event["reviewer_role"], event["decision"]) for event in events] == [
+        ("HR_RECRUITER", "APPROVE"), ("ADMIN", "DIRECT_APPROVE")]
+
+
+def test_assigned_hr_can_self_approve_criteria_after_accepting_responsibility(client, seed):
+    route = f"/v1/criteria/{seed['cv']}/approve"
+    refused = client.post(route, headers=headers(seed["hr"]), json={"action": "DIRECT_APPROVE"})
+    assert refused.status_code == 400 and "chịu trách nhiệm" in refused.json()["detail"]
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT status FROM app_private.criteria_versions WHERE criteria_version_id = :id"),
+                            {"id": seed["cv"]}).scalar_one() == "DRAFT"
+
+    # An HR Recruiter of another position cannot use the path at all.
+    outsider = uid()
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO auth.users(id) VALUES (:id)"), {"id": outsider})
+        conn.execute(text("INSERT INTO app_private.user_profiles(user_id, display_name) VALUES (:id, 'Other HR')"), {"id": outsider})
+        conn.execute(text("INSERT INTO app_private.user_role_assignments(user_id, role_code) VALUES (:id, 'HR_RECRUITER')"), {"id": outsider})
+    assert client.post(route, headers=headers(outsider),
+                       json={"action": "DIRECT_APPROVE", "accept_responsibility": True}).status_code == 403
+
+    response = client.post(route, headers=headers(seed["hr"]),
+                           json={"action": "DIRECT_APPROVE", "accept_responsibility": True})
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "APPROVED"
+    with engine.connect() as conn:
+        row = conn.execute(text("""
+            SELECT approved_by_hm FROM app_private.criteria_versions WHERE criteria_version_id = :id
+        """), {"id": seed["cv"]}).mappings().one()
+        event = conn.execute(text("""
+            SELECT reviewer_role, decision, comment FROM app_private.criteria_approval_events
+            WHERE criteria_version_id = :id ORDER BY decided_at DESC, event_id DESC LIMIT 1
+        """), {"id": seed["cv"]}).mappings().one()
+        audit = conn.execute(text("""
+            SELECT metadata FROM app_private.audit_events
+            WHERE action_type = 'REVIEW_CRITERIA' AND object_id = :id ORDER BY created_at DESC LIMIT 1
+        """), {"id": seed["cv"]}).scalar_one()
+    # HM approval is skipped, not impersonated; the trail says who took responsibility.
+    assert row["approved_by_hm"] is None
+    assert (event["reviewer_role"], event["decision"]) == ("HR_RECRUITER", "DIRECT_APPROVE")
+    assert "tự chịu trách nhiệm" in event["comment"]
+    assert audit["hr_self_approval"] is True and audit["accepted_responsibility"] is True and audit["bypassed_hm"] is True
+
+    # The approved version is usable: CV upload is no longer blocked by missing HM approval.
+    assert client.get(f"/v1/criteria/position/{seed['pos']}/approved", headers=headers(seed["hr"])).status_code == 200
+
 
 def test_status_shortlist_permissions_feedback_and_revocation(client, seed):
     base = f"/v1/applications/{seed['app']}"
@@ -200,7 +361,9 @@ def test_upload_worker_runs_scoped_pipeline_with_stubbed_ai(client, seed, tmp_pa
         return {"findings": [{"criterion_id": kwargs["rubric"][0]["criterion_id"], "outcome": "STRONG_MATCH", "confidence": .9, "confidence_band": "HIGH", "evidence": {"verbatim_quote": quote, "page_number": 1}}]}
     monkeypatch.setattr(llm_client, "extract_candidate_profile", extract)
     monkeypatch.setattr(llm_client, "match_criterion_evidence", match)
-    document = Document(); document.add_paragraph("Developed Python systems for five years. test@example.com")
+    document = Document(); document.add_paragraph(
+        "Developed Python systems for five years. test@example.com" if valid_quote
+        else "Developed backend systems for five years. test@example.com")
     content = io.BytesIO(); document.save(content)
     files = [("files", ("candidate.docx", content.getvalue(), "application/octet-stream")),
              ("files", ("bad.pdf", b"not-a-pdf", "application/pdf"))]
@@ -226,8 +389,10 @@ def test_upload_worker_runs_scoped_pipeline_with_stubbed_ai(client, seed, tmp_pa
         result = conn.execute(text("SELECT matching_status,matching_score,evidence_coverage FROM app_private.assessment_runs WHERE application_id=:app AND status='COMPLETED'"), {"app": uploaded_app}).mappings().one()
         assert result["matching_status"] == ("MEETS_MANDATORY" if valid_quote else "NEEDS_HR_VERIFICATION")
         assert float(result["matching_score"]) == 95 if valid_quote else result["matching_score"] is None
-        criterion_score = conn.execute(text("SELECT score FROM app_private.criterion_assessment_results")).scalar_one()
-        assert float(criterion_score) == 95 if valid_quote else criterion_score is None
+        criterion_result = conn.execute(text("SELECT score, decision_source, evidence_chunk_id FROM app_private.criterion_assessment_results")).mappings().one()
+        assert float(criterion_result["score"]) == 95 if valid_quote else criterion_result["score"] is None
+        assert criterion_result["decision_source"] == ("RULE" if valid_quote else "LLM")
+        assert (criterion_result["evidence_chunk_id"] is not None) if valid_quote else criterion_result["evidence_chunk_id"] is None
         assert conn.execute(text("SELECT verification_status FROM app_private.evidence_items")).scalar_one() == ("VERIFIED" if valid_quote else "FAILED")
         assert conn.execute(text("SELECT COUNT(*) FROM app_private.ranking_items WHERE position_id=:pos"), {"pos": seed["pos"]}).scalar_one() == 1
         assert conn.execute(text("SELECT COUNT(*) FROM app_private.assessment_runs WHERE application_id=:app"), {"app": seed["app2"]}).scalar_one() == 0
@@ -245,7 +410,10 @@ def test_upload_worker_runs_scoped_pipeline_with_stubbed_ai(client, seed, tmp_pa
     assessment_id = detail.json()["latest_assessment"]["assessment_id"]
     assert client.get(f"/v1/assessments/{assessment_id}", headers=headers(seed["hr"])).status_code == 200
     for state in ("IN_REVIEW", "SHORTLIST"):
-        assert client.patch(f"/v1/applications/{uploaded_app}/status", headers=headers(seed["hr"]), json={"new_status": state}).status_code == 200
+        # F2.03: shortlisting a candidate the AI did not mark MEETS_MANDATORY is an
+        # override and needs a reason code; the code is ignored otherwise.
+        assert client.patch(f"/v1/applications/{uploaded_app}/status", headers=headers(seed["hr"]),
+                            json={"new_status": state, "override_reason_code": "IMPLICIT_EVIDENCE"}).status_code == 200
     share_payload = {"position_id": seed["pos"], "shared_with_user_id": seed["hm"], "application_ids": [uploaded_app], "allow_cv_view": False}
     shared = client.post("/v1/shortlist/share", headers=headers(seed["hr"]), json=share_payload).json()["share_id"]
     summary = client.get(f"/v1/applications/{uploaded_app}", headers=headers(seed["hm"]))
@@ -261,16 +429,49 @@ def test_upload_worker_runs_scoped_pipeline_with_stubbed_ai(client, seed, tmp_pa
 
 
 def test_create_position_requires_hr_and_assigned_hm(client, seed):
-    payload = {"position_code": "NEW-001", "title": "Engineer", "jd_content": "Job description", "hiring_manager_user_id": seed["hm"]}
+    department_id = create_test_department()
+    payload = {"department_id": department_id, "title": "Engineer", "jd_content": "Job description", "hiring_manager_user_id": seed["hm"]}
     assert client.post("/v1/positions", headers=headers(seed["hm"]), json=payload).status_code == 403
     assert client.post("/v1/positions", headers=headers(seed["hr"]), json={**payload, "hiring_manager_user_id": None}).status_code == 400
     result = client.post("/v1/positions", headers=headers(seed["hr"]), json=payload)
     assert result.status_code == 201, result.text
+    assert result.json()["position_code"] == "REQ-IT-001"
+    assert result.json()["department_id"] == department_id
     created = result.json()["position_id"]
+    second = client.post("/v1/positions", headers=headers(seed["hr"]), json={**payload, "title": "Engineer 2"})
+    assert second.status_code == 201, second.text
+    assert second.json()["position_code"] == "REQ-IT-002"
     with engine.connect() as conn:
         roles = conn.execute(text("SELECT position_role FROM app_private.position_assignments WHERE position_id=:id ORDER BY position_role"), {"id": created}).scalars().all()
         assert roles == ["HIRING_MANAGER", "HR_RECRUITER"]
         assert conn.execute(text("SELECT content_text FROM app_private.jd_versions WHERE position_id=:id"), {"id": created}).scalar_one() == "Job description"
+        assert conn.execute(text("SELECT org_unit FROM app_private.positions WHERE position_id=:id"), {"id": created}).scalar_one() == "Phòng Công nghệ thông tin"
+
+
+def test_departments_are_admin_managed_and_used_by_positions(client, seed):
+    admin = uid()
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO auth.users(id) VALUES (:id)"), {"id": admin})
+        conn.execute(text("INSERT INTO app_private.user_profiles(user_id, display_name) VALUES (:id, 'ADMIN')"), {"id": admin})
+        conn.execute(text("INSERT INTO app_private.user_role_assignments(user_id, role_code) VALUES (:id, 'ADMIN')"), {"id": admin})
+    payload = {"name": "Phòng Nhân sự", "code_format": "REQ-HR-{SEQ:000}", "is_active": True}
+    assert client.post("/v1/departments", headers=headers(seed["hr"]), json=payload).status_code == 403
+    created = client.post("/v1/departments", headers=headers(admin), json=payload)
+    assert created.status_code == 201, created.text
+    department_id = created.json()["department_id"]
+    assert client.post("/v1/departments", headers=headers(admin), json=payload).status_code == 409
+    listed = client.get("/v1/departments", headers=headers(seed["hr"]))
+    assert listed.status_code == 200 and listed.json()[0]["department_id"] == department_id
+    position = client.post("/v1/positions", headers=headers(seed["hr"]), json={
+        "department_id": department_id, "title": "HR Specialist", "jd_content": "Job description",
+        "hiring_manager_user_id": seed["hm"],
+    })
+    assert position.status_code == 201, position.text
+    assert position.json()["position_code"] == "REQ-HR-001"
+    assert client.delete(f"/v1/departments/{department_id}", headers=headers(admin)).status_code == 409
+    updated = client.patch(f"/v1/departments/{department_id}", headers=headers(admin), json={"is_active": False})
+    assert updated.status_code == 200 and updated.json()["is_active"] is False
+    assert client.get("/v1/departments", headers=headers(seed["hr"])).json() == []
 
 
 def test_status_to_acceptance_is_explicit_and_audited(client, seed):
@@ -312,6 +513,61 @@ def test_generate_criteria_requires_hr_and_rejects_invalid_ai(client, seed, monk
     assert versions.status_code == 200 and len(versions.json()) == 2
 
 
+def test_criteria_draft_can_be_customized_and_weights_must_total_100_in_each_group(client, seed, monkeypatch):
+    from app.api.criteria import llm_client
+    async def valid(**kwargs):
+        return {"criteria": [
+            {"name": "Python backend experience", "description": "Production Python APIs", "category": "MUST_HAVE", "weight": 42, "expected_evidence_keywords": ["Python"]},
+            {"name": "PostgreSQL production experience", "description": "Production PostgreSQL", "category": "MUST_HAVE", "weight": 28, "expected_evidence_keywords": ["PostgreSQL"]},
+            {"name": "Docker/container delivery", "description": "Docker delivery", "category": "NICE_TO_HAVE", "weight": 30, "expected_evidence_keywords": ["Docker"]},
+        ]}
+    monkeypatch.setattr(llm_client, "extract_criteria_from_jd", valid)
+    generated = client.post(f"/v1/criteria/generate/{seed['pos']}", headers=headers(seed["hr"]))
+    assert generated.status_code == 202, generated.text
+    version = generated.json()
+    version_id = version["criteria_version_id"]
+    weights = {item["name"]: float(item["weight_in_group"]) for item in version["criteria"]}
+    assert weights == {
+        "Python backend experience": 60.0,
+        "PostgreSQL production experience": 40.0,
+        "Docker/container delivery": 100.0,
+    }
+    by_name = {item["name"]: item for item in version["criteria"]}
+    create_payload = {
+        "name": "Backend API Development", "description": "API endpoint design", "category": "MUST_HAVE",
+        "weight_in_group": 0, "expected_evidence_keywords": ["REST API"],
+    }
+    assert client.post(f"/v1/criteria/{version_id}/items", headers=headers(seed["hm"]), json=create_payload).status_code == 403
+    created = client.post(f"/v1/criteria/{version_id}/items", headers=headers(seed["hr"]), json=create_payload)
+    assert created.status_code == 201, created.text
+    created_id = created.json()["criterion_id"]
+    moved = client.patch(f"/v1/criteria/{version_id}/items/{created_id}", headers=headers(seed["hr"]), json={"category": "NICE_TO_HAVE"})
+    assert moved.status_code == 200, moved.text
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT category FROM app_private.criteria_items WHERE criterion_id=:id"), {"id": created_id}).scalar_one() == "NICE_TO_HAVE"
+    assert client.delete(f"/v1/criteria/{version_id}/items/{created_id}", headers=headers(seed["hr"])).status_code == 200
+
+    python_id = by_name["Python backend experience"]["criterion_id"]
+    postgres_id = by_name["PostgreSQL production experience"]["criterion_id"]
+    docker_id = by_name["Docker/container delivery"]["criterion_id"]
+    assert client.patch(f"/v1/criteria/{version_id}/items/{python_id}", headers=headers(seed["hr"]), json={"weight_in_group": 50}).status_code == 200
+    assert client.post(f"/v1/criteria/{version_id}/approve", headers=headers(seed["hr"]), json={"action": "APPROVE"}).status_code == 400
+    invalid_bulk = {"items": [
+        {"criterion_id": python_id, "weight_in_group": 50},
+        {"criterion_id": postgres_id, "weight_in_group": 40},
+        {"criterion_id": docker_id, "weight_in_group": 100},
+    ]}
+    assert client.patch(f"/v1/criteria/{version_id}/items/weights", headers=headers(seed["hr"]), json=invalid_bulk).status_code == 400
+    valid_bulk = {"items": [
+        {"criterion_id": python_id, "weight_in_group": 60},
+        {"criterion_id": postgres_id, "weight_in_group": 40},
+        {"criterion_id": docker_id, "weight_in_group": 100},
+    ]}
+    assert client.patch(f"/v1/criteria/{version_id}/items/weights", headers=headers(seed["hr"]), json=valid_bulk).status_code == 200
+    assert client.post(f"/v1/criteria/{version_id}/approve", headers=headers(seed["hr"]), json={"action": "APPROVE"}).status_code == 200
+    assert client.post(f"/v1/criteria/{version_id}/approve", headers=headers(seed["hm"]), json={"action": "APPROVE"}).status_code == 200
+
+
 def test_batch_level_failure_marks_unfinished_documents_for_review(client, seed, tmp_path, monkeypatch):
     from app.core.config import settings
     from app.workers.processor import worker
@@ -340,12 +596,14 @@ def test_revoked_roles_and_grants_do_not_bypass_application_permissions(client, 
     assert client.patch(f"/v1/applications/{seed['app']}/status", headers=headers(seed["hr"]), json={"new_status": "IN_REVIEW"}).status_code == 403
 
 
-def test_admin_ai_config_is_runtime_backed_allowlisted_and_never_accepts_secrets(client, seed, monkeypatch):
+def test_admin_ai_config_is_runtime_backed_allowlisted_and_stores_only_encrypted_compatible_secrets(client, seed, monkeypatch):
+    from cryptography.fernet import Fernet
     from app.core.config import settings
     monkeypatch.setattr(settings, "LLM_API_BASE", "http://127.0.0.1:11434/v1")
     monkeypatch.setattr(settings, "LLM_ALLOWED_API_BASES", ["http://127.0.0.1:11435/v1"])
     monkeypatch.setattr(settings, "LLM_ALLOWED_MODELS", ["approved-model"])
     monkeypatch.setattr(settings, "ALLOW_EXTERNAL_API", False)
+    monkeypatch.setattr(settings, "AI_CONFIG_ENCRYPTION_KEY", Fernet.generate_key().decode())
     assert client.get("/v1/admin/ai/active-config", headers=headers(seed["hr"])).status_code == 403
     with engine.begin() as conn:
         conn.execute(text("INSERT INTO app_private.user_role_assignments(user_id,role_code) VALUES (:id,'ADMIN')"), {"id": seed["other"]})
@@ -354,7 +612,8 @@ def test_admin_ai_config_is_runtime_backed_allowlisted_and_never_accepts_secrets
     assert response.status_code == 200 and response.json()["source"] == "environment"
     assert "api_key" not in response.json()["config"]
     payload = {"provider": "local", "model_name": "approved-model", "api_base": "http://127.0.0.1:11435/v1", "temperature_default": .3}
-    assert client.post("/v1/admin/ai/config", headers=admin, json={**payload, "api_key": "must-not-be-stored"}).status_code == 422
+    assert client.post("/v1/admin/ai/config", headers=admin, json={**payload, "api_key": "must-not-be-stored-here"}).status_code == 400
+    assert client.post("/v1/admin/ai/config", headers=admin, json={**payload, "unexpected": "value"}).status_code == 422
     assert client.post("/v1/admin/ai/config", headers=admin, json={**payload, "api_base": "http://169.254.169.254/v1"}).status_code == 400
     assert client.post("/v1/admin/ai/config", headers=admin, json={**payload, "api_base": "https://user:password@example.test/v1"}).status_code == 400
     assert client.post("/v1/admin/ai/config", headers=admin, json={**payload, "model_name": "unapproved"}).status_code == 400
@@ -365,6 +624,47 @@ def test_admin_ai_config_is_runtime_backed_allowlisted_and_never_accepts_secrets
     active = client.get("/v1/admin/ai/active-config", headers=admin).json()
     assert active["source"] == "database" and active["allowed_by_this_process"]
     assert active["config"]["config_id"] == config_id and active["config"]["model_name"] == "approved-model"
+    compatible_payload = {"provider": "compatible", "provider_name": "Synthetic Compatible",
+                          "model_name": "vendor/custom-model", "api_base": "http://127.0.0.1:11435/v1",
+                          "api_key": "provider-key-1234567890", "temperature_default": .2}
+    compatible = client.post("/v1/admin/ai/config", headers=admin, json=compatible_payload)
+    assert compatible.status_code == 201, compatible.text
+    compatible_body = compatible.json()
+    compatible_id = compatible_body["config_id"]
+    assert compatible_body["provider_name"] == "Synthetic Compatible"
+    assert compatible_body["api_key_configured"] is True and compatible_body["api_key_hint"].endswith("7890")
+    assert "api_key" not in compatible_body and "api_key_ciphertext" not in compatible_body
+    listed = client.get("/v1/admin/ai/config", headers=admin).json()
+    listed_compatible = next(item for item in listed if item["config_id"] == compatible_id)
+    assert "api_key" not in listed_compatible and "api_key_ciphertext" not in listed_compatible
+    assert listed_compatible["api_key_configured"] is True
+    assert client.post(f"/v1/admin/ai/config/{compatible_id}/enable", headers=admin).status_code == 200
+    active = client.get("/v1/admin/ai/active-config", headers=admin).json()
+    assert active["config"]["config_id"] == compatible_id
+    assert active["config"]["provider_name"] == "Synthetic Compatible"
+    assert active["config"]["model_name"] == "vendor/custom-model"
+    assert active["config"]["api_key_configured"] is True
+    assert "api_key" not in active["config"] and "api_key_ciphertext" not in active["config"]
+    with engine.connect() as conn:
+        stored = conn.execute(text("SELECT provider_name, api_key_ciphertext FROM app_private.ai_configuration_versions WHERE config_id=:id"), {"id": compatible_id}).mappings().one()
+    assert stored["provider_name"] == "Synthetic Compatible"
+    assert stored["api_key_ciphertext"] and "provider-key-1234567890" not in stored["api_key_ciphertext"]
+    from app.api import admin as admin_module
+    seen_runtime = {}
+    async def fake_connection_test(runtime):
+        seen_runtime.update(runtime)
+        return {"ok": True, "status_code": 200, "latency_ms": 3,
+                "provider_name": runtime.get("provider_name"), "model": runtime.get("model_name"),
+                "provider_returned_model": "vendor/custom-model",
+                "message": "Kết nối thành công tới nhà cung cấp."}
+    monkeypatch.setattr(admin_module.llm_client, "test_provider_connection", fake_connection_test)
+    tested = client.post("/v1/admin/ai/test-connection", headers=admin, json=compatible_payload)
+    assert tested.status_code == 200, tested.text
+    assert tested.json()["ok"] is True and tested.json()["provider_returned_model"] == "vendor/custom-model"
+    assert seen_runtime["provider_name"] == "Synthetic Compatible"
+    assert seen_runtime["api_key"] == "provider-key-1234567890"
+    assert "provider-key-1234567890" not in tested.text
+    assert client.post("/v1/admin/ai/test-connection", headers=headers(seed["hr"]), json=compatible_payload).status_code == 403
     with engine.begin() as conn:
         assert conn.execute(text("SELECT COUNT(*) FROM app_private.audit_events WHERE object_id=:id AND object_type='AI_CONFIG'"), {"id": config_id}).scalar_one() == 2
         conn.execute(text("UPDATE app_private.user_role_assignments SET revoked_at=NOW() WHERE user_id=:id AND role_code='ADMIN'"), {"id": seed["other"]})
@@ -459,6 +759,50 @@ def test_position_scoped_hr_lead_has_hr_access_only_on_assigned_position(client,
     assert client.post(f"/v1/criteria/{seed['cv']}/approve", headers=headers(seed["hm"]), json={"action": "APPROVE"}).json()["status"] == "APPROVED"
 
 
+def test_rbac_matrix_position_scope_and_admin_surfaces(client, seed):
+    """Role/position matrix for the surfaces most likely to leak scope."""
+    position_cases = [
+        ("hr", [seed["pos"]]),
+        ("hm", [seed["pos"]]),
+        ("hr2", [seed["pos2"]]),
+        ("other", []),
+    ]
+    for user_key, expected_positions in position_cases:
+        response = client.get("/v1/positions", headers=headers(seed[user_key]))
+        assert response.status_code == 200, (user_key, response.text)
+        assert [row["position_id"] for row in response.json()] == expected_positions
+
+    # Application access follows position assignment/share rules.  Position
+    # dashboard is visible to an assigned HM, but application aggregates stay
+    # empty until HR shares that application; unassigned users are denied.
+    assert client.get(f"/v1/applications/{seed['app']}", headers=headers(seed["hr"])).status_code == 200
+    assert client.get(f"/v1/applications/{seed['app2']}", headers=headers(seed["hr"])).status_code == 403
+    assert client.get(f"/v1/applications/{seed['app']}", headers=headers(seed["hm"])).status_code == 403
+    assert client.get(f"/v1/applications/{seed['app']}", headers=headers(seed["other"])).status_code == 403
+    assert client.get(f"/v1/dashboard/position/{seed['pos']}", headers=headers(seed["hr"])).status_code == 200
+    manager_dashboard = client.get(f"/v1/dashboard/position/{seed['pos']}", headers=headers(seed["hm"]))
+    assert manager_dashboard.status_code == 200, manager_dashboard.text
+    assert manager_dashboard.json()["total_applications"] == 0
+    assert client.get(f"/v1/dashboard/position/{seed['pos']}", headers=headers(seed["other"])).status_code == 403
+    assert client.get(f"/v1/dashboard/position/{seed['pos2']}", headers=headers(seed["hr"])).status_code == 403
+
+    # New semantic/LTR admin surfaces are ADMIN-only.  The unassigned user
+    # is promoted only after the non-admin cases have been exercised.
+    for route in ("/v1/admin/semantic/health", "/v1/admin/ltr/models", "/v1/admin/worker/health"):
+        for user_key in ("hr", "hm", "other"):
+            assert client.get(route, headers=headers(seed[user_key])).status_code == 403, (route, user_key)
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO app_private.user_role_assignments(user_id,role_code) VALUES (:id,'ADMIN')"),
+                     {"id": seed["other"]})
+    semantic = client.get("/v1/admin/semantic/health", headers=headers(seed["other"]))
+    assert semantic.status_code == 200, semantic.text
+    assert semantic.json()["state"] in {
+        "DISABLED", "MISCONFIGURED", "READY_UNVERIFIED", "OPERATIONAL",
+        "OPERATIONAL_IN_MEMORY_PGVECTOR_UNAVAILABLE", "DEGRADED_FALLBACK",
+    }
+    assert client.get("/v1/admin/ltr/models", headers=headers(seed["other"])).status_code == 200
+
+
 def test_private_schema_and_public_views_are_backend_only_after_migration():
     with engine.connect() as conn:
         for role in ("anon", "authenticated"):
@@ -522,10 +866,68 @@ def test_group_weights_are_approved_immutable_and_drive_worker_score(client, see
         """), {"op": upload.json()["operation_id"]}).mappings().one()
         assert float(assessment["matching_score"]) == 90.0
         assert float(assessment["evidence_coverage"]) == 1.0
+        assert conn.execute(text("SELECT COUNT(*) FROM app_private.criterion_assessment_results WHERE decision_source='RULE'")).scalar_one() == 2
         assert str(assessment["criteria_version_id"]) == seed["cv"]
         ranking_version = conn.execute(text("SELECT criteria_version_id FROM app_private.ranking_runs WHERE operation_id=:op"), {"op": upload.json()["operation_id"]}).scalar_one()
         assert str(ranking_version) == seed["cv"]
         assert conn.execute(text("SELECT COUNT(*) FROM app_private.audit_events WHERE action_type='UPDATE_CRITERIA_WEIGHTS'")).scalar_one() == 1
+
+
+def test_assessment_reuse_rule_first_and_fallback_chunks(client, seed, tmp_path, monkeypatch):
+    from app.core.config import settings
+    from app.workers.processor import worker, llm_client
+    monkeypatch.setattr(settings, "LOCAL_STORAGE_PATH", str(tmp_path))
+    fallback_criterion = uid()
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO app_private.criteria_items(criterion_id,criteria_version_id,name,description,category,weight_in_group,display_order)
+            VALUES (:id,:cv,'Rust','Rust experience','NICE_TO_HAVE',100,2)
+        """), {"id": fallback_criterion, "cv": seed["cv"]})
+    approve = f"/v1/criteria/{seed['cv']}/approve"
+    assert client.post(approve, headers=headers(seed["hr"]), json={"action": "APPROVE"}).status_code == 200
+    assert client.post(approve, headers=headers(seed["hm"]), json={"action": "APPROVE"}).status_code == 200
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM app_private.criteria_items WHERE criteria_version_id=:id AND requirement_spec IS NOT NULL"), {"id": seed["cv"]}).scalar_one() == 2
+
+    async def extract(**kwargs):
+        return {"education": [], "work_history": [], "skills": ["Python"], "certifications": []}
+    match_calls = []
+    async def match(**kwargs):
+        match_calls.append(kwargs)
+        chunks = kwargs.get("candidate_chunks") or {}
+        chunk_id = None
+        entries = chunks.get(fallback_criterion) if isinstance(chunks, dict) else None
+        if entries:
+            chunk_id = entries[0].get("chunk_id")
+        return {"findings": [{"criterion_id": fallback_criterion, "outcome": "UNCLEAR", "confidence": 0,
+                              "confidence_band": "LOW", "reasoning": "No Rust evidence in supplied chunks",
+                              "evidence": {"verbatim_quote": "", "page_number": None, "chunk_id": chunk_id}}]}
+    monkeypatch.setattr(llm_client, "extract_candidate_profile", extract)
+    monkeypatch.setattr(llm_client, "match_criterion_evidence", match)
+
+    document = Document()
+    document.add_paragraph("WORK EXPERIENCE")
+    document.add_paragraph("Developed Python systems for five years.")
+    content = io.BytesIO(); document.save(content)
+    upload = client.post(f"/v1/applications/upload-batch/{seed['pos']}", headers=headers(seed["hr"]), files={"files": ("candidate.docx", content.getvalue())})
+    assert upload.status_code == 202, upload.text
+    worker._process_pending_operations()
+
+    assert len(match_calls) == 1
+    assert [item["criterion_id"] for item in match_calls[0]["rubric"]] == [fallback_criterion]
+    assert fallback_criterion in (match_calls[0].get("candidate_chunks") or {})
+    with engine.connect() as conn:
+        sources = dict(conn.execute(text("SELECT criterion_id::text, decision_source FROM app_private.criterion_assessment_results")).all())
+        assert sources[seed["criterion"]] == "RULE"
+        assert sources[fallback_criterion] == "LLM"
+        assert conn.execute(text("SELECT COUNT(*) FROM app_private.assessment_runs WHERE status='COMPLETED' AND assessment_fingerprint IS NOT NULL")).scalar_one() == 1
+
+    queued = client.post(f"/v1/assessments/run/{seed['pos']}", headers=headers(seed["hr"]))
+    assert queued.status_code == 202
+    worker._process_pending_operations()
+    assert len(match_calls) == 1
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM app_private.assessment_runs WHERE status='COMPLETED'")).scalar_one() == 1
 
 
 def test_revoked_requester_cannot_read_operation_progress(client, seed):
@@ -657,8 +1059,18 @@ def test_latest_ranking_excludes_candidates_outside_screening_and_old_rubrics(cl
             VALUES (:id,:pos,:app,:jd,:cv,:profile,'COMPLETED','MEETS_MANDATORY',1)"""), {'id': assessment, 'pos': seed['pos'], 'app': seed['app'], 'jd': seed['jd'], 'cv': seed['cv'], 'profile': profile})
         conn.execute(text("INSERT INTO app_private.ranking_items(ranking_run_id,position_id,application_id,assessment_id,rank_number,ranking_status,evidence_coverage) VALUES (:run,:pos,:app,:assessment,1,'MEETS_MANDATORY',1)"),
                      {"run": ranking, "pos": seed["pos"], "app": seed["app"], "assessment": assessment})
+        conn.execute(text("INSERT INTO app_private.criterion_assessment_results(assessment_id,criterion_id,outcome,score) VALUES (:assessment,:criterion,'MATCH',80)"),
+                     {"assessment": assessment, "criterion": seed["criterion"]})
     endpoint = f"/v1/assessments/ranking/latest/{seed['pos']}"
-    assert len(client.get(endpoint, headers=headers(seed["hr"])).json()) == 1
+    latest = client.get(endpoint, headers=headers(seed["hr"])).json()
+    assert len(latest) == 1
+    # The ranking list carries the per-criterion breakdown of the ranked
+    # assessment; the seed rubric is one MUST_HAVE item at 100% of a 70%
+    # group, so its effective weight is 70% of the whole rubric.
+    assert latest[0]["criterion_results"] == [{
+        "criterion_id": seed["criterion"], "criterion_name": "Python", "category": "MUST_HAVE",
+        "outcome": "MATCH", "score": 80.0, "effective_weight": 70.0, "requires_verification": False,
+    }]
     with engine.begin() as conn:
         conn.execute(text("UPDATE app_private.applications SET application_status='INTERVIEW' WHERE application_id=:id"), {"id": seed["app"]})
     assert client.get(endpoint, headers=headers(seed["hr"])).json() == []
@@ -817,6 +1229,68 @@ def test_recovery_resumes_processing_document_and_reconciles_batch(client, seed,
         assert conn.execute(text("SELECT COUNT(*) FROM app_private.assessment_runs WHERE operation_id=:id AND status='COMPLETED'"), {"id": op}).scalar_one() == 1
         assert conn.execute(text("SELECT COUNT(*) FROM app_private.ranking_runs WHERE operation_id=:id"), {"id": op}).scalar_one() == 1
         assert set(conn.execute(text("SELECT fact_type FROM app_private.profile_facts WHERE fact_type IN ('LANGUAGE','PROJECT')")).scalars()) == {'LANGUAGE', 'PROJECT'}
+
+
+def test_reprocess_failed_cv_sanitizes_profile_page_and_recovers(client, seed, tmp_path, monkeypatch):
+    from app.core.config import settings
+    from app.workers.processor import ProcessingWorker, llm_client
+    monkeypatch.setattr(settings, "LOCAL_STORAGE_PATH", str(tmp_path))
+
+    async def extract(cv_text, candidate_identifier):
+        return {"candidate_identifier": candidate_identifier, "total_years_experience": 2,
+                "education": [], "work_history": [{"role": "Backend Engineer", "page_number": "Page 1"}],
+                "skills": ["Python"], "certifications": [], "languages": [], "projects": []}
+    async def match(**kwargs):
+        return {"findings": [{"criterion_id": kwargs["rubric"][0]["criterion_id"], "outcome": "MATCH",
+                              "confidence": .9, "confidence_band": "HIGH", "reasoning": "Evidence provided",
+                              "evidence": {"verbatim_quote": "Built Python services for two years", "page_number": None}}]}
+    monkeypatch.setattr(llm_client, "extract_candidate_profile", extract)
+    monkeypatch.setattr(llm_client, "match_criterion_evidence", match)
+
+    document = Document(); document.add_paragraph("Built Python services for two years and developed several reliable applications.")
+    content = io.BytesIO(); document.save(content)
+    storage_path = f"{seed['pos']}/{seed['app']}/retry.docx"
+    file_path = tmp_path / "cv-originals" / storage_path
+    file_path.parent.mkdir(parents=True)
+    file_path.write_bytes(content.getvalue())
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.criteria_versions SET status='APPROVED' WHERE criteria_version_id=:id"), {"id": seed["cv"]})
+        conn.execute(text("""
+            INSERT INTO app_private.application_documents
+                (application_id, bucket, storage_path, original_filename, mime_type, size_bytes,
+                 file_processing_status, processing_error)
+            VALUES (:app, 'cv-originals', :path, 'retry.docx',
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document', :size,
+                    'NEEDS_HR_REVIEW', 'Synthetic failure')
+        """), {"app": seed["app"], "path": storage_path, "size": len(content.getvalue())})
+
+    route = f"/v1/applications/{seed['app']}/reprocess"
+    assert client.post(route, headers=headers(seed["hm"])).status_code == 403
+    response = client.post(route, headers=headers(seed["hr"]))
+    assert response.status_code == 202, response.text
+    operation_id = response.json()["operation_id"]
+    assert client.post(route, headers=headers(seed["hr"])).status_code == 409
+
+    ProcessingWorker()._process_pending_operations()
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT status FROM app_private.operations WHERE operation_id=:id"), {"id": operation_id}).scalar_one() == "COMPLETED"
+        document_row = conn.execute(text("""
+            SELECT d.file_processing_status, r.status AS run_status, r.error_code
+            FROM app_private.application_documents d
+            JOIN app_private.document_processing_runs r ON r.document_id = d.document_id
+            WHERE d.application_id = :app ORDER BY r.created_at DESC LIMIT 1
+        """), {"app": seed["app"]}).mappings().one()
+        assert document_row["file_processing_status"] == "COMPLETED"
+        assert document_row["run_status"] == "COMPLETED" and document_row["error_code"] is None
+        fact = conn.execute(text("""
+            SELECT pf.source_page_number, pf.fact_value ->> 'page_number' AS fact_page
+            FROM app_private.profile_facts pf
+            JOIN app_private.profile_versions pv ON pv.profile_version_id = pf.profile_version_id
+            WHERE pv.application_id = :app AND pf.fact_type = 'WORK_EXPERIENCE'
+        """), {"app": seed["app"]}).mappings().one()
+        assert fact["source_page_number"] is None and fact["fact_page"] is None
+        assert conn.execute(text("SELECT COUNT(*) FROM app_private.assessment_runs WHERE application_id=:app AND status='COMPLETED'"), {"app": seed["app"]}).scalar_one() == 1
+        assert conn.execute(text("SELECT COUNT(*) FROM app_private.audit_events WHERE action_type='REPROCESS_CV_DOCUMENT' AND object_id=:app"), {"app": seed["app"]}).scalar_one() == 1
 
 
 def test_worker_health_is_admin_only_and_reports_stale_work(client, seed):
@@ -1102,3 +1576,373 @@ def test_ai_config_writes_recheck_active_admin_inside_transaction(client, seed, 
     # assertions specifically exercise the transactional write recheck.
     assert client.post('/v1/admin/ai/config', headers=headers(seed['other']), json=body).status_code == 403
     assert client.post(f"/v1/admin/ai/config/{created.json()['config_id']}/enable", headers=headers(seed['other'])).status_code == 403
+
+
+def test_retention_workflow_purges_candidate_and_audit_chain_is_append_only(client, seed, tmp_path, monkeypatch):
+    from app.core.config import settings
+    from app.services.retention import application_opaque_id
+
+    monkeypatch.setattr(settings, "LOCAL_STORAGE_PATH", str(tmp_path))
+    app_id, position_id = seed["app"], seed["pos"]
+    opaque_id = application_opaque_id(app_id)
+    storage_path = f"{position_id}/{app_id}/synthetic.docx"
+    original_file = tmp_path / "cv-originals" / storage_path
+    original_file.parent.mkdir(parents=True)
+    original_file.write_bytes(b"synthetic cv")
+
+    with engine.begin() as conn:
+        conn.execute(text("""
+            UPDATE app_private.positions
+            SET status = 'CLOSED', closed_at = NOW() - INTERVAL '13 months'
+            WHERE position_id = :position_id
+        """), {"position_id": position_id})
+        document_id = conn.execute(text("""
+            INSERT INTO app_private.application_documents
+                (application_id, bucket, storage_path, original_filename, mime_type, size_bytes, file_processing_status)
+            VALUES (:app_id, 'cv-originals', :storage_path, 'Candidate Synthetic.docx',
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 12, 'COMPLETED')
+            RETURNING document_id
+        """), {"app_id": app_id, "storage_path": storage_path}).scalar_one()
+        extracted_path = f"{app_id}/{document_id}/attempt-1/extracted.txt"
+        extracted_file = tmp_path / "cv-extracted-text" / extracted_path
+        extracted_file.parent.mkdir(parents=True)
+        extracted_file.write_text("Synthetic extracted CV", encoding="utf-8")
+        (extracted_file.parent / "pages.json").write_text("[]", encoding="utf-8")
+        conn.execute(text("""
+            INSERT INTO app_private.document_processing_runs
+                (document_id, extraction_type, processor_version, status, extracted_text_storage_path)
+            VALUES (:document_id, 'DOCX', 'test', 'COMPLETED', :extracted_path)
+        """), {"document_id": document_id, "extracted_path": extracted_path})
+        profile_id = conn.execute(text("""
+            INSERT INTO app_private.profile_versions
+                (application_id, source_document_id, version_number, extraction_config, status)
+            VALUES (:app_id, :document_id, 1, '{}'::jsonb, 'COMPLETED')
+            RETURNING profile_version_id
+        """), {"app_id": app_id, "document_id": document_id}).scalar_one()
+        conn.execute(text("""
+            INSERT INTO app_private.profile_facts (profile_version_id, fact_type, fact_value)
+            VALUES (:profile_id, 'SKILL', '{"name":"Python"}'::jsonb)
+        """), {"profile_id": profile_id})
+        assessment_id = conn.execute(text("""
+            INSERT INTO app_private.assessment_runs
+                (position_id, application_id, jd_version_id, criteria_version_id, profile_version_id,
+                 policy_version, status, matching_status, matching_score, evidence_coverage)
+            VALUES (:position_id, :app_id, :jd, :cv, :profile_id, 'v1.0', 'COMPLETED',
+                    'MEETS_MANDATORY', 100, 1)
+            RETURNING assessment_id
+        """), {"position_id": position_id, "app_id": app_id, "jd": seed["jd"],
+               "cv": seed["cv"], "profile_id": profile_id}).scalar_one()
+        result_id = conn.execute(text("""
+            INSERT INTO app_private.criterion_assessment_results
+                (assessment_id, criterion_id, outcome, score, confidence, confidence_band)
+            VALUES (:assessment_id, :criterion, 'STRONG_MATCH', 100, 0.90, 'HIGH')
+            RETURNING result_id
+        """), {"assessment_id": assessment_id, "criterion": seed["criterion"]}).scalar_one()
+        conn.execute(text("""
+            INSERT INTO app_private.evidence_items
+                (criterion_result_id, source_document_id, verbatim_quote, verification_status)
+            VALUES (:result_id, :document_id, 'Synthetic evidence', 'VERIFIED')
+        """), {"result_id": result_id, "document_id": document_id})
+        ranking_id = conn.execute(text("""
+            INSERT INTO app_private.ranking_runs (position_id, criteria_version_id, status)
+            VALUES (:position_id, :cv, 'COMPLETED') RETURNING ranking_run_id
+        """), {"position_id": position_id, "cv": seed["cv"]}).scalar_one()
+        ranking_item_id = conn.execute(text("""
+            INSERT INTO app_private.ranking_items
+                (ranking_run_id, position_id, application_id, assessment_id, rank_number)
+            VALUES (:ranking_id, :position_id, :app_id, :assessment_id, 1)
+            RETURNING ranking_item_id
+        """), {"ranking_id": ranking_id, "position_id": position_id, "app_id": app_id,
+               "assessment_id": assessment_id}).scalar_one()
+        share_id = conn.execute(text("""
+            INSERT INTO app_private.shortlist_shares (position_id, created_by, shared_with, allow_cv_view)
+            VALUES (:position_id, :hr, :hm, TRUE) RETURNING share_id
+        """), {"position_id": position_id, "hr": seed["hr"], "hm": seed["hm"]}).scalar_one()
+        conn.execute(text("""
+            INSERT INTO app_private.shortlist_share_items
+                (share_id, position_id, application_id, assessment_id, ranking_item_id)
+            VALUES (:share_id, :position_id, :app_id, :assessment_id, :ranking_item_id)
+        """), {"share_id": share_id, "position_id": position_id, "app_id": app_id,
+               "assessment_id": assessment_id, "ranking_item_id": ranking_item_id})
+        conn.execute(text("""
+            INSERT INTO app_private.shortlist_feedback (share_id, application_id, feedback_from, content)
+            VALUES (:share_id, :app_id, :hm, 'Synthetic feedback')
+        """), {"share_id": share_id, "app_id": app_id, "hm": seed["hm"]})
+        vector_literal = "[" + ",".join(["0"] * 1024) + "]"
+        conn.execute(text("""
+            INSERT INTO app_private.cv_chunk_embeddings
+                (application_id, document_id, chunk_id, chunk_text_sha256, char_start, char_end,
+                 embedding, embedding_model, embedding_dimension, index_version)
+            VALUES (:app_id, :document_id, 'chunk-1', :sha, 0, 10,
+                    CAST(:embedding AS vector), 'synthetic', 1024, 'test-v1')
+        """), {"app_id": app_id, "document_id": document_id, "sha": "a" * 64,
+               "embedding": vector_literal})
+        conn.execute(text("""
+            INSERT INTO app_private.application_private_notes (application_id, created_by, content)
+            VALUES (:app_id, :hr, 'Synthetic HR note')
+        """), {"app_id": app_id, "hr": seed["hr"]})
+        operation_id = conn.execute(text("""
+            INSERT INTO app_private.operations (position_id, capability, requested_by, status)
+            VALUES (:position_id, 'CV_PROCESSING', :hr, 'COMPLETED') RETURNING operation_id
+        """), {"position_id": position_id, "hr": seed["hr"]}).scalar_one()
+        batch_id = conn.execute(text("""
+            INSERT INTO app_private.cv_batches (position_id, uploaded_by, operation_id, status, total_files, total_size_bytes)
+            VALUES (:position_id, :hr, :operation_id, 'COMPLETED', 1, 12) RETURNING batch_id
+        """), {"position_id": position_id, "hr": seed["hr"], "operation_id": operation_id}).scalar_one()
+        conn.execute(text("""
+            INSERT INTO app_private.cv_batch_items
+                (batch_id, original_filename, size_bytes, validation_result, application_id)
+            VALUES (:batch_id, 'Candidate Synthetic.docx', 12, 'ACCEPTED', :app_id)
+        """), {"batch_id": batch_id, "app_id": app_id})
+
+    generated = client.post(f"/v1/retention/positions/{position_id}/cases/generate", headers=headers(seed["hr"]))
+    assert generated.status_code == 200, generated.text
+    assert generated.json()["created_count"] == 1
+    case = generated.json()["cases"][0]
+    case_id = case["retention_case_id"]
+    assert case["application_opaque_id"] == opaque_id and case["is_due"] is True
+    assert client.get(f"/v1/retention/positions/{position_id}/cases", headers=headers(seed["hm"])).status_code == 403
+    assert client.post(f"/v1/retention/cases/{case_id}/confirm", headers=headers(seed["hr"]), json={}).status_code == 403
+
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO app_private.position_access_grants (position_id, user_id, permission_code)
+            VALUES (:position_id, :user_id, 'CONFIRM_DELETION')
+        """), {"position_id": position_id, "user_id": seed["hr"]})
+    confirmed = client.post(f"/v1/retention/cases/{case_id}/confirm", headers=headers(seed["hr"]), json={"reason": " Synthetic approval "})
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["status"] == "SCHEDULED_FOR_DELETION"
+    assert client.post(f"/v1/retention/cases/{case_id}/execute", headers=headers(seed["hm"])).status_code == 403
+
+    # F2.07: physical purge needs a one-time code (echoed only in testing).
+    assert client.post(f"/v1/retention/cases/{case_id}/execute", headers=headers(seed["hr"])).status_code == 428
+    executed = purge_with_otp(client, case_id, seed["hr"])
+    assert executed.status_code == 200, executed.text
+    summary = executed.json()["result_summary"]
+    assert executed.json()["status"] == "DELETED"
+    assert summary["documents"] == summary["assessment_runs"] == summary["cv_chunk_embeddings"] == 1
+    assert summary["storage_objects_deleted"] == 3
+    assert not original_file.exists() and not extracted_file.exists()
+
+    with engine.connect() as conn:
+        for table in ("applications", "application_documents", "profile_versions", "assessment_runs",
+                      "cv_chunk_embeddings", "application_private_notes", "shortlist_feedback"):
+            column = "application_id"
+            assert conn.execute(text(f"SELECT COUNT(*) FROM app_private.{table} WHERE {column} = :app_id"),
+                                {"app_id": app_id}).scalar_one() == 0, table
+        case_row = conn.execute(text("""
+            SELECT status, application_id, application_opaque_id FROM app_private.application_retention_cases
+            WHERE retention_case_id = :case_id
+        """), {"case_id": case_id}).mappings().one()
+        assert case_row["status"] == "DELETED" and case_row["application_id"] is None
+        assert case_row["application_opaque_id"] == opaque_id
+        job = conn.execute(text("""
+            SELECT status, files_deleted, data_deleted, result_summary::text AS summary
+            FROM app_private.deletion_jobs WHERE retention_case_id = :case_id
+            ORDER BY created_at DESC LIMIT 1
+        """), {"case_id": case_id}).mappings().one()
+        assert job["status"] == "COMPLETED" and job["files_deleted"] and job["data_deleted"]
+        assert "Candidate" not in job["summary"] and "Synthetic evidence" not in job["summary"]
+        event = conn.execute(text("""
+            SELECT result, completed_at FROM app_private.deletion_events
+            WHERE application_opaque_id = :opaque_id ORDER BY confirmed_at DESC LIMIT 1
+        """), {"opaque_id": opaque_id}).mappings().one()
+        assert event["result"] == "COMPLETED" and event["completed_at"] is not None
+        batch_item = conn.execute(text("""
+            SELECT application_id, original_filename FROM app_private.cv_batch_items
+            WHERE batch_id = :batch_id
+        """), {"batch_id": batch_id}).mappings().one()
+        assert batch_item["application_id"] is None and batch_item["original_filename"] == "[DELETED]"
+        audit_rows = conn.execute(text("""
+            SELECT event_hash, previous_event_hash FROM app_private.audit_events
+            WHERE object_id = :case_id AND object_type = 'RETENTION_CASE' ORDER BY chain_sequence
+        """), {"case_id": case_id}).mappings().all()
+        assert len(audit_rows) >= 3 and all(row["event_hash"] for row in audit_rows)
+
+    assert client.get("/v1/admin/audit/verify", headers=headers(seed["hr"])).status_code == 403
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO app_private.user_role_assignments(user_id,role_code) VALUES (:id,'ADMIN')"),
+                     {"id": seed["other"]})
+    verified = client.get("/v1/admin/audit/verify", headers=headers(seed["other"]))
+    assert verified.status_code == 200, verified.text
+    assert verified.json()["valid"] is True and verified.json()["checked_events"] >= len(audit_rows)
+
+    with pytest.raises(Exception):
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE app_private.audit_events SET outcome = 'TAMPERED' WHERE object_id = :case_id"),
+                         {"case_id": case_id})
+
+    # The append-only trigger is intentionally bypassed here as a database
+    # operator could; verification must still detect that the stored row no
+    # longer matches its hash chain instead of trusting the row silently.
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE app_private.audit_events DISABLE TRIGGER audit_events_append_only"))
+        conn.execute(text("""
+            UPDATE app_private.audit_events
+            SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{tampered}', 'true'::jsonb)
+            WHERE object_id = :case_id AND chain_sequence IS NOT NULL
+        """), {"case_id": case_id})
+        conn.execute(text("ALTER TABLE app_private.audit_events ENABLE TRIGGER audit_events_append_only"))
+    tampered = client.get("/v1/admin/audit/verify", headers=headers(seed["other"]))
+    assert tampered.status_code == 200 and tampered.json()["valid"] is False
+    assert tampered.json()["broken_events"] >= 1
+
+
+def test_retention_case_cannot_be_confirmed_before_due_date(client, seed):
+    with engine.begin() as conn:
+        conn.execute(text("""
+            UPDATE app_private.positions
+            SET status = 'CLOSED', closed_at = NOW() - INTERVAL '1 month'
+            WHERE position_id = :position_id
+        """), {"position_id": seed["pos"]})
+        conn.execute(text("""
+            INSERT INTO app_private.position_access_grants (position_id, user_id, permission_code)
+            VALUES (:position_id, :user_id, 'CONFIRM_DELETION')
+        """), {"position_id": seed["pos"], "user_id": seed["hr"]})
+
+    generated = client.post(f"/v1/retention/positions/{seed['pos']}/cases/generate", headers=headers(seed["hr"]))
+    assert generated.status_code == 200, generated.text
+    assert generated.json()["created_count"] == 0 and generated.json()["cases"] == []
+
+    # Generation intentionally skips applications that are not due yet.  A
+    # future-dated case inserted by another operator path must still be refused
+    # at confirmation time as a defence-in-depth check.
+    case_id = uid()
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO app_private.application_retention_cases
+                (retention_case_id, application_id, position_id, application_opaque_id,
+                 policy_version, position_closed_at, due_date, status)
+            VALUES (:case_id, :app_id, :position_id, repeat('a', 64), 'v1.0-12month',
+                    NOW() - INTERVAL '1 month', NOW() + INTERVAL '11 months', 'PENDING')
+        """), {"case_id": case_id, "app_id": seed["app"], "position_id": seed["pos"]})
+    response = client.post(f"/v1/retention/cases/{case_id}/confirm", headers=headers(seed["hr"]),
+                           json={"reason": "Too early"})
+    assert response.status_code == 422
+
+
+def test_retention_execute_does_not_delete_database_records_when_storage_fails(client, seed):
+    with engine.begin() as conn:
+        conn.execute(text("""
+            UPDATE app_private.positions
+            SET status = 'CLOSED', closed_at = NOW() - INTERVAL '13 months'
+            WHERE position_id = :position_id
+        """), {"position_id": seed["pos"]})
+        conn.execute(text("""
+            INSERT INTO app_private.application_documents
+                (application_id, bucket, storage_path, original_filename, mime_type, size_bytes, file_processing_status)
+            VALUES (:app_id, 'cv-originals', '../outside.docx', 'Synthetic.docx',
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 12, 'COMPLETED')
+        """), {"app_id": seed["app"]})
+        conn.execute(text("""
+            INSERT INTO app_private.position_access_grants (position_id, user_id, permission_code)
+            VALUES (:position_id, :user_id, 'CONFIRM_DELETION')
+            ON CONFLICT DO NOTHING
+        """), {"position_id": seed["pos"], "user_id": seed["hr"]})
+
+    generated = client.post(f"/v1/retention/positions/{seed['pos']}/cases/generate", headers=headers(seed["hr"]))
+    assert generated.status_code == 200, generated.text
+    case_id = generated.json()["cases"][0]["retention_case_id"]
+    confirmed = client.post(f"/v1/retention/cases/{case_id}/confirm", headers=headers(seed["hr"]),
+                            json={"reason": "Storage failure fixture"})
+    assert confirmed.status_code == 200, confirmed.text
+
+    failed = purge_with_otp(client, case_id, seed["hr"])
+    assert failed.status_code == 500
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM app_private.applications WHERE application_id = :id"),
+                            {"id": seed["app"]}).scalar_one() == 1
+        assert conn.execute(text("SELECT COUNT(*) FROM app_private.application_documents WHERE application_id = :id"),
+                            {"id": seed["app"]}).scalar_one() == 1
+        assert conn.execute(text("SELECT status FROM app_private.application_retention_cases WHERE retention_case_id = :id"),
+                            {"id": case_id}).scalar_one() == "SCHEDULED_FOR_DELETION"
+        job = conn.execute(text("""
+            SELECT status, error FROM app_private.deletion_jobs
+            WHERE retention_case_id = :id ORDER BY created_at DESC LIMIT 1
+        """), {"id": case_id}).mappings().one()
+        assert job["status"] == "FAILED" and "outside.docx" not in (job["error"] or "")
+
+
+def test_cancelled_retention_case_can_be_regenerated_without_duplicating_open_cases(client, seed):
+    with engine.begin() as conn:
+        conn.execute(text("""
+            UPDATE app_private.positions
+            SET status = 'CLOSED', closed_at = NOW() - INTERVAL '13 months'
+            WHERE position_id = :position_id
+        """), {"position_id": seed["pos"]})
+        conn.execute(text("""
+            INSERT INTO app_private.position_access_grants (position_id, user_id, permission_code)
+            VALUES (:position_id, :user_id, 'CONFIRM_DELETION')
+            ON CONFLICT DO NOTHING
+        """), {"position_id": seed["pos"], "user_id": seed["hr"]})
+
+    generated = client.post(f"/v1/retention/positions/{seed['pos']}/cases/generate", headers=headers(seed["hr"]))
+    assert generated.status_code == 200, generated.text
+    first_case_id = generated.json()["cases"][0]["retention_case_id"]
+
+    duplicate = client.post(f"/v1/retention/positions/{seed['pos']}/cases/generate", headers=headers(seed["hr"]))
+    assert duplicate.status_code == 200 and duplicate.json()["created_count"] == 0
+
+    cancelled = client.post(f"/v1/retention/cases/{first_case_id}/cancel", headers=headers(seed["hr"]), json={})
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "CANCELLED"
+
+    regenerated = client.post(f"/v1/retention/positions/{seed['pos']}/cases/generate", headers=headers(seed["hr"]))
+    assert regenerated.status_code == 200, regenerated.text
+    assert regenerated.json()["created_count"] == 1
+    assert regenerated.json()["cases"][0]["retention_case_id"] != first_case_id
+    listed = client.get(f"/v1/retention/positions/{seed['pos']}/cases", headers=headers(seed["hr"]))
+    assert listed.status_code == 200
+    assert sorted(case["status"] for case in listed.json()) == ["CANCELLED", "PENDING"]
+
+
+def test_criteria_relying_on_personal_attributes_cannot_be_approved(client, seed):
+    base = f"/v1/criteria/{seed['cv']}"
+    client.post(base + "/items", headers=headers(seed["hr"]), json={
+        "name": "Độ tuổi", "description": "Ứng viên dưới 30 tuổi", "category": "NICE_TO_HAVE", "weight_in_group": 100})
+    version = client.get(base, headers=headers(seed["hr"])).json()
+    assert [w["attributes"] for w in version["fairness_warnings"]] == [["AGE"]]
+    blocked = client.post(base + "/approve", headers=headers(seed["hr"]), json={"action": "APPROVE"})
+    assert blocked.status_code == 400 and "Độ tuổi" in blocked.json()["detail"]
+    flagged = version["fairness_warnings"][0]["criterion_id"]
+    assert client.delete(f"{base}/items/{flagged}", headers=headers(seed["hr"])).status_code == 200
+    assert client.post(base + "/approve", headers=headers(seed["hr"]), json={"action": "APPROVE"}).json()["status"] == "PENDING_HM_APPROVAL"
+
+
+def test_new_criteria_version_copies_approved_rubric_into_fresh_draft(client, seed):
+    base = f"/v1/criteria/{seed['cv']}"
+    # A draft must be edited directly, not copied.
+    assert client.post(base + "/new-version", headers=headers(seed["hr"])).status_code == 400
+    client.post(base + "/approve", headers=headers(seed["hr"]), json={"action": "APPROVE"})
+    client.post(base + "/approve", headers=headers(seed["hm"]), json={"action": "APPROVE"})
+    assert client.post(base + "/new-version", headers=headers(seed["hm"])).status_code == 403
+    copy = client.post(base + "/new-version", headers=headers(seed["hr"]))
+    assert copy.status_code == 201, copy.text
+    body = copy.json()
+    assert body["status"] == "DRAFT" and body["origin"] == "HR_CREATED" and body["version_number"] == 2
+    assert body["approved_by_hr"] is None and body["approved_by_hm"] is None
+    assert [c["name"] for c in body["criteria"]] == ["Python"] and body["criteria"][0]["criterion_id"] != seed["criterion"]
+    # Only one open draft per position.
+    assert client.post(base + "/new-version", headers=headers(seed["hr"])).status_code == 409
+    # The approved version stays active until the copy is approved.
+    approved = client.get(f"/v1/criteria/position/{seed['pos']}/approved", headers=headers(seed["hr"])).json()
+    assert approved["criteria_version_id"] == seed["cv"]
+
+
+def test_position_search_status_reason_history_and_single_jd_version(client, seed):
+    hr = headers(seed["hr"])
+    assert [p["position_id"] for p in client.get("/v1/positions", headers=hr, params={"q": "po"}).json()] == [seed["pos"]]
+    assert client.get("/v1/positions", headers=hr, params={"q": "%"}).json() == []
+    route = f"/v1/positions/{seed['pos']}"
+    assert client.patch(route, headers=hr, json={"status": "PAUSED", "status_reason": "  Chờ ngân sách  "}).status_code == 200
+    assert client.patch(route, headers=hr, json={"status": "OPEN"}).status_code == 200
+    events = client.get(route + "/status-events", headers=headers(seed["hm"]))
+    assert events.status_code == 200
+    assert [(e["previous_status"], e["new_status"], e["reason"]) for e in events.json()] == [
+        ("OPEN", "PAUSED", "Chờ ngân sách"), ("PAUSED", "OPEN", None)]
+    assert events.json()[0]["changed_by_name"] == "HR"
+    assert client.get(route + "/status-events", headers=headers(seed["other"])).status_code == 403
+    jd = client.get(f"{route}/jd-versions/{seed['jd']}", headers=hr)
+    assert jd.status_code == 200 and jd.json()["content_text"] == "JD"
+    assert client.get(f"{route}/jd-versions/{uid()}", headers=hr).status_code == 404
+    assert client.get(f"/v1/positions/{seed['pos2']}/jd-versions/{seed['jd']}", headers=headers(seed["hr2"])).status_code == 404

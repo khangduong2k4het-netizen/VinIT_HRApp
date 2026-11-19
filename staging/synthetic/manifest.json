@@ -1,0 +1,282 @@
+{
+  "dataset_id": "phase1-staging-synthetic-v1",
+  "data_classification": "SYNTHETIC_ONLY",
+  "allowed_email_domains": [
+    "example.test"
+  ],
+  "purpose": "Phase 1 staging E2E with synthetic data only. Do not replace identities, emails, phone numbers or CV content with real candidate data.",
+  "users": [
+    {
+      "key": "admin",
+      "display_name": "Synthetic Admin",
+      "email": "admin@example.test",
+      "global_role": "ADMIN",
+      "notes": "Create in staging Supabase Auth only; store password in the team password manager, never in Git."
+    },
+    {
+      "key": "hr_lead",
+      "display_name": "Synthetic HR Lead",
+      "email": "hr.lead@example.test",
+      "global_role": "HR_LEAD",
+      "notes": "Can confirm retention cases globally after staging deployment."
+    },
+    {
+      "key": "hr_recruiter",
+      "display_name": "Synthetic HR Recruiter",
+      "email": "hr.recruiter@example.test",
+      "global_role": "HR_RECRUITER",
+      "notes": "Assigned to backend_open as HR_RECRUITER; can view/generate retention cases but cannot confirm without grant."
+    },
+    {
+      "key": "hiring_manager",
+      "display_name": "Synthetic Hiring Manager",
+      "email": "hiring.manager@example.test",
+      "global_role": "HIRING_MANAGER",
+      "notes": "Assigned to backend_open as HIRING_MANAGER for shortlist feedback scenarios."
+    },
+    {
+      "key": "outsider",
+      "display_name": "Synthetic Outsider",
+      "email": "outsider@example.test",
+      "global_role": "VIEWER",
+      "notes": "No assignment to backend_open; used for negative RBAC checks."
+    }
+  ],
+  "department": {
+    "name": "Synthetic Engineering",
+    "code_format": "REQ-SYN-{SEQ:000}"
+  },
+  "positions": [
+    {
+      "key": "backend_open",
+      "title": "Synthetic Backend Engineer",
+      "status": "OPEN",
+      "closed_months_ago": null,
+      "jd_text": "Synthetic staging role. Build Python backend APIs with PostgreSQL. Docker experience is preferred.",
+      "criteria": [
+        {
+          "key": "python_backend",
+          "name": "Python backend experience",
+          "description": "At least 4 years building production Python backend APIs.",
+          "category": "MUST_HAVE",
+          "weight_in_group": 60,
+          "evidence_keywords": [
+            "Python",
+            "backend APIs",
+            "FastAPI",
+            "Django",
+            "Flask"
+          ]
+        },
+        {
+          "key": "postgresql",
+          "name": "PostgreSQL production experience",
+          "description": "Production PostgreSQL schema design, SQL and query optimisation.",
+          "category": "MUST_HAVE",
+          "weight_in_group": 40,
+          "evidence_keywords": [
+            "PostgreSQL",
+            "SQL",
+            "query optimisation",
+            "schema"
+          ]
+        },
+        {
+          "key": "docker",
+          "name": "Docker/container delivery",
+          "description": "Docker or containerised deployment experience.",
+          "category": "NICE_TO_HAVE",
+          "weight_in_group": 50,
+          "evidence_keywords": [
+            "Docker",
+            "container",
+            "Kubernetes"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "retention_due",
+      "title": "Synthetic Closed Role - Retention Due",
+      "status": "CLOSED",
+      "closed_months_ago": 13,
+      "jd_text": "Synthetic closed role used only to test due retention cases after the 12 month policy.",
+      "criteria": []
+    },
+    {
+      "key": "retention_not_due",
+      "title": "Synthetic Closed Role - Retention Not Due",
+      "status": "CLOSED",
+      "closed_months_ago": 1,
+      "jd_text": "Synthetic closed role used only to verify that retention cases are not created or confirmed before the due date.",
+      "criteria": []
+    }
+  ],
+  "candidates": [
+    {
+      "key": "strong_backend",
+      "position_key": "backend_open",
+      "source_file": "candidates/strong_backend.txt",
+      "generated_docx": "strong_backend.docx",
+      "identity": {
+        "display_name": "Synthetic Strong Backend",
+        "email": "candidate.strong@example.test",
+        "phone": "+84 000 000 001"
+      },
+      "expected_criteria": {
+        "python_backend": "STRONG_MATCH",
+        "postgresql": "STRONG_MATCH",
+        "docker": "STRONG_MATCH"
+      },
+      "expected_gate": "Mandatory evidence present; HR still reviews quotes before any hiring decision."
+    },
+    {
+      "key": "partial_backend",
+      "position_key": "backend_open",
+      "source_file": "candidates/partial_backend.txt",
+      "generated_docx": "partial_backend.docx",
+      "identity": {
+        "display_name": "Synthetic Partial Backend",
+        "email": "candidate.partial@example.test",
+        "phone": "+84 000 000 002"
+      },
+      "expected_criteria": {
+        "python_backend": "UNCLEAR",
+        "postgresql": "STRONG_MATCH",
+        "docker": "UNCLEAR"
+      },
+      "expected_gate": "Python remains UNCLEAR because the CV states 2 years against the 4-year requirement; Docker must also remain UNCLEAR and reduce evidence coverage. Neither may be scored as NO_MATCH without HR verification."
+    },
+    {
+      "key": "java_only",
+      "position_key": "backend_open",
+      "source_file": "candidates/java_only.txt",
+      "generated_docx": "java_only.docx",
+      "identity": {
+        "display_name": "Synthetic Java Only",
+        "email": "candidate.java@example.test",
+        "phone": "+84 000 000 003"
+      },
+      "expected_criteria": {
+        "python_backend": "UNCLEAR",
+        "postgresql": "UNCLEAR",
+        "docker": "UNCLEAR"
+      },
+      "expected_gate": "Explicit no-Python evidence remains UNCLEAR under the conservative policy; HR verifies manually before any rejection."
+    },
+    {
+      "key": "vietnamese_backend",
+      "position_key": "backend_open",
+      "source_file": "candidates/vietnamese_backend.txt",
+      "generated_docx": "vietnamese_backend.docx",
+      "identity": {
+        "display_name": "Synthetic Vietnamese Backend",
+        "email": "candidate.vietnamese@example.test",
+        "phone": "+84 000 000 004"
+      },
+      "expected_criteria": {
+        "python_backend": "STRONG_MATCH",
+        "postgresql": "MATCH",
+        "docker": "MATCH"
+      },
+      "expected_gate": "Vietnamese CV should be extracted and matched without requiring English evidence."
+    },
+    {
+      "key": "duplicate_a",
+      "position_key": "backend_open",
+      "source_file": "candidates/duplicate_a.txt",
+      "generated_docx": "duplicate_a.docx",
+      "identity": {
+        "display_name": "Synthetic Duplicate A",
+        "email": "candidate.duplicate@example.test",
+        "phone": "+84 000 000 005"
+      },
+      "expected_criteria": {
+        "python_backend": "STRONG_MATCH",
+        "postgresql": "MATCH",
+        "docker": "UNCLEAR"
+      },
+      "expected_gate": "Shares email and phone with duplicate_b; system may signal duplicate but must not merge or delete automatically."
+    },
+    {
+      "key": "duplicate_b",
+      "position_key": "backend_open",
+      "source_file": "candidates/duplicate_b.txt",
+      "generated_docx": "duplicate_b.docx",
+      "identity": {
+        "display_name": "Synthetic Duplicate B",
+        "email": "candidate.duplicate@example.test",
+        "phone": "+84 000 000 005"
+      },
+      "expected_criteria": {
+        "python_backend": "MATCH",
+        "postgresql": "MATCH",
+        "docker": "MATCH"
+      },
+      "expected_gate": "Shares email and phone with duplicate_a; HR decides manually."
+    },
+    {
+      "key": "retention_due_candidate",
+      "position_key": "retention_due",
+      "source_file": "candidates/retention_due.txt",
+      "generated_docx": "retention_due.docx",
+      "identity": {
+        "display_name": "Synthetic Retention Due",
+        "email": "candidate.retention.due@example.test",
+        "phone": "+84 000 000 006"
+      },
+      "expected_criteria": {},
+      "expected_gate": "After the position has been closed for 13 months, generating retention cases should create one due PENDING case."
+    },
+    {
+      "key": "retention_not_due_candidate",
+      "position_key": "retention_not_due",
+      "source_file": "candidates/retention_not_due.txt",
+      "generated_docx": "retention_not_due.docx",
+      "identity": {
+        "display_name": "Synthetic Retention Not Due",
+        "email": "candidate.retention.notdue@example.test",
+        "phone": "+84 000 000 007"
+      },
+      "expected_criteria": {},
+      "expected_gate": "After the position has been closed for 1 month, generating retention cases should create zero cases."
+    }
+  ],
+  "special_fixtures": [
+    {
+      "key": "ocr_simulated_text",
+      "source_file": "candidates/ocr_simulated.txt",
+      "purpose": "Text used by the staging operator to create an image-only/scan PDF outside Git when OCR tooling is available. The text file itself is not proof of OCR quality."
+    }
+  ],
+  "retention_scenarios": [
+    {
+      "key": "retention_due_execute",
+      "position_key": "retention_due",
+      "candidate_key": "retention_due_candidate",
+      "expected": [
+        "POST /v1/retention/positions/{position_id}/cases/generate returns created_count=1 and is_due=true.",
+        "HR Recruiter without confirm grant receives 403 on confirm.",
+        "HR Lead confirms the single case, then executes it explicitly.",
+        "Original CV, extracted.txt and pages.json are removed; candidate-derived DB rows are purged.",
+        "Retention evidence remains only as opaque ID, counts, deletion job/event and audit events without candidate PII."
+      ]
+    },
+    {
+      "key": "retention_not_due_blocked",
+      "position_key": "retention_not_due",
+      "candidate_key": "retention_not_due_candidate",
+      "expected": [
+        "POST /v1/retention/positions/{position_id}/cases/generate returns created_count=0.",
+        "No case is available for confirmation before the due date."
+      ]
+    },
+    {
+      "key": "audit_verify",
+      "expected": [
+        "Non-admin receives 403 from GET /v1/admin/audit/verify.",
+        "Admin receives valid=true after migration 00012 is applied; if valid=false, stop and investigate instead of editing audit rows."
+      ]
+    }
+  ]
+}
