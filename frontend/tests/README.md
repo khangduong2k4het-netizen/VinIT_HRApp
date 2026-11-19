@@ -63,6 +63,12 @@ Storage, ClamAV or VPS involvement).
 Run with `HRA_E2E_BASE_URL` pointing at the local server and a Chromium
 executable (see the commands in `doc/PLAN_CAI_TIEN_WORKFLOW_UX_HR_HM.md`).
 
+- `finish-application.e2e.cjs` — the profile's `Đã xử lý xong hồ sơ này`
+  action: citation verification cannot be recorded without the reviewer's
+  attestation, finishing records the flagged citations, advances to the next
+  profile with the queue context and a one-time banner, leaves the recruiting
+  status untouched unless one is chosen, and still requires a reason for a
+  rejection.
 - `a11y-mock.e2e.cjs` — accessible-name audit of every visible, focusable
   control on the create page and the share workspace (desktop and mobile),
   keyboard-only reach of the required title field, `aria-pressed` candidate

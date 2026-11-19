@@ -27,6 +27,8 @@ import {
   Select,
   InputLabel,
   FormControl,
+  Checkbox,
+  FormControlLabel,
   Accordion,
   AccordionSummary,
   AccordionDetails,
@@ -37,8 +39,9 @@ import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ReplayIcon from '@mui/icons-material/Replay';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { applicationsApi, assessmentsApi, criteriaApi, listAllApplications, operationsApi } from '@/lib/api';
 import StatusBadge from '@/components/common/StatusBadge';
@@ -77,6 +80,7 @@ interface StatusEvent {
 export default function ApplicantDetailPage() {
   const { t, dateLocale, locale } = useI18n();
   const params = useParams();
+  const router = useRouter();
   const positionId = params.id as string;
   const applicantId = params.applicantId as string;
 
@@ -112,6 +116,17 @@ export default function ApplicantDetailPage() {
   // when the reviewer asks for it; the assessment evidence is readable without it.
   const [cvRequested, setCvRequested] = useState(false);
   const [cvLoading, setCvLoading] = useState(false);
+  // "Đã xử lý xong hồ sơ này": ghi nhận xác minh + (tuỳ chọn) đổi trạng thái +
+  // chuyển hồ sơ kế tiếp, gộp trong một hành động thay vì ba lần bấm rời nhau.
+  const [finishOpen, setFinishOpen] = useState(false);
+  const [finishStatus, setFinishStatus] = useState('');
+  const [finishReason, setFinishReason] = useState('');
+  const [finishNote, setFinishNote] = useState('');
+  const [finishAttest, setFinishAttest] = useState(false);
+  const [finishAdvance, setFinishAdvance] = useState(true);
+  const [finishing, setFinishing] = useState(false);
+  const [finishError, setFinishError] = useState<string | null>(null);
+  const [completedNotice, setCompletedNotice] = useState(false);
   const blobUrl = useRef<string | null>(null);
   const requestId = useRef(0);
 
@@ -219,6 +234,14 @@ export default function ApplicantDetailPage() {
         .catch(() => { if (urlQueueFor.current === contextKey) setUrlQueue(null); });
     }
     setShareContext(params.get('share') || '');
+    // Arriving from "Đã xử lý xong": say so once, then drop the flag from the URL
+    // so a refresh does not repeat a message about a different profile.
+    if (params.get('completed') === '1') {
+      setCompletedNotice(true);
+      params.delete('completed');
+      const rest = params.toString();
+      window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`);
+    }
     setSelectedEvidenceId(null);
     setSelectedPage(1);
   }, [positionId, applicantId, t]);
@@ -411,6 +434,52 @@ export default function ApplicantDetailPage() {
     ? applicantProfileHref(positionId, targetId, (queueForBack || 'ALL') as ApplicantQueue, (sortForBack || 'RANK') as ApplicantSort, searchForBack)
     : `/positions/${positionId}/applicants/${targetId}`);
 
+  // Hoàn tất hồ sơ = lặp lại đúng các API hiện có theo thứ tự nghiệp vụ:
+  // review từng tiêu chí bị gắn cờ, rồi PATCH trạng thái theo APPLICATION_TRANSITIONS,
+  // rồi điều hướng. Không có endpoint mới và không có bước nhảy trạng thái nào.
+  const pendingResults = pendingCriteria.filter(result => Boolean(result.result_id));
+  const canFinish = Boolean(application.can_update_status) && !shareContext;
+  const withCompletedFlag = (href: string) => {
+    const [path, query = ''] = href.split('?');
+    const search = new URLSearchParams(query);
+    search.set('completed', '1');
+    return `${path}?${search.toString()}`;
+  };
+  const openFinish = () => {
+    setFinishStatus('');
+    setFinishReason('');
+    setFinishNote('');
+    setFinishAttest(false);
+    setFinishAdvance(Boolean(nextApplicantId));
+    setFinishError(null);
+    setFinishOpen(true);
+  };
+  const finishBlocked = (pendingResults.length > 0 && !finishAttest)
+    || (finishStatus.startsWith('REJECTED') && !finishReason.trim());
+  const handleFinish = async () => {
+    if (finishing || finishBlocked) return;
+    setFinishing(true);
+    setFinishError(null);
+    try {
+      for (const result of pendingResults) {
+        await assessmentsApi.reviewCriterionResult(result.result_id as string, 'CONFIRMED');
+      }
+      if (finishStatus && finishStatus !== application.application_status) {
+        await applicationsApi.updateStatus(applicantId, finishStatus, finishReason.trim() || undefined, finishNote.trim() || undefined);
+      }
+      setFinishOpen(false);
+      const target = finishAdvance && nextApplicantId ? keepContext(nextApplicantId) : backHref;
+      router.push(withCompletedFlag(target));
+    } catch (err: any) {
+      // Do not claim completion: some steps may already be stored (they are
+      // append-only / transition-checked), so say that and stay on the profile.
+      setFinishError(err.response?.data?.detail
+        || t('Không thể hoàn tất hồ sơ. Một số bước có thể đã được lưu nhưng hồ sơ chưa được chuyển; kiểm tra lại.'));
+    } finally {
+      setFinishing(false);
+    }
+  };
+
   return (
     <Box>
       {/* Back button */}
@@ -433,6 +502,18 @@ export default function ApplicantDetailPage() {
               {assessment?.matching_status === 'NEEDS_HR_VERIFICATION' ? ` · ${t("Cần HR xác minh")}` : ''}
             </Typography>
           </Box>
+          {canFinish && (
+            <Button
+              variant="contained"
+              color="secondary"
+              size="small"
+              startIcon={<CheckCircleOutlineIcon />}
+              onClick={openFinish}
+              data-testid="finish-application"
+            >
+              {t('Đã xử lý xong hồ sơ này')}
+            </Button>
+          )}
           {previousApplicantId ? (
             <Button component={Link} href={keepContext(previousApplicantId)} variant="outlined" size="small" startIcon={<NavigateBeforeIcon />}>{t("Hồ sơ trước")}</Button>
           ) : (
@@ -758,9 +839,82 @@ export default function ApplicantDetailPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Hoàn tất hồ sơ — một chỗ duy nhất cho ba bước của vòng duyệt liên tục. */}
+      <Dialog open={finishOpen} onClose={() => !finishing && setFinishOpen(false)} maxWidth="sm" fullWidth data-testid="finish-dialog">
+        <DialogTitle>{t('Hoàn tất hồ sơ này')}</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {t('Ghi nhận việc xác minh, đổi trạng thái nếu cần, rồi chuyển sang hồ sơ tiếp theo. Trạng thái chỉ đổi khi bạn chọn bên dưới.')}
+          </Typography>
+          {finishError && <Alert severity="error" sx={{ mb: 2 }}>{t(finishError)}</Alert>}
+
+          {flaggedCriteria.length === 0 ? (
+            <Alert severity="info" sx={{ mb: 2 }}>{t('Hồ sơ không có tiêu chí nào chờ HR xác minh.')}</Alert>
+          ) : pendingResults.length === 0 ? (
+            <Alert severity="success" sx={{ mb: 2 }}>{t('Đã xác minh đủ {0} tiêu chí cần kiểm.', flaggedCriteria.length)}</Alert>
+          ) : (
+            <Box sx={{ mb: 2 }}>
+              <Alert severity="warning" sx={{ mb: 1 }} data-testid="finish-pending">
+                {t('Còn {0} tiêu chí cần xác minh trước khi hồ sơ rời hàng đợi.', pendingResults.length)}
+              </Alert>
+              <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                {pendingResults.map(result => (
+                  <li key={result.criterion_id}><Typography variant="body2">{result.criterion_name}</Typography></li>
+                ))}
+              </Box>
+              {/* Xác nhận rõ ràng thay vì tự động coi "đã bấm hoàn tất" là "đã kiểm".
+                  Ghi CONFIRMED cho người chưa nhìn là làm sai lệch biên bản. */}
+              <Box data-testid="finish-attest">
+                <FormControlLabel
+                  sx={{ mt: 1, alignItems: 'flex-start' }}
+                  control={<Checkbox checked={finishAttest} onChange={event => setFinishAttest(event.target.checked)} />}
+                  label={<Typography variant="body2">{t('Tôi đã đối chiếu {0} tiêu chí trên với CV và xác nhận trích dẫn là đúng.', pendingResults.length)}</Typography>}
+                />
+              </Box>
+            </Box>
+          )}
+
+          <Typography variant="subtitle2" sx={{ mt: 1, mb: 1 }}>{t('Trạng thái hồ sơ')}</Typography>
+          <FormControl fullWidth size="small" sx={{ mb: 2 }} data-testid="finish-status">
+            <InputLabel id="finish-status-label">{t('Sau khi hoàn tất')}</InputLabel>
+            <Select labelId="finish-status-label" label={t('Sau khi hoàn tất')} value={finishStatus}
+              onChange={event => setFinishStatus(event.target.value)}>
+              <MenuItem value="">{t('Giữ nguyên trạng thái')}</MenuItem>
+              {nextStatuses.map(code => (
+                <MenuItem key={code} value={code}>{t(APPLICATION_STATUSES[code].label)}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          {finishStatus.startsWith('REJECTED') && (
+            <TextField label={t('Lý do loại hồ sơ')} required fullWidth multiline minRows={2} value={finishReason}
+              onChange={event => setFinishReason(event.target.value)} inputProps={{ maxLength: 1000 }} sx={{ mb: 2 }} />
+          )}
+          {finishStatus && finishStatus !== application.application_status && (
+            <TextField label={t('Ghi chú (tùy chọn)')} fullWidth multiline minRows={2} value={finishNote}
+              onChange={event => setFinishNote(event.target.value)} inputProps={{ maxLength: 2000 }} sx={{ mb: 2 }} />
+          )}
+
+          {nextApplicantId ? (
+            <FormControlLabel
+              control={<Checkbox checked={finishAdvance} onChange={event => setFinishAdvance(event.target.checked)} />}
+              label={<Typography variant="body2">{t('Chuyển sang hồ sơ tiếp theo trong hàng đợi')}</Typography>}
+            />
+          ) : (
+            <Typography variant="body2" color="text.secondary">{t('Đây là hồ sơ cuối trong hàng đợi; hoàn tất sẽ quay lại danh sách.')}</Typography>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setFinishOpen(false)} disabled={finishing}>{t('Hủy')}</Button>
+          <Button variant="contained" color="secondary" startIcon={<CheckCircleOutlineIcon />} onClick={handleFinish}
+            disabled={finishing || finishBlocked} data-testid="finish-confirm">
+            {finishing ? t('Đang hoàn tất…') : t('Hoàn tất')}
+          </Button>
+        </DialogActions>
+      </Dialog>
       <ActionFeedback
-        success={success ? 'Đã cập nhật trạng thái hồ sơ' : reprocessNotice ? 'Đã đưa CV vào hàng đợi xử lý lại.' : null}
-        onSuccessClose={() => { setSuccess(false); setReprocessNotice(false); }}
+        success={success ? 'Đã cập nhật trạng thái hồ sơ' : reprocessNotice ? 'Đã đưa CV vào hàng đợi xử lý lại.' : completedNotice ? 'Đã xử lý xong hồ sơ trước. Đang xem hồ sơ tiếp theo.' : null}
+        onSuccessClose={() => { setSuccess(false); setReprocessNotice(false); setCompletedNotice(false); }}
       />
     </Box>
   );

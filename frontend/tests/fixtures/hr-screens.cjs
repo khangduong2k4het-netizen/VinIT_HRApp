@@ -323,6 +323,35 @@ function installMockApi(context, overrides = {}) {
     if (p === '/v1/applications/app-2/cv-file') {
       return r.fulfill({ status: 200, contentType: 'application/pdf', body: '%PDF-1.4\n' });
     }
+    // Any other application row from the ranking can be opened too: finishing a
+    // profile advances to the next one, and that page must load in the mock.
+    const applicationMatch = p.match(/^\/v1\/applications\/(app-\d+)$/);
+    if (applicationMatch && r.request().method() === 'GET') {
+      const id = applicationMatch[1];
+      const row = ranking.find(item => item.application_id === id);
+      return json({
+        ...detail,
+        application_id: id,
+        candidate_name: row?.candidate_name || detail.candidate_name,
+        identity: { ...detail.identity, display_name: row?.candidate_name || detail.identity.display_name },
+        application_status: row?.application_status || detail.application_status,
+        latest_assessment: {
+          ...detail.latest_assessment,
+          application_id: id,
+          criterion_results: CRITERIA.map(c => ({ ...c, hr_reviews: reviews[c.result_id] || [] })),
+        },
+      });
+    }
+    const statusMatch = p.match(/^\/v1\/applications\/(app-\d+)\/status$/);
+    if (statusMatch && r.request().method() === 'PATCH') {
+      const body = JSON.parse(r.request().postData() || '{}');
+      return json({ ...detail, application_id: statusMatch[1], application_status: body.new_status });
+    }
+    if (/^\/v1\/applications\/app-\d+\/(status-events|profile|cv-file)$/.test(p)) {
+      if (p.endsWith('/status-events')) return json(statusEvents);
+      if (p.endsWith('/profile')) return json(profile);
+      return r.fulfill({ status: 200, contentType: 'application/pdf', body: '%PDF-1.4\n' });
+    }
     unexpected.push(`${r.request().method()} ${p}${url.search}`);
     return json({});
   };
