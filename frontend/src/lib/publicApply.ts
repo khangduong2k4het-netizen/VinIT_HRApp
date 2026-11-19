@@ -47,6 +47,22 @@ export function buildWithdrawalReceiptText(positionCode: string, positionTitle: 
   ].join('\n');
 }
 
+export function filterPublicPositions(
+  positions: PublicPosition[],
+  opts: { query?: string; unit?: string },
+): PublicPosition[] {
+  const q = (opts.query || '').trim().toLowerCase();
+  const unit = (opts.unit || '').trim();
+  return positions.filter(p => {
+    if (unit && (p.unit || '') !== unit) return false;
+    if (q) {
+      const hay = `${p.title} ${p.code} ${p.unit || ''} ${p.location || ''} ${p.employment_type || ''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
 export async function fetchPublicPositions(): Promise<PublicPosition[]> {
   const response = await fetch('/v1/public/positions', { cache: 'no-store' });
   if (!response.ok) throw new Error(String(response.status));

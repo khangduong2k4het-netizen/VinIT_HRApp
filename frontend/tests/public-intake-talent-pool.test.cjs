@@ -14,7 +14,7 @@ function load(relativePath) {
   return loaded.exports;
 }
 
-const { buildWithdrawalReceiptText, failureFromStatus, MAX_FILE_BYTES, validateCv } = load('src/lib/publicApply.ts');
+const { buildWithdrawalReceiptText, failureFromStatus, filterPublicPositions, MAX_FILE_BYTES, validateCv } = load('src/lib/publicApply.ts');
 const { buildMailtoHref, filterPoolMarks, poolRef, scanIsActive, scoreText, SKIP_REASONS } = load('src/lib/talentPool.ts');
 
 test('validateCv checks presence, extension and max file size', () => {
@@ -68,6 +68,17 @@ test('filterPoolMarks filters by query, reason and eligibility', () => {
   assert.equal(filterPoolMarks(rows, { reason: 'STRONG_FIT' }).length, 1);
   assert.equal(filterPoolMarks(rows, { eligibility: 'ELIGIBLE' }).length, 1);
   assert.equal(filterPoolMarks(rows, { eligibility: 'INELIGIBLE' }).length, 1);
+});
+
+test('filterPublicPositions filters by search text and unit', () => {
+  const jobs = [
+    { code: 'IT-01', title: 'Data Engineer', unit: 'IT Office', location: 'Hanoi', employment_type: 'FULL_TIME' },
+    { code: 'FIN-02', title: 'Senior Accountant', unit: 'Finance', location: 'Hanoi', employment_type: 'FULL_TIME' },
+  ];
+  assert.equal(filterPublicPositions(jobs, { query: 'data' }).length, 1);
+  assert.equal(filterPublicPositions(jobs, { query: 'fin-02' }).length, 1);
+  assert.equal(filterPublicPositions(jobs, { unit: 'Finance' }).length, 1);
+  assert.equal(filterPublicPositions(jobs, { unit: 'IT Office', query: 'accountant' }).length, 0);
 });
 
 test('the Talent Pool panel reloads its state when the application status changes', () => {
