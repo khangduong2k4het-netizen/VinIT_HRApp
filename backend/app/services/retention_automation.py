@@ -194,13 +194,15 @@ def record_due_reminders(db, now: datetime | None = None) -> dict[str, Any]:
     now = now or _now()
     milestones = sorted({int(day) for day in settings.RETENTION_NOTICE_DAYS})
     groups = db.execute(text("""
-        SELECT c.position_id, c.position_closed_at, MIN(c.due_date) AS due_date,
+        SELECT c.position_id, c.position_closed_at,
+               (c.due_date AT TIME ZONE 'UTC')::date AS due_on,
+               MIN(c.due_date) AS due_date,
                COUNT(*) AS open_case_count
         FROM app_private.application_retention_cases c
         JOIN app_private.positions p ON p.position_id = c.position_id
         WHERE c.status IN ('PENDING', 'SCHEDULED_FOR_DELETION')
           AND p.status = 'CLOSED' AND p.closed_at = c.position_closed_at
-        GROUP BY c.position_id, c.position_closed_at
+        GROUP BY c.position_id, c.position_closed_at, (c.due_date AT TIME ZONE 'UTC')::date
     """)).mappings().all()
     email_ids: list[str] = []
     in_app_sent = 0
@@ -219,29 +221,31 @@ def record_due_reminders(db, now: datetime | None = None) -> dict[str, Any]:
                 status = "SENT" if day == target else "SKIPPED"
                 inserted = db.execute(text("""
                     INSERT INTO app_private.retention_notifications
-                        (position_id, position_closed_at, due_date, milestone_days, recipient_user_id,
+                        (position_id, position_closed_at, due_date, due_on, milestone_days, recipient_user_id,
                          channel, status, open_case_count, sent_at)
-                    VALUES (:position_id, :closed_at, :due_date, :day, :user_id, 'IN_APP', :status,
+                    VALUES (:position_id, :closed_at, :due_date, :due_on, :day, :user_id, 'IN_APP', :status,
                             :count, CASE WHEN :status = 'SENT' THEN NOW() END)
-                    ON CONFLICT (position_id, position_closed_at, milestone_days, recipient_user_id, channel)
+                    ON CONFLICT (position_id, position_closed_at, due_on, milestone_days, recipient_user_id, channel)
                     DO NOTHING
                     RETURNING notification_id
                 """), {"position_id": position_id, "closed_at": group["position_closed_at"],
-                       "due_date": group["due_date"], "day": day, "user_id": recipient["user_id"],
+                       "due_date": group["due_date"], "due_on": group["due_on"], "day": day,
+                       "user_id": recipient["user_id"],
                        "status": status, "count": int(group["open_case_count"])}).scalar_one_or_none()
                 if inserted and status == "SENT":
                     in_app_sent += 1
             if send_email_channel and recipient.get("email"):
                 row = db.execute(text("""
                     INSERT INTO app_private.retention_notifications
-                        (position_id, position_closed_at, due_date, milestone_days, recipient_user_id,
+                        (position_id, position_closed_at, due_date, due_on, milestone_days, recipient_user_id,
                          channel, status, open_case_count)
-                    VALUES (:position_id, :closed_at, :due_date, :day, :user_id, 'EMAIL', 'PENDING', :count)
-                    ON CONFLICT (position_id, position_closed_at, milestone_days, recipient_user_id, channel)
+                    VALUES (:position_id, :closed_at, :due_date, :due_on, :day, :user_id, 'EMAIL', 'PENDING', :count)
+                    ON CONFLICT (position_id, position_closed_at, due_on, milestone_days, recipient_user_id, channel)
                     DO NOTHING
                     RETURNING notification_id
                 """), {"position_id": position_id, "closed_at": group["position_closed_at"],
-                       "due_date": group["due_date"], "day": target, "user_id": recipient["user_id"],
+                       "due_date": group["due_date"], "due_on": group["due_on"], "day": target,
+                       "user_id": recipient["user_id"],
                        "count": int(group["open_case_count"])}).scalar_one_or_none()
                 if row:
                     email_ids.append(str(row))

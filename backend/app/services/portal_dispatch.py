@@ -43,13 +43,17 @@ _READY_POSITION_SQL = """
 """
 
 
+# Both public /apply and server-to-server /v1/intake CVs can arrive while the position is busy.
+PUBLIC_INTAKE_SOURCES = ("PORTAL", "PARTNER_SITE")
+
+
 def _positions_with_held_cvs(db) -> list[str]:
     return [str(row[0]) for row in db.execute(text("""
         SELECT DISTINCT a.position_id
         FROM app_private.application_documents d JOIN app_private.applications a USING (application_id)
-        WHERE a.source_code = 'PORTAL' AND d.document_type = 'CV'
+        WHERE a.source_code = ANY(:sources) AND d.document_type = 'CV'
           AND d.file_processing_status = 'NEEDS_HR_REVIEW' AND d.processing_error = ANY(:markers)
-    """), {"markers": HELD_MARKERS}).all()]
+    """), {"sources": list(PUBLIC_INTAKE_SOURCES), "markers": HELD_MARKERS}).all()]
 
 
 def _dispatch_position(position_id: str) -> int:
@@ -66,11 +70,12 @@ def _dispatch_position(position_id: str) -> int:
         docs = db.execute(text("""
             SELECT d.document_id, d.application_id, d.original_filename, d.mime_type, d.size_bytes
             FROM app_private.application_documents d JOIN app_private.applications a USING (application_id)
-            WHERE a.position_id = :p AND a.source_code = 'PORTAL' AND d.document_type = 'CV'
+            WHERE a.position_id = :p AND a.source_code = ANY(:sources) AND d.document_type = 'CV'
               AND d.file_processing_status = 'NEEDS_HR_REVIEW' AND d.processing_error = ANY(:markers)
             ORDER BY d.created_at, d.document_id
             LIMIT :limit FOR UPDATE OF d
-        """), {"p": position_id, "markers": HELD_MARKERS, "limit": settings.MAX_FILES_PER_BATCH}).mappings().all()
+        """), {"p": position_id, "sources": list(PUBLIC_INTAKE_SOURCES), "markers": HELD_MARKERS,
+               "limit": settings.MAX_FILES_PER_BATCH}).mappings().all()
         if not docs:
             db.rollback()
             return 0

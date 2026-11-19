@@ -318,10 +318,13 @@ def withdraw_talent_pool(body: WithdrawInput):
             WHERE withdrawal_token_hash = :h AND purpose = 'TALENT_POOL' AND withdrawn_at IS NULL RETURNING application_id"""),
                          {"h": hash_token(body.token)}).first()
         if row:
+            position_id = db.execute(text("SELECT position_id FROM app_private.applications WHERE application_id = :a"),
+                                     {"a": row[0]}).scalar_one_or_none()
             db.execute(text("UPDATE app_private.talent_pool_marks SET removed_at = NOW() WHERE application_id = :a AND removed_at IS NULL"),
                        {"a": row[0]})
-            db.execute(text("""INSERT INTO app_private.audit_events(action_type, object_type, object_id, outcome)
-                VALUES ('WITHDRAW_TALENT_POOL_CONSENT_BY_CANDIDATE', 'APPLICATION', :a, 'SUCCESS')"""), {"a": row[0]})
+            db.execute(text("""INSERT INTO app_private.audit_events(action_type, object_type, object_id, position_id, outcome)
+                VALUES ('WITHDRAW_TALENT_POOL_CONSENT_BY_CANDIDATE', 'APPLICATION', :a, :p, 'SUCCESS')"""),
+                       {"a": row[0], "p": position_id})
         db.commit()
         return {"status": "ok"}
     except Exception:

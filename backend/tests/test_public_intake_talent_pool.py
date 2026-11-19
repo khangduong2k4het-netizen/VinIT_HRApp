@@ -445,6 +445,8 @@ def test_eligible_pool_excludes_withdrawn_expired_and_pending_deletion(client, s
             db.close()
     assert ids() == {good, withdrawn, expired, held}
     assert client.post(f"/v1/talent-pool/applications/{withdrawn}/withdraw-consent", headers=hr, json={"reference": "ref-1"}).status_code == 200
+    assert _count("""SELECT evidence->>'withdrawal_reference' FROM app_private.application_data_consents
+        WHERE application_id = :a AND purpose = 'TALENT_POOL'""", a=withdrawn) == "ref-1"
     assert client.post(f"/v1/talent-pool/applications/{withdrawn}/withdraw-consent", headers=hr, json={}).status_code == 404
     with engine.begin() as conn:
         conn.execute(text("""UPDATE app_private.application_data_consents SET granted_at = NOW() - INTERVAL '61 months'
@@ -476,7 +478,8 @@ def test_candidate_withdraws_with_token_and_duplicates_are_idempotent(client, po
     assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE purpose = 'TALENT_POOL' AND withdrawn_at IS NOT NULL") == 0
     assert client.post("/v1/public/talent-pool/withdraw", json={"token": token}).json() == {"status": "ok"}
     assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE purpose = 'TALENT_POOL' AND withdrawn_at IS NOT NULL") == 1
-    assert _count("SELECT COUNT(*) FROM app_private.audit_events WHERE action_type = 'WITHDRAW_TALENT_POOL_CONSENT_BY_CANDIDATE'") == 1
+    assert _count("""SELECT COUNT(*) FROM app_private.audit_events
+        WHERE action_type = 'WITHDRAW_TALENT_POOL_CONSENT_BY_CANDIDATE' AND position_id = :p""", p=seed["pos"]) == 1
     assert client.post("/v1/public/talent-pool/withdraw", json={"token": "xyz"}).status_code == 422
 
 

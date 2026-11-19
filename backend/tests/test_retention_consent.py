@@ -137,3 +137,30 @@ def test_switching_policy_cancels_only_cases_of_consented_applications(client, s
                 WHERE application_id IN (:a, :b)"""), {"a": seed["app"], "b": seed["app2"]}).all())
         assert rows == {seed["app"]: "CANCELLED", seed["app2"]: "PENDING"}
         assert automation.run_retention_cycle()["cases_cancelled_policy_extended"] == 0
+
+
+@integration
+def test_reminders_fire_for_both_12month_and_5year_due_dates_in_same_position(client, seed):
+    """Reminders for 12-month cases must not silence reminders for 5-year Talent Pool cases of the same position."""
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    closed_at = now - timedelta(days=355)  # 12-month case due in ~10 days
+    consented_at = now - timedelta(days=365 * 5 - 20)  # 5-year case due in ~20 days (different calendar day)
+    second_app = uid()
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.positions SET status = 'CLOSED', closed_at = :c WHERE position_id = :p"),
+                     {"c": closed_at, "p": seed["pos"]})
+        conn.execute(text("INSERT INTO app_private.applications(application_id, position_id, source_code) VALUES (:a, :p, 'PORTAL')"),
+                     {"a": second_app, "p": seed["pos"]})
+        conn.execute(text("""INSERT INTO app_private.application_data_consents(application_id, purpose, notice_version, channel, granted_at)
+            VALUES (:a, 'TALENT_POOL', 'v2', 'PORTAL', :g)"""), {"a": second_app, "g": consented_at})
+    with _policy("test-consent", 60, 12):
+        summary = automation.run_retention_cycle(now=now)
+        assert summary["cases_created"] == 2
+        with engine.connect() as conn:
+            due_days = conn.execute(text("""SELECT DISTINCT due_on FROM app_private.retention_notifications
+                WHERE position_id = :p AND recipient_user_id = :u AND channel = 'IN_APP' AND status = 'SENT'"""),
+                                    {"p": seed["pos"], "u": seed["hr"]}).scalars().all()
+        assert len(due_days) == 2
+        # Running again is idempotent for both due dates.
+        assert automation.run_retention_cycle(now=now)["in_app_reminders_sent"] == 0
