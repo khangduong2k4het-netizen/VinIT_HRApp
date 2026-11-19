@@ -21,7 +21,8 @@
     "test:e2e:drafts-mock": "node tests/draft-back-guard-mock.e2e.cjs",
     "test:e2e:deadline-mock": "node tests/deadline-work-queue-mock.e2e.cjs",
     "test:e2e:ranking-compact": "node tests/ranking-compact-mock.e2e.cjs",
-    "test:e2e:settings-mock": "node tests/settings-mock.e2e.cjs"
+    "test:e2e:settings-mock": "node tests/settings-mock.e2e.cjs",
+    "test:review-metrics": "node tests/review-metrics.cjs"
   },
   "dependencies": {
     "@emotion/cache": "11.14.0",
