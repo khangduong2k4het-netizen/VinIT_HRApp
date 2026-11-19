@@ -34,23 +34,69 @@ test('interpolation and existing alerts switch languages in both directions', ()
   assert.equal(translate(vi, 'vi', 2), 'Đã chọn 2 hồ sơ để chia sẻ');
 });
 
+// Vietnamese-only letters: tells a human label apart from a code such as
+// 'IN_REVIEW' or 'application/pdf', which must never need a translation.
+const VIETNAMESE = /[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]/i;
+const EQUALITY = new Set([
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+]);
+const isText = node => Boolean(node) && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node));
+
+/**
+ * Keys the interface will ask the dictionary for, read from the syntax tree (so
+ * comments and docs are never mistaken for labels):
+ *  - `t('literal')` anywhere under src/;
+ *  - every Vietnamese literal in src/lib, because those are the labels and
+ *    messages the UI translates later (`t(LABELS[x])`) or renders as an error.
+ * A Vietnamese literal compared against server data is a contract, not a label,
+ * so it is skipped.
+ */
+function translationKeys(file, content) {
+  const source = ts.createSourceFile(
+    file,
+    content,
+    ts.ScriptTarget.ES2020,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const inLib = file.includes(`${path.sep}src${path.sep}lib${path.sep}`);
+  const keys = new Set();
+  const visit = node => {
+    const argument = ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 't'
+      ? node.arguments[0] : null;
+    if (isText(argument)) keys.add(argument.text);
+    else if (inLib && isText(node) && VIETNAMESE.test(node.text)
+      && !(ts.isBinaryExpression(node.parent) && EQUALITY.has(node.parent.operatorToken.kind))) {
+      keys.add(node.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return keys;
+}
+
 test('all literal UI translation keys have an English entry', () => {
   const dictionary = require('../src/i18n/en.json');
   const root = path.join(__dirname, '../src');
   const missing = [];
+  let scanned = 0;
   function walk(dir) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const file = path.join(dir, entry.name);
       if (entry.isDirectory()) { walk(file); continue; }
-      if (!/\.tsx$/.test(file) || file.includes(`${path.sep}i18n${path.sep}`)) continue;
+      if (!/\.tsx?$/.test(file) || file.endsWith('.d.ts')) continue;
+      if (file.includes(`${path.sep}i18n${path.sep}`)) continue;
+      scanned += 1;
       const content = fs.readFileSync(file, 'utf8');
-      for (const match of content.matchAll(/\bt\(("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g)) {
-        let key;
-        try { key = match[1][0] === '"' ? JSON.parse(match[1]) : match[1].slice(1, -1); } catch { continue; }
+      for (const key of translationKeys(file, content)) {
         if (!(key in dictionary)) missing.push(`${path.relative(root, file)}: ${key}`);
       }
     }
   }
   walk(root);
+  assert.ok(scanned > 0, 'the scan must actually read source files');
   assert.deepEqual(missing, []);
 });

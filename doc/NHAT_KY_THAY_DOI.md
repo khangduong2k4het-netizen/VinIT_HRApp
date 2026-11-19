@@ -9,6 +9,65 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-19 — Test i18n bắt được nhãn trong `src/lib` và lỗi trang ứng tuyển
+
+**Vấn đề.** Test i18n chỉ quét file `.tsx` và chỉ tìm `t('<literal>')`, nên hai loại
+chuỗi thoát lưới. (1) Nhãn khai báo trong `src/lib` (bảng nhãn hàng đợi, thông điệp
+lỗi trả về nguyên văn): giao diện dịch chúng qua `t(LABELS[x])` nên test không thấy
+khoá nào và một nhãn mới có thể lên production mà không có bản dịch. (2) Lỗi của
+form ứng tuyển công khai: `careers/page.tsx` render thẳng `{error}`, nên câu tiếng
+Việt vẫn hiện nguyên khi người dùng chọn tiếng Anh, dù khoá đã có bản dịch trong
+`en.json`.
+
+**Thay đổi.**
+
+- `frontend/tests/i18n.test.cjs`: đọc bằng AST thay vì regex (comment không bị tính
+  là nhãn) và mở rộng phạm vi thành đúng hai luật: `t('literal')` ở mọi file
+  `.ts`/`.tsx` dưới `src` (trừ `src/i18n`), cộng mọi literal tiếng Việt trong
+  `src/lib`. Literal nằm trong phép so sánh (`===`, `==`, `!==`, `!=`) được bỏ qua
+  vì đó là hợp đồng với server (`'IN_REVIEW'`, `'application/pdf'`), không phải nhãn.
+  Sau khi mở rộng đã rút lại còn hai luật này (bỏ nhánh `PropertyAssignment` /
+  `ReturnStatement` thừa) và kiểm chứng âm: test bắt được literal trong
+  `src/lib/intake.ts` và `src/lib/workQueueLabels.ts`, và không đòi dịch mã trạng thái.
+- `frontend/src/app/careers/page.tsx`: render `{t(error)}`.
+- `frontend/src/i18n/en.json`: thêm 6 bản dịch cho các câu lỗi của form ứng tuyển
+  (không rõ đã nhận hay chưa, mã yêu cầu đã dùng, yêu cầu hết hạn, dịch vụ chưa
+  sẵn sàng, dữ liệu không hợp lệ, lỗi chung).
+- `frontend/tests/intake-ui.e2e.cjs`: thêm một lượt chạy giao diện tiếng Anh — gửi
+  hồ sơ thử nghiệm với API bị ngắt và khẳng định câu lỗi hiện bằng tiếng Anh, không
+  rơi về tiếng Việt.
+
+**Kiểm thử.** `npm run test:i18n` 3/3, `npm run test:unit` 44/44, `npm run lint` và
+`npm run build` pass; e2e `intake-ui` pass (gồm kiểm tra "Careers failure message
+follows the selected language: OK").
+
+**Chưa kiểm.** Chưa dịch phần còn lại của trang careers (tiêu đề, nút, cảnh báo vẫn
+là tiếng Việt ở cả hai ngôn ngữ); mới kiểm đúng câu lỗi mà form trả về.
+
+## 2026-11-19 — Bỏ nốt từ vựng "matching" khỏi bản dịch tiếng Anh
+
+**Vấn đề.** Giao diện đã thay "matching" bằng từ vựng nghiệp vụ ở lượt trước, nhưng
+`frontend/src/i18n/en.json` vẫn còn 11 khoá mở đầu bằng "Điểm matching", "Nhóm
+matching", "Chạy matching"… Không màn hình nào còn hỏi những khoá này, nên chúng là
+bản dịch mồ côi: người đọc file dễ tưởng giao diện vẫn dùng "matching", và lần sau
+thêm lại thuật ngữ cũ sẽ không ai thấy mâu thuẫn. Ngược lại, khoá "Tất cả" (nhãn bộ
+lọc đầu tiên) đang được dùng thật nhưng thiếu bản dịch, nên ở giao diện tiếng Anh
+nhãn đó vẫn là tiếng Việt.
+
+**Thay đổi** (chỉ dữ liệu, `frontend/src/i18n/en.json`):
+
+- Xoá 11 khoá chứa "matching": "Điểm matching tổng hợp", "Lọc theo nhóm matching",
+  "Nhóm matching", "Điểm matching", "Điểm matching cao nhất", "Chưa matching",
+  "Chạy matching", "Một số hồ sơ đã sẵn sàng nhưng chưa được matching.", "Đã
+  matching", "Hồ sơ chưa matching", "Matching & HR rà soát".
+- Thêm `"Tất cả": "All"`.
+
+**Kiểm thử.** `npm run test:i18n` 3/3 (test quét đúng các khoá `t('...')` trong
+`src`), `npm run build` pass.
+
+**Chưa kiểm.** Chưa mở lại màn hình xếp hạng ở chế độ tiếng Anh để nhìn nhãn bộ lọc
+sau khi thêm bản dịch; chỉ khẳng định bằng test và build.
+
 ## 2026-11-19 — Thanh hành động nổi dùng được trên điện thoại
 
 **Vấn đề.** Đo trên Chromium 390×844 (và 360×640): thanh hành động nổi

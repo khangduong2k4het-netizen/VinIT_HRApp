@@ -9,7 +9,7 @@ type Job = { position_id: string; position_code: string; title: string; org_unit
 type JobPage = { items: Job[]; next_cursor: string | null };
 
 export default function CareersPage() {
-  const { dateLocale } = useI18n();
+  const { t, dateLocale } = useI18n();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -69,7 +69,7 @@ export default function CareersPage() {
   return <Container maxWidth="md" sx={{ py: 5 }}>
     <Typography variant="h1" sx={{ fontSize: 30, mb: 2 }}>Vị trí đang tuyển dụng</Typography>
     <Alert severity="warning" sx={{ mb: 3 }}>Chỉ kiểm thử với CV và thông tin tổng hợp, email dạng @example.test. Không gửi thông tin cá nhân hoặc CV thật.</Alert>
-    {error && <Alert severity="error" sx={{ mb: 2 }} action={!job ? <Button color="inherit" onClick={() => void load(cursor)}>Thử lại</Button> : undefined}>{error}</Alert>}
+    {error && <Alert severity="error" sx={{ mb: 2 }} action={!job ? <Button color="inherit" onClick={() => void load(cursor)}>Thử lại</Button> : undefined}>{t(error)}</Alert>}
     {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
     {savedToken && <Alert severity="info" sx={{ mb: 2 }}>Mã rút lựa chọn thử nghiệm: <Box component="code" sx={{ overflowWrap: 'anywhere' }}>{savedToken}</Box>. Lưu mã và dùng tại /pool-withdraw.</Alert>}
     {!loading && !error && !jobs.length && <Typography>Hiện chưa có vị trí còn hạn.</Typography>}

@@ -68,6 +68,33 @@ const stamp = '2026-01-01T12:00:00+00:00';
     await page.getByRole('combobox', { name: 'Vị trí đích có rubric duyệt' }).click(); await page.getByRole('option', { name: 'TEST-02 · Vị trí đích giả', exact: true }).click();
     await page.getByRole('button', { name: 'Tìm hồ sơ đủ điều kiện' }).click(); await visible('không có kết quả đủ điều kiện tại thời điểm tìm'); assert.equal(state.scanned, 1);
     console.log('Talent Pool snapshot and empty result: OK');
+    // --- The careers error is translated, not just wrapped in t() ------------
+    // Same aborted submit, English UI. Only the message is asserted: the rest of
+    // this public demo page is still intentionally Vietnamese.
+    const english = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await english.addInitScript(() => {
+      localStorage.setItem('hra_access_token', 'fake-hr-test-token');
+      localStorage.setItem('hra_locale', 'en');
+    });
+    await english.route('**/v1/**', async route => {
+      const req = route.request(), path = new URL(req.url()).pathname, method = req.method();
+      if (path === '/v1/auth/me') return json(route, { user_id: 'synthetic-user', email: 'hr@example.test', display_name: 'Fake HR', must_change_password: false, system_roles: ['HR_LEAD'], position_assignments: [] });
+      if (path === '/v1/careers/jobs' && method === 'GET') return json(route, { items: [{ position_id: position, position_code: 'TEST-01', title: 'Vị trí giả', org_unit: null, work_location: null, work_mode: null, employment_type: null, application_deadline_at: '2099-01-01T00:00:00Z', description: null, can_apply_test: true }], next_cursor: null });
+      if (path === `/v1/careers/jobs/${position}/apply` && method === 'POST') return route.abort('failed');
+      return json(route, { detail: 'Unmocked synthetic API' }, 500);
+    });
+    const englishPage = await english.newPage();
+    await englishPage.goto(base + '/careers', { waitUntil: 'networkidle' });
+    await englishPage.getByRole('button', { name: 'Ứng tuyển thử nghiệm' }).click();
+    await englishPage.getByLabel('Tên tổng hợp').fill('Synthetic Person');
+    await englishPage.getByLabel('Email tổng hợp @example.test').fill('person@example.test');
+    await englishPage.locator('input[type=file]').setInputFiles({ name: 'fake.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-synthetic-only') });
+    await englishPage.getByRole('button', { name: 'Gửi hồ sơ thử nghiệm' }).click();
+    await englishPage.getByText('We cannot tell whether the application was received', { exact: false }).first().waitFor({ timeout: 20000 });
+    assert.equal(await englishPage.getByText('Không biết hồ sơ đã được nhận hay chưa', { exact: false }).count(), 0, 'the English UI must not fall back to the Vietnamese message');
+    console.log('Careers failure message follows the selected language: OK');
+    await english.close();
+
     if (errors.length) throw Error(errors.join('\n'));
   } catch (error) { console.error('Synthetic UI:', (await page.locator('body').innerText()).slice(0, 4000)); throw error; } finally { await browser.close(); }
 })().catch(err => { console.error(err); process.exit(1); });
