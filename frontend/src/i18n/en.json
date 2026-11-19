@@ -1499,5 +1499,6 @@
   "Storage không có file mồ côi.": "There are no orphaned files in Storage.",
   "Đã dọn {0} file mồ côi trên Storage.": "Cleaned up {0} orphaned files in Storage.",
   "Quản trị hệ thống": "System administration",
-  "Cấu hình, giám sát dịch vụ xử lý và dọn dữ liệu kiểm thử": "Configure and monitor processing services, and clear test data"
+  "Cấu hình, giám sát dịch vụ xử lý và dọn dữ liệu kiểm thử": "Configure and monitor processing services, and clear test data",
+  "Hệ thống": "System"
 }

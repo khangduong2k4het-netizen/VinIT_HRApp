@@ -30,7 +30,7 @@ const menuGroups = [
     ],
   },
   {
-    label: 'Quản trị',
+    label: 'Hệ thống',
     adminOnly: true,
     items: [
       { text: 'Quản trị hệ thống', icon: <SettingsIcon />, href: '/admin' },
