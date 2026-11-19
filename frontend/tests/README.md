@@ -62,3 +62,9 @@ Storage, ClamAV or VPS involvement).
 
 Run with `HRA_E2E_BASE_URL` pointing at the local server and a Chromium
 executable (see the commands in `doc/PLAN_CAI_TIEN_WORKFLOW_UX_HR_HM.md`).
+
+- `a11y-mock.e2e.cjs` — accessible-name audit of every visible, focusable
+  control on the create page and the share workspace (desktop and mobile),
+  keyboard-only reach of the required title field, `aria-pressed` candidate
+  selection, evidence accordion opened with Enter, and no horizontal overflow.
+  It is a smoke check, **not** a screen-reader or contrast audit.

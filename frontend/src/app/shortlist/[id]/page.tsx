@@ -141,7 +141,7 @@ export default function ShareWorkspace() {
       </CardContent></Card></Grid>
       <Grid item xs={12} md={8}><Card variant="outlined"><CardContent>
         {/* Announce the switch for assistive tech without moving focus away from the list. */}
-        <Box aria-live="polite" sx={{ position: 'absolute', width: 1, height: 1, margin: -1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' }}>{candidate && t('Đang đánh giá {0}', candidate.candidate_name || candidate.display_name || t('ứng viên'))}</Box>
+        <Box aria-live="polite" sx={{ position: 'absolute', left: 0, top: 0, width: 1, height: 1, margin: -1, padding: 0, border: 0, overflow: 'hidden', clip: 'rect(0 0 0 0)', clipPath: 'inset(50%)', whiteSpace: 'nowrap' }}>{candidate && t('Đang đánh giá {0}', candidate.candidate_name || candidate.display_name || t('ứng viên'))}</Box>
         {candidate && <><Typography variant="h2" sx={{ fontSize: 20, mb: 1 }}>{candidate.candidate_name || candidate.display_name || t('Ứng viên')}</Typography>
           <Button component={Link} href={`/positions/${share.position_id}/applicants/${candidate.application_id}?share=${encodeURIComponent(shareId)}`} sx={{ ml: 1, mb: 1 }} size="small">{t('Xem hồ sơ ứng viên')}</Button><br />
           <Chip size="small" sx={{ mb: 1 }} label={matchingLabel(candidate.matching_status)} />
