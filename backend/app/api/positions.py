@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from typing import List, Optional
 from uuid import UUID
 from app.core.security import get_current_user
@@ -11,6 +11,7 @@ from app.services.workspace import build_workflow
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 import json
+import hashlib
 from app.core.logging import get_logger
 
 router = APIRouter()
@@ -91,6 +92,7 @@ async def list_positions(
 @router.post("", response_model=Position, status_code=status.HTTP_201_CREATED)
 async def create_position(
     position_data: PositionCreate,
+    response: Response,
     current_user: dict = Depends(get_current_user)
 ):
     """Create the position, JD and assignments atomically."""
@@ -100,6 +102,8 @@ async def create_position(
         if not value or (field != "jd_content" and len(value) > 200):
             raise HTTPException(status_code=400, detail="Tên vị trí và nội dung JD không được để trống")
         setattr(position_data, field, value)
+    if position_data.application_deadline_at is not None and position_data.application_deadline_at.utcoffset() is None:
+        raise HTTPException(status_code=400, detail="Hạn ứng tuyển cần múi giờ rõ ràng")
     if not position_data.hiring_manager_user_id:
         raise HTTPException(status_code=400, detail="Vui lòng chọn Hiring Manager phụ trách vị trí")
     hm_id = str(position_data.hiring_manager_user_id)
@@ -118,6 +122,33 @@ async def create_position(
         """), {"user_id": user_id}).scalars().all()
         if actor_status != 'ACTIVE' or not (actor_roles or position_roles):
             raise HTTPException(status_code=403, detail="Chỉ HR được phép tạo vị trí tuyển dụng")
+        request_fingerprint = None
+        if position_data.request_id is not None:
+            # Serialize identical retries before allocating a department sequence.
+            # The advisory lock is held until this transaction commits/rolls back.
+            payload = position_data.model_dump(mode='json', exclude={'request_id'})
+            request_fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode('utf-8')).hexdigest()
+            key = f"position-create:{user_id}:{position_data.request_id}"
+            db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {'key': key})
+            receipt = db.execute(text("""SELECT request_fingerprint, position_id FROM app_private.position_create_requests
+                WHERE actor_user_id=:actor AND request_id=:request_id"""), {'actor': user_id, 'request_id': str(position_data.request_id)}).mappings().first()
+            if receipt:
+                if receipt['request_fingerprint'] != request_fingerprint:
+                    raise HTTPException(409, 'Mã yêu cầu đã được dùng với nội dung khác.')
+                if receipt['position_id'] is None:
+                    raise HTTPException(410, 'Vị trí của yêu cầu này không còn tồn tại.')
+                if not set(actor_roles).intersection({'ADMIN', 'HR_LEAD'}) and not db.execute(text("""SELECT 1 FROM app_private.position_assignments
+                    WHERE position_id=:position_id AND user_id=:actor AND revoked_at IS NULL
+                      AND position_role IN ('HR_RECRUITER', 'HR_LEAD')"""), {'position_id': receipt['position_id'], 'actor': user_id}).first():
+                    raise HTTPException(403, 'Bạn không còn quyền truy cập vị trí đã tạo.')
+                existing = db.execute(text("""SELECT p.*, d.name AS department_name, d.code_format AS department_code_format
+                    FROM app_private.positions p LEFT JOIN app_private.departments d ON d.department_id=p.department_id
+                    WHERE p.position_id=:id"""), {'id': receipt['position_id']}).mappings().first()
+                if not existing:
+                    raise HTTPException(410, 'Vị trí của yêu cầu này không còn tồn tại.')
+                response.status_code = status.HTTP_200_OK
+                response.headers['Idempotent-Replay'] = 'true'
+                return dict(existing)
         if hm_id == str(user_id):
             raise HTTPException(status_code=400, detail="HR và Hiring Manager phải là hai tài khoản khác nhau.")
         hm_status = db.execute(text("""
@@ -143,7 +174,7 @@ async def create_position(
             family_name = db.execute(text("SELECT name FROM app_private.job_families WHERE job_family_id=:id AND is_active FOR SHARE"), {'id': str(position_data.job_family_id)}).scalar_one_or_none()
             if family_name is None:
                 raise HTTPException(status_code=400, detail="Nhóm vị trí không hoạt động")
-        params = position_data.model_dump(exclude={"jd_content", "hiring_manager_user_id"})
+        params = position_data.model_dump(exclude={"jd_content", "hiring_manager_user_id", "jd_language_code", "request_id"})
         params.update({
             "position_code": position_code,
             "job_family_id": str(position_data.job_family_id) if position_data.job_family_id else None,
@@ -155,9 +186,9 @@ async def create_position(
         })
         new_position = db.execute(text("""
             INSERT INTO app_private.positions (position_code, title, job_family, job_family_id, org_unit, level, work_location,
-                work_mode, employment_type, headcount, created_by, department_id, department_sequence)
+                work_mode, employment_type, headcount, created_by, department_id, department_sequence, application_deadline_at)
             VALUES (:position_code, :title, :job_family, :job_family_id, :org_unit, :level, :work_location,
-                :work_mode, :employment_type, :headcount, :created_by, :department_id, :department_sequence) RETURNING *
+                :work_mode, :employment_type, :headcount, :created_by, :department_id, :department_sequence, :application_deadline_at) RETURNING *
         """), params).mappings().one()
         position_id = new_position["position_id"]
         db.execute(text("""
@@ -167,13 +198,17 @@ async def create_position(
         """), {"next_sequence": department_sequence + 1, "department_id": str(position_data.department_id)})
         db.execute(text("""
             INSERT INTO app_private.jd_versions (position_id, version_number, content_text, language_code, created_by)
-            VALUES (:position_id, 1, :content, 'en', :user_id)
-        """), {"position_id": position_id, "content": position_data.jd_content, "user_id": user_id})
+            VALUES (:position_id, 1, :content, :language, :user_id)
+        """), {"position_id": position_id, "content": position_data.jd_content, "language": position_data.jd_language_code, "user_id": user_id})
         for assigned_user, role in ((user_id, "HR_RECRUITER"), (hm_id, "HIRING_MANAGER")):
             db.execute(text("""
                 INSERT INTO app_private.position_assignments (position_id, user_id, position_role, assigned_by)
                 VALUES (:position_id, :assigned_user, :role, :user_id)
             """), {"position_id": position_id, "assigned_user": assigned_user, "role": role, "user_id": user_id})
+        if position_data.request_id is not None:
+            db.execute(text("""INSERT INTO app_private.position_create_requests(actor_user_id, request_id, request_fingerprint, position_id)
+                VALUES (:actor, :request_id, :fingerprint, :position_id)"""),
+                {'actor': user_id, 'request_id': str(position_data.request_id), 'fingerprint': request_fingerprint, 'position_id': position_id})
         db.commit()
         created = dict(new_position)
         created["department_name"] = department["name"]

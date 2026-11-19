@@ -2801,3 +2801,103 @@ def test_change_hm_multiple_assignments_revokes_all_old_shares(client, seed):
         assert client.get(f'/v1/shortlist/{share}', headers=headers(hm)).status_code == 403
     current = client.get(base+'/hiring-managers', headers=headers(seed['hr'])).json()
     assert [str(person['user_id']) for person in current] == [seed['hr2']]
+
+
+def test_position_jd_v1_language_deadline_and_validation_in_real_db(client, seed):
+    department_id = create_test_department()
+    payload = {"department_id": department_id, "title": "UX synthetic", "jd_content": "Mô tả công việc giả", "hiring_manager_user_id": seed['hm']}
+    for language in ('vi', 'en'):
+        result = client.post('/v1/positions', headers=headers(seed['hr']), json={**payload, 'jd_language_code': language, 'application_deadline_at': '2031-01-01T03:00:00+07:00'})
+        assert result.status_code == 201, result.text
+        with engine.connect() as conn:
+            row = conn.execute(text('''SELECT j.version_number,j.language_code,j.content_text,p.application_deadline_at
+                FROM app_private.jd_versions j JOIN app_private.positions p ON p.position_id=j.position_id WHERE j.position_id=:p'''), {'p': result.json()['position_id']}).one()
+        assert row.version_number == 1 and row.language_code == language and row.content_text == payload['jd_content']
+        assert row.application_deadline_at.isoformat() == '2030-12-31T20:00:00+00:00'
+    legacy = client.post('/v1/positions', headers=headers(seed['hr']), json=payload)
+    assert legacy.status_code == 201, legacy.text
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT language_code FROM app_private.jd_versions WHERE position_id=:p'), {'p': legacy.json()['position_id']}).scalar_one() == 'en'
+    assert client.post('/v1/positions', headers=headers(seed['hr']), json={**payload, 'jd_content': '   '}).status_code == 400
+    assert client.post('/v1/positions', headers=headers(seed['hr']), json={**payload, 'jd_language_code': 'fr'}).status_code == 422
+    assert client.post('/v1/positions', headers=headers(seed['hr']), json={**payload, 'application_deadline_at': '2031-01-01T03:00:00'}).status_code == 400
+
+
+def test_position_creation_rolls_back_jd_assignment_and_sequence_on_database_failure(client, seed):
+    department_id = create_test_department()
+    with engine.begin() as conn:
+        conn.execute(text('''CREATE FUNCTION app_private.test_reject_hm_assignment() RETURNS trigger AS $$
+            BEGIN IF NEW.position_role='HIRING_MANAGER' AND EXISTS (SELECT 1 FROM app_private.positions WHERE position_id=NEW.position_id AND title='UX rollback test')
+              THEN RAISE EXCEPTION 'synthetic rollback' USING ERRCODE='23514'; END IF; RETURN NEW; END $$ LANGUAGE plpgsql'''))
+        conn.execute(text('CREATE TRIGGER test_reject_hm_assignment BEFORE INSERT ON app_private.position_assignments FOR EACH ROW EXECUTE FUNCTION app_private.test_reject_hm_assignment()'))
+    payload = {'department_id': department_id, 'title': 'UX rollback test', 'jd_content': 'JD synthetic', 'hiring_manager_user_id': seed['hm'], 'jd_language_code': 'vi'}
+    try:
+        result = client.post('/v1/positions', headers=headers(seed['hr']), json=payload)
+        assert result.status_code == 409, result.text
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT COUNT(*) FROM app_private.positions WHERE title='UX rollback test'")).scalar_one() == 0
+            assert conn.execute(text('SELECT next_sequence FROM app_private.departments WHERE department_id=:d'), {'d': department_id}).scalar_one() == 1
+            assert conn.execute(text("SELECT COUNT(*) FROM app_private.jd_versions WHERE content_text='JD synthetic' AND language_code='vi'")).scalar_one() == 0
+        result = client.post('/v1/positions', headers=headers(seed['hr']), json={**payload, 'title': 'UX retry after rollback'})
+        assert result.status_code == 201 and result.json()['position_code'] == 'REQ-IT-001', result.text
+    finally:
+        with engine.begin() as conn:
+            conn.execute(text('DROP TRIGGER test_reject_hm_assignment ON app_private.position_assignments'))
+            conn.execute(text('DROP FUNCTION app_private.test_reject_hm_assignment()'))
+
+
+def test_position_creation_is_idempotent_and_replays_the_same_position(client, seed):
+    department_id = create_test_department()
+    request_id = uid()
+    payload = {"department_id": department_id, "title": "UX idempotent", "jd_content": "JD giả cho retry",
+               "hiring_manager_user_id": seed['hm'], "jd_language_code": "vi", "request_id": request_id}
+    first = client.post('/v1/positions', headers=headers(seed['hr']), json=payload)
+    assert first.status_code == 201, first.text
+    retry = client.post('/v1/positions', headers=headers(seed['hr']), json=payload)
+    # A transport retry returns the original position rather than consuming another code.
+    assert retry.status_code == 200 and retry.headers.get('Idempotent-Replay') == 'true'
+    assert retry.json()['position_id'] == first.json()['position_id']
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM app_private.positions WHERE title='UX idempotent'")).scalar_one() == 1
+        assert conn.execute(text('SELECT next_sequence FROM app_private.departments WHERE department_id=:d'), {'d': department_id}).scalar_one() == 2
+        assert conn.execute(text('SELECT COUNT(*) FROM app_private.jd_versions WHERE content_text=:c'), {'c': payload['jd_content']}).scalar_one() == 1
+        assert conn.execute(text('SELECT request_fingerprint FROM app_private.position_create_requests WHERE actor_user_id=:a AND request_id=:r'),
+                            {'a': seed['hr'], 'r': request_id}).scalar_one() is not None
+    conflict = client.post('/v1/positions', headers=headers(seed['hr']), json={**payload, 'title': 'UX idempotent changed'})
+    assert conflict.status_code == 409, conflict.text
+    # Another HR account cannot replay someone else's receipt, and a new key creates a new position.
+    other_actor = client.post('/v1/positions', headers=headers(seed['hr2']), json={**payload, 'hiring_manager_user_id': seed['other']})
+    assert other_actor.status_code in (201, 400, 403), other_actor.text
+    fresh = client.post('/v1/positions', headers=headers(seed['hr']), json={**payload, 'request_id': uid(), 'title': 'UX idempotent copy'})
+    assert fresh.status_code == 201 and fresh.json()['position_id'] != first.json()['position_id']
+    assert fresh.json()['position_code'] != first.json()['position_code']
+
+
+def test_position_creation_idempotency_hides_a_position_after_access_is_revoked(client, seed):
+    department_id = create_test_department()
+    request_id = uid()
+    payload = {"department_id": department_id, "title": "UX access revocation", "jd_content": "JD giả",
+               "hiring_manager_user_id": seed['hm'], "jd_language_code": "vi", "request_id": request_id}
+    assert client.post('/v1/positions', headers=headers(seed['hr']), json=payload).status_code == 201
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.position_assignments SET revoked_at=NOW() WHERE user_id=:u AND position_role='HR_RECRUITER'"), {'u': seed['hr']})
+        conn.execute(text("UPDATE app_private.user_role_assignments SET revoked_at=NOW() WHERE user_id=:u AND role_code='HR_RECRUITER'"), {'u': seed['hr']})
+    assert client.post('/v1/positions', headers=headers(seed['hr']), json=payload).status_code == 403
+    # An unrelated HR still needs a valid Hiring Manager assignment.
+    assert client.post('/v1/positions', headers=headers(seed['hr2']), json={**payload, 'request_id': uid(), 'hiring_manager_user_id': seed['other']}).status_code == 400
+
+
+def test_concurrent_position_creation_keeps_department_codes_unique(client, seed):
+    from concurrent.futures import ThreadPoolExecutor
+    department_id = create_test_department()
+    payload = {'department_id': department_id, 'title': 'Concurrent synthetic', 'jd_content': 'JD synthetic', 'hiring_manager_user_id': seed['hm'], 'jd_language_code': 'vi'}
+    def create(_):
+        with TestClient(app) as local_client:
+            response = local_client.post('/v1/positions', headers=headers(seed['hr']), json=payload)
+            return response.status_code, response.json()
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(create, range(4)))
+    assert [status for status, _ in results] == [201] * 4, results
+    assert sorted(data['position_code'] for _, data in results) == [f'REQ-IT-{n:03}' for n in range(1, 5)]
+    with engine.connect() as conn:
+        assert conn.execute(text('SELECT next_sequence FROM app_private.departments WHERE department_id=:d'), {'d': department_id}).scalar_one() == 5
