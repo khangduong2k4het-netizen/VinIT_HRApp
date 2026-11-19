@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-from app.services.talent_pool_scan import score_cv
+from app.services.talent_pool_scan import score_cv, usable_candidate_name
 
 CRITERIA = [
     {"criterion_id": "c-py", "name": "Python", "description": "Python experience", "category": "MUST_HAVE",
@@ -154,6 +154,44 @@ def test_withdrawn_candidate_disappears_from_results_and_cannot_be_decided(clien
         left = conn.execute(text("SELECT COUNT(*) FROM app_private.talent_pool_scan_results WHERE scan_id = :s"),
                             {"s": scan_id}).scalar_one()
     assert left == 1
+
+
+@pytest.mark.parametrize("display_name,cv_filename,expected", [
+    ("Tran_Thu_Ha_CV", "Tran_Thu_Ha_CV.docx", None),      # the file name is not a name
+    ("cv1", "cv1.docx", None),
+    ("Nguyen Van An.pdf", "other.pdf", None),             # still carries an extension
+    ("Nguyen Van An", "Nguyen Van An.pdf", None),         # same as the file name stem
+    ("Nguyen_Van_An", "scan.pdf", None),                  # underscores mean a file name
+    ("", "cv.docx", None),
+    (None, None, None),
+    ("Nguyen Van An", "cv.pdf", "Nguyen Van An"),         # a real name different from the file
+    ("  Tran Thu Ha ", None, "Tran Thu Ha"),
+])
+def test_only_a_real_name_is_used_for_the_greeting(display_name, cv_filename, expected):
+    assert usable_candidate_name(display_name, cv_filename) == expected
+
+
+@integration
+def test_contact_email_greets_by_name_only_when_the_name_is_real(client, seed, pool):
+    hr2 = headers(seed["hr2"])
+    _set_contact(pool["strong"], email="strong.pool@example.com", phone="0912345678")
+    scan_id = _scan_and_run(client, seed)["scan_id"]
+    client.post(f"/v1/talent-pool/scans/{scan_id}/results/{pool['strong']}/decision", headers=hr2, json={"decision": "CONTACT"})
+    route = f"/v1/talent-pool/scans/{scan_id}/results/{pool['strong']}/contact"
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.application_identities SET display_name = :n WHERE application_id = :a"),
+                     {"n": "Tran_Thu_Ha_CV", "a": pool["strong"]})
+        conn.execute(text("UPDATE app_private.application_documents SET original_filename = 'Tran_Thu_Ha_CV.docx' WHERE application_id = :a"),
+                     {"a": pool["strong"]})
+    generic = client.post(route, headers=hr2).json()
+    assert generic["display_name"] is None
+    assert generic["email_body"].startswith("Chào Anh/Chị,") and "Tran_Thu_Ha" not in generic["email_body"]
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.application_identities SET display_name = 'Tran Thu Ha' WHERE application_id = :a"),
+                     {"a": pool["strong"]})
+    named = client.post(route, headers=hr2).json()
+    assert named["display_name"] == "Tran Thu Ha"
+    assert named["email_body"].startswith("Chào Tran Thu Ha,")
 
 
 @integration

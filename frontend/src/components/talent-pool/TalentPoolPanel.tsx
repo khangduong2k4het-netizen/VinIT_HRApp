@@ -11,7 +11,9 @@ import { MARK_REASONS } from '@/lib/talentPool';
 
 type PoolState = { marked: boolean; can_mark: boolean; can_withdraw_consent?: boolean; reason: string | null; reason_text: string | null; expires_on: string | null };
 
-export default function TalentPoolPanel({ applicationId }: { applicationId: string }) {
+// refreshKey: any value that changes when the application changes (for example its status), so the
+// panel reloads the pool state without a page refresh.
+export default function TalentPoolPanel({ applicationId, refreshKey }: { applicationId: string; refreshKey?: string | null }) {
   const { t, locale } = useI18n();
   const [state, setState] = useState<PoolState | null>(null);
   const [reason, setReason] = useState('STRONG_FIT');
@@ -21,7 +23,8 @@ export default function TalentPoolPanel({ applicationId }: { applicationId: stri
   const [reference, setReference] = useState('');
   const load = useCallback(() => {
     talentPoolApi.state(applicationId).then(r => setState(r.data)).catch(() => setState(null));
-  }, [applicationId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applicationId, refreshKey]);
   useEffect(() => { load(); }, [load]);
   const act = async (mark: boolean) => {
     setBusy(true); setError('');

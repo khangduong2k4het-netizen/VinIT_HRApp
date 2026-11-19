@@ -385,6 +385,26 @@ def record_decision(db, *, scan_id: str, application_id: str, decision: str, use
     return bool(done)
 
 
+def usable_candidate_name(display_name: str | None, cv_filename: str | None) -> str | None:
+    """A person's name for a greeting, or None.
+
+    The stored display name is the CV file name until a real name is available, and
+    a file name is not a name ("Tran_Thu_Ha_CV"). Anything that looks like a file name
+    is treated as missing so the email falls back to the generic greeting.
+    """
+    name = (display_name or "").strip()
+    if not name:
+        return None
+    lowered = name.lower()
+    if lowered.endswith((".pdf", ".docx", ".doc", ".jpg", ".jpeg", ".png")) or "_" in name:
+        return None
+    if cv_filename:
+        stem = os.path.splitext(os.path.basename(cv_filename))[0].strip().lower()
+        if lowered == stem or lowered == cv_filename.strip().lower():
+            return None
+    return name
+
+
 def reveal_contact(db, *, scan_id: str, application_id: str) -> dict:
     """Return candidate contact details and a suggested email preview for a pool result
     that HR explicitly marked CONTACT. Re-verifies pool eligibility right before reveal;
@@ -398,7 +418,10 @@ def reveal_contact(db, *, scan_id: str, application_id: str) -> dict:
         SELECT r.hr_decision, s.status AS scan_status,
                tp.title AS target_title, tp.position_code AS target_code,
                sp.title AS source_title, sp.position_code AS source_code,
-               i.display_name, i.email, i.phone
+               i.display_name, i.email, i.phone,
+               (SELECT d.original_filename FROM app_private.application_documents d
+                 WHERE d.application_id = r.application_id AND d.document_type = 'CV'
+                 ORDER BY d.created_at LIMIT 1) AS cv_filename
         FROM app_private.talent_pool_scan_results r
         JOIN app_private.talent_pool_scans s ON s.scan_id = r.scan_id
         JOIN app_private.positions tp ON tp.position_id = s.position_id
@@ -413,7 +436,7 @@ def reveal_contact(db, *, scan_id: str, application_id: str) -> dict:
         raise ScanError("Lượt quét chưa hoàn tất", 409)
     if row["hr_decision"] != "CONTACT":
         raise ScanError("Cần chọn quyết định Liên hệ trước khi xem thông tin liên hệ", 409)
-    name = (row["display_name"] or "").strip()
+    name = usable_candidate_name(row["display_name"], row["cv_filename"])
     greeting = f"Chào {name}," if name else "Chào Anh/Chị,"
     subject = f"[VinUniversity] Mời trao đổi cơ hội tuyển dụng: {row['target_title']} ({row['target_code']})"
     body = (
@@ -429,7 +452,7 @@ def reveal_contact(db, *, scan_id: str, application_id: str) -> dict:
     )
     return {
         "application_id": application_id,
-        "display_name": name or None,
+        "display_name": name,
         "email": row["email"],
         "phone": row["phone"],
         "target_position_title": row["target_title"],

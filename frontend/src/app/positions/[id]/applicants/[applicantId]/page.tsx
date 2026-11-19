@@ -310,7 +310,7 @@ export default function ApplicantDetailPage() {
         </Box>
       </StickyActionBar>
 
-      {application.can_update_status && <TalentPoolPanel applicationId={applicantId} />}
+      {application.can_update_status && <TalentPoolPanel applicationId={applicantId} refreshKey={application.application_status} />}
 
       {/* Warnings */}
       {(application.file_processing_status === 'NEEDS_HR_REVIEW' || application.has_duplicate_warning) && (

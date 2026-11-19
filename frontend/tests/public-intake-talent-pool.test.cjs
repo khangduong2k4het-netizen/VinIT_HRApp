@@ -69,3 +69,12 @@ test('filterPoolMarks filters by query, reason and eligibility', () => {
   assert.equal(filterPoolMarks(rows, { eligibility: 'ELIGIBLE' }).length, 1);
   assert.equal(filterPoolMarks(rows, { eligibility: 'INELIGIBLE' }).length, 1);
 });
+
+test('the Talent Pool panel reloads its state when the application status changes', () => {
+  const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+  const page = read('src/app/positions/[id]/applicants/[applicantId]/page.tsx');
+  const panel = read('src/components/talent-pool/TalentPoolPanel.tsx');
+  assert.match(page, /<TalentPoolPanel[^>]*refreshKey=\{application\.application_status\}/);
+  assert.match(panel, /refreshKey\?: string \| null/);
+  assert.match(panel, /\[applicationId, refreshKey\]/);
+});
