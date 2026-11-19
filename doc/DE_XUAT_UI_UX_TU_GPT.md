@@ -205,3 +205,22 @@ GPT đưa ra một khung tư duy đúng (làm việc theo *việc cần hoàn th
 5. Tìm/lọc vị trí, validate tại chỗ, nối file lỗi với hồ sơ.
 
 Ba việc nên **hoãn có chủ đích**: drawer/split view, sửa tiêu chí inline (cần kiểm API), và mọi thứ thuộc AI Copilot. Không có mục nào trong tài liệu này đã được triển khai — đây là đề xuất chờ anh duyệt thứ tự.
+
+## 7. Trạng thái thực hiện (cập nhật 2026-11-19)
+
+Đợt 1–5 trong bảng thứ tự ở mục 4 **đã triển khai** trên nhánh `arena/ea6e2570-vinit-hrapp`; mục 3.7, 3.8, 3.9 vẫn để sau.
+
+| Mục | Nội dung đã làm | Kiểm chứng |
+| --- | --- | --- |
+| 3.3 | `_applicants_target` phát `queue=FILE_REVIEW` (UPPER_SNAKE) khớp enum của trang xếp hạng; FE đọc khoan dung cả `file_review` để link cũ/bookmark không chết. Thêm 2 test backend: mọi deep link phải dùng mã trang xếp hạng hiểu được, và không trỏ sang vị trí khác. | `pytest tests/test_workspace.py` 7 passed; đã thử revert bản sửa thì 2 test fail đúng như mong đợi |
+| 3.1 | `applicantProfileHref`/`applicantSearchParams` dùng chung cho "Xem chi tiết", biểu tượng mắt, mở rộng dòng tiêu chí và cảnh báo trùng → mọi link sang hồ sơ mang `queue/sort/q`. Trang hồ sơ ưu tiên ngữ cảnh trong URL hơn `sessionStorage`, nên tab mới/deep link vẫn đúng; Prev/Next giữ nguyên bộ lọc. Nút quay lại thêm `restore=scroll`; danh sách lưu `scrollY` vào navigation context và khôi phục sau khi render. | `ranking-context-mock` (3 lần liên tiếp), unit `applicantProfileHref` |
+| 3.2 | Chip giữ số theo toàn vị trí nhưng có `aria-label`/tooltip nói rõ; dòng đếm tách "Hiển thị N/M · lọc theo tên · hàng đợi"; thêm "Xoá bộ lọc và tìm kiếm" chỉ hiện khi có lọc. Nhãn hàng đợi gom về `APPLICANT_QUEUE_LABELS` để chip và dòng đếm không lệch nhau. | `ranking-context-mock` bước 3–4, unit nhãn hàng đợi |
+| 3.4 | `CVDocumentViewer` không tự tải nữa: trạng thái "chưa tải → bấm Xem CV gốc" (ghi rõ truy cập được ghi nhận lúc bấm), có spinner, có lỗi; bấm vào trang trích dẫn của bằng chứng cũng tải file. Đổi hồ sơ thì xoá blob cũ; mất quyền thì bỏ bản đã tải. | `ranking-context-mock` bước 6–7: mở hồ sơ 0 request `cv-file`, bấm mới có đúng 1, reload không tự tải lại |
+| 3.5 | `/positions` có tìm theo tên **hoặc mã**, chip trạng thái kèm số lượng, dòng đếm N/M, "Xoá bộ lọc và tìm kiếm", `?status=` + `?q=` đồng bộ vào URL; empty state phân biệt "chưa có vị trí" với "không khớp". | `ranking-context-mock` bước 8 |
+| 3.6 | Form tạo vị trí báo lỗi tại trường sau lần blur đầu, và tóm tắt "Còn thiếu: …" ngay trên nút tạo. Không thêm "Lưu nháp" vì backend chưa có trạng thái `DRAFT` (giữ nguyên quyết định hoãn). | `workflow-create-mock` (bổ sung 2 assertion) |
+
+**Không đổi:** API/DB (trừ 1 chuỗi query ở backend), RBAC, consent, phê duyệt hai bước, enum trạng thái, công thức matching/ranking, hành vi chia sẻ shortlist. Không thêm phụ thuộc mới.
+
+**Đã đo:** unit 20/20, i18n 3/3, backend `tests/` 266 passed/170 skipped, type-check/lint/`next build` pass, **8 bộ browser mock** pass trên production build (ranking-context, drafts, workflow, shortlist, applicants 123, a11y, accounts, intake).
+
+**Còn lại:** 3.7 (file lỗi → hồ sơ), 3.8 (sửa tiêu chí inline — cần kiểm API), 3.9 (phản hồi async nhất quán), drawer P2, và toàn bộ nhóm AI. Chưa thử Safari/iOS, chưa E2E với Supabase/Storage/ClamAV thật, chưa usability test.

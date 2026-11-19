@@ -394,3 +394,14 @@ Operator báo Ubuntu noble arm64 package candidate ClamAV `1.5.4+dfsg-0ubuntu0.2
 - Test: unit `local-drafts` 5/5 (tổng 16/16), i18n 3/3; E2E mới `draft-back-guard-mock.e2e.cjs` chạy 3 lần pass trên production build, cùng 7 bộ browser mock cũ (a11y, tạo vị trí, tài khoản, intake, danh sách lớn, workspace shortlist, lọc shortlist) đều pass; type-check/lint/build pass.
 - Đã push `01f1da4` (code + test) và `1b4e649` (tài liệu); CI run **44445860343 success** cả ba job. Commit tài liệu chỉ đổi `.md` nên CI bỏ qua.
 - **Chưa làm:** chưa thử Safari/iOS/chế độ ẩn danh/tiện ích chặn history, chưa E2E với Supabase/Storage/ClamAV thật, chưa usability test luồng tải lại giữa lúc đánh giá; VPS chưa cập nhật (cần pull `1b4e649`).
+
+### 40. Đợt 10: sửa deep link hàng đợi, giữ ngữ cảnh rà soát, tải CV khi cần
+
+- **Bug thật đã sửa:** backend `_applicants_target` phát `?queue=file_review` (snake_case) trong khi trang xếp hạng chỉ nhận `FILE_REVIEW`, nên mọi link "Kiểm tra file"/"Xác minh hồ sơ" từ Dashboard và thẻ Việc tiếp theo mở danh sách **không lọc**. Nay backend phát UPPER_SNAKE, FE đọc khoan dung cả hai dạng để link cũ không chết; thêm 2 test backend (mã phải thuộc enum của trang xếp hạng; link không trỏ sang vị trí khác) và đã kiểm chứng bằng cách revert bản sửa → test fail.
+- **Ngữ cảnh rà soát:** mọi link sang hồ sơ (Xem chi tiết, biểu tượng mắt, cảnh báo trùng, mở rộng tiêu chí) mang `queue/sort/q`; trang hồ sơ ưu tiên URL hơn `sessionStorage` nên tab mới/deep link vẫn giữ bộ lọc; Prev/Next giữ bộ lọc; nút quay lại có `restore=scroll` và danh sách khôi phục vị trí cuộn đã lưu.
+- **Bộ lọc dễ hiểu:** chip giữ số theo toàn vị trí và nói rõ bằng `aria-label`/tooltip; dòng đếm tách "Hiển thị N/M · lọc theo tên · hàng đợi"; thêm "Xoá bộ lọc và tìm kiếm".
+- **CV tải khi cần:** mở hồ sơ không còn gọi `cv-file`; có nút "Xem CV gốc" (nói rõ truy cập được ghi nhận lúc bấm), spinner, lỗi; bấm trang trích dẫn bằng chứng cũng tải; đổi hồ sơ xoá blob cũ, mất quyền bỏ bản đã tải.
+- **Danh sách vị trí:** tìm theo tên **hoặc mã**, chip kèm số lượng, dòng đếm N/M, `?status=`/`?q=` đồng bộ URL, empty state phân biệt "chưa có" vs "không khớp".
+- **Form tạo vị trí:** lỗi tại trường sau lần blur đầu + tóm tắt "Còn thiếu: …" trên nút tạo. Không thêm "Lưu nháp" (backend chưa có `DRAFT`).
+- **Đo:** backend `tests/` 266 passed/170 skipped; unit 20/20, i18n 3/3, type-check/lint/build pass; **8 bộ browser mock** pass trên production build (thêm mới `ranking-context-mock`, chạy 3 lần liên tiếp). Không đổi API/DB ngoài một chuỗi query, không đổi RBAC/consent/approval/matching.
+- **Chưa làm:** 3.7 file lỗi → hồ sơ, 3.8 sửa tiêu chí inline (cần kiểm API), 3.9 phản hồi async nhất quán, drawer P2, nhóm AI; chưa thử Safari/iOS, chưa E2E Supabase/Storage/ClamAV thật, chưa usability test; VPS chưa cập nhật.
