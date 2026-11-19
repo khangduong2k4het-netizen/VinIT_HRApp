@@ -67,6 +67,7 @@ import {
 } from '@/lib/applicantReview';
 import type { ApplicationWithAssessment, Criterion, CriterionResult, RankingItem } from '@/types';
 import { APPLICATION_STATUSES, APPLICATION_TRANSITIONS, isApplicationStatus } from '@/lib/applicationStatus';
+import { readApplicationCapabilities } from '@/lib/applicationCapabilities';
 
 interface StatusEvent {
   event_id: string;
@@ -144,12 +145,13 @@ export default function ApplicantDetailPage() {
       if (res.data.position_id !== positionId) throw new Error(t("Hồ sơ không thuộc vị trí này"));
       setApplication(res.data);
       setError(null);
-      if (res.data.can_update_status) {
+      const loadedCaps = readApplicationCapabilities(res.data);
+      if (loadedCaps.viewStatusHistory) {
         applicationsApi.getStatusEvents(applicantId).then(events => {
           if (currentRequest === requestId.current) { setHistory(events.data || []); setHistoryError(null); }
         }).catch(() => { if (currentRequest === requestId.current) setHistoryError(t("Không thể tải lịch sử trạng thái.")); });
       } else { setHistory([]); setHistoryError(null); }
-      if (!res.data.can_view_cv) {
+      if (!loadedCaps.viewCv) {
         // Losing CV permission must drop any copy already held in memory.
         if (blobUrl.current) { URL.revokeObjectURL(blobUrl.current); blobUrl.current = null; }
         setCvUrl(null); setCvError(null); setCvRequested(false);
@@ -387,7 +389,8 @@ export default function ApplicantDetailPage() {
     if (page < 1) return;
     setSelectedPage(page);
     // A citation page is only meaningful against the file itself.
-    if (application?.can_view_cv && !cvUrl) {
+    const mayViewCv = application ? readApplicationCapabilities(application).viewCv : false;
+    if (mayViewCv && !cvUrl) {
       pendingPage.current = page;
       void loadCv();
     }
@@ -414,7 +417,10 @@ export default function ApplicantDetailPage() {
 
   const assessment = application.latest_assessment;
   const criteriaResults = assessment?.criterion_results || [];
-  const canViewEvidence = Boolean(application.can_view_assessment_evidence);
+  // Mọi quyền của màn hình đọc từ một object backend tính theo từng hành động,
+  // nên không nút nào ở đây có thể là ngõ cụt 403.
+  const caps = readApplicationCapabilities(application);
+  const canViewEvidence = caps.viewEvidence;
   // How much of the verdict rests on a quote the system itself located in the
   // CV file. Shown next to the total so the number cannot be read as a certainty.
   const verifiedCriteriaCount = criteriaResults.filter((r: CriterionResult) => {
@@ -430,14 +436,13 @@ export default function ApplicantDetailPage() {
   const statusLabel = currentStatus ? APPLICATION_STATUSES[currentStatus] : null;
   const selectedLabel = isApplicationStatus(newStatus) ? t(APPLICATION_STATUSES[newStatus].label) : newStatus;
   const isPdf = application.documents?.[0]?.mime_type === 'application/pdf' || /\.pdf$/i.test(application.documents?.[0]?.original_filename || '');
-  // Hai quyền khác nhau: xác minh bằng chứng (can_manage_hr_notes, đúng cổng của
-  // endpoint review) và đổi trạng thái (can_update_status). Người chỉ có quyền
-  // xác minh vẫn phải đi hết vòng hoàn tất hồ sơ; chỉ phần đổi trạng thái bị ẩn.
-  const canVerifyCriteria = Boolean(application.can_manage_hr_notes);
-  const canUpdateStatus = Boolean(application.can_update_status);
-  // Either capability is enough to work the verification loop: HR with only the
-  // status permission keeps the review controls it has always had, and HR with
-  // only the evidence permission (can_manage_hr_notes) is no longer locked out.
+  // Hai quyền khác nhau: xác minh bằng chứng (đúng cổng của endpoint review) và
+  // đổi trạng thái. Người chỉ có một trong hai vẫn đi hết vòng hoàn tất hồ sơ;
+  // phần việc họ không có quyền thì không hiện ra. Trước đây quyền đổi trạng thái
+  // cũng bật nút xác minh, nên người chỉ đổi được trạng thái nhận 403 khi bấm.
+  const canVerifyCriteria = caps.reviewEvidence;
+  const canUpdateStatus = caps.updateStatus;
+  // Either capability is enough to work the verification loop.
   const canWorkVerification = canVerifyCriteria || canUpdateStatus;
   const canBrowseProfiles = canWorkVerification;
   const browseIds = urlQueue ?? navigationContext?.applicationIds ?? null;
@@ -469,7 +474,9 @@ export default function ApplicantDetailPage() {
   // Hoàn tất hồ sơ = lặp lại đúng các API hiện có theo thứ tự nghiệp vụ:
   // review từng tiêu chí bị gắn cờ, rồi PATCH trạng thái theo APPLICATION_TRANSITIONS,
   // rồi điều hướng. Không có endpoint mới và không có bước nhảy trạng thái nào.
-  const pendingResults = pendingCriteria.filter(result => Boolean(result.result_id));
+  // Chỉ tiêu chí người xem có quyền xác minh mới được đưa vào bước hoàn tất;
+  // nếu không, hộp thoại sẽ gọi endpoint review và nhận 403.
+  const pendingResults = canVerifyCriteria ? pendingCriteria.filter(result => Boolean(result.result_id)) : [];
   const canFinish = canWorkVerification && !shareContext;
   const withCompletedFlag = (href: string) => {
     const [path, query = ''] = href.split('?');
@@ -570,7 +577,7 @@ export default function ApplicantDetailPage() {
               <Typography variant="body2">
                 <strong>{t("CV cần được HR xem lại:")}</strong> {application.file_error ? localizeServerMessage(application.file_error, locale) : t("File CV có vấn đề (lỗi xử lý, định dạng quét/OCR cần thiết, hoặc bị mã hóa).")}
               </Typography>
-              {application.can_update_status && (
+                                {caps.reprocessCv && (
                 <Box sx={{ mt: 1, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                   <Button size="small" variant="contained" color="warning" startIcon={<ReplayIcon />} disabled={reprocessing} onClick={handleReprocess}>
                     {reprocessing ? t("Đang xử lý lại…") : t("Xử lý lại CV")}
@@ -634,10 +641,10 @@ export default function ApplicantDetailPage() {
             variant="outlined"
             startIcon={<GetAppIcon />}
             onClick={handleDownloadCv}
-            disabled={cvDownloading || !application.can_view_cv}
+            disabled={cvDownloading || !caps.viewCv}
             sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
           >{t("Tải CV gốc")}</Button>
-          {application.can_update_status && nextStatuses.length > 0 && (
+          {canUpdateStatus && nextStatuses.length > 0 && (
             <FormControl size="small" sx={{ minWidth: 220 }}>
               <InputLabel id="application-status-label">{t("Cập nhật trạng thái")}</InputLabel>
               <Select
@@ -658,7 +665,7 @@ export default function ApplicantDetailPage() {
               </Select>
             </FormControl>
           )}
-          {application.can_update_status && currentStatus && nextStatuses.length === 0 && (
+          {canUpdateStatus && currentStatus && nextStatuses.length === 0 && (
             <Chip label={t("Hồ sơ đã kết thúc")} size="small" color="default" />
           )}
         </Box>
@@ -779,7 +786,7 @@ export default function ApplicantDetailPage() {
                   isPdf={isPdf}
                   hasCv={Boolean(cvUrl)}
                   selected={selectedEvidenceId === result.criterion_id}
-                  canReview={canWorkVerification && !shareContext && reviewSaving === null}
+                  canReview={canVerifyCriteria && !shareContext && reviewSaving === null}
                   onReview={handleReview}
                   onJumpToPage={(page, criterionId) => { setSelectedEvidenceId(criterionId); jumpToPage(page); }}
                 />
@@ -814,7 +821,7 @@ export default function ApplicantDetailPage() {
             cvUrl={cvUrl}
             cvError={cvError}
             isPdf={isPdf}
-            canViewCv={Boolean(application.can_view_cv)}
+            canViewCv={caps.viewCv}
             selectedPage={selectedPage}
             onPageChange={jumpToPage}
             requested={cvRequested}
@@ -826,10 +833,10 @@ export default function ApplicantDetailPage() {
         </Grid>
       </Grid>
 
-      {application.can_view_cv && <CandidateProfilePanel key={applicantId} applicationId={applicantId} canEdit={!!application.can_update_status} onSaved={() => { loadData(); }} />}
-      {application.can_manage_hr_notes && <HRNotesPanel key={applicantId} applicationId={applicantId} />}
+      {caps.viewCv && <CandidateProfilePanel key={applicantId} applicationId={applicantId} canEdit={caps.editProfile} onSaved={() => { loadData(); }} />}
+      {caps.manageHrNotes && <HRNotesPanel key={applicantId} applicationId={applicantId} />}
 
-      {application.can_update_status && (
+      {caps.viewStatusHistory && (
         <Accordion disableGutters elevation={0} sx={{ mb: 3, border: '1px solid #E4E7EC', borderRadius: '8px !important', '&:before': { display: 'none' } }}>
           <AccordionSummary expandIcon={<ExpandMoreIcon />} aria-controls="status-history-content" id="status-history-header">
             <Typography fontWeight={600}>{t("Lịch sử trạng thái ")}{history.length > 0 && `(${history.length})`}</Typography>
@@ -883,7 +890,11 @@ export default function ApplicantDetailPage() {
           </Typography>
           {finishError && <Alert severity="error" sx={{ mb: 2 }}>{t(finishError)}</Alert>}
 
-          {flaggedCriteria.length === 0 ? (
+          {!canVerifyCriteria && flaggedCriteria.length > 0 ? (
+            <Alert severity="info" sx={{ mb: 2 }} data-testid="finish-no-review-permission">
+              {t('Bạn không có quyền xác minh bằng chứng trên hồ sơ này. Các tiêu chí còn lại vẫn chờ HR xác minh.')}
+            </Alert>
+          ) : flaggedCriteria.length === 0 ? (
             <Alert severity="info" sx={{ mb: 2 }}>{t('Hồ sơ không có tiêu chí nào chờ HR xác minh.')}</Alert>
           ) : pendingResults.length === 0 ? (
             <Alert severity="success" sx={{ mb: 2 }}>{t('Đã xác minh đủ {0} tiêu chí cần kiểm.', flaggedCriteria.length)}</Alert>

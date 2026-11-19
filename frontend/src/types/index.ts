@@ -322,6 +322,17 @@ export interface ApplicationWithAssessment {
   can_view_assessment_evidence?: boolean;
   can_update_status?: boolean;
   can_manage_hr_notes?: boolean;
+  /** Every action the profile screen may offer; see lib/applicationCapabilities.ts. */
+  capabilities?: {
+    view_cv?: boolean;
+    view_evidence?: boolean;
+    update_status?: boolean;
+    review_evidence?: boolean;
+    manage_hr_notes?: boolean;
+    edit_profile?: boolean;
+    view_status_history?: boolean;
+    reprocess_cv?: boolean;
+  };
   documents?: Array<{
     document_id: string;
     document_type: string;

@@ -4,7 +4,7 @@ from typing import List, Optional
 from uuid import UUID, uuid4
 from app.core.security import ensure_token_is_current, get_current_user
 from app.core.permissions import (
-    application_access, can_update_application_status, check_position_access, is_system_admin,
+    application_access, application_capabilities, can_update_application_status, check_position_access, is_system_admin,
 )
 from app.services.ai_config import sanitize_provider_snapshot
 from app.core.config import settings
@@ -361,13 +361,15 @@ async def get_application(application_id: UUID, current_user: dict = Depends(get
         """), {"id": app_id}).mappings().first()
         if not row:
             raise NotFoundError("Application")
-        access = application_access(current_user["user_id"], str(row["position_id"]), app_id)
+        caps = application_capabilities(current_user["user_id"], str(row["position_id"]), app_id)
         app = dict(row)
-        app.update(access)
+        # The flat flags stay for older clients; the screen reads `capabilities`.
+        app.update({"can_view_cv": caps["view_cv"], "can_update_status": caps["update_status"],
+                    "can_manage_hr_notes": caps["manage_hr_notes"], "capabilities": caps})
         documents = db.execute(text("SELECT * FROM app_private.application_documents WHERE application_id = :id ORDER BY created_at DESC"), {"id": app_id}).mappings().all()
         app["documents"] = [dict(d) for d in documents]
         _normalize_application(app)
-        app["has_duplicate_warning"] = bool(access["can_update_status"] and db.execute(text("""
+        app["has_duplicate_warning"] = bool(caps["update_status"] and db.execute(text("""
             SELECT EXISTS(SELECT 1 FROM app_private.duplicate_signals WHERE position_id = :position_id
                 AND review_status = 'PENDING' AND (application_id_1 = :id OR application_id_2 = :id))
         """), {"id": app_id, "position_id": str(row["position_id"])}).scalar_one())
@@ -391,7 +393,7 @@ async def get_application(application_id: UUID, current_user: dict = Depends(get
                         AND si.application_id = a.application_id AND si.assessment_id = ar.assessment_id
                   ))
             ORDER BY ar.created_at DESC, ar.assessment_id DESC LIMIT 1
-        """), {"id": app_id, "hr_access": access["can_update_status"], "user_id": current_user["user_id"]}).mappings().first()
+        """), {"id": app_id, "hr_access": caps["update_status"], "user_id": current_user["user_id"]}).mappings().first()
         latest = dict(assessment) if assessment else None
         if latest:
             latest["provider_model_snapshot"] = sanitize_provider_snapshot(
@@ -403,7 +405,7 @@ async def get_application(application_id: UUID, current_user: dict = Depends(get
             latest["criterion_results"] = []
             # A separate summary-only share must not gain evidence just because
             # another active share grants access to an older CV snapshot.
-            can_view_evidence = access["can_update_status"] or bool(access["can_view_cv"] and db.execute(text("""
+            can_view_evidence = caps["update_status"] or bool(caps["view_cv"] and db.execute(text("""
                 SELECT 1 FROM app_private.shortlist_share_items si
                 JOIN app_private.shortlist_shares s ON s.share_id = si.share_id
                 JOIN app_private.position_assignments hm ON hm.position_id = s.position_id
@@ -413,6 +415,8 @@ async def get_application(application_id: UUID, current_user: dict = Depends(get
             """), {"user_id": current_user["user_id"], "application_id": app_id,
                     "assessment_id": latest["assessment_id"]}).first())
             app["can_view_assessment_evidence"] = can_view_evidence
+            # Narrowed per assessment: a summary-only share must not show evidence.
+            caps["view_evidence"] = can_view_evidence
             if can_view_evidence:
                 results = db.execute(text("""
                     SELECT car.*, ci.name AS criterion_name, ci.category,
@@ -442,7 +446,7 @@ async def get_application(application_id: UUID, current_user: dict = Depends(get
                     criterion_result["hr_reviews"] = [dict(r) for r in reviews]
                     latest["criterion_results"].append(criterion_result)
         app["latest_assessment"] = latest
-        if not access["can_view_cv"]:
+        if not caps["view_cv"]:
             # Summary-only sharing includes the display name, not contact
             # details, original documents or processing diagnostics.
             if app.get("identity"):

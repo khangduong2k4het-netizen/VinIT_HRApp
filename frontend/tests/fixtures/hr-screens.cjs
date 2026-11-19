@@ -318,8 +318,15 @@ const detail = {
   candidate_name: 'Lê Thu Hà',
   can_view_cv: true,
   can_update_status: true,
-  can_manage_hr_notes: false,
+  // A recruiter on the position holds both gates: status and HR notes. The
+  // status-only shape (update without notes) belongs to app-admin below; using
+  // it here would hide a real 403 behind a mock that answers 201 anyway.
+  can_manage_hr_notes: true,
   can_view_assessment_evidence: true,
+  capabilities: {
+    view_cv: true, view_evidence: true, update_status: true, review_evidence: true,
+    manage_hr_notes: true, edit_profile: true, view_status_history: true, reprocess_cv: true,
+  },
   file_processing_status: 'COMPLETED',
   has_duplicate_warning: false,
   documents: [{ document_id: 'doc1', document_type: 'CV', original_filename: 'Le_Thu_Ha_CV_2026.pdf', mime_type: 'application/pdf', page_count: 4 }],
@@ -434,7 +441,29 @@ function installMockApi(context, overrides = {}) {
         // the finish action must not require the status permission.
         can_update_status: false,
         can_manage_hr_notes: true,
+        capabilities: {
+          view_cv: true, view_evidence: true, update_status: false, review_evidence: true,
+          manage_hr_notes: true, edit_profile: false, view_status_history: false, reprocess_cv: false,
+        },
         latest_assessment: { ...detail.latest_assessment, application_id: 'app-verifier' },
+      });
+    }
+    // A status-only reviewer (mirrors a global ADMIN): may change status, may
+    // not record criterion reviews or HR notes. The review endpoint would answer
+    // 403, so the screen must not offer the verification controls.
+    if (p === '/v1/applications/app-admin') {
+      return json({
+        ...detail,
+        application_id: 'app-admin',
+        candidate_name: 'Lý Quản Trị',
+        identity: { ...detail.identity, display_name: 'Lý Quản Trị' },
+        can_update_status: true,
+        can_manage_hr_notes: false,
+        capabilities: {
+          view_cv: true, view_evidence: true, update_status: true, review_evidence: false,
+          manage_hr_notes: false, edit_profile: true, view_status_history: true, reprocess_cv: true,
+        },
+        latest_assessment: { ...detail.latest_assessment, application_id: 'app-admin' },
       });
     }
     // Any other application row from the ranking can be opened too: finishing a

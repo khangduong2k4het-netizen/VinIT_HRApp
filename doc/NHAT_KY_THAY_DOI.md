@@ -9,6 +9,53 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-19 — Gom quyền màn hồ sơ về một object `capabilities`
+
+**Vấn đề.** Màn hồ sơ tự quyết định hiện gì từ hai cờ rời `can_update_status` và
+`can_manage_hr_notes`, trong khi mỗi endpoint có cổng riêng: ghi nhận xác minh bằng
+chứng (`POST /assessments/results/{id}/review`) chỉ nhận quyền HR notes, còn
+`can_update_status` là quyền đổi trạng thái. Hai quyền này không luôn đi cùng nhau —
+ADMIN toàn cục có quyền đổi trạng thái nhưng không có quyền HR notes — nên người đó
+vẫn thấy nút “Trích dẫn đúng, đã kiểm” / “Trích dẫn sai”, và bấm vào là **403**. Nút
+“Đã xử lý xong hồ sơ này” cũng gửi review cho mọi tiêu chí còn chờ, nên cả vòng hoàn
+tất hỏng ngay ở bước đầu.
+
+**Thay đổi.**
+
+- `backend/app/core/permissions.py`: `_application_access_flags` trả **một cờ cho một
+  hành động** — `view_cv`, `view_evidence`, `update_status`, `review_evidence`,
+  `manage_hr_notes`, `edit_profile`, `view_status_history`, `reprocess_cv` — mỗi cờ
+  trùng đúng cổng của endpoint tương ứng. `application_capabilities()` công bố object
+  này; `application_access()` cũ vẫn trả ba cờ như trước nhưng tính từ cùng một lần
+  đọc, nên các chỗ gọi cũ không phải sửa và hai đường không thể lệch nhau.
+- `backend/app/schemas/applications.py`: schema `ApplicationCapabilities`, gắn vào
+  `ApplicationWithAssessment`. Ba cờ phẳng giữ nguyên cho client cũ.
+- `backend/app/api/applications.py`: `GET /applications/{id}` trả `capabilities`;
+  `view_evidence` được thu hẹp theo từng assessment, nên share chỉ tóm tắt vẫn không
+  thấy bằng chứng.
+- `frontend/src/lib/applicationCapabilities.ts` (mới): đọc object, đổi sang tên
+  camelCase, có dự phòng ba cờ rời cho payload cũ; cờ thiếu = `false` (ẩn nút, không
+  để lộ 403). `review_evidence` **không** suy ra từ `update_status`.
+- Màn hồ sơ dùng một biến `caps` cho mọi nút: xác minh theo `reviewEvidence`, đổi
+  trạng thái / lịch sử / xử lý lại CV theo `updateStatus`, ghi chú HR theo
+  `manageHrNotes`, sửa hồ sơ theo `editProfile`. Bước hoàn tất chỉ gửi review cho
+  người có quyền xác minh, và hộp thoại nói rõ phần việc còn lại vẫn chờ HR thay vì
+  đòi xác nhận một việc họ không ghi được.
+
+**Kiểm thử.** `tests/application-capabilities.test.cjs` (4 test: đọc đúng object, quyền
+đổi trạng thái không kéo theo quyền xác minh, dự phòng cờ rời, cờ thiếu = false) —
+`npm run test:unit` 48/48; `test:i18n` 3/3; `type-check` và `lint` pass; `py_compile`
+ba file backend pass. e2e: `capabilities` (mới — người chỉ đổi được trạng thái: không
+có nút xác minh, hộp thoại giải thích, không có request review nào), `verify-only`,
+`finish-application`, `ux02-review`, `ranking-context` — pass. Fixture chung nay mô tả
+đúng một HR phụ trách (đủ cả hai quyền); trước đó nó là “đổi trạng thái nhưng không
+có quyền notes”, tức đúng hình dạng gây 403, và mock vẫn trả 201 nên lỗi bị che.
+
+**Chưa kiểm.** Chưa chạy bộ test backend: VM này không cài được dependency Python
+(`pytest` không có, không có virtualenv), nên object capabilities mới được kiểm ở
+phía frontend với payload mô phỏng và chỉ đảm bảo biên dịch ở backend. Chưa thử với
+API thật + DB thật cho các tổ hợp quyền khác (share chỉ tóm tắt, Hiring Manager).
+
 ## 2026-11-19 — Test i18n bắt được nhãn trong `src/lib` và lỗi trang ứng tuyển
 
 **Vấn đề.** Test i18n chỉ quét file `.tsx` và chỉ tìm `t('<literal>')`, nên hai loại

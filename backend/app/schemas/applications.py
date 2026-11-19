@@ -161,6 +161,23 @@ class ApplicationStatusUpdate(BaseSchema):
     note: Optional[str] = Field(default=None, max_length=2000)
 
 
+class ApplicationCapabilities(BaseSchema):
+    """One flag per action, each mirroring the gate of the endpoint it calls.
+
+    The three flags on ``ApplicationWithAssessment`` are kept for older clients;
+    this object is what the profile screen reads.
+    """
+
+    view_cv: bool = False
+    view_evidence: bool = False
+    update_status: bool = False
+    review_evidence: bool = False
+    manage_hr_notes: bool = False
+    edit_profile: bool = False
+    view_status_history: bool = False
+    reprocess_cv: bool = False
+
+
 class ApplicationWithAssessment(Application):
     latest_assessment: Optional[AssessmentRun] = None
     documents: List[ApplicationDocument] = Field(default_factory=list)
@@ -172,6 +189,7 @@ class ApplicationWithAssessment(Application):
     can_view_assessment_evidence: bool = False
     can_update_status: bool = False
     can_manage_hr_notes: bool = False
+    capabilities: ApplicationCapabilities = Field(default_factory=ApplicationCapabilities)
 
 
 class RankingCriterionResult(BaseSchema):

@@ -184,12 +184,16 @@ def can_update_application_status(user_id: str, position_id: str) -> bool:
         db.close()
 
 
-def application_access(user_id: str, position_id: str, application_id: str, db=None) -> dict:
+def _application_access_flags(user_id: str, position_id: str, application_id: str, db=None) -> dict:
     """Resolve access to a single candidate without granting all CVs to an HM.
 
     Recruiters on the position and global HR leads/admins have full access;
     everyone else needs an active share containing this application. CV access
     additionally requires the share's allow_cv_view flag.
+
+    Returns one flag per action the profile screen offers. Each flag mirrors the
+    check its endpoint actually performs, so the client can hide what would be a
+    403 instead of guessing from two coarse booleans.
     """
     own_session = db is None
     if own_session:
@@ -226,9 +230,38 @@ def application_access(user_id: str, position_id: str, application_id: str, db=N
         """), {"user_id": user_id, "position_id": position_id, "application_id": application_id}).mappings().one()
         if not row["hr_access"] and not row["shared"]:
             raise HTTPException(status_code=403, detail="Bạn không có quyền xem hồ sơ này")
-        return {"can_update_status": bool(row["hr_access"]),
-                "can_manage_hr_notes": bool(row["hr_notes_access"]),
-                "can_view_cv": bool(row["hr_access"] or row["shared_cv"])}
+        hr, notes = bool(row["hr_access"]), bool(row["hr_notes_access"])
+        # review_evidence is deliberately NOT update_status: the review endpoint
+        # requires the HR-notes capability, so a status-only reviewer (a global
+        # ADMIN, for example) must not be offered buttons that answer 403.
+        # view_evidence starts at hr and is narrowed per assessment by the caller.
+        return {
+            "view_cv": hr or bool(row["shared_cv"]),
+            "view_evidence": hr,
+            "update_status": hr,
+            "review_evidence": notes,
+            "manage_hr_notes": notes,
+            "edit_profile": hr,
+            "view_status_history": hr,
+            "reprocess_cv": hr,
+        }
     finally:
         if own_session:
             db.close()
+
+
+def application_capabilities(user_id: str, position_id: str, application_id: str, db=None) -> dict:
+    """Every permission the application screen needs, in one object.
+
+    Endpoints keep enforcing their own checks; this object only tells the client
+    what those checks will allow, so the screen cannot offer a dead end.
+    """
+    return _application_access_flags(user_id, position_id, application_id, db)
+
+
+def application_access(user_id: str, position_id: str, application_id: str, db=None) -> dict:
+    """Legacy three flags, derived from the same resolution as capabilities."""
+    caps = _application_access_flags(user_id, position_id, application_id, db)
+    return {"can_update_status": caps["update_status"],
+            "can_manage_hr_notes": caps["manage_hr_notes"],
+            "can_view_cv": caps["view_cv"]}
