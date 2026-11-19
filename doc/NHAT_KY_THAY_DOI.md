@@ -5,7 +5,9 @@ kiểm thử đã chạy và phần chưa kiểm. Mục mới nhất nằm trên
 
 **Quy trình.** Sau khi một tính năng UI/UX code xong và kiểm thử liên quan đã
 chạy: (1) thêm mục nhật ký vào file này, (2) commit cùng phần code và test của
-nhánh đang làm, (3) push lên nhánh đó. Nhánh hiện tại: `feature/ux-finish-application`.
+nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự án:
+`freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
+bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
 ## 2026-11-19 — Chọn nhiều dòng và xử lý hàng loạt trên trang xếp hạng
 
