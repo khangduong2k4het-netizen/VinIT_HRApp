@@ -673,6 +673,15 @@ export default function PositionDetailPage() {
               disabled={!approvedCriteria || position.status !== 'OPEN' || isOperationRunning}
             >{t("Tải lên CV")}</Button>
           )}
+          {isHR && (
+            <Button
+              variant="outlined"
+              component={Link}
+              href={`/positions/${positionId}/talent-pool`}
+              disabled={!approvedCriteria || position.status !== 'OPEN'}
+              sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
+            >{t("Quét Talent Pool")}</Button>
+          )}
         </Box>
       </Box>
 

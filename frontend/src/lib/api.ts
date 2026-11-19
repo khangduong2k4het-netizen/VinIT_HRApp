@@ -290,6 +290,8 @@ export const talentPoolApi = {
   mark: (applicationId: string, reasonCode: string) =>
     apiClient.post(`/talent-pool/applications/${applicationId}/mark`, { reason_code: reasonCode }),
   unmark: (applicationId: string) => apiClient.delete(`/talent-pool/applications/${applicationId}/mark`),
+  withdrawConsent: (applicationId: string, reference?: string) =>
+    apiClient.post(`/talent-pool/applications/${applicationId}/withdraw-consent`, { reference: reference || null }),
   marks: () => apiClient.get('/talent-pool/marks'),
   scan: (positionId: string) => apiClient.post(`/talent-pool/positions/${positionId}/scan`),
   scans: (positionId: string) => apiClient.get(`/talent-pool/positions/${positionId}/scans`),

@@ -1567,5 +1567,9 @@
   "Vị trí không ở trạng thái Đang mở nên chưa hiện trên trang /apply.": "The position is not Open, so it does not appear on /apply yet.",
   "Cổng /apply đang tắt trên server (PUBLIC_INTAKE_ENABLED=false), nên ứng viên chưa nộp được dù đã bật ở đây.": "The /apply portal is off on the server (PUBLIC_INTAKE_ENABLED=false), so candidates cannot apply even with this switched on.",
   "Nội dung đăng tuyển (hiện cho ứng viên)": "Posting content (shown to candidates)",
-  "Giới thiệu, quyền lợi, hạn nộp… Hiện cùng JD trên trang tuyển dụng; không dùng để chấm điểm.": "Introduction, benefits, deadline… Shown with the JD on the careers site; never used for scoring."
+  "Giới thiệu, quyền lợi, hạn nộp… Hiện cùng JD trên trang tuyển dụng; không dùng để chấm điểm.": "Introduction, benefits, deadline… Shown with the JD on the careers site; never used for scoring.",
+  "Ghi nhận ứng viên rút đồng ý": "Record candidate's consent withdrawal",
+  "Xác nhận rút đồng ý": "Confirm withdrawal",
+  "Số tham chiếu yêu cầu (tùy chọn, không ghi thông tin cá nhân)": "Request reference (optional, no personal data)",
+  "Hồ sơ sẽ bị gỡ khỏi Talent Pool và không còn được quét cho vị trí khác. Việc xóa dữ liệu vẫn theo hàng đợi lưu trữ.": "The application is removed from the Talent Pool and will no longer be scanned for other positions. Deletion still follows the retention queue."
 }

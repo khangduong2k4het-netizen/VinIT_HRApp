@@ -3,7 +3,7 @@
 // P3-1: lets the HR of the source position put an application into the Talent Pool or take it out.
 // The backend refuses when the candidate has not given (or has withdrawn) consent for reuse.
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Box, Button, Chip, MenuItem, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, TextField, Typography } from '@mui/material';
 import { talentPoolApi } from '@/lib/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import { localizeServerMessage } from '@/i18n/serverMessages';
@@ -17,6 +17,8 @@ export default function TalentPoolPanel({ applicationId }: { applicationId: stri
   const [reason, setReason] = useState('STRONG_FIT');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [reference, setReference] = useState('');
   const load = useCallback(() => {
     talentPoolApi.state(applicationId).then(r => setState(r.data)).catch(() => setState(null));
   }, [applicationId]);
@@ -24,6 +26,14 @@ export default function TalentPoolPanel({ applicationId }: { applicationId: stri
   const act = async (mark: boolean) => {
     setBusy(true); setError('');
     try { if (mark) await talentPoolApi.mark(applicationId, reason); else await talentPoolApi.unmark(applicationId); load(); }
+    catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      setError(typeof detail === 'string' ? localizeServerMessage(detail, locale) : t('Không thể cập nhật Talent Pool'));
+    } finally { setBusy(false); }
+  };
+  const withdraw = async () => {
+    setBusy(true); setError('');
+    try { await talentPoolApi.withdrawConsent(applicationId, reference.trim() || undefined); setWithdrawOpen(false); load(); }
     catch (err: any) {
       const detail = err?.response?.data?.detail;
       setError(typeof detail === 'string' ? localizeServerMessage(detail, locale) : t('Không thể cập nhật Talent Pool'));
@@ -48,6 +58,25 @@ export default function TalentPoolPanel({ applicationId }: { applicationId: stri
         : <Typography variant="caption" color="text.secondary">
           {state.reason_text ? localizeServerMessage(state.reason_text, locale) : t('Chưa đủ điều kiện vào Talent Pool')}
         </Typography>}
+    {state.reason !== 'NO_CONSENT' && state.reason !== 'CONSENT_WITHDRAWN' && (
+      <Button size="small" color="error" disabled={busy} onClick={() => { setReference(''); setWithdrawOpen(true); }}>
+        {t('Ghi nhận ứng viên rút đồng ý')}
+      </Button>
+    )}
     {error && <Alert severity="error" sx={{ width: '100%' }}>{error}</Alert>}
+    <Dialog open={withdrawOpen} onClose={() => !busy && setWithdrawOpen(false)} maxWidth="sm" fullWidth>
+      <DialogTitle>{t('Ghi nhận ứng viên rút đồng ý')}</DialogTitle>
+      <DialogContent>
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          {t('Hồ sơ sẽ bị gỡ khỏi Talent Pool và không còn được quét cho vị trí khác. Việc xóa dữ liệu vẫn theo hàng đợi lưu trữ.')}
+        </Alert>
+        <TextField fullWidth size="small" label={t('Số tham chiếu yêu cầu (tùy chọn, không ghi thông tin cá nhân)')}
+          value={reference} onChange={e => setReference(e.target.value)} inputProps={{ maxLength: 100 }} />
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setWithdrawOpen(false)} disabled={busy}>{t('Hủy')}</Button>
+        <Button color="error" variant="contained" disabled={busy} onClick={withdraw}>{t('Xác nhận rút đồng ý')}</Button>
+      </DialogActions>
+    </Dialog>
   </Box>;
 }
