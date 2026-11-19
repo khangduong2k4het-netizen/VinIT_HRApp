@@ -93,11 +93,16 @@ import type { RankingItem, UserSummary } from '@/types';
 import { APPLICATION_STATUSES, isApplicationStatus, type ApplicationStatus } from '@/lib/applicationStatus';
 import {
   bulkRunProgress,
+  bulkRunStorageKey,
   createBulkRun,
+  hasUnfinishedRows,
+  parseStoredBulkRun,
   retryFailed,
   stopPoint,
+  toStoredBulkRun,
   type BulkRunRow,
   type BulkRowState,
+  type StoredBulkRun,
 } from '@/lib/bulkActionRun';
 
 // Trạng thái của từng dòng trong biên bản lô.
@@ -106,6 +111,7 @@ const BULK_ROW_STATE: Record<BulkRowState, { label: string; bg: string; color: s
   running: { label: 'Đang xử lý…', bg: '#EFF8FF', color: '#175CD3' },
   done: { label: 'Xong', bg: '#ECFDF3', color: '#067647' },
   failed: { label: 'Lỗi', bg: '#FDF2F2', color: '#B42318' },
+  interrupted: { label: 'Chưa rõ kết quả', bg: '#FFFAEB', color: '#B54708' },
 };
 
 const OUTCOME_META: Record<string, { label: string; color: string }> = {
@@ -183,6 +189,8 @@ export default function ApplicantsRankingPage() {
   // Biên bản của lô đang mở: từng hồ sơ, số bước đã ghi, chỗ dừng và lý do lỗi.
   const [bulkRun, setBulkRun] = useState<BulkRunRow[] | null>(null);
   const [bulkSkipped, setBulkSkipped] = useState(0);
+  // Lô còn dở từ lần trước (đóng tab, mất mạng): đọc lại từ máy để không mất biên bản.
+  const [recoveredRun, setRecoveredRun] = useState<StoredBulkRun | null>(null);
   // Large applicant lists mount a bounded window; expanding "more" only affects
   // rendering, never ranks, filters or the set used for shortlist sharing.
   const [visibleLimit, setVisibleLimit] = useState(50);
@@ -624,6 +632,8 @@ export default function ApplicantsRankingPage() {
     const failed = results.filter(item => item.state === 'failed');
     if (failed.length === 0) {
       // Không còn gì để xem lại: đóng biên bản và để thông báo nói kết quả.
+      try { window.localStorage.removeItem(bulkRunStorageKey(positionId)); } catch { /* storage chỉ là tiện ích */ }
+      setRecoveredRun(null);
       setBulkMode(null);
       setBulkRun(null);
       setSelectedIds(new Set());
@@ -644,9 +654,10 @@ export default function ApplicantsRankingPage() {
   const handleBulkApply = async () => {
     if (!bulkMode || bulkProcessing || !bulkRun) return;
     const reason = bulkReason.trim();
-    if (!bulkRun.length) return;
+    const pendingRows = bulkRun.filter(row => row.state === 'pending');
+    if (!pendingRows.length) return;
     if (bulkMode === 'reject' && !reason) return;
-    await runBulkRows(bulkMode, bulkRun.filter(row => row.state === 'pending'), reason);
+    await runBulkRows(bulkMode, pendingRows, reason);
   };
 
   // Thử lại chỉ phần lỗi: hồ sơ đã xong không bị gọi lại, hồ sơ dừng giữa đường đi
@@ -659,11 +670,51 @@ export default function ApplicantsRankingPage() {
     await runBulkRows(bulkMode, pending, bulkReason.trim());
   };
 
+  // Biên bản được giữ trên máy: đóng tab giữa lô 30–50 hồ sơ không còn làm mất
+  // dấu những gì đã ghi, và lần mở sau vẫn thử lại được đúng phần lỗi.
+  useEffect(() => {
+    if (!bulkMode || !bulkRun) return;
+    try {
+      if (bulkRun.every(row => row.state === 'done')) {
+        window.localStorage.removeItem(bulkRunStorageKey(positionId));
+        return;
+      }
+      // Mở hộp thoại rồi đóng ngay chưa ghi gì thì không đáng nhắc lại sau này.
+      if (!bulkRun.some(row => row.state !== 'pending')) return;
+      window.localStorage.setItem(bulkRunStorageKey(positionId), JSON.stringify(toStoredBulkRun(positionId, bulkMode, bulkReason, bulkRun)));
+    } catch {
+      // Trình duyệt chặn storage thì lô vẫn chạy bình thường.
+    }
+  }, [positionId, bulkMode, bulkRun, bulkReason]);
+
+  useEffect(() => {
+    let stored: StoredBulkRun | null = null;
+    try {
+      stored = parseStoredBulkRun(window.localStorage.getItem(bulkRunStorageKey(positionId)), positionId);
+    } catch {
+      stored = null;
+    }
+    setRecoveredRun(stored && hasUnfinishedRows(stored.rows) ? stored : null);
+  }, [positionId]);
+
+  const openRecoveredRun = () => {
+    if (!recoveredRun) return;
+    setBulkMode(recoveredRun.mode);
+    setBulkReason(recoveredRun.reason);
+    setBulkSkipped(0);
+    setBulkRun(recoveredRun.rows);
+  };
+  const dismissRecoveredRun = () => {
+    try { window.localStorage.removeItem(bulkRunStorageKey(positionId)); } catch { /* storage chỉ là tiện ích */ }
+    setRecoveredRun(null);
+  };
+
   const bulkRows = bulkRun || [];
   const bulkProgress = bulkRunProgress(bulkRows);
   const bulkFinished = bulkRows.length > 0 && bulkProgress.pending === 0 && bulkProgress.running === 0;
   const bulkCurrentRow = bulkRows.find(row => row.state === 'running') || bulkRows.find(row => row.state === 'pending');
   const bulkTwoStep = bulkRows.filter(row => row.steps.length > 1).length;
+  const recoveredProgress = recoveredRun ? bulkRunProgress(recoveredRun.rows) : null;
   const statusLabel = (status: string) => t(APPLICATION_STATUSES[status as ApplicationStatus]?.label || status);
 
   const storeNavigationContext = () => {
@@ -863,6 +914,28 @@ export default function ApplicantsRankingPage() {
           : t('Sắp theo thứ hạng của lần chạy gần nhất; hồ sơ chưa có hạng được đưa xuống cuối.')}
       </Typography>
       {/* Review queues and filters */}
+      {/* Lô còn dở từ lần trước: đóng tab hay mất mạng không còn làm mất biên bản,
+          và HR vẫn thử lại được đúng phần lỗi thay vì tự dò 30–50 hồ sơ. */}
+      {recoveredRun && recoveredProgress && !bulkMode && (
+        <Alert
+          severity="warning"
+          sx={{ mb: 2 }}
+          data-testid="bulk-run-recovered"
+          action={(
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button color="inherit" size="small" onClick={openRecoveredRun} data-testid="bulk-run-open">{t("Xem biên bản")}</Button>
+              <Button color="inherit" size="small" onClick={dismissRecoveredRun} data-testid="bulk-run-dismiss">{t("Bỏ qua")}</Button>
+            </Box>
+          )}
+        >
+          {t("Lô {0} lần trước chưa xong: {1}/{2} hồ sơ đã cập nhật, {3} lỗi, {4} chưa rõ kết quả. Biên bản được giữ lại để rà và thử lại phần lỗi.",
+            recoveredRun.mode === 'shortlist' ? t("Shortlist") : t("Loại hồ sơ"),
+            recoveredProgress.done,
+            recoveredRun.rows.length,
+            recoveredProgress.failed,
+            recoveredProgress.interrupted)}
+        </Alert>
+      )}
       <QueueFilterChips value={queue} counts={queueCounts} onChange={setQueue} />
       {/* Lọc theo bằng chứng, không chỉ theo tên: "hồ sơ thiếu bằng chứng cho tiêu
           chí X" và "hồ sơ chờ tôi xác minh quá 3 ngày" là hai thao tác HR làm mỗi
@@ -1470,6 +1543,11 @@ export default function ApplicantsRankingPage() {
               {t("{0}/{1} hồ sơ đã cập nhật. {2} hồ sơ lỗi: lý do và chỗ dừng ở từng dòng bên dưới; có thể thử lại riêng phần lỗi.", bulkProgress.done, bulkProgress.total, bulkProgress.failed)}
             </Alert>
           )}
+          {!bulkProcessing && bulkProgress.interrupted > 0 && (
+            <Alert severity="warning" sx={{ mb: 2 }} data-testid="bulk-interrupted-summary">
+              {t("{0} hồ sơ bị gián đoạn khi đang ghi nên chưa rõ kết quả; mở từng hồ sơ để kiểm tra trạng thái trước khi làm lại.", bulkProgress.interrupted)}
+            </Alert>
+          )}
           {bulkMode === 'shortlist' ? (
             <>
               <DialogContentText sx={{ mb: 1.5 }}>
@@ -1521,6 +1599,12 @@ export default function ApplicantsRankingPage() {
                       {t("Đã ghi nhận bước {0}, chưa tới {1}.", statusLabel(stop.reached), statusLabel(stop.target))}
                     </Typography>
                   )}
+                  {row.state === 'interrupted' && (
+                    <Typography variant="caption" sx={{ display: 'block', color: '#B54708' }} data-testid={`bulk-row-interrupted-${row.application_id}`}>
+                      {t("Lô bị gián đoạn khi đang ghi hồ sơ này; mở hồ sơ để kiểm tra trạng thái trước khi làm lại.")}{' '}
+                      <MuiLink href={applicantProfileHref(positionId, row.application_id, queue, sort, searchQuery)} underline="always">{t("Mở hồ sơ")}</MuiLink>
+                    </Typography>
+                  )}
                 </Box>
               );
             })}
@@ -1539,19 +1623,21 @@ export default function ApplicantsRankingPage() {
           />
         </DialogContent>
         <DialogActions sx={{ p: 2, flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
-          {bulkFinished && bulkProgress.failed > 0 ? (
+          {bulkFinished ? (
             <>
               <Button onClick={closeBulk} sx={{ minHeight: 44, width: { xs: '100%', sm: 'auto' } }}>{t("Đóng")}</Button>
-              <Button
-                variant="contained"
-                color="error"
-                onClick={handleBulkRetry}
-                disabled={bulkMode === 'reject' && !bulkReason.trim()}
-                data-testid="bulk-retry"
-                sx={{ minHeight: 44, width: { xs: '100%', sm: 'auto' } }}
-              >
-                {t("Thử lại {0} hồ sơ lỗi", bulkProgress.failed)}
-              </Button>
+              {bulkProgress.failed > 0 && (
+                <Button
+                  variant="contained"
+                  color="error"
+                  onClick={handleBulkRetry}
+                  disabled={bulkMode === 'reject' && !bulkReason.trim()}
+                  data-testid="bulk-retry"
+                  sx={{ minHeight: 44, width: { xs: '100%', sm: 'auto' } }}
+                >
+                  {t("Thử lại {0} hồ sơ lỗi", bulkProgress.failed)}
+                </Button>
+              )}
             </>
           ) : (
             <>

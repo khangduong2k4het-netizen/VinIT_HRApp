@@ -9,6 +9,53 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-19 — Lô hàng loạt sống sót khi đóng tab: biên bản được giữ, chỗ dừng trung thực
+
+**Vấn đề.** Mục 5 của danh sách cải tiến có ba phần: tiến trình, kết quả từng hồ sơ
+và thử lại phần lỗi (đã làm ở mục trước), còn phần thứ ba chưa xong — **đóng tab là
+mất dấu việc đang chạy**. Lô 30–50 hồ sơ chỉ cần một lần rớt mạng là HR mất biên bản:
+không biết hồ sơ nào đã ghi, hồ sơ nào lỗi, và hồ sơ đang ghi dở thì đã sang trạng
+thái mới hay chưa.
+
+**Thay đổi.**
+
+- `frontend/src/lib/bulkActionRun.ts`: biên bản lô được tuần tự hóa (`version`,
+  `position_id`, `mode`, `reason`, `rows`, `saved_at`) và đọc lại qua
+  `parseStoredBulkRun()`. Dữ liệu sai phiên bản, của vị trí khác, JSON hỏng, hoặc dòng
+  có bước không hợp lệ bị bỏ toàn bộ — không dựng ra biên bản giả.
+- Trạng thái mới `interrupted`: dòng đang chạy đúng lúc lô bị dừng được đánh dấu
+  **“Chưa rõ kết quả”**, giữ số bước đã biết nhưng **không** được tự thử lại, vì bước
+  cuối có thể đã lưu. `retryFailed()` chỉ đụng dòng `failed`; tiến trình đếm thêm
+  `interrupted`.
+- Màn xếp hạng lưu lô vào `localStorage` sau mỗi thay đổi (chỉ khi đã có hồ sơ rời
+  trạng thái chờ, nên mở rồi đóng không tạo cảnh báo rác), và xoá khi mọi hồ sơ đã
+  xong. Khi mở lại trang, nếu còn hồ sơ chưa xong thì hiện một dải nhắc:
+  “Lô Shortlist lần trước chưa xong: 1/2 hồ sơ đã cập nhật, 1 lỗi, 0 chưa rõ kết quả”
+  với **Xem biên bản** (mở lại đúng hộp thoại, đúng lý do chung, đúng chỗ dừng) và
+  **Bỏ qua** (xoá bản lưu).
+- Dòng bị gián đoạn trong hộp thoại nói rõ “Lô bị gián đoạn khi đang ghi hồ sơ này;
+  mở hồ sơ để kiểm tra trạng thái trước khi làm lại” kèm link mở hồ sơ; khi chỉ còn
+  dòng chưa rõ thì hộp thoại chỉ có **Đóng**, không có nút thử lại.
+- Nút hành động của lô đã dừng đổi thành **Đóng** + **Thử lại {n} hồ sơ lỗi** (chỉ
+  hiện khi thật sự có dòng lỗi), và `handleBulkApply` không chạy khi không còn dòng
+  chờ — bấm nhầm không sinh thông báo “Đã cập nhật 0 hồ sơ”.
+
+**Phạm vi giữ nguyên.** Vẫn tuần tự từng `PATCH /applications/{id}/status` hiện có,
+không endpoint mới, không đổi schema hay ma trận trạng thái. `localStorage` chỉ là
+bản lưu phía trình duyệt của chính HR, không gửi đi đâu; bị chặn storage thì lô vẫn
+chạy bình thường.
+
+**Kiểm thử.** `frontend/tests/bulk-run.test.cjs` thêm 3 test: dòng đang ghi thành
+“chưa rõ” và không bị thử lại, lưu/đọc lại đúng và loại payload sai (sai vị trí, sai
+phiên bản, JSON hỏng, dòng vô lý), dòng `running` khi đọc lại thành `interrupted`.
+`frontend/tests/bulk-recovery.e2e.cjs` (mới) chạy một lô lỗi thật, **tải lại trang**,
+thấy dải nhắc đúng số liệu, mở biên bản, thử lại chỉ đúng hồ sơ lỗi, rồi tải lại lần
+nữa để chắc bản lưu đã được xoá; và một cảnh tab chết giữa bước hai: dòng hiện “Chưa
+rõ kết quả”, có link mở hồ sơ, không có nút thử lại.
+
+**Chưa kiểm.** Chưa thử trên trình duyệt thật khi mất mạng giữa request (e2e mô phỏng
+bằng một PATCH trả 503 và bằng bản lưu viết tay); chưa có backend thật ở VM này.
+
 ## 2026-11-19 — Bảng DOCX giữ hàng cột; lọc hồ sơ theo bằng chứng và thời gian chờ
 
 **Vấn đề 1 — CV dạng bảng đọc lệch hàng.** Bộ đọc DOCX duyệt mọi `w:p` trong tài

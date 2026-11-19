@@ -18,6 +18,7 @@ function loadTypeScriptModule(relativePath) {
 const run = loadTypeScriptModule('src/lib/bulkActionRun.ts');
 const {
   bulkSteps, createBulkRun, remainingSteps, retryFailed, bulkRunProgress, stopPoint,
+  markInterrupted, toStoredBulkRun, parseStoredBulkRun, hasUnfinishedRows, bulkRunStorageKey,
 } = run;
 
 test('shortlist only plans transitions the state machine allows', () => {
@@ -81,6 +82,64 @@ test('the stop point names the last written step and the missing target', () => 
   assert.equal(stopPoint({ ...row, state: 'done', applied: 2, reached_status: 'SHORTLIST', error: null }), null);
 });
 
+test('a row caught mid-write becomes "outcome unknown", never an automatic retry', () => {
+  const rows = createBulkRun([
+    { application_id: 'a1', candidate_name: 'Đang ghi', application_status: 'NEW' },
+    { application_id: 'a2', candidate_name: 'Xong', application_status: 'IN_REVIEW' },
+  ], 'shortlist');
+  const snapshot = [
+    { ...rows[0], state: 'running', applied: 1, reached_status: 'IN_REVIEW' },
+    { ...rows[1], state: 'done', applied: 1, reached_status: 'SHORTLIST' },
+  ];
+  const interrupted = markInterrupted(snapshot);
+  assert.equal(interrupted[0].state, 'interrupted');
+  assert.equal(interrupted[0].applied, 1, 'the steps that were known to succeed are kept');
+  assert.equal(interrupted[1].state, 'done');
+  // The result of the last request is unknown, so retry must not resend it.
+  assert.deepEqual(retryFailed(interrupted).map(row => row.state), ['interrupted', 'done']);
+});
+
+test('a saved batch round-trips and only trusted payloads are restored', () => {
+  const rows = createBulkRun([
+    { application_id: 'a1', candidate_name: 'Lỗi', application_status: 'IN_REVIEW' },
+    { application_id: 'a2', candidate_name: 'Xong', application_status: 'IN_REVIEW' },
+  ], 'shortlist');
+  const snapshot = [
+    { ...rows[0], state: 'failed', applied: 0, error: 'Mất mạng' },
+    { ...rows[1], state: 'done', applied: 1, reached_status: 'SHORTLIST' },
+  ];
+  const key = bulkRunStorageKey('p1');
+  assert.equal(key, 'hra-bulk-run:p1');
+  const stored = toStoredBulkRun('p1', 'shortlist', 'lý do chung', snapshot, 1700000000000);
+  const restored = parseStoredBulkRun(JSON.stringify(stored), 'p1');
+  assert.equal(restored.mode, 'shortlist');
+  assert.equal(restored.reason, 'lý do chung');
+  assert.deepEqual(restored.rows.map(row => [row.application_id, row.state, row.applied]), [
+    ['a1', 'failed', 0],
+    ['a2', 'done', 1],
+  ]);
+  assert.equal(hasUnfinishedRows(restored.rows), true);
+  assert.equal(hasUnfinishedRows(stored.rows.filter(row => row.state === 'done')), false);
+
+  // Foreign position, wrong version, junk or a row with impossible steps is dropped.
+  assert.equal(parseStoredBulkRun(JSON.stringify(stored), 'p2'), null);
+  assert.equal(parseStoredBulkRun(JSON.stringify({ ...stored, version: 99 }), 'p1'), null);
+  assert.equal(parseStoredBulkRun('{not json', 'p1'), null);
+  assert.equal(parseStoredBulkRun(null, 'p1'), null);
+  assert.equal(parseStoredBulkRun(JSON.stringify({ ...stored, rows: [] }), 'p1'), null);
+  assert.equal(parseStoredBulkRun(JSON.stringify({ ...stored, rows: [{ application_id: 'a1', steps: ['SHORTLIST'], applied: 5 }] }), 'p1'), null);
+});
+
+test('a saved running row is restored as unknown instead of silently pending', () => {
+  const rows = createBulkRun([{ application_id: 'a1', candidate_name: 'Đang ghi', application_status: 'NEW' }], 'shortlist');
+  const stored = toStoredBulkRun('p1', 'shortlist', '', [{ ...rows[0], state: 'running', applied: 1, reached_status: 'IN_REVIEW' }]);
+  const restored = parseStoredBulkRun(JSON.stringify(stored), 'p1');
+  assert.equal(restored.rows[0].state, 'interrupted');
+  assert.deepEqual(bulkRunProgress(restored.rows), {
+    total: 1, done: 0, failed: 0, pending: 0, running: 0, interrupted: 1, finished: 1,
+  });
+});
+
 test('progress counts every row exactly once', () => {
   const rows = createBulkRun([
     { application_id: 'a1', application_status: 'IN_REVIEW' },
@@ -92,6 +151,6 @@ test('progress counts every row exactly once', () => {
     { ...rows[1], state: 'failed', error: 'lỗi' },
     rows[2],
   ]);
-  assert.deepEqual(progress, { total: 3, done: 1, failed: 1, pending: 1, running: 0, finished: 2 });
-  assert.deepEqual(bulkRunProgress([]), { total: 0, done: 0, failed: 0, pending: 0, running: 0, finished: 0 });
+  assert.deepEqual(progress, { total: 3, done: 1, failed: 1, pending: 1, running: 0, interrupted: 0, finished: 2 });
+  assert.deepEqual(bulkRunProgress([]), { total: 0, done: 0, failed: 0, pending: 0, running: 0, interrupted: 0, finished: 0 });
 });
