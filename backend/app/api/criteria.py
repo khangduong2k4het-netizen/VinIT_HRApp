@@ -14,12 +14,14 @@ from app.schemas.criteria import (
     CriterionCreate,
     CriterionUpdate,
     ApprovalAction,
-    CriteriaApprovalRequest
+    CriteriaApprovalRequest,
+    RequirementSpec
 )
 from app.schemas.common import OperationResponse
 from app.db.supabase import get_supabase_client
 from app.db.database import SessionLocal
 from sqlalchemy import text
+from pydantic import ValidationError
 import json
 import re
 from decimal import Decimal, ROUND_HALF_UP
@@ -41,6 +43,23 @@ def _load_criteria(db, version_id):
     return result
 
 
+def _sanitize_criteria_response(version: dict) -> dict:
+    """Drop ``requirement_spec`` values the response schema would reject.
+
+    Rows written before the schema/spec fix may already hold a spec such as
+    ``{"kind": "LANGUAGE"}`` with no language or threshold. Serializing such a
+    row fails inside FastAPI and returns a bare 500 with no ``detail``, hiding
+    the real cause from the UI. The spec is optional, so dropping it keeps the
+    endpoint usable; the matcher re-infers a spec later.
+    """
+    if not isinstance(version, dict):
+        return version
+    for criterion in version.get("criteria") or []:
+        if isinstance(criterion, dict) and "requirement_spec" in criterion:
+            criterion["requirement_spec"] = _schema_safe_spec(criterion["requirement_spec"])
+    return version
+
+
 def _stored_requirement_spec(item: dict) -> dict:
     """Materialize the engine's inferred draft in the stored JSONB shape."""
     spec = deterministic_matcher.build_requirement_spec(item)
@@ -55,6 +74,26 @@ def _stored_requirement_spec(item: dict) -> dict:
         "required_cefr": spec.required_cefr,
         "required_language_rank": spec.required_language_rank,
     }
+
+
+def _schema_safe_spec(spec) -> Optional[dict]:
+    """Return ``spec`` only when the response schema will accept it.
+
+    The response model validates ``requirement_spec``; a spec the schema
+    rejects makes FastAPI fail to serialize the whole response. The client then
+    gets a bare HTTP 500 with no ``detail`` — which the UI can only report as a
+    generic failure, even though the criteria were saved. Validation is optional
+    data: drop it rather than lose the response.
+    """
+    if not isinstance(spec, dict):
+        return None
+    try:
+        RequirementSpec.model_validate(spec)
+        return spec
+    except ValidationError:
+        logger.warning("requirement_spec omitted from response: failed schema validation",
+                       kind=spec.get("kind"))
+        return None
 
 
 #: Nhãn nhóm mà model có thể trả về thay vì mã chuẩn. Model bản địa hoá theo
@@ -221,7 +260,7 @@ async def list_criteria_versions(position_id: UUID, current_user: dict = Depends
     db = SessionLocal()
     try:
         ids = db.execute(text("SELECT criteria_version_id FROM app_private.criteria_versions WHERE position_id = :id ORDER BY version_number DESC"), {"id": str(position_id)}).scalars().all()
-        return [_load_criteria(db, item) for item in ids]
+        return [_sanitize_criteria_response(_load_criteria(db, item)) for item in ids]
     finally:
         db.close()
 
@@ -232,7 +271,7 @@ async def get_criteria_version(criteria_version_id: UUID, current_user: dict = D
     try:
         result = _load_criteria(db, criteria_version_id)
         await check_position_access(result["position_id"], current_user)
-        return result
+        return _sanitize_criteria_response(result)
     finally:
         db.close()
 
@@ -334,7 +373,7 @@ async def generate_criteria_from_jd(position_id: UUID, current_user: dict = Depe
         """), {"user_id": current_user["user_id"], "id": version_id, "position": str(position_id)})
         result = _load_criteria(db, version_id)
         db.commit()
-        return result
+        return _sanitize_criteria_response(result)
     except Exception:
         db.rollback()
         raise

@@ -1511,5 +1511,7 @@
   "Thử tạo tiêu chí lại": "Retry criteria generation",
   "Mở vị trí": "Open position",
   "Không sinh được tiêu chí. Vị trí vẫn được lưu, không cần tạo lại.": "Could not generate criteria. The position is still saved — there is no need to create it again.",
-  "Mặc định là tiếng Anh; chọn Tiếng Việt nếu JD viết bằng tiếng Việt.": "English is the default; choose Vietnamese if the job description is written in Vietnamese."
+  "Mặc định là tiếng Anh; chọn Tiếng Việt nếu JD viết bằng tiếng Việt.": "English is the default; choose Vietnamese if the job description is written in Vietnamese.",
+  "Chưa xác nhận được tiêu chí đã tạo hay chưa (lỗi kết nối). Mở vị trí để xem kết quả; không cần tạo lại vị trí.": "Could not confirm whether the criteria were created (connection problem). Open the position to check the result; there is no need to create the position again.",
+  "Yêu cầu tạo tiêu chí bị ngắt trước khi có kết quả và hệ thống chưa lưu tiêu chí nào. Vị trí đã được lưu, không cần tạo lại.": "The criteria request was interrupted before a result arrived, and no criteria were saved. The position itself is saved — there is no need to create it again."
 }

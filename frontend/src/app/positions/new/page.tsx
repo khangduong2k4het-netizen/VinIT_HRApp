@@ -7,6 +7,7 @@ import { Alert, Autocomplete, Box, Button, Card, CardContent, CircularProgress, 
 import apiClient, { criteriaApi, departmentsApi, positionsApi, rubricApi, usersApi } from '@/lib/api';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import CreatePositionProgressDialog, { type CreateProgressStep } from '@/components/positions/CreatePositionProgressDialog';
+import { interpretGenerationFailure } from '@/lib/criteriaGeneration';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { Department, UserSummary } from '@/types';
 
@@ -106,21 +107,43 @@ export default function CreatePositionPage() {
     router.push(`/positions/${positionId}?tab=criteria`);
   };
 
-  /** Gọi sinh tiêu chí; trả về ``true`` khi thành công. */
+  /** Hỏi server xem vị trí đã có bản tiêu chí nào chưa; ``null`` nếu không hỏi được. */
+  const criteriaExist = async (positionId: string): Promise<boolean | null> => {
+    try {
+      const res = await criteriaApi.listVersions(positionId);
+      return Array.isArray(res.data) && res.data.length > 0;
+    } catch { return null; }
+  };
+
+  /** Mở vị trí sau khi tiêu chí đã sẵn sàng trong DB. */
+  const finishCriteria = (positionId: string) => {
+    setProgressStep('done'); setProgressError('');
+    // Ngắn để người dùng kịp thấy bước hoàn tất trước khi trang đổi. Giữ id
+    // để dọn timer nếu trang bị gỡ trong 0,7 giây đó.
+    navTimer.current = setTimeout(() => openPosition(positionId), 700);
+  };
+
+  /** Gọi sinh tiêu chí; trả về ``true`` khi tiêu chí đã có trên server. */
   const runCriteriaGeneration = async (positionId: string) => {
     setProgressStep('generating'); setProgressError('');
     try {
       await criteriaApi.generateDraft(positionId);
-      setProgressStep('done');
-      // Ngắn để người dùng kịp thấy bước hoàn tất trước khi trang đổi. Giữ id
-      // để dọn timer nếu trang bị gỡ trong 0,7 giây đó.
-      navTimer.current = setTimeout(() => openPosition(positionId), 700);
+      finishCriteria(positionId);
       return true;
     } catch (err: any) {
-      // Vị trí ĐÃ được tạo. Không được để người dùng tưởng thất bại rồi bấm
-      // tạo lại — họ sẽ có hai vị trí trùng. Nói rõ vị trí đã lưu.
-      setProgressError(err.response?.data?.detail
-        || t('Không sinh được tiêu chí. Vị trí vẫn được lưu, không cần tạo lại.'));
+      // Vị trí ĐÃ được tạo, nên không bao giờ được khuyên tạo lại. Câu "chưa
+      // tạo được tiêu chí" chỉ được nói khi đã KIỂM CHỨNG là chưa có.
+      // Response không có `detail` thường là request bị cắt ở proxy chứ không
+      // phải backend từ chối — lúc đó phải hỏi lại server.
+      const exists = await criteriaExist(positionId);
+      const outcome = interpretGenerationFailure(err, exists);
+      if (outcome.action === 'verified') { finishCriteria(positionId); return true; }
+      if (outcome.action === 'unknown') {
+        setProgressError(t('Chưa xác nhận được tiêu chí đã tạo hay chưa (lỗi kết nối). Mở vị trí để xem kết quả; không cần tạo lại vị trí.'));
+        return false;
+      }
+      setProgressError(outcome.detail
+        || t('Yêu cầu tạo tiêu chí bị ngắt trước khi có kết quả và hệ thống chưa lưu tiêu chí nào. Vị trí đã được lưu, không cần tạo lại.'));
       return false;
     }
   };
