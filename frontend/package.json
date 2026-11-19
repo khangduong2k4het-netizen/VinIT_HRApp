@@ -35,7 +35,8 @@
     "test:e2e:ux08-feedback": "node tests/ux08-feedback.e2e.cjs",
     "test:e2e:docx-preview": "node tests/docx-preview.e2e.cjs",
     "test:e2e:criteria-filter": "node tests/applicant-criteria-filter.e2e.cjs",
-    "test:e2e:bulk-recovery": "node tests/bulk-recovery.e2e.cjs"
+    "test:e2e:bulk-recovery": "node tests/bulk-recovery.e2e.cjs",
+    "test:e2e:careers-public": "node tests/careers-public.e2e.cjs"
   },
   "dependencies": {
     "@emotion/cache": "11.14.0",

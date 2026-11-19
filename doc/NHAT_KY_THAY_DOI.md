@@ -9,6 +9,42 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-19 — Trang tuyển dụng công khai: song ngữ, form tệp dùng được trên điện thoại
+
+**Vấn đề.** `/careers` là bề mặt duy nhất ứng viên thấy, nhưng tiêu đề, nhãn form,
+nút và phần đồng ý Talent Pool đều hardcode tiếng Việt, không có chuyển ngôn ngữ;
+chỉ có thông báo lỗi đi qua `t()`. Ô tệp là `<input type="file">` mặc định của trình
+duyệt — trên điện thoại nó bé, khó bấm và không nói đã chọn CV nào, nên sinh viên
+nộp bằng điện thoại dễ bỏ cuộc ngay từ cửa.
+
+**Thay đổi.**
+
+- Toàn bộ chuỗi của trang đi qua `t()`: tiêu đề, cảnh báo chỉ dùng dữ liệu tổng hợp,
+nút ứng tuyển, nhãn từng trường, mô tả Talent Pool, mã rút, thông báo thành công và
+thông báo lỗi tải danh sách. Khoảng 25 khoá mới có bản dịch tiếng Anh trong
+`src/i18n/en.json`.
+- `LanguageSwitcher` đặt ở góc phải tiêu đề trang (cùng thành phần các trang công khai
+khác đang dùng), nên ứng viên đổi VI/EN ngay tại chỗ; `<html lang>` đổi theo.
+- Form được làm lại: các trường `fullWidth` với `autoComplete` đúng loại, nút chọn
+CV là `Button component="label"` cao 44px chứa input tệp (vẫn giữ `name="cv"`,
+`accept=".pdf,.docx"`), tên tệp đã chọn hiện ngay dưới nút, hai nút gửi/hủy xếp dọc
+trên điện thoại và cao 44px. Bỏ `required` trên input tệp ẩn (trình duyệt báo
+“invalid form control … is not focusable”) và kiểm tra tệp trước khi gửi, với thông
+báo rõ ràng.
+- Không đổi API hay payload: vẫn `POST /v1/careers/jobs/{id}/apply` với
+`request_id`, `pool_opt_in`, `pool_token` và tệp multipart.
+
+**Kiểm thử.** `frontend/tests/careers-public.e2e.cjs` (mới) với API tuyển dụng giả:
+đổi sang EN thì tiêu đề/nhãn/nút/đồng ý/thông báo đều đổi và `html[lang]=en`, đổi lại
+VI vẫn đúng; trên 390×844 form không cuộn ngang, mọi nút ≥ 44px và nằm trong màn
+hình, chọn tệp xong thấy tên `careers-cv.pdf`, gửi đi đúng một request multipart có
+`request_id` + `pool_opt_in` + tệp và hiện thông báo đã nhận. `docx`/`tsc`/`eslint`/unit
+đều giữ nguyên xanh.
+
+**Chưa kiểm.** Chưa thử trên thiết bị thật (e2e dùng viewport 390×844, có touch);
+chưa có backend thật ở VM này nên phản hồi 202/409/422 của API tuyển dụng chỉ mô
+phỏng bằng mock. Trang demo `/careers-demo` vẫn tiếng Việt — ngoài phạm vi yêu cầu.
+
 ## 2026-11-19 — Lô hàng loạt sống sót khi đóng tab: biên bản được giữ, chỗ dừng trung thực
 
 **Vấn đề.** Mục 5 của danh sách cải tiến có ba phần: tiến trình, kết quả từng hồ sơ
