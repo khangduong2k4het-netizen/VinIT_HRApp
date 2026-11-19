@@ -237,6 +237,21 @@ export default function PositionDetailPage() {
 
   useEffect(() => { loadData(true); }, [loadData]);
 
+  // Trang tạo vị trí điều hướng tới `?tab=criteria` sau khi sinh xong tiêu chí.
+  // Trước đây tham số này chỉ được đọc khi bấm một action, nên vào bằng link
+  // vẫn rơi về tab đầu tiên và HR phải tự tìm. Dùng đúng bảng ánh xạ với
+  // handleAction để hai đường không lệch nhau.
+  // Đọc query trực tiếp từ `window` thay vì `useSearchParams()`: page này là
+  // client component được prerender tĩnh, và `useSearchParams()` bắt buộc bọc
+  // Suspense hoặc chuyển cả trang sang dynamic. Ở effect thì `window` đã có.
+  useEffect(() => {
+    const search = new URLSearchParams(window.location.search);
+    const tabIndex = ({ criteria: 0, applications: 1, shortlist: 2, jd: 3 } as Record<string, number>)[search.get('tab') || ''];
+    if (tabIndex != null) setActiveTab(tabIndex);
+    if (search.get('intake') === '1') scrollToIntake();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     const search = new URLSearchParams(window.location.search);
     const tab = search.get('tab');

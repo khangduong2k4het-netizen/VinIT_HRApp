@@ -1501,5 +1501,15 @@
   "Đã dọn {0} file mồ côi trên Storage.": "Cleaned up {0} orphaned files in Storage.",
   "Quản trị hệ thống": "System administration",
   "Cấu hình, giám sát dịch vụ xử lý và dọn dữ liệu kiểm thử": "Configure and monitor processing services, and clear test data",
-  "Hệ thống": "System"
+  "Hệ thống": "System",
+  "Đang tạo vị trí tuyển dụng...": "Creating the position...",
+  "Đang tạo tiêu chí tự động cho vị trí tuyển dụng này...": "Automatically generating evaluation criteria for this position...",
+  "Đã tạo xong tiêu chí. Đang mở vị trí...": "Criteria ready. Opening the position...",
+  "Bước này có thể mất vài chục giây. Vui lòng không đóng trang.": "This step can take up to a minute. Please keep this page open.",
+  "Đã tạo vị trí nhưng chưa tạo được tiêu chí.": "The position was created, but the criteria could not be generated.",
+  "Vị trí đã được lưu. Bạn có thể thử tạo tiêu chí lại, hoặc mở vị trí và tạo sau.": "The position has been saved. You can retry generating criteria, or open the position and generate them later.",
+  "Thử tạo tiêu chí lại": "Retry criteria generation",
+  "Mở vị trí": "Open position",
+  "Không sinh được tiêu chí. Vị trí vẫn được lưu, không cần tạo lại.": "Could not generate criteria. The position is still saved — there is no need to create it again.",
+  "Mặc định là tiếng Anh; chọn Tiếng Việt nếu JD viết bằng tiếng Việt.": "English is the default; choose Vietnamese if the job description is written in Vietnamese."
 }
