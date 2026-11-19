@@ -245,3 +245,15 @@ Chạy `npm run test:unit` tại frontend: **8/8 pass**, bao gồm test xác nh�
 - **Supabase `myrymlqdbyqmpynesiwk`:** migration 00032 đã áp (tên `position_create_idempotency_00032`); bảng `app_private.position_create_requests` tồn tại, RLS bật với 0 policy, `service_role` có INSERT, `authenticated` không có SELECT/INSERT và cũng không có grant nào trên 7 bảng nhạy cảm được kiểm tra. Dữ liệu sản phẩm không đổi: 6 vị trí, 0 OPEN còn hạn, 0 share ACTIVE, 0 scorecard, 0 biên nhận.
 - **Chưa triển khai VPS:** phiên này không có SSH tới máy chủ, nên code mới **chưa** lên HRA đang chạy; VPS vẫn là bản `a218217`. Người vận hành cần pull `94fad03`, chạy migration (đã áp sẵn trên Supabase nên chỉ cần pull code), build lại frontend/backend và kiểm tra readiness.
 - **Còn lại trước khi coi là nghiệm thu:** E2E hai vai trò HR/HM trên VPS với Supabase Auth/Storage/ClamAV thật, thử URL JD thật từ VPS, usability và audit accessibility đầy đủ, danh sách rất lớn trên dữ liệu thật, chặn Back/Forward, lưu nháp scorecard phía server. Không có mục nào trong số này đã được chứng minh.
+
+## 16. Đợt 8: kiểm tra accessibility bằng bàn phím, sửa lỗi tràn ngang
+
+- **Lỗi tìm thấy và đã sửa:** vùng `aria-live` thông báo ứng viên đang đánh giá dùng `position: absolute` nhưng thiếu `left/top` nên rộng đúng bằng container và bị đẩy sang phải, làm workspace share rộng **1905px** trên màn 1280px. Đã ghim `left/top: 0`, thêm `clipPath: inset(50%)` và padding/border 0; test mới xác nhận không còn tràn ngang ở cả desktop và mobile.
+- **Test mới `frontend/tests/a11y-mock.e2e.cjs`** (mock toàn bộ `/v1`, chạy desktop 1280 và mobile 390):
+  - mọi phần tử hiển thị và nhận focus trên trang tạo vị trí và workspace share đều có tên dễ đọc (aria-label, aria-labelledby, `<label for>`, label bao ngoài, text hoặc title);
+  - chỉ dùng Tab vẫn tới được ô “Tên vị trí”, gõ được, và nút tạo vẫn disabled khi chưa có JD;
+  - danh sách ứng viên là button có `aria-pressed` đúng, chọn ứng viên thứ hai bằng phím Enter, mở accordion “CV và bằng chứng đánh giá” bằng Enter;
+  - không tràn ngang ở cả hai kích thước.
+- Đây là **smoke test**, không phải audit screen reader (NVDA/VoiceOver), không kiểm tra tương phản màu, thứ tự đọc thực tế hay zoom 200%/400%. Chưa kiểm thử với dữ liệu thật.
+- **Kết quả sau sửa:** type-check/lint/build pass; **6 bộ browser mock** desktop/mobile pass (a11y, tạo vị trí, danh sách 123 hồ sơ, workspace share, lọc share, tài khoản); unit **11/11**, i18n **3/3**; backend unit không DB **264 passed/170 skipped**. Commit `8ba1160` đã push.
+- **Còn lại:** E2E thật trên VPS với Supabase/Storage/ClamAV, thử URL JD từ VPS, usability test với HR/HM, screen reader/contrast/zoom, chặn Back/Forward, lưu nháp scorecard phía server. VPS vẫn chưa cập nhật.

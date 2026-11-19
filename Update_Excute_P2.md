@@ -378,3 +378,10 @@ Operator báo Ubuntu noble arm64 package candidate ClamAV `1.5.4+dfsg-0ubuntu0.2
 - CI run **44441175204 success**: backend unit, frontend (i18n/type-check/lint/build) và backend integration trên PostgreSQL 17 + pgvector disposable có áp đủ 32 migration gồm 00032. Số test cụ thể trong log CI không tải được do chặn egress; kết quả local tương ứng 434 passed.
 - Supabase: 00032 đã áp qua cổng migration; RLS bật, 0 policy, chỉ `service_role` ghi; `authenticated` không có grant trên các bảng nhạy cảm đã kiểm tra. Dữ liệu sản phẩm không đổi.
 - **Chưa deploy VPS** (không có SSH trong phiên). Cần operator pull `94fad03`, build/restart và kiểm tra readiness; sau đó mới chạy E2E thật, usability/a11y và các mục còn lại.
+
+### 38. Đợt 8: a11y smoke và sửa tràn ngang trong workspace share
+
+- Phát hiện vùng live region ẩn làm workspace share rộng 1905px/1280px do `position:absolute` thiếu `left/top`; đã sửa và thêm test chống tái phát.
+- Thêm `a11y-mock.e2e.cjs`: kiểm tra tên điều khiển, Tab tới ô tên vị trí, `aria-pressed`/Enter khi chọn ứng viên, mở accordion bằng Enter, không tràn ngang trên desktop/mobile. Là smoke test, không thay screen reader/contrast/zoom audit.
+- 6 bộ browser mock pass, unit 11/11, i18n 3/3, type-check/lint/build pass; backend unit 264 passed/170 skipped. Commit `8ba1160` đã push.
+- Chưa E2E thật, chưa usability, chưa deploy VPS.
