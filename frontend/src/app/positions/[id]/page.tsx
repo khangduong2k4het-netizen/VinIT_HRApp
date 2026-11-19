@@ -139,6 +139,8 @@ export default function PositionDetailPage() {
   const [activeTab, setActiveTab] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Cảnh báo khi vị trí mở được nhưng một phần dữ liệu phụ không tải được.
+  const [partialError, setPartialError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [workspace, setWorkspace] = useState<PositionWorkspace | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -194,15 +196,31 @@ export default function PositionDetailPage() {
   const loadData = useCallback(async (initial = false) => {
     try {
       if (initial) setLoading(true);
+      // Tiêu chí, JD và tài khoản không được phép làm chết cả trang: trước đây
+      // một lỗi ở bất kỳ lời gọi nào trong Promise.all đều biến thành
+      // "Không thể tải thông tin vị trí", kể cả khi vị trí vẫn đọc được — người
+      // dùng không biết hỏng cái gì và không mở được vị trí vừa tạo.
       const [posRes, criteriaRes, meRes, jdRes] = await Promise.all([
-        positionsApi.getById(positionId), criteriaApi.listVersions(positionId), authApi.me(), positionsApi.getJdVersions(positionId),
+        positionsApi.getById(positionId),
+        criteriaApi.listVersions(positionId).catch(() => null),
+        authApi.me().catch(() => null),
+        positionsApi.getJdVersions(positionId).catch(() => null),
       ]);
       setPosition(posRes.data);
-      setCriteriaVersions(criteriaRes.data);
-      setJdVersions(jdRes.data);
-      setSelectedJdId(previous => jdRes.data.some((item: JDVersion) => item.jd_version_id === previous) ? previous : (jdRes.data[0]?.jd_version_id || ''));
-      setMe(meRes.data);
-      const latestVersion = criteriaRes.data[0];
+      const criteria = Array.isArray(criteriaRes?.data) ? criteriaRes.data : [];
+      const jdList: JDVersion[] = Array.isArray(jdRes?.data) ? jdRes.data : [];
+      setCriteriaVersions(criteria);
+      setJdVersions(jdList);
+      setSelectedJdId(previous => jdList.some((item: JDVersion) => item.jd_version_id === previous) ? previous : (jdList[0]?.jd_version_id || ''));
+      setMe(meRes?.data ?? null);
+      // Nói rõ phần nào không tải được, thay vì một câu chung chung.
+      const partial = [
+        criteriaRes ? '' : t("không tải được tiêu chí"),
+        jdRes ? '' : t("không tải được JD"),
+        meRes ? '' : t("không tải được quyền của tài khoản"),
+      ].filter(Boolean);
+      setPartialError(partial.length ? t("Vị trí đã mở nhưng {0}. Vui lòng làm mới trang.", partial.join(', ')) : null);
+      const latestVersion = criteria[0];
       if (latestVersion) {
         try { setApprovalHistory((await criteriaApi.getApprovalEvents(latestVersion.criteria_version_id)).data || []); }
         catch { setApprovalHistory([]); }
@@ -215,21 +233,30 @@ export default function PositionDetailPage() {
           setOperationStatus((previous: any) => previous || { operation_id: workspaceRes.data.active_operation.operation_id, status: workspaceRes.data.active_operation.status, stage: workspaceRes.data.active_operation.stage, capability: workspaceRes.data.active_operation.stage });
         }
       } catch { setWorkspace(null); }
-      const myRoles = meRes.data.position_assignments?.filter((p: any) => p.position_id === positionId).map((p: any) => p.position_role) || [];
-      const hr = myRoles.includes('HR_RECRUITER') || myRoles.includes('HR_LEAD') || meRes.data.system_roles?.some((r: string) => r === 'ADMIN' || r === 'HR_LEAD');
+      // Không đọc được tài khoản thì coi như không phải HR: ẩn phần HR thay vì
+      // hiện nút mà bấm vào sẽ bị 403.
+      const me = meRes?.data;
+      const myRoles = me?.position_assignments?.filter((p: any) => p.position_id === positionId).map((p: any) => p.position_role) || [];
+      const hr = myRoles.includes('HR_RECRUITER') || myRoles.includes('HR_LEAD') || !!me?.system_roles?.some((r: string) => r === 'ADMIN' || r === 'HR_LEAD');
       // Show workflow statistics only to HR; an HM uses the shared shortlist.
       if (hr) {
         try { await updateCounts(); }
-        catch { setAppCounts(null); setError(t("Không thể tải thống kê hồ sơ. Vui lòng làm mới trang.")); }
+        catch { setAppCounts(null); setPartialError(t("Không thể tải thống kê hồ sơ. Vui lòng làm mới trang.")); }
       } else setAppCounts(null);
       if (initial && hr) {
         try {
           const active = await operationsApi.getActiveForPosition(positionId);
           if (active.data) setOperationStatus(active.data);
-        } catch { setError(t("Không thể tải tiến trình xử lý. Vui lòng làm mới trang.")); }
+        } catch { /* Không chặn trang vì không đọc được tiến trình nền. */ }
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || t("Không thể tải thông tin vị trí"));
+      // Nêu cả yêu cầu nào hỏng và mã HTTP: khi backend trả 500 plain text thì
+      // `detail` không có, và một câu chung chung không đủ để chẩn đoán.
+      const status = err.response?.status;
+      const detail = typeof err.response?.data?.detail === 'string' ? err.response.data.detail : '';
+      const which = err.config?.url || '';
+      const base = !status ? t("Không thể kết nối máy chủ. Vui lòng thử lại.") : t("Không thể tải thông tin vị trí");
+      setError(detail || [base, which, status ? `(HTTP ${status})` : ''].filter(Boolean).join(' · '));
     } finally {
       setLoading(false);
     }
@@ -237,21 +264,9 @@ export default function PositionDetailPage() {
 
   useEffect(() => { loadData(true); }, [loadData]);
 
-  // Trang tạo vị trí điều hướng tới `?tab=criteria` sau khi sinh xong tiêu chí.
-  // Trước đây tham số này chỉ được đọc khi bấm một action, nên vào bằng link
-  // vẫn rơi về tab đầu tiên và HR phải tự tìm. Dùng đúng bảng ánh xạ với
-  // handleAction để hai đường không lệch nhau.
-  // Đọc query trực tiếp từ `window` thay vì `useSearchParams()`: page này là
-  // client component được prerender tĩnh, và `useSearchParams()` bắt buộc bọc
-  // Suspense hoặc chuyển cả trang sang dynamic. Ở effect thì `window` đã có.
-  useEffect(() => {
-    const search = new URLSearchParams(window.location.search);
-    const tabIndex = ({ criteria: 0, applications: 1, shortlist: 2, jd: 3 } as Record<string, number>)[search.get('tab') || ''];
-    if (tabIndex != null) setActiveTab(tabIndex);
-    if (search.get('intake') === '1') scrollToIntake();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  // Đọc query từ `window` thay vì `useSearchParams()`: page này là client
+  // component được prerender tĩnh, và `useSearchParams()` buộc phải bọc Suspense
+  // hoặc chuyển cả trang sang dynamic. Trong effect thì `window` đã sẵn có.
   useEffect(() => {
     const search = new URLSearchParams(window.location.search);
     const tab = search.get('tab');
@@ -592,6 +607,12 @@ export default function PositionDetailPage() {
           >{t("Tải lên CV")}</Button>
         </Box>
       </Box>
+
+      {partialError && (
+        <Alert severity="warning" sx={{ mb: 3 }} onClose={() => setPartialError(null)}>
+          {partialError}
+        </Alert>
+      )}
 
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>

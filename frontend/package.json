@@ -26,7 +26,8 @@
     "test:e2e:ux02-review": "node tests/ux02-review.e2e.cjs",
     "test:e2e:ux03-dashboard": "node tests/ux03-dashboard.e2e.cjs",
     "test:e2e:ux04-sticky-viewer": "node tests/ux04-sticky-viewer.e2e.cjs",
-    "test:e2e:ux08-feedback": "node tests/ux08-feedback.e2e.cjs"
+    "test:e2e:ux08-feedback": "node tests/ux08-feedback.e2e.cjs",
+    "test:e2e:position-partial": "node tests/position-open-partial-failure.e2e.cjs"
   },
   "dependencies": {
     "@emotion/cache": "11.14.0",
