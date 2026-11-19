@@ -247,8 +247,11 @@ async def review_criterion_result(
         position_id = str(row["position_id"])
         # Same gate as the rest of the HR write paths: active HR on this position,
         # rechecked under lock so a revocation cannot race the insert.
+        # application_access returns booleans named can_*; asking for a key it
+        # never returns would 403 every reviewer, including the recruiter on the
+        # position. The HR-write capability is can_manage_hr_notes.
         access = application_access(current_user["user_id"], position_id, str(row["application_id"]), db)
-        if not access.get("hr_notes_access"):
+        if not access.get("can_manage_hr_notes"):
             raise HTTPException(status_code=403, detail="Chỉ HR phụ trách mới có quyền xác minh bằng chứng của vị trí này")
         review = db.execute(text("""
             INSERT INTO app_private.hr_criterion_reviews (result_id, app_position_id, decision, comment, reviewed_by)
