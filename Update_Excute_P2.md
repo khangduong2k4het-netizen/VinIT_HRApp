@@ -385,3 +385,11 @@ Operator báo Ubuntu noble arm64 package candidate ClamAV `1.5.4+dfsg-0ubuntu0.2
 - Thêm `a11y-mock.e2e.cjs`: kiểm tra tên điều khiển, Tab tới ô tên vị trí, `aria-pressed`/Enter khi chọn ứng viên, mở accordion bằng Enter, không tràn ngang trên desktop/mobile. Là smoke test, không thay screen reader/contrast/zoom audit.
 - 6 bộ browser mock pass, unit 11/11, i18n 3/3, type-check/lint/build pass; backend unit 264 passed/170 skipped. Commit `8ba1160` đã push; CI xanh cả ba job. Commit tài liệu sau đó chỉ đổi `.md` nên CI bỏ qua theo cấu hình `paths-ignore`.
 - Chưa E2E thật, chưa usability, chưa deploy VPS.
+
+### 39. Đợt 9: chặn Back/Forward và nháp scorecard bền trên trình duyệt
+
+- `useUnsavedChangesGuard` giờ chặn cả Back/Forward: entry trang + một entry bảo vệ cùng URL; huỷ thì `forward()` về entry bảo vệ (giữ URL, không sinh entry mới), đồng ý thì đi tiếp đúng một hộp thoại; deep link không có lịch sử thì về `fallbackHref`. Reload/lưu-rồi-sửa không chồng entry.
+- Nháp scorecard và phản hồi share được lưu vào `localStorage` (`hra:draft:*`, TTL 7 ngày, envelope có `saved_at`), khôi phục sau reload kèm banner; nháp scorecard chỉ nhận khi revision khớp và còn quyền sửa, lưu/nộp xong thì xoá và huỷ debounce, “Bỏ nháp đã khôi phục” trả về giá trị server, mất quyền thì purge toàn bộ nháp của share đó. Storage bị chặn → cảnh báo, chỉ còn nháp trong bộ nhớ.
+- `localStorage` không mã hoá: nháp chỉ chứa nội dung người đánh giá tự gõ, không có CV/liên hệ/token; không thay thế lưu server.
+- Test: unit `local-drafts` 5/5 (tổng 16/16), i18n 3/3; E2E mới `draft-back-guard-mock.e2e.cjs` chạy 3 lần pass trên production build, cùng 7 bộ browser mock cũ (a11y, tạo vị trí, tài khoản, intake, danh sách lớn, workspace shortlist, lọc shortlist) đều pass; type-check/lint/build pass.
+- **Chưa làm:** chưa thử Safari/iOS/chế độ ẩn danh/tiện ích chặn history, chưa E2E với Supabase/Storage/ClamAV thật, chưa usability test luồng tải lại giữa lúc đánh giá; VPS chưa cập nhật.
