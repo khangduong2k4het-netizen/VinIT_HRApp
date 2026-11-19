@@ -8,7 +8,13 @@ from sqlalchemy import text
 
 from app.core.security import get_current_user
 from app.db.database import SessionLocal
-from app.services.workspace import build_work_queue_items, build_workflow, summarize_applications
+from app.services.workspace import (
+    build_work_queue_items,
+    build_workflow,
+    deadline_days_left,
+    summarize_applications,
+    summarize_waiting,
+)
 
 router = APIRouter()
 
@@ -29,7 +35,7 @@ _SCOPE_CTE = """
               AND role_code IN ('ADMIN', 'HR_LEAD')
         ) AS global_access
     ), visible_positions AS (
-        SELECT p.position_id, p.status
+        SELECT p.position_id, p.status, p.application_deadline_at
         FROM app_private.positions p, privileges priv
         WHERE (CAST(:position_id AS uuid) IS NULL OR p.position_id = CAST(:position_id AS uuid))
           AND (priv.global_access OR EXISTS (
@@ -40,7 +46,7 @@ _SCOPE_CTE = """
 """
 
 _APPLICATIONS_QUERY = _SCOPE_CTE + """
-    SELECT a.application_id, a.position_id, a.application_status,
+    SELECT a.application_id, a.position_id, a.application_status, a.created_at,
         EXISTS (SELECT 1 FROM app_private.application_documents d
                 WHERE d.application_id = a.application_id
                   AND d.file_processing_status IN ('RECEIVED', 'PROCESSING')) AS processing,
@@ -84,8 +90,18 @@ _APPLICATIONS_QUERY = _SCOPE_CTE + """
 """
 
 
-def build_dashboard(positions: list[Mapping[str, Any]], applications: list[Mapping[str, Any]]) -> dict:
-    """Aggregate one row per visible application, with its latest completed assessment."""
+def build_dashboard(
+    positions: list[Mapping[str, Any]],
+    applications: list[Mapping[str, Any]],
+    now: datetime | None = None,
+) -> dict:
+    """Aggregate one row per visible application, with its latest completed assessment.
+
+    ``open_positions`` counts positions that can still receive applications: an
+    OPEN position whose ``application_deadline_at`` has passed is closed for
+    intake (careers_intake.py refuses the file), so counting it as open would
+    promise work that cannot arrive.
+    """
     statuses = {key: 0 for key in APPLICATION_STATUSES}
     matching = {key: 0 for key in MATCHING_STATUSES}
     coverages: list[float] = []
@@ -106,8 +122,19 @@ def build_dashboard(positions: list[Mapping[str, Any]], applications: list[Mappi
             coverages.append(float(app["evidence_coverage"]))
 
     total = len(applications)
+    # A missing deadline means "still open": no deadline is not the same as expired.
+    deadline_days = [
+        (p.get("status"), deadline_days_left(p.get("application_deadline_at"), now)) for p in positions
+    ]
     return {
-        "open_positions": sum(p.get("status") == "OPEN" for p in positions),
+        "open_positions": sum(
+            1 for status, days in deadline_days if status == "OPEN" and (days is None or days >= 0)
+        ),
+        # Reported separately so the card can explain the difference instead of
+        # silently dropping positions. Never merged into open_positions.
+        "open_positions_deadline_passed": sum(
+            1 for status, days in deadline_days if status == "OPEN" and days is not None and days < 0
+        ),
         "total_applications": total,
         "applications_by_status": statuses,
         "applications_processing": processing,
@@ -144,6 +171,7 @@ def _load_dashboard(user_id: str, position_id: UUID | None = None) -> dict:
 
 _WORK_QUEUE_POSITIONS_QUERY = _SCOPE_CTE + """
     SELECT p.position_id, p.position_code, p.title, p.status, d.name AS department_name,
+        p.application_deadline_at,
         jd.jd_version_id AS latest_jd_version_id, jd.version_number AS latest_jd_version,
         crit.criteria_version_id AS current_criteria_version_id,
         crit.status AS current_criteria_status, crit.version_number AS current_criteria_version,
@@ -230,6 +258,7 @@ def _load_work_queue(user_id: str) -> dict:
 
     items: list[dict[str, Any]] = []
     counts_by_position: dict[str, dict[str, int]] = {}
+    waiting_applications: list[Mapping[str, Any]] = []
     criteria_pending_positions = 0
     shares_without_feedback = 0
     for row in positions:
@@ -238,6 +267,9 @@ def _load_work_queue(user_id: str) -> dict:
         is_hr, is_hm = _viewer_flags(row)
         if is_hr:
             counts_by_position[position_id] = counts
+            # Pooled across every position HR can see: a median of per-position
+            # medians would not be the median of anything.
+            waiting_applications.extend(applications_by_position[position_id])
         criteria_stale = bool(
             row.get("current_criteria_jd_version_id")
             and row.get("latest_jd_version_id")
@@ -275,6 +307,7 @@ def _load_work_queue(user_id: str) -> dict:
             is_hm=is_hm,
             share_without_feedback=int(row.get("shares_without_feedback") or 0),
             criteria_approved=bool(row.get("criteria_approved")),
+            deadline_at=row.get("application_deadline_at"),
         )
         items.extend(position_items)
         criteria_pending_positions += any(item["type"] in ("CRITERIA_PENDING_HR", "CRITERIA_PENDING_HM", "POSITION_SETUP") for item in position_items)
@@ -282,6 +315,9 @@ def _load_work_queue(user_id: str) -> dict:
 
     priority_rank = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
     items.sort(key=lambda item: (priority_rank[item["priority"]], -item["count"], item["position_title"] or ""))
+    # Age figures are plain numbers; missing data stays None rather than posing as
+    # zero, the same way hr_override_rate does.
+    waiting = summarize_waiting(waiting_applications)
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
@@ -291,6 +327,16 @@ def _load_work_queue(user_id: str) -> dict:
             "duplicate_alerts": sum(counts["duplicate_pending"] for counts in counts_by_position.values()),
             "criteria_pending_action": criteria_pending_positions,
             "shares_without_feedback": shares_without_feedback,
+            # Additive keys: clients that do not know them keep working.
+            "positions_deadline_passed": sum(
+                1 for item in items if item["type"] == "POSITION_DEADLINE_PASSED"
+            ),
+            "positions_deadline_soon": sum(
+                1 for item in items if item["type"] == "POSITION_DEADLINE_SOON"
+            ),
+            "applications_waiting_over_threshold": waiting["waiting_over_7d"],
+            "oldest_waiting_days": waiting["oldest_waiting_days"],
+            "median_waiting_days": waiting["median_waiting_days"],
         },
         "items": items,
     }

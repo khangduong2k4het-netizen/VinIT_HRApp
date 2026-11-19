@@ -2901,3 +2901,54 @@ def test_concurrent_position_creation_keeps_department_codes_unique(client, seed
     assert sorted(data['position_code'] for _, data in results) == [f'REQ-IT-{n:03}' for n in range(1, 5)]
     with engine.connect() as conn:
         assert conn.execute(text('SELECT next_sequence FROM app_private.departments WHERE department_id=:d'), {'d': department_id}).scalar_one() == 5
+
+
+def test_open_positions_kpi_ignores_a_position_whose_deadline_passed(client, seed):
+    """KPI "Vị trí đang mở" trên Postgres thật: hạn ứng tuyển phải lọt ra khỏi CTE.
+
+    Đây là test bắt lỗi nếu ai đó quên thêm ``application_deadline_at`` vào
+    ``visible_positions``: khi đó mọi deadline đọc ra None và vị trí quá hạn vẫn
+    bị tính là đang mở.
+    """
+    with engine.begin() as conn:
+        deadline = conn.execute(
+            text("SELECT now() - interval '1 day' FROM app_private.positions WHERE position_id = :id"),
+            {"id": seed["pos"]},
+        ).scalar_one()
+        conn.execute(
+            text("UPDATE app_private.positions SET application_deadline_at = :d WHERE position_id = :id"),
+            {"d": deadline, "id": seed["pos"]},
+        )
+
+    body = client.get("/v1/dashboard/summary", headers=headers(seed["hr"])).json()
+
+    assert body["open_positions"] == 0, "hạn đã qua thì cổng đã đóng, không còn là đang mở"
+    assert body["open_positions_deadline_passed"] == 1
+
+
+def test_work_queue_reports_a_passed_deadline_and_waiting_times(client, seed):
+    """Hạn đã qua sinh việc ưu tiên cao; tuổi hồ sơ đọc từ a.created_at thật."""
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE app_private.positions SET application_deadline_at = now() - interval '2 days' WHERE position_id = :id"),
+            {"id": seed["pos"]},
+        )
+        conn.execute(
+            text("UPDATE app_private.applications SET created_at = now() - interval '12 days' WHERE application_id = :id"),
+            {"id": seed["app"]},
+        )
+        # Tiêu chí phải được duyệt thì Deadline mới thành việc của HR.
+        conn.execute(
+            text("UPDATE app_private.criteria_versions SET status = 'APPROVED' WHERE criteria_version_id = :id"),
+            {"id": seed["cv"]},
+        )
+
+    body = client.get("/v1/dashboard/work-queue", headers=headers(seed["hr"])).json()
+    deadline_items = [item for item in body["items"] if item["type"].startswith("POSITION_DEADLINE_")]
+
+    assert [item["type"] for item in deadline_items] == ["POSITION_DEADLINE_PASSED"]
+    assert deadline_items[0]["priority"] == "HIGH"
+    assert deadline_items[0]["days_left"] == -2
+    assert body["summary"]["positions_deadline_passed"] == 1
+    assert body["summary"]["applications_waiting_over_threshold"] == 1
+    assert body["summary"]["oldest_waiting_days"] == 12

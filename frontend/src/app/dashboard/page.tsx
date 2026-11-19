@@ -25,6 +25,8 @@ import type { WorkQueueResponse } from '@/types';
 
 interface DashboardSummary {
   open_positions: number;
+  /** Vị trí OPEN nhưng đã quá hạn ứng tuyển: cổng đã đóng, không nhận hồ sơ. */
+  open_positions_deadline_passed?: number;
   total_applications: number;
   applications_by_status: Record<ApplicationStatus, number>;
   applications_processing: number;
@@ -88,7 +90,7 @@ export default function DashboardPage() {
   useEffect(() => { loadData(true); }, [loadData]);
 
   const cards = summary ? [
-    { label: t("Vị trí đang mở"), value: summary.open_positions, icon: <WorkOutlineIcon />, color: '#134D8B', bg: '#EAF3FC', href: '/positions?status=OPEN', hint: t('Xem vị trí đang mở') },
+    { label: t("Vị trí đang mở"), value: summary.open_positions, icon: <WorkOutlineIcon />, color: '#134D8B', bg: '#EAF3FC', href: '/positions?status=OPEN', hint: t('Xem vị trí đang mở'), note: (summary.open_positions_deadline_passed ?? 0) > 0 ? t('{0} vị trí đã quá hạn, không nhận hồ sơ', summary.open_positions_deadline_passed) : undefined },
     { label: t("Tổng hồ sơ"), value: summary.total_applications, icon: <PeopleOutlineIcon />, color: '#0A2B57', bg: '#EAF3FC', href: '/positions', hint: t('Chọn vị trí để xem hồ sơ') },
     { label: t("CV cần HR kiểm tra"), value: summary.files_needing_hr_review, icon: <WarningAmberIcon />, color: '#B54708', bg: '#FFFAEB', href: '#work-queue', hint: t('Xem công việc cần kiểm tra') },
     { label: t("Đã shortlist"), value: summary.applications_by_status.SHORTLIST, icon: <FactCheckOutlinedIcon />, color: '#067647', bg: '#ECFDF3', href: hrAccess ? '/positions' : '/shortlist', hint: hrAccess ? t('Chọn vị trí để xem ứng viên shortlist') : t('Xem chia sẻ và phản hồi') },
@@ -124,6 +126,7 @@ export default function DashboardPage() {
                     <Box>
                       <Typography variant="body2" color="text.secondary">{card.label}</Typography>
                       <Typography variant="h3" sx={{ mt: 1, fontSize: 30, fontWeight: 700, color: card.color }}>{card.value}</Typography>
+                      {card.note && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, maxWidth: 190 }}>{card.note}</Typography>}
                     </Box>
                     <Box sx={{ display: 'grid', placeItems: 'center', width: 42, height: 42, borderRadius: 2, bgcolor: card.bg, color: card.color }}>
                       {card.icon}
@@ -148,6 +151,18 @@ export default function DashboardPage() {
                     ? t("{0} vị trí cần chú ý · {1} file cần kiểm tra · {2} hồ sơ cần xác minh", workQueue.summary.positions_needing_attention, workQueue.summary.files_needing_review, workQueue.summary.applications_needing_verification)
                     : t("Danh sách việc theo từng vị trí và hành động tiếp theo.")}
                 </Typography>
+                {/* Chỉ hiện khi thật sự có việc: dòng "0 việc" chỉ làm loãng màn hình. */}
+                {workQueue && (workQueue.summary.positions_deadline_passed ?? 0) + (workQueue.summary.positions_deadline_soon ?? 0) > 0 && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                    {t("{0} vị trí đã quá hạn ứng tuyển · {1} vị trí sắp hết hạn", workQueue.summary.positions_deadline_passed ?? 0, workQueue.summary.positions_deadline_soon ?? 0)}
+                  </Typography>
+                )}
+                {/* Tuổi hồ sơ: null nghĩa là chưa đo được, không phải 0 ngày. */}
+                {workQueue && workQueue.summary.oldest_waiting_days != null && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                    {t("{0} hồ sơ chờ quá 7 ngày · lâu nhất {1} ngày", workQueue.summary.applications_waiting_over_threshold ?? 0, workQueue.summary.oldest_waiting_days)}
+                  </Typography>
+                )}
               </Box>
               {workQueue && <Chip label={t("Cập nhật theo quyền truy cập")} size="small" variant="outlined" />}
             </Box>

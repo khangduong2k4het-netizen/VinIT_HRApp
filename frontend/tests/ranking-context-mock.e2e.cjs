@@ -223,7 +223,11 @@ const applications = ranking.map((item, index) => ({
   const firstRow = await page.locator('table tbody tr').first().innerText();
   assert.match(firstRow, /(Chờ \d+ ngày|Nhận hôm nay)/, 'reviewers can see how long a file has been waiting');
 
-  if (errors.length) throw Error(errors.join('\n'));
+  if (errors.length) {
+    // Phân biệt lỗi mạng do điều hướng (trình duyệt huỷ request khi trang đang
+    // dựng) với lỗi thật: chỉ in kèm URL để lần sau không phải đoán.
+    throw Error(`${errors.join('\n')}\nURL cuối: ${page.url()}`);
+  }
   await c.close();
   await browser.close();
   console.log('Ranking context: deep-link queues, shown/total counts, clear filters, context-carrying profile links, lazy CV, searchable positions, Back/Forward and cold-link prev/next: OK; all /v1 intercepted');

@@ -89,6 +89,9 @@ jobs:
       - name: Run i18n tests
         run: npm run test:i18n
 
+      - name: Run unit tests
+        run: npm run test:unit
+
       - name: Type-check
         run: npm run type-check
 

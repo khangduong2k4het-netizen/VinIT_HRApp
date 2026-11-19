@@ -1370,5 +1370,15 @@
   "Dán, tải lên hoặc nhập JD trước khi tạo.": "Paste, upload or fetch the JD before creating.",
   "Còn thiếu: {0}.": "Still missing: {0}.",
   "Nhận hôm nay": "Received today",
-  "Chờ {0} ngày": "Waiting {0} days"
+  "Chờ {0} ngày": "Waiting {0} days",
+  "Đã quá hạn {0} ngày": "Overdue by {0} days",
+  "Hạn chót là hôm nay": "Closes today",
+  "Còn {0} ngày tới hạn": "{0} days left",
+  "Vị trí đã quá hạn ứng tuyển": "Position past its application deadline",
+  "Vị trí sắp hết hạn ứng tuyển": "Position closing soon",
+  "{0} vị trí đã quá hạn ứng tuyển · {1} vị trí sắp hết hạn": "{0} positions past their deadline · {1} closing soon",
+  "{0} hồ sơ chờ quá 7 ngày · lâu nhất {1} ngày": "{0} applications waiting over 7 days · oldest {1} days",
+  "{0} vị trí đã quá hạn, không nhận hồ sơ": "{0} positions past deadline, not accepting applications",
+  "Việc cần xử lý": "Work to handle",
+  "Mở": "Open"
 }

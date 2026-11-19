@@ -272,3 +272,140 @@ def test_queue_counts_match_the_ranking_page_dataset():
     assert counts["needs_verification"] == 3
     assert counts["not_assessed"] == 1
     assert counts["possible_mismatch"] == 1
+
+
+# --- R5 mức B: hạn ứng tuyển và tuổi hồ sơ -------------------------------------
+# Giờ được bơm cố định để test không phụ thuộc ngày chạy.
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+from app.services.workspace import (  # noqa: E402
+    DEADLINE_SOON_DAYS,
+    WAITING_ATTENTION_DAYS,
+    deadline_days_left,
+    summarize_waiting,
+)
+
+NOW = datetime(2026, 11, 19, 9, 0, tzinfo=timezone.utc)
+
+
+def _queue(deadline_at, *, status="OPEN", approved=True, criteria_status="APPROVED", now=NOW):
+    counts = _counts(total=1, needs_verification=1)
+    workflow = build_workflow(
+        position_id="pos-1", position_status=status, jd_exists=True,
+        criteria_status=criteria_status, criteria_stale=False, criteria_approved=approved,
+        counts=counts, active_operation=None, is_hr=True, is_hm=False,
+    )
+    return build_work_queue_items(
+        position={"position_id": "pos-1", "position_code": "REQ-1", "title": "Engineer",
+                  "status": status, "position_roles": ["HR_RECRUITER"], "system_roles": []},
+        counts=counts, workflow=workflow, criteria_status=criteria_status,
+        criteria_stale=False, jd_exists=True, is_hr=True, is_hm=False,
+        criteria_approved=approved, deadline_at=deadline_at, now=now,
+    )
+
+
+def _deadline_items(items):
+    return [i for i in items if i["type"].startswith("POSITION_DEADLINE_")]
+
+
+def test_passed_deadline_becomes_a_high_priority_item():
+    passed = _deadline_items(_queue(NOW - timedelta(days=2)))
+
+    assert [i["type"] for i in passed] == ["POSITION_DEADLINE_PASSED"]
+    assert passed[0]["priority"] == "HIGH"
+    assert passed[0]["days_left"] == -2
+    assert passed[0]["due_at"].startswith("2026-11-17")
+    assert passed[0]["target"] == {"pathname": "/positions/pos-1", "search": "tab=overview"}
+
+
+def test_deadline_within_a_week_is_medium_and_the_boundary_is_exact():
+    soon = _deadline_items(_queue(NOW + timedelta(days=3)))
+    assert [i["type"] for i in soon] == ["POSITION_DEADLINE_SOON"]
+    assert soon[0]["priority"] == "MEDIUM"
+
+    assert _deadline_items(_queue(NOW + timedelta(days=DEADLINE_SOON_DAYS)))
+    assert not _deadline_items(_queue(NOW + timedelta(days=DEADLINE_SOON_DAYS + 1)))
+
+
+def test_no_deadline_means_no_item_and_no_invented_zero():
+    """Không có hạn thì không có việc, và cũng không được coi là "còn 0 ngày"."""
+    assert deadline_days_left(None) is None
+    assert deadline_days_left("") is None
+    assert deadline_days_left("không phải ngày") is None
+    assert _deadline_items(_queue(None)) == []
+
+
+def test_deadline_item_waits_until_criteria_are_approved():
+    """Vị trí đang chờ duyệt tiêu chí đã có dòng riêng; không thêm dòng thứ hai."""
+    items = _queue(NOW + timedelta(days=1), approved=False, criteria_status="PENDING_HM_APPROVAL")
+
+    assert [i["type"] for i in items] == ["CRITERIA_PENDING_HM"], "một vị trí, một dòng việc"
+
+
+def test_closed_position_gets_no_deadline_item():
+    assert _deadline_items(_queue(NOW - timedelta(days=2), status="CLOSED")) == []
+
+
+def test_waiting_age_counts_only_screening_rows_and_never_invents_zero():
+    waiting = summarize_waiting([
+        {"application_status": "IN_REVIEW", "created_at": NOW - timedelta(days=WAITING_ATTENTION_DAYS + 5)},
+        {"application_status": "IN_REVIEW", "created_at": NOW - timedelta(days=2)},
+        {"application_status": "NEW", "created_at": NOW - timedelta(days=30)},
+        # Ngoài sàng lọc: có tuổi nhưng không phải việc đang chờ xử lý.
+        {"application_status": "REJECTED_SCREENING", "created_at": NOW - timedelta(days=90)},
+        # Không có mốc thời gian: im lặng, không bịa 0.
+        {"application_status": "IN_REVIEW", "created_at": None},
+    ], now=NOW)
+
+    # Tuổi trong sàng lọc: 12, 2, 30 (hồ sơ bị loại và hồ sơ không có mốc bị bỏ qua).
+    # Quá ngưỡng: 12 và 30 → 2. Trung vị của [2, 12, 30] là 12. Lâu nhất 30.
+    assert waiting == {"waiting_over_7d": 2, "oldest_waiting_days": 30, "median_waiting_days": 12}
+
+
+def test_waiting_age_is_none_when_nothing_has_a_timestamp():
+    waiting = summarize_waiting([{"application_status": "IN_REVIEW"}], now=NOW)
+
+    assert waiting["oldest_waiting_days"] is None
+    assert waiting["median_waiting_days"] is None
+    assert waiting["waiting_over_7d"] == 0
+
+
+# --- KPI "Vị trí đang mở": quá hạn thì không còn là đang mở ---------------------
+from app.api.dashboard import build_dashboard  # noqa: E402  (import sau các test ở trên là chủ đích)
+
+
+def _kpi(positions):
+    return build_dashboard(positions, [], now=NOW)
+
+
+def _pos(position_id, status="OPEN", deadline_at=None):
+    return {"position_id": position_id, "position_code": position_id.upper(),
+            "title": position_id, "status": status, "application_deadline_at": deadline_at}
+
+
+def test_open_positions_kpi_hides_positions_whose_deadline_passed():
+    data = _kpi([
+        _pos("a", deadline_at=NOW + timedelta(days=10)),
+        _pos("b", deadline_at=NOW - timedelta(days=1)),
+        _pos("c", deadline_at=None),
+        _pos("d", status="PAUSED", deadline_at=None),
+    ])
+
+    # "c" không có hạn nên vẫn đang mở; "d" bị tạm dừng nên không tính.
+    assert data["open_positions"] == 2
+    # Vị trí quá hạn không biến mất khỏi số liệu: nó được báo riêng để giải thích
+    # vì sao 3 vị trí OPEN trên danh sách chỉ còn 2 trong KPI.
+    assert data["open_positions_deadline_passed"] == 1
+
+
+def test_open_positions_kpi_counts_the_deadline_day_itself():
+    assert _kpi([_pos("a", deadline_at=NOW)])["open_positions"] == 1
+    assert _kpi([_pos("a", deadline_at=NOW - timedelta(hours=1))])["open_positions"] == 0
+
+
+def test_dashboard_kpi_payload_stays_small():
+    """Tổng hợp việc cần làm không nằm trong /dashboard: nó thuộc /work-queue."""
+    data = _kpi([_pos("a")])
+
+    assert "applications_waiting_over_threshold" not in data
+    assert "open_positions_deadline_passed" in data

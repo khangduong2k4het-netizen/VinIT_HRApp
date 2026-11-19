@@ -57,7 +57,9 @@ export type WorkQueueItemType =
   | 'DUPLICATE_PENDING'
   | 'POSSIBLE_MISMATCH'
   | 'NOT_ASSESSED'
-  | 'SHARE_WITHOUT_FEEDBACK';
+  | 'SHARE_WITHOUT_FEEDBACK'
+  | 'POSITION_DEADLINE_PASSED'
+  | 'POSITION_DEADLINE_SOON';
 
 export interface WorkQueueItem {
   item_id: string;
@@ -69,6 +71,10 @@ export interface WorkQueueItem {
   position_status?: string;
   count: number;
   target: { pathname: string; search?: string };
+  /** Hạn ứng tuyển của vị trí (chỉ có ở việc liên quan tới hạn). */
+  due_at?: string;
+  /** Số ngày còn lại tới hạn; âm nghĩa là đã quá hạn. */
+  days_left?: number;
 }
 
 export interface WorkQueueResponse {
@@ -80,6 +86,12 @@ export interface WorkQueueResponse {
     duplicate_alerts: number;
     criteria_pending_action: number;
     shares_without_feedback: number;
+    positions_deadline_passed?: number;
+    positions_deadline_soon?: number;
+    applications_waiting_over_threshold?: number;
+    /** null khi chưa có hồ sơ nào có mốc thời gian — không phải 0. */
+    oldest_waiting_days?: number | null;
+    median_waiting_days?: number | null;
   };
   items: WorkQueueItem[];
 }

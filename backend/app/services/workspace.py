@@ -9,9 +9,17 @@ per-criterion evidence strength remain separate concepts.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from datetime import datetime, timezone
 from typing import Any
 
 COVERAGE_THRESHOLD = 0.7
+
+# Deadline warning window. Seven days is a product choice, not a technical one;
+# keep it named so HR can confirm or change it in one place.
+DEADLINE_SOON_DAYS = 7
+
+# "Waiting" = sitting in screening for longer than this. Also a product choice.
+WAITING_ATTENTION_DAYS = 7
 
 # The one place that decides which applications a *work* queue may count.
 # Applications outside the screening stage (rejected, interviewed, offered) are
@@ -92,12 +100,90 @@ def summarize_applications(applications: Iterable[Mapping[str, Any]]) -> dict[st
     return counts
 
 
+def summarize_waiting(
+    applications: Iterable[Mapping[str, Any]], now: datetime | None = None
+) -> dict[str, int | None]:
+    """How long screening work has been waiting.
+
+    Kept apart from ``summarize_applications`` on purpose: that function returns
+    plain counts, whereas these can legitimately be unknown. Age is descriptive
+    only -- it never changes ``rank_number`` or the order of a ranking run.
+    """
+    waiting_days: list[int] = []
+    for app in applications:
+        status = app.get("application_status")
+        if status and status not in SCREENING_APPLICATION_STATUSES:
+            continue
+        age = _age_days(app.get("created_at"), now)
+        if age is not None:
+            waiting_days.append(age)
+    ordered = sorted(waiting_days)
+    return {
+        "waiting_over_7d": sum(age > WAITING_ATTENTION_DAYS for age in waiting_days),
+        # None, not 0: a position with no timestamped files has no "oldest" file.
+        "oldest_waiting_days": ordered[-1] if ordered else None,
+        "median_waiting_days": ordered[len(ordered) // 2] if ordered else None,
+    }
+
+
+def _age_days(created_at: Any, now: datetime | None = None) -> int | None:
+    if not created_at:
+        return None
+    if isinstance(created_at, str):
+        try:
+            created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if not isinstance(created_at, datetime):
+        return None
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    elapsed = (reference - created_at).days
+    return elapsed if elapsed >= 0 else None
+
+
 def _target(position_id: str, pathname: str, search: str = "") -> dict[str, str]:
     return {"pathname": pathname, "search": search}
 
 
 def _position_target(position_id: str, tab: str) -> dict[str, str]:
     return _target(position_id, f"/positions/{position_id}", f"tab={tab}")
+
+
+def _iso_datetime(value: Any) -> str | None:
+    """Serialise a deadline for the client, defaulting naive values to UTC."""
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
+    return None
+
+
+def deadline_days_left(deadline_at: Any, now: datetime | None = None) -> int | None:
+    """Whole days until the intake deadline; negative means it has passed.
+
+    Returns None when there is no deadline (no deadline is not "0 days left").
+    """
+    if not deadline_at:
+        return None
+    if isinstance(deadline_at, str):
+        try:
+            deadline_at = datetime.fromisoformat(deadline_at.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if not isinstance(deadline_at, datetime):
+        return None
+    if deadline_at.tzinfo is None:
+        deadline_at = deadline_at.replace(tzinfo=timezone.utc)
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    # Compare instants, then floor to whole days so "còn 0 ngày" appears only on
+    # the final day rather than during the last 24 hours regardless of clock time.
+    return (deadline_at - reference).days
 
 
 def _applicants_target(position_id: str, queue: str | None = None) -> dict[str, str]:
@@ -320,8 +406,15 @@ def build_work_queue_items(
     is_hm: bool,
     share_without_feedback: int = 0,
     criteria_approved: bool = False,
+    deadline_at: datetime | str | None = None,
+    now: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    """Build role-appropriate work items for one visible position."""
+    """Build role-appropriate work items for one visible position.
+
+    ``deadline_at`` is the position's application deadline. It is reported, never
+    used to change what the position is: a passed deadline means intake is closed
+    (see careers_intake.py), so HR deserves an item instead of a silent wall.
+    """
     position_id = str(position["position_id"])
     base = {
         "position_id": position_id,
@@ -331,7 +424,13 @@ def build_work_queue_items(
     }
     items: list[dict[str, Any]] = []
 
-    def add(item_type: str, priority: str, count: int, target: Mapping[str, str]) -> None:
+    def add(
+        item_type: str,
+        priority: str,
+        count: int,
+        target: Mapping[str, str],
+        extra: Mapping[str, Any] | None = None,
+    ) -> None:
         if count <= 0:
             return
         items.append({
@@ -341,6 +440,7 @@ def build_work_queue_items(
             "priority": priority,
             "count": int(count),
             "target": dict(target),
+            **(extra or {}),
         })
 
     if position.get("status") == "OPEN":
@@ -351,6 +451,20 @@ def build_work_queue_items(
         elif not jd_exists or not criteria_status or criteria_stale or criteria_status == "REJECTED":
             if is_hr:
                 add("POSITION_SETUP", "HIGH", 1, workflow["next_action"]["target"])
+
+    days_left = deadline_days_left(deadline_at, now)
+    # Gated on approved criteria, not merely on status: a position still in setup
+    # already has POSITION_SETUP, and a second row would double-count one piece of
+    # work. HR is the role that owns the intake gate, so only HR sees these.
+    if is_hr and criteria_approved and position.get("status") == "OPEN" and days_left is not None:
+        deadline_extra = {
+            "due_at": _iso_datetime(deadline_at),
+            "days_left": days_left,
+        }
+        if days_left < 0:
+            add("POSITION_DEADLINE_PASSED", "HIGH", 1, _position_target(position_id, "overview"), deadline_extra)
+        elif days_left <= DEADLINE_SOON_DAYS:
+            add("POSITION_DEADLINE_SOON", "MEDIUM", 1, _position_target(position_id, "overview"), deadline_extra)
 
     can_review_applications = bool(
         jd_exists and not criteria_stale and criteria_status == "APPROVED" and criteria_approved
