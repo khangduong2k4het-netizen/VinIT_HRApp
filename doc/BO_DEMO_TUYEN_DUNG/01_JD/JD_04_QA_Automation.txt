@@ -1,23 +1,26 @@
-JD THỬ NGHIỆM — KỸ SƯ QA AUTOMATION
+DEMO JD — QA AUTOMATION ENGINEER
 
-Tài liệu tổng hợp cho buổi demo HRA. Đây không phải tin tuyển dụng thật.
+Synthetic document for the HRA demo. This is not a real job advertisement; do not use real personal information.
 
-Mục tiêu
-Đảm bảo chất lượng sản phẩm web và API thông qua chiến lược kiểm thử thực tế và tự động hóa phù hợp.
+Purpose
+Make regression testing reliable and fast so that releases can ship without a manual test marathon.
 
-Công việc chính
-- Phân tích yêu cầu, thiết kế test case và dữ liệu kiểm thử.
-- Xây dựng kiểm thử API và giao diện bằng công cụ phù hợp.
-- Theo dõi lỗi, mô tả bước tái hiện và phối hợp với lập trình viên.
-- Duy trì test regression và báo cáo kết quả rõ ràng.
+Key responsibilities
+- Design test cases from acceptance criteria and keep them current.
+- Automate API and UI regression suites and maintain them in CI.
+- Reproduce defects with clear steps and logs, and verify fixes.
+- Report test results in a form the delivery team can act on.
 
-Yêu cầu bắt buộc
-- Có kiến thức kiểm thử phần mềm và theo dõi lỗi.
-- Có trải nghiệm kiểm thử API, SQL cơ bản và một ngôn ngữ lập trình.
-- Biết xây dựng test case và phối hợp nhóm.
+Mandatory requirements
+- Experience writing automated tests in Python or TypeScript.
+- Understanding of HTTP APIs and status codes.
+- Experience with a test framework such as pytest, Playwright or equivalent.
+- Able to read logs and describe a defect precisely.
 
-Ưu tiên
-- Python/pytest, Playwright, CI, kiểm thử dữ liệu.
+Preferred requirements
+- Experience running automated tests in a CI pipeline.
+- Experience testing data consistency with SQL.
+- ISTQB or equivalent testing certification.
 
-Điều kiện thử nghiệm
-Thông tin vị trí, tổ chức và hồ sơ trong bộ này là giả. HR chọn đơn vị và HM thử nghiệm, đặt trạng thái OPEN và hạn nộp trong tương lai. Mã vị trí do hệ thống tạo.
+Notes for the demo
+- Criteria are extracted from this document; HR reviews and approves the rubric before any CV can be submitted.

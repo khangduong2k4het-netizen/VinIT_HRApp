@@ -10,21 +10,21 @@ Tên file vẫn được giữ ở ``original_filename`` để tham chiếu.
 from app.workers.processor import _verified_candidate_name
 
 CV_TEXT = """--- Page 1 ---
-Nguyễn Văn An
-Kỹ sư phần mềm
-Email: an@example.test
+Daniel Whitfield
+Backend Engineer
+Email: daniel.whitfield@example.test
 
-Kinh nghiệm: 5 năm Python, PostgreSQL.
+Experience: 5 years Python, PostgreSQL.
 """
 
 
 def test_name_found_in_cv_is_accepted():
-    assert _verified_candidate_name("Nguyễn Văn An", CV_TEXT) == "Nguyễn Văn An"
+    assert _verified_candidate_name("Daniel Whitfield", CV_TEXT) == "Daniel Whitfield"
 
 
 def test_name_missing_from_cv_is_rejected():
     """Model trả tên không có trong CV (bịa hoặc nhận nhầm) — phải bỏ."""
-    assert _verified_candidate_name("Trần Thị Bình", CV_TEXT) is None
+    assert _verified_candidate_name("Marcus Bell", CV_TEXT) is None
 
 
 def test_file_name_is_not_used_as_fallback():
@@ -43,34 +43,34 @@ def test_non_string_is_rejected():
 
 
 def test_whitespace_is_normalised():
-    result = _verified_candidate_name("  Nguyễn   Văn  An ", CV_TEXT)
-    assert result == "Nguyễn Văn An"
+    result = _verified_candidate_name("  Daniel   Whitfield ", CV_TEXT)
+    assert result == "Daniel Whitfield"
 
 
 def test_case_insensitive_match():
     """CV viết hoa toàn bộ, model trả chữ thường — vẫn là cùng một tên."""
-    cv = "NGUYỄN VĂN AN\nKỹ sư phần mềm"
-    assert _verified_candidate_name("nguyễn văn an", cv) == "nguyễn văn an"
+    cv = "DANIEL WHITFIELD\nBackend Engineer"
+    assert _verified_candidate_name("daniel whitfield", cv) == "daniel whitfield"
 
 
 def test_company_name_is_rejected_when_not_present():
-    assert _verified_candidate_name("Công ty TNHH ABC", CV_TEXT) is None
+    assert _verified_candidate_name("Northbridge Commerce Ltd", CV_TEXT) is None
 
 
 def test_too_long_value_is_rejected():
     """Một dòng tiêu đề bị nhận nhầm thành tên."""
-    long_value = "Nguyễn Văn An " + "x" * 100
+    long_value = "Daniel Whitfield " + "x" * 100
     assert _verified_candidate_name(long_value, CV_TEXT) is None
 
 
 def test_too_many_words_is_rejected():
     assert _verified_candidate_name(
-        "Nguyễn Văn An Kỹ Sư Phần Mềm Chính", CV_TEXT
+        "Daniel Whitfield Senior Backend Engineer Lead", CV_TEXT
     ) is None
 
 
 def test_values_with_code_like_characters_rejected():
-    assert _verified_candidate_name("Nguyễn <Văn> An", CV_TEXT) is None
+    assert _verified_candidate_name("Daniel <Whitfield>", CV_TEXT) is None
     assert _verified_candidate_name("an@example.test", CV_TEXT) is None
 
 
@@ -81,7 +81,7 @@ def test_single_word_name_can_be_accepted():
 
 
 def test_empty_cv_text_rejects_everything():
-    assert _verified_candidate_name("Nguyễn Văn An", "") is None
+    assert _verified_candidate_name("Daniel Whitfield", "") is None
 
 
 # ---------------------------------------------------------------------------
@@ -90,9 +90,9 @@ def test_empty_cv_text_rejects_everything():
 
 def test_contacts_only_keeps_the_name():
     from app.services.redaction import redact_contacts_only
-    header = "Nguyễn Văn An\nEmail: an@example.test\nPhone: +84 912 345 678"
+    header = "Daniel Whitfield\nEmail: daniel.whitfield@example.test\nPhone: +44 7700 900112"
     out = redact_contacts_only(header)
-    assert "Nguyễn Văn An" in out
+    assert "Daniel Whitfield" in out
     assert "an@example.test" not in out
     assert "912" not in out
 
@@ -100,9 +100,9 @@ def test_contacts_only_keeps_the_name():
 def test_contacts_only_still_drops_labelled_identity_lines():
     """Dòng nhãn như địa chỉ/ngày sinh không giúp ích gì cho việc đọc tên."""
     from app.services.redaction import redact_contacts_only
-    out = redact_contacts_only("Nguyễn Văn An\nĐịa chỉ: 12 phố Mẫu, Hà Nội\nNgày sinh: 01/01/1995")
-    assert "Nguyễn Văn An" in out
-    assert "12 phố Mẫu" not in out
+    out = redact_contacts_only("Daniel Whitfield\nAddress: 12 Sample Street, Leeds\nDate of birth: 01/01/1995")
+    assert "Daniel Whitfield" in out
+    assert "12 Sample Street" not in out
     assert "01/01/1995" not in out
 
 
@@ -117,11 +117,11 @@ def test_excerpt_is_bounded():
 # ---------------------------------------------------------------------------
 
 CV_WITH_CONTACTS = (
-    "Nguyễn Văn An\n"
+    "Daniel Whitfield\n"
     "Backend Engineer · Python\n"
-    "nguyen.van.an@example.test  ·  0912 384 617\n"
-    "TÓM TẮT\n"
-    "Backend engineer với 4 năm kinh nghiệm.\n"
+    "daniel.whitfield@example.test  ·  +44 7700 900112\n"
+    "SUMMARY\n"
+    "Backend engineer with 4 years of experience.\n"
 )
 
 
@@ -144,17 +144,17 @@ def _run_name_extraction(answer, cv_text=CV_WITH_CONTACTS):
 
 def test_name_is_read_from_the_header():
     """Đây là test bắt lỗi thiếu import: hàm thật phải chạy được."""
-    name, _ = _run_name_extraction("Nguyễn Văn An")
-    assert name == "Nguyễn Văn An"
+    name, _ = _run_name_extraction("Daniel Whitfield")
+    assert name == "Daniel Whitfield"
 
 
 def test_name_request_sends_the_name_but_not_contacts():
     """Model cần thấy tên, nhưng không được thấy email hay số điện thoại."""
-    _, captured = _run_name_extraction("Nguyễn Văn An")
+    _, captured = _run_name_extraction("Daniel Whitfield")
     prompt = captured["prompt"]
-    assert "Nguyễn Văn An" in prompt
-    assert "nguyen.van.an@example.test" not in prompt
-    assert "0912" not in prompt
+    assert "Daniel Whitfield" in prompt
+    assert "daniel.whitfield@example.test" not in prompt
+    assert "900112" not in prompt
 
 
 def test_null_answer_returns_none():
@@ -197,7 +197,7 @@ def test_end_to_end_with_real_cv_file():
 
     cv_path = (
         Path(__file__).resolve().parents[2]
-        / "doc" / "BO_DEMO_TUYEN_DUNG" / "02_CV" / "CV_01_nguyen_van_an.docx"
+        / "doc" / "BO_DEMO_TUYEN_DUNG" / "02_CV" / "CV_01_daniel_whitfield.docx"
     )
     if not cv_path.exists():
         import pytest
@@ -209,10 +209,10 @@ def test_end_to_end_with_real_cv_file():
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
     )
-    assert raw.splitlines()[0].strip() == "Nguyễn Văn An"
+    assert raw.splitlines()[0].strip() == "Daniel Whitfield"
 
-    name, _ = _run_name_extraction("Nguyễn Văn An", raw)
-    assert _verified_candidate_name(name, raw) == "Nguyễn Văn An"
+    name, _ = _run_name_extraction("Daniel Whitfield", raw)
+    assert _verified_candidate_name(name, raw) == "Daniel Whitfield"
 
 
 def test_filename_is_not_used_when_the_model_returns_nothing():

@@ -590,7 +590,7 @@ class LLMClient:
         """Task AIC-01: Extract structured MUST_HAVE/NICE_TO_HAVE criteria from JD"""
         system_prompt = """You are an expert HR Recruitment Assistant specialized in job description decomposition.
 Your task is to analyze the provided Job Description (JD) and extract explicit, verifiable evaluation criteria.
-The JD may be written in Vietnamese, English, or a mix of both. Read it in whatever language it is written; do not translate it and do not require it to be English.
+The JD is expected to be in English and most JDs will be English. Vietnamese JDs are supported as an option, not as the default: if the JD is already English, keep all output text in English. If it is Vietnamese, read it as Vietnamese rather than translating it first.
 
 RULES:
 1. Divide criteria into two strict categories:

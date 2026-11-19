@@ -16,9 +16,9 @@ Anh đang truy cập `http://IP:3005`, không thay đổi cấu hình firewall t
 |---|---|---|
 | `01_JD/JD_01_Backend_Python.txt` | JD vị trí nguồn | Tạo vị trí Backend Python demo |
 | `01_JD/JD_02_Tich_hop_Du_lieu.txt` | JD vị trí đích | Tạo vị trí Tích hợp dữ liệu demo |
-| `02_CV/CV_01_nguyen_van_an.docx` | An có Python, API, SQL và dự án dữ liệu giả | Nộp qua Careers và **chọn** Talent Pool |
-| `02_CV/CV_02_tran_dinh_binh.pdf` | Bình có Python/Flask/SQL, kinh nghiệm khác An | Nộp qua Careers và **không chọn** Talent Pool |
-| `02_CV/CV-03-le_thi_kim_chi-final.docx` | Chi có Backend Python giả | Gửi qua Gmail thử nghiệm |
+| `02_CV/CV_01_daniel_whitfield.docx` | Whitfield có Python, API, SQL và dự án dữ liệu | Nộp qua Careers và **chọn** Talent Pool |
+| `02_CV/CV_02_marcus_bell.pdf` | Bell có Python/Flask/SQL, kinh nghiệm khác Whitfield | Nộp qua Careers và **không chọn** Talent Pool |
+| `02_CV/CV-03-priya_raghavan-final.docx` | Raghavan có Backend Python | Gửi qua Gmail thử nghiệm |
 | `03_GMAIL/MAU_EMAIL.txt` | Tiêu đề, nội dung thư hợp lệ và thư thiếu tệp | Thay mã vị trí thật do HRA tạo trước khi gửi |
 
 Tất cả tên, tổ chức, kinh nghiệm và email `@example.test` trong tài liệu là **hư cấu**; không có số điện thoại thật. Các kỹ năng chỉ giúp câu chuyện dễ hiểu, không đảm bảo AI chấm điểm/xếp hạng hay kết luận ai phù hợp.
@@ -64,10 +64,10 @@ Không ghi mật khẩu, token OAuth hay mã rút vào bảng này.
 
 1. HR đăng nhập qua kênh riêng an toàn. Trong **Vị trí tuyển dụng**, tạo vị trí nguồn với tên `DEMO — Backend Python` và dán `JD_01_Backend_Python.txt`. Chọn đơn vị hoạt động và HM hoạt động là tài khoản khác HR. Mã vị trí do hệ thống cấp; ghi lại làm **MÃ NGUỒN**.
 2. Tạo vị trí đích `DEMO — Tích hợp dữ liệu`, dán `JD_02_Tich_hop_Du_lieu.txt`, chọn đơn vị/HM và ghi **MÃ ĐÍCH**. Hai vị trí phải khác nhau.
-3. Giao diện tạo vị trí ghi JD phiên bản đầu là `en`, dù dữ liệu mẫu trong gói là tiếng Việt. Để gắn đúng ngôn ngữ, ở từng vị trí mở tab **Mô tả công việc (JD)** → **Tạo phiên bản JD mới**, chọn **Tiếng Việt**, thêm một câu có nghĩa như “Đây là vị trí demo sử dụng dữ liệu giả.” vào nội dung rồi lưu. Chỉ đổi ngôn ngữ mà không đổi nội dung sẽ bị hệ thống từ chối. Làm bước này **trước** khi tạo/duyệt tiêu chí vì tiêu chí phải gắn JD mới nhất.
+3. Giao diện tạo vị trí đặt JD phiên bản đầu là `en`, và toàn bộ dữ liệu mẫu trong gói **là tiếng Anh** — không cần đổi ngôn ngữ. Nếu về sau cần thử JD tiếng Việt, tạo một vị trí riêng, mở tab **Mô tả công việc (JD)** → **Tạo phiên bản JD mới**, chọn **Tiếng Việt** và thay nội dung; tiếng Việt là tuỳ chọn, không dùng cho buổi demo chính. Làm bước đó **trước** khi tạo/duyệt tiêu chí vì tiêu chí phải gắn JD mới nhất.
 4. Tại từng vị trí, chọn **Chỉnh sửa vị trí**, đặt trạng thái `OPEN` và hạn sau buổi demo. HR kiểm tra JD mới nhất. Hạn có thể nhập theo giờ trình duyệt; xác nhận lại múi giờ và thời gian hiển thị.
 5. Chuẩn bị tiêu chí: dùng rubric **đã xuất bản** phù hợp qua nút “Dùng rubric đã xuất bản” hoặc tạo tiêu chí theo quy trình hiện có. HR kiểm tra và duyệt; HM phê duyệt theo luồng, hoặc HR Lead/Admin dùng duyệt trực tiếp nếu phù hợp. Sau cùng phải thấy `APPROVED` cho JD mới nhất của **cả hai**. Không cam kết model sẽ tự tạo rubric hoặc điểm số.
-6. Cho chạy thử một CV giả ngoài buổi trình bày, kiểm tra trạng thái worker và Storage. Đừng tái sử dụng cùng email giả để ngụ ý kiểm tra trùng theo danh tính: idempotency chỉ đảm bảo retry **cùng yêu cầu và nội dung**. Ghi nhận nguồn và đích cho lần trình bày chính; nếu chạy thử đã tạo An/Bình, tạo lại vị trí demo riêng hoặc đặt tên khác để tránh nhầm, không tự xóa dữ liệu cũ.
+6. Cho chạy thử một CV giả ngoài buổi trình bày, kiểm tra trạng thái worker và Storage. Đừng tái sử dụng cùng email giả để ngụ ý kiểm tra trùng theo danh tính: idempotency chỉ đảm bảo retry **cùng yêu cầu và nội dung**. Ghi nhận nguồn và đích cho lần trình bày chính; nếu chạy thử đã tạo Whitfield/Bell, tạo lại vị trí demo riêng hoặc đặt tên khác để tránh nhầm, không tự xóa dữ liệu cũ.
 7. Sau khi scanner, Storage, worker và OAuth sẵn sàng, operator cấu hình các cờ test theo runbook; lưu ý rủi ro Internet/HTTP nêu trên. Khi Careers được bật, mọi vị trí `OPEN` còn hạn có thể được hiển thị — không chỉ bộ dữ liệu này.
 
 ### Gợi ý rubric để HR rà soát (không phải bộ tiêu chí đã duyệt)
@@ -97,31 +97,31 @@ HR cần cấu hình trọng số phù hợp và hoàn thành quy trình phê du
 
 **Lời dẫn:** “Đồng ý vào Talent Pool là lựa chọn riêng, không phải điều kiện nộp hồ sơ.”
 
-1. Chọn vị trí **nguồn**. Điền tên `Nguyễn Văn An`, email `nguyen.van.an@example.test`, điện thoại `0912 384 617`; chọn `CV_01_nguyen_van_an.docx`.
-2. Tích chọn Talent Pool thử nghiệm **7 ngày**, sao chép/lưu an toàn mã rút của An ở nơi chỉ người demo biết, rồi nộp. Hiển thị “đã tiếp nhận yêu cầu”; lưu ý chưa đồng nghĩa worker đã hoàn tất.
-3. Trên màn HR, chờ tác vụ An hoàn tất rồi mở hồ sơ thử nghiệm để kiểm tra CV. Nếu có lỗi/mất kết nối, giữ nguyên form, tệp và mã rút để thử lại cùng yêu cầu; nội dung thay đổi hoặc yêu cầu mới có thể tạo bản ghi khác.
-4. Nộp Bình tại cùng vị trí: tên `Trần Đình Bình`, email `tran.dinh.binh@example.test`, tệp `CV_02_tran_dinh_binh.pdf`; **không tích** Talent Pool. Chờ xử lý hoàn tất. Nộp tuần tự để tránh xung đột khi vị trí đang có tác vụ.
+1. Chọn vị trí **nguồn**. Điền tên `Daniel Whitfield`, email `daniel.whitfield@example.test`, điện thoại `+44 7700 900112`; chọn `CV_01_daniel_whitfield.docx`.
+2. Tích chọn Talent Pool thử nghiệm **7 ngày**, sao chép/lưu an toàn mã rút của Whitfield ở nơi chỉ người demo biết, rồi nộp. Hiển thị “đã tiếp nhận yêu cầu”; lưu ý chưa đồng nghĩa worker đã hoàn tất.
+3. Trên màn HR, chờ tác vụ Whitfield hoàn tất rồi mở hồ sơ thử nghiệm để kiểm tra CV. Nếu có lỗi/mất kết nối, giữ nguyên form, tệp và mã rút để thử lại cùng yêu cầu; nội dung thay đổi hoặc yêu cầu mới có thể tạo bản ghi khác.
+4. Nộp Bell tại cùng vị trí: tên `Marcus Bell`, email `marcus.bell@example.test`, tệp `CV_02_marcus_bell.pdf`; **không tích** Talent Pool. Chờ xử lý hoàn tất. Nộp tuần tự để tránh xung đột khi vị trí đang có tác vụ.
 
-**Đạt khi:** có hai hồ sơ giả riêng; An có consent riêng, Bình không có; không suy consent từ việc nộp. Nếu worker chưa COMPLETED thì chưa dùng kết quả đó để kết luận Talent Pool.
+**Đạt khi:** có hai hồ sơ giả riêng; Whitfield có consent riêng, Bell không có; không suy consent từ việc nộp. Nếu worker chưa COMPLETED thì chưa dùng kết quả đó để kết luận Talent Pool.
 
 ### Cảnh 3 — Talent Pool và rút lựa chọn (4–6 phút)
 
 **Lời dẫn:** “HR chỉ thấy hồ sơ đã đồng ý riêng, còn hạn và đủ điều kiện; kết quả không phải xếp hạng.”
 
 1. Mở `/talent-pool`; chọn **nguồn = Backend**, **đích = Tích hợp dữ liệu**; bấm tìm.
-2. Xác nhận **An xuất hiện** sau khi CV đã COMPLETED; **Bình không xuất hiện** vì không opt-in. Không khẳng định tổng số bằng 1 nếu còn dữ liệu đủ điều kiện khác ở nguồn.
-3. Mở `/pool-withdraw`; nhập mã của An ngoài vùng chia sẻ công khai, bấm gửi. Phản hồi được thiết kế giống nhau cho mã hợp lệ/không hợp lệ; không dùng phản hồi để chứng minh mã đã tồn tại.
-4. Quay lại HR, bấm **Tìm hồ sơ đủ điều kiện** lại; An không còn trong kết quả. Rút consent không tự xóa hồ sơ ứng tuyển.
+2. Xác nhận **Whitfield xuất hiện** sau khi CV đã COMPLETED; **Bell không xuất hiện** vì không opt-in. Không khẳng định tổng số bằng 1 nếu còn dữ liệu đủ điều kiện khác ở nguồn.
+3. Mở `/pool-withdraw`; nhập mã của Whitfield ngoài vùng chia sẻ công khai, bấm gửi. Phản hồi được thiết kế giống nhau cho mã hợp lệ/không hợp lệ; không dùng phản hồi để chứng minh mã đã tồn tại.
+4. Quay lại HR, bấm **Tìm hồ sơ đủ điều kiện** lại; Whitfield không còn trong kết quả. Rút consent không tự xóa hồ sơ ứng tuyển.
 
-**Đạt khi:** trước khi rút thấy An, sau khi rút/tìm lại không thấy An; Bình không xuất hiện. Kết quả scan chỉ là snapshot — cần kiểm tra lại trước khi sử dụng.
+**Đạt khi:** trước khi rút thấy Whitfield, sau khi rút/tìm lại không thấy Whitfield; Bell không xuất hiện. Kết quả scan chỉ là snapshot — cần kiểm tra lại trước khi sử dụng.
 
 ### Cảnh 4 — Gmail: an toàn trước nhập, HR xử lý ngoại lệ (5–8 phút)
 
 **Lời dẫn:** “HR chủ động kiểm tra một hộp Gmail test; email và tệp được quét trước khi bóc tách. Gmail không tự cấp consent Talent Pool.”
 
-1. Trong Gmail riêng, gửi/nhận thư giả theo `03_GMAIL/MAU_EMAIL.txt`: thay placeholder bằng **MÃ NGUỒN thực tế**, tiêu đề bắt đầu `[HRA-TEST] `, đúng một tệp `CV-03-le_thi_kim_chi-final.docx`, sau đó gắn nhãn `HRA_TEST`.
+1. Trong Gmail riêng, gửi/nhận thư giả theo `03_GMAIL/MAU_EMAIL.txt`: thay placeholder bằng **MÃ NGUỒN thực tế**, tiêu đề bắt đầu `[HRA-TEST] `, đúng một tệp `CV-03-priya_raghavan-final.docx`, sau đó gắn nhãn `HRA_TEST`.
 2. Đảm bảo vị trí nguồn không còn tác vụ đang chạy. HR Lead/Admin mở `/gmail-test`, bấm **Kiểm tra Gmail**, xem kết quả. Gmail chỉ xử lý tối đa 5 email mỗi trang; nếu cần bấm kiểm tra trang tiếp. `ACCEPTED` là đã tiếp nhận, không đồng nghĩa worker xong.
-3. Sau khi worker hoàn tất, mở **Xác nhận thông tin giả**, nhập tên `Lê Thị Kim Chi`, email `le.thi.kim.chi@example.test`, tích xác nhận giả và lưu. Mặc định hồ sơ giữ tên/email giả cố định; không coi dữ liệu người gửi hoặc thông tin HR nhập là xác minh danh tính thật. Không tạo consent Pool từ Gmail.
+3. Sau khi worker hoàn tất, mở **Xác nhận thông tin giả**, nhập tên `Priya Raghavan`, email `priya.raghavan@example.test`, tích xác nhận giả và lưu. Mặc định hồ sơ giữ tên/email giả cố định; không coi dữ liệu người gửi hoặc thông tin HR nhập là xác minh danh tính thật. Không tạo consent Pool từ Gmail.
 4. Bấm đồng bộ lại: thư đã ACCEPTED không tự tạo application mới. Gửi một **thư giả mới thiếu tệp** theo mẫu, gắn nhãn rồi kiểm tra; kỳ vọng `Cần HR kiểm tra` / số tệp không hợp lệ. Nút **Thử lại** chỉ phù hợp khi nguyên nhân dịch vụ đã được khắc phục; không sửa nội dung email đã gửi.
 
 **Đạt khi:** thư hợp lệ được nhập một lần; thư thiếu tệp vào REVIEW; không có consent Pool tự phát. Gmail spam/trash có thể không xuất hiện trong danh sách. Nếu OAuth/scanner/Storage lỗi, dừng và báo chưa nghiệm thu; không tắt ClamAV hay tạo bản ghi giả để trình bày thay.
@@ -135,7 +135,7 @@ HR cần cấu hình trọng số phù hợp và hoàn thành quy trình phê du
 | Kiểm tra | Kết quả thực tế | Ghi chú / thời điểm |
 |---|---|---|
 | Careers: 2 vị trí còn hạn | PASS / FAIL / CHƯA CHẠY | |
-| An nộp + opt-in; Bình không opt-in | PASS / FAIL / CHƯA CHẠY | |
+| Whitfield nộp + opt-in; Bell không opt-in | PASS / FAIL / CHƯA CHẠY | |
 | Scan trước/sau withdrawal | PASS / FAIL / CHƯA CHẠY | |
 | Gmail ACCEPTED + không trùng + REVIEW | PASS / FAIL / CHƯA CHẠY | |
 | ClamAV/Storage/worker/OAuth thực tế | PASS / FAIL / CHƯA CHẠY | Ghi nhận riêng từng dịch vụ |
@@ -145,7 +145,7 @@ HR cần cấu hình trọng số phù hợp và hoàn thành quy trình phê du
 - **Không thấy việc làm:** kiểm tra cờ listing, OPEN, deadline, trang tiếp và quyền truy cập kênh test. HR phải xem mọi JD có thể xuất hiện.
 - **Nút nộp bị khóa:** cờ intake, đường dẫn ClamAV và rubric APPROVED cho JD mới nhất. Nút khả dụng chưa chứng minh scanner đang hoạt động; backend vẫn quét khi nộp.
 - **CV bị từ chối/scanner không sẵn sàng:** xác minh socket, signature, EICAR và PDF mã hóa bằng runbook; không bypass scanner. Nếu CV bị chặn, ghi kết quả FAIL và kiểm tra trước buổi demo khác.
-- **Không thấy An trong pool:** kiểm tra opt-in, worker CV COMPLETED, nguồn/đích khác nhau, hạn consent/retention, quyền HR, trạng thái vị trí và retention case. Đừng nhập consent trực tiếp vào DB.
+- **Không thấy Whitfield trong pool:** kiểm tra opt-in, worker CV COMPLETED, nguồn/đích khác nhau, hạn consent/retention, quyền HR, trạng thái vị trí và retention case. Đừng nhập consent trực tiếp vào DB.
 - **Không rút được/không nhớ mã:** phản hồi không tiết lộ tính hợp lệ; chưa có khôi phục tự động. Chỉ trình diễn bằng mã đã lưu an toàn.
 - **Gmail không ra ACCEPTED:** kiểm tra OAuth/test user/nhãn/subject, mã vị trí do hệ thống sinh, file và trang tiếp; HR review lý do. Không có daemon SpamAssassin trong chế độ rút gọn; Gmail label không bảo đảm thư an toàn.
 - **Model/worker lỗi hoặc lâu:** dừng phần phụ thuộc kết quả xử lý; ghi FAIL/CHƯA CHẠY. Không coi test cục bộ hay giao diện mô phỏng là thành công trên VPS; không hứa có điểm/xếp hạng AI.

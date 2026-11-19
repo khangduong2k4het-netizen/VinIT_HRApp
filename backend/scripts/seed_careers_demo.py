@@ -54,7 +54,7 @@ def main():
         conn.execute(text("INSERT INTO app_private.applications(application_id,position_id,source_code) VALUES (:app,:pos,'CAREERS_DEMO')"), {'app': application, 'pos': SOURCE_ID})
         conn.execute(text("INSERT INTO app_private.application_identities(application_id,display_name,email) VALUES (:app,:name,:email)"), {'app': application, 'name': DEMO_CANDIDATE_NAME, 'email': DEMO_CANDIDATE_EMAIL})
         conn.execute(text("""INSERT INTO app_private.application_documents(document_id,application_id,bucket,storage_path,original_filename,mime_type,size_bytes,file_processing_status)
-            VALUES (:doc,:app,:bucket,:path,'cv-demo-nguyen-van-an.docx','application/vnd.openxmlformats-officedocument.wordprocessingml.document',:size,'COMPLETED')"""),
+            VALUES (:doc,:app,:bucket,:path,'cv-demo-daniel-whitfield.docx','application/vnd.openxmlformats-officedocument.wordprocessingml.document',:size,'COMPLETED')"""),
             {'doc': document, 'app': application, 'bucket': settings.SUPABASE_STORAGE_BUCKET_CV, 'path': relative, 'size': len(synthetic_cv())})
         conn.execute(text("""INSERT INTO app_private.talent_pool_demo_consents(application_id,notice_version,token_hash,expires_at)
             VALUES (:app,'synthetic-demo-v1',:token,now()+interval '7 days')"""), {'app': application, 'token': hashlib.sha256(os.urandom(32)).hexdigest()})

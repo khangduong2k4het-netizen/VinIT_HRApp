@@ -1,24 +1,26 @@
-JD THỬ NGHIỆM — CHUYÊN VIÊN TÍCH HỢP DỮ LIỆU
+DEMO JD — DATA INTEGRATION SPECIALIST
 
-Tài liệu tổng hợp cho buổi demo HRA. Đây không phải tin tuyển dụng thật; không sử dụng thông tin cá nhân thực tế.
+Synthetic document for the HRA demo. This is not a real job advertisement; do not use real personal information.
 
-Mục tiêu
-Kết nối các hệ thống dữ liệu nội bộ, làm sạch dữ liệu và xây dựng pipeline tin cậy; phối hợp với nhóm backend và nhóm nghiệp vụ để kiểm tra chất lượng dữ liệu.
+Purpose
+Keep data consistent between the core platform and downstream reporting systems, and make data quality measurable rather than assumed.
 
-Công việc chính
-- Xây dựng tác vụ nhập và đồng bộ dữ liệu bằng Python.
-- Viết truy vấn SQL, làm sạch và kiểm tra chất lượng dữ liệu trên PostgreSQL.
-- Tích hợp API REST, xử lý lỗi và thử lại tác vụ theo quy trình.
-- Ghi tài liệu về dữ liệu, phân quyền và phối hợp kiểm thử với các nhóm liên quan.
+Key responsibilities
+- Write SQL queries and Python scripts to reconcile data between source systems.
+- Design and run data quality rules, and follow up on failed checks.
+- Document data flows and hand over operating procedures to the business side.
+- Work with accounting and operations to explain discrepancies at period close.
 
-Yêu cầu bắt buộc
-- Có trải nghiệm Python và SQL/cơ sở dữ liệu quan hệ.
-- Hiểu dữ liệu có cấu trúc, kiểm tra chất lượng và xử lý lỗi.
-- Biết sử dụng API REST và phối hợp với nhóm kỹ thuật/nghiệp vụ.
+Mandatory requirements
+- Strong SQL skills on a relational database.
+- Practical Python experience for data processing.
+- Experience reconciling or validating data across multiple systems.
+- Able to write technical documentation.
 
-Ưu tiên
-- PostgreSQL, pipeline theo lô, kiểm thử tự động và tài liệu vận hành.
-- Có kinh nghiệm quan sát tác vụ hoặc xử lý dữ liệu không nhất quán.
+Preferred requirements
+- Experience with pandas or similar data processing libraries.
+- Experience building scheduled pipelines or batch jobs.
+- Familiarity with REST APIs as a data source.
 
-Điều kiện thử nghiệm
-Mọi thông tin vị trí, tổ chức và hồ sơ trong gói này là giả. HR chọn phòng ban và HM thử nghiệm phù hợp, đặt trạng thái OPEN và hạn nộp sau thời điểm demo. Mã vị trí do hệ thống tạo; không tự nhập mã từ ví dụ.
+Notes for the demo
+- Criteria are extracted from this document; HR reviews and approves the rubric before any CV can be submitted.

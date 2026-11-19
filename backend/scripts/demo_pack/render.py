@@ -9,7 +9,12 @@ lên" chứ không phải cùng một mẫu in ra hai lần:
 
 Cả hai đều mở đầu bằng **họ tên đầy đủ của ứng viên** trên dòng đầu tiên, đúng
 như CV thật. Đây cũng là điều kiện để bộ trích xuất tên hoạt động: nếu dòng đầu
-là một nhãn như "ỨNG VIÊN GIẢ" thì cả người đọc và model đều không biết đó là ai.
+là một nhãn như "SYNTHETIC CANDIDATE" thì cả người đọc và model đều không biết
+đó là ai.
+
+Ngôn ngữ: **tiếng Anh**. Nền tảng hướng tới người dùng quốc tế và tiếng Anh là
+ngôn ngữ chuẩn cho JD/CV; tiếng Việt vẫn được hỗ trợ nhưng là tuỳ chọn, nên dữ
+liệu demo không được dạy điều ngược lại.
 
 Chữ ký hàm nhận ``Candidate`` và trả về ``bytes`` để script gọi ghi ra tệp.
 """
@@ -101,10 +106,10 @@ def render_docx(candidate: Candidate) -> bytes:
         para.paragraph_format.space_after = Pt(2)
         para.alignment = WD_ALIGN_PARAGRAPH.LEFT
 
-    heading("Tóm tắt")
+    heading("Summary")
     doc.add_paragraph(candidate.summary)
 
-    heading("Kinh nghiệm làm việc")
+    heading("Work Experience")
     for job in candidate.experience:
         line = doc.add_paragraph()
         line.paragraph_format.space_before = Pt(6)
@@ -123,7 +128,7 @@ def render_docx(candidate: Candidate) -> bytes:
         for text in job.bullets:
             bullet(text)
 
-    heading("Học vấn")
+    heading("Education")
     for edu in candidate.education:
         line = doc.add_paragraph()
         line.paragraph_format.space_after = Pt(0)
@@ -137,16 +142,16 @@ def render_docx(candidate: Candidate) -> bytes:
         if edu.detail:
             doc.add_paragraph(edu.detail)
 
-    heading("Kỹ năng")
+    heading("Skills")
     doc.add_paragraph(" · ".join(candidate.skills))
 
     if candidate.certifications:
-        heading("Chứng chỉ")
+        heading("Certifications")
         for cert in candidate.certifications:
             bullet(cert)
 
     if candidate.projects:
-        heading("Dự án")
+        heading("Projects")
         for title, detail in candidate.projects:
             line = doc.add_paragraph()
             line.paragraph_format.space_after = Pt(0)
@@ -154,7 +159,7 @@ def render_docx(candidate: Candidate) -> bytes:
             doc.add_paragraph(detail)
 
     if candidate.languages:
-        heading("Ngoại ngữ")
+        heading("Languages")
         doc.add_paragraph(" · ".join(candidate.languages))
 
     output = BytesIO()
@@ -238,10 +243,10 @@ def render_pdf(candidate: Candidate) -> bytes:
             bulletFontSize=8,
         ))
 
-    section("Tóm tắt")
+    section("Summary")
     story.append(Paragraph(escape(candidate.summary), body_style))
 
-    section("Kinh nghiệm làm việc")
+    section("Work Experience")
     for job in candidate.experience:
         story.append(Paragraph(
             f"<b>{escape(job.role)}</b> — {escape(job.company)}", body_style))
@@ -250,7 +255,7 @@ def render_pdf(candidate: Candidate) -> bytes:
         bullets(job.bullets)
         story.append(Spacer(1, 4))
 
-    section("Học vấn")
+    section("Education")
     for edu in candidate.education:
         story.append(Paragraph(
             f"<b>{escape(edu.degree)}</b> — {escape(edu.school)}", body_style))
@@ -258,21 +263,21 @@ def render_pdf(candidate: Candidate) -> bytes:
         if edu.detail:
             story.append(Paragraph(escape(edu.detail), body_style))
 
-    section("Kỹ năng")
+    section("Skills")
     story.append(Paragraph(escape(" · ".join(candidate.skills)), body_style))
 
     if candidate.certifications:
-        section("Chứng chỉ")
+        section("Certifications")
         bullets(candidate.certifications)
 
     if candidate.projects:
-        section("Dự án")
+        section("Projects")
         for title, detail in candidate.projects:
             story.append(Paragraph(f"<b>{escape(title)}</b>", body_style))
             story.append(Paragraph(escape(detail), body_style))
 
     if candidate.languages:
-        section("Ngoại ngữ")
+        section("Languages")
         story.append(Paragraph(escape(" · ".join(candidate.languages)), body_style))
 
     output = BytesIO()

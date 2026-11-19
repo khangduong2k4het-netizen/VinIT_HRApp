@@ -1,18 +1,27 @@
-"""Dữ liệu 30 hồ sơ cho bộ demo tuyển dụng.
+"""Data for the 30-candidate demo pack.
 
-Mỗi hồ sơ là một người **hư cấu** nhưng được viết như CV thật: có họ tên đầy
-đủ, chức danh, tóm tắt nghề nghiệp, kinh nghiệm theo từng công ty với số liệu
-cụ thể, học vấn, chứng chỉ và kỹ năng.
+Each profile is a **fictional** person written the way a real CV is written: full
+name, headline, a summary, experience at named companies with concrete numbers,
+education, certifications and skills.
 
-Ràng buộc quan trọng: **hồ sơ kỹ năng phải khớp `BANG_PHAN_BO_30_CV.md`**.
-Kịch bản demo dựa vào việc CV nào đủ/thiếu bằng chứng cho vị trí nào (ví dụ CV
-02 có Flask nhưng thiếu pipeline; CV 06 thiên Java). Đổi kỹ năng là làm hỏng
-kịch bản, nên phần `skills` phải giữ nguyên ý nghĩa so với bảng.
+Language policy: this pack is **English**, because the platform targets an
+international audience and English is the expected language for JDs and CVs.
+Vietnamese support exists and is exercised by separate tests, but it is an
+option, not the default — so the demo data must not teach the opposite.
 
-Mọi thông tin liên hệ dùng tên miền `example.test` / `example.invalid` — không
-bao giờ trỏ tới người thật. Không có ảnh, ngày sinh, giới tính, tình trạng hôn
-nhân, quốc tịch, tôn giáo, CCCD hay địa chỉ nhà: đó cũng đúng là những gì hệ
-thống được phép xử lý.
+Constraint that must not break: the **skill profile of each candidate stays the
+same** as the original spreadsheet plan, because the demo script depends on who
+has enough (or too little) evidence for which position. Do not "improve" a
+candidate's skills without updating `KICH_BAN_DEMO.md` first.
+
+Filenames are deliberately inconsistent (`-final`, `_v2`, ` (1)`, mixed case)
+because that is what HR actually receives, and it is the condition that proves
+the system reads the candidate name from the CV rather than from the filename.
+
+Contact details always use `example.test` / `example.invalid`. There are no
+photos, dates of birth, genders, marital status, nationalities, religions,
+national ID numbers or home addresses: those are also exactly what the system is
+not allowed to process.
 """
 from __future__ import annotations
 
@@ -25,7 +34,7 @@ class Experience:
     company: str
     period: str
     location: str
-    #: Gạch đầu dòng thành tích, có số liệu. Viết như người thật viết CV.
+    #: Achievement bullets with numbers. Written the way people write CVs.
     bullets: tuple[str, ...]
 
 
@@ -43,7 +52,7 @@ class Candidate:
     full_name: str
     headline: str
     email: str
-    #: Định dạng hiển thị; số điện thoại cố ý dùng dải 09xx không ấn định.
+    #: Display format; the phone series is deliberately generic.
     phone: str
     summary: str
     skills: tuple[str, ...]
@@ -52,1269 +61,1269 @@ class Candidate:
     certifications: tuple[str, ...] = ()
     languages: tuple[str, ...] = ()
     projects: tuple[tuple[str, str], ...] = field(default_factory=tuple)
-    #: Vị trí nộp theo bảng phân bổ (chỉ để đối chiếu, không in lên CV).
+    #: Position applied to per the allocation sheet (not printed on the CV).
     applies_to: str = ""
-    #: Tên tệp cũ (tham chiếu cho kịch bản), không in lên CV.
+    #: Previous filename, kept only for the demo script's cross-reference.
     legacy_filename: str = ""
 
 
 CANDIDATES: tuple[Candidate, ...] = (
     Candidate(
         number=1,
-        full_name="Nguyễn Văn An",
+        full_name="Daniel Whitfield",
         headline="Backend Engineer · Python",
-        email="nguyen.van.an@example.test",
-        phone="0912 384 617",
+        email="daniel.whitfield@example.test",
+        phone="+44 7700 900112",
         summary=(
-            "Backend engineer với 4 năm kinh nghiệm xây dựng dịch vụ Python cho "
-            "hệ thống thương mại điện tử và quản lý danh mục sản phẩm. Quen làm "
-            "việc với API có lưu lượng cao, thiết kế truy vấn và xử lý dữ liệu "
-            "theo lô. Thích viết kiểm thử trước khi sửa mã cũ."
+            "Backend engineer with 4 years of experience building Python services for "
+            "e-commerce and product catalogue systems. Comfortable with high-traffic "
+            "APIs, query design and batch data processing. Prefers writing tests before "
+            "touching legacy code."
         ),
         skills=(
             "Python", "FastAPI", "REST API", "PostgreSQL", "SQL", "Git",
-            "pytest", "Docker", "Redis", "làm sạch dữ liệu",
+            "pytest", "Docker", "Redis", "data cleaning",
         ),
         experience=(
             Experience(
                 role="Backend Engineer",
-                company="Công ty CP Thương mại Sông Hồng",
+                company="Northbridge Commerce Ltd",
                 period="03/2022 – 09/2025",
-                location="Hà Nội",
+                location="Manchester, UK",
                 bullets=(
-                    "Xây dựng 12 endpoint FastAPI phục vụ danh mục sản phẩm, phục vụ khoảng 40.000 request/ngày.",
-                    "Thiết kế truy vấn PostgreSQL và xử lý giao dịch cho luồng cập nhật tồn kho, giảm thời gian phản hồi trung bình từ 480ms xuống 190ms.",
-                    "Bổ sung xác thực dữ liệu đầu vào và tài liệu OpenAPI, cắt 60% lỗi 500 do dữ liệu sai định dạng.",
-                    "Viết unit test và integration test cho tầng API, nâng độ phủ từ 41% lên 78%.",
+                    "Built 12 FastAPI endpoints serving the product catalogue at roughly 40,000 requests per day.",
+                    "Designed PostgreSQL queries and transactions for inventory updates, cutting median response time from 480 ms to 190 ms.",
+                    "Added request validation and OpenAPI documentation, removing 60% of 500 errors caused by malformed input.",
+                    "Wrote unit and integration tests for the API layer, raising coverage from 41% to 78%.",
                 ),
             ),
             Experience(
                 role="Backend Developer",
-                company="Công ty TNHH Phần mềm An Phú",
+                company="Anfield Software Services",
                 period="07/2021 – 02/2022",
-                location="Hà Nội",
+                location="Manchester, UK",
                 bullets=(
-                    "Phát triển dịch vụ đồng bộ dữ liệu giữa hệ thống bán hàng và kho, chạy theo lô 30 phút một lần.",
-                    "Bổ sung cơ chế thử lại và ghi log có mã tương quan, giảm số tác vụ thất bại âm thầm.",
+                    "Developed a data sync service between the sales system and the warehouse, running in 30-minute batches.",
+                    "Added retry handling and correlation-id logging, reducing silent batch failures.",
                 ),
             ),
         ),
         education=(
             Education(
-                degree="Kỹ sư Công nghệ Thông tin",
-                school="Đại học Bách khoa Hà Nội",
+                degree="BSc Computer Science",
+                school="University of Leeds",
                 period="2017 – 2021",
-                detail="Chuyên ngành Hệ thống thông tin. Đồ án tốt nghiệp: hệ thống đặt hàng viết bằng Django.",
+                detail="Final-year project: an order management system built with Django.",
             ),
         ),
         certifications=("AWS Certified Cloud Practitioner (2023)",),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (đọc tài liệu kỹ thuật, B2)"),
+        languages=("English (native)", "Spanish (reading technical documentation, B2)"),
         projects=(
             (
-                "Kho dữ liệu danh mục dùng chung",
-                "Tách danh mục sản phẩm khỏi ba hệ thống con thành một dịch vụ đọc duy nhất; "
-                "chuẩn hoá 1,2 triệu bản ghi và đặt quy tắc kiểm tra chất lượng dữ liệu.",
+                "Shared product catalogue service",
+                "Split the product catalogue out of three subsystems into a single read "
+                "service; normalised 1.2 million records and defined data quality rules.",
             ),
         ),
         applies_to="Backend Python",
-        legacy_filename="CV_01_An_Careers_Dong_y.docx",
+        legacy_filename="CV_01_nguyen_van_an.docx",
     ),
     Candidate(
         number=2,
-        full_name="Trần Đình Bình",
+        full_name="Marcus Bell",
         headline="Python Developer",
-        email="tran.dinh.binh@example.test",
-        phone="0963 512 408",
+        email="marcus.bell@example.test",
+        phone="+44 7700 900223",
         summary=(
-            "Lập trình viên Python 3 năm kinh nghiệm, chủ yếu làm dịch vụ web nhỏ "
-            "và công cụ nội bộ bằng Flask. Quen với SQL và viết kiểm thử ở mức "
-            "đơn vị. Đang tìm môi trường có quy trình review mã rõ ràng."
+            "Python developer with 3 years of experience, mostly small web services and "
+            "internal tools built with Flask. Comfortable with SQL and unit-level testing. "
+            "Looking for a team with a clear code review process."
         ),
         skills=(
             "Python", "Flask", "REST API", "SQL", "SQLite", "Git", "unittest",
-            "viết tài liệu kỹ thuật",
+            "technical writing",
         ),
         experience=(
             Experience(
                 role="Python Developer",
-                company="Công ty TNHH Giải pháp Dữ liệu Tân Long",
+                company="Tanlong Data Solutions Ltd",
                 period="05/2023 – 10/2025",
-                location="Đà Nẵng",
+                location="Bristol, UK",
                 bullets=(
-                    "Bảo trì dịch vụ Flask phục vụ 8 khách hàng doanh nghiệp nhỏ, xử lý khoảng 5.000 request/ngày.",
-                    "Bổ sung 7 endpoint tra cứu và xuất báo cáo CSV từ SQLite.",
-                    "Viết bộ kiểm thử unittest cho tầng xử lý, phát hiện 15 lỗi biên trước khi phát hành.",
-                    "Soạn tài liệu vận hành và hướng dẫn bàn giao cho nhóm hỗ trợ.",
+                    "Maintained a Flask service used by 8 small business customers, handling about 5,000 requests per day.",
+                    "Added 7 search and CSV export endpoints backed by SQLite.",
+                    "Wrote a unittest suite for the processing layer, catching 15 edge-case bugs before release.",
+                    "Produced operations documentation and handover notes for the support team.",
                 ),
             ),
             Experience(
-                role="Thực tập sinh phát triển",
-                company="Trung tâm Công nghệ Thông tin Đà Thành",
+                role="Development Intern",
+                company="Dathan IT Centre",
                 period="09/2022 – 04/2023",
-                location="Đà Nẵng",
+                location="Bristol, UK",
                 bullets=(
-                    "Viết script Python xử lý file Excel chấm công, tiết kiệm khoảng 6 giờ mỗi tháng.",
+                    "Wrote Python scripts to process timesheet spreadsheets, saving about 6 hours per month.",
                 ),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Công nghệ Thông tin",
-                school="Đại học Đà Nẵng",
+                degree="BSc Information Technology",
+                school="University of the West of England",
                 period="2018 – 2022",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (A2)"),
+        languages=("English (native)", "French (A2)"),
         applies_to="Backend Python",
-        legacy_filename="CV_02_Binh_Careers_Khong_dong_y.pdf",
+        legacy_filename="CV_02_tran_dinh_binh.pdf",
     ),
     Candidate(
         number=3,
-        full_name="Lê Thị Kim Chi",
+        full_name="Priya Raghavan",
         headline="Backend Developer · Python & FastAPI",
-        email="le.thi.kim.chi@example.test",
-        phone="0977 204 583",
+        email="priya.raghavan@example.test",
+        phone="+44 7700 900334",
         summary=(
-            "Kỹ sư backend 5 năm kinh nghiệm, tập trung vào API Python cho lĩnh "
-            "vực tài chính. Có kinh nghiệm phối hợp triển khai với nhóm hạ tầng "
-            "và hỗ trợ kỹ thuật sau bán."
+            "Backend engineer with 5 years of experience focused on Python APIs in "
+            "financial services. Experienced in coordinating deployments with the "
+            "infrastructure team and providing second-line technical support."
         ),
         skills=(
             "Python", "FastAPI", "REST API", "PostgreSQL", "SQL", "Git", "pytest",
-            "Docker", "tài liệu API",
+            "Docker", "API documentation",
         ),
         experience=(
             Experience(
                 role="Backend Developer",
-                company="Công ty CP Công nghệ Tài chính Minh Khang",
+                company="Minh Khang Financial Technology",
                 period="01/2022 – 10/2025",
-                location="TP. Hồ Chí Minh",
+                location="London, UK",
                 bullets=(
-                    "Xây dựng API FastAPI cho luồng đăng ký và xác thực hồ sơ vay, phục vụ 25.000 người dùng.",
-                    "Thiết kế truy vấn PostgreSQL cho báo cáo đối soát hằng ngày, rút thời gian chạy từ 11 phút xuống 3 phút.",
-                    "Phối hợp với nhóm hạ tầng đóng gói dịch vụ bằng Docker và cấu hình kiểm thử sức chịu tải.",
-                    "Trực hỗ trợ kỹ thuật cấp hai, xử lý khoảng 20 sự cố mỗi tháng và viết lại tài liệu khắc phục.",
+                    "Built FastAPI endpoints for the loan application and verification flow, serving 25,000 users.",
+                    "Designed PostgreSQL queries for the daily reconciliation report, reducing runtime from 11 minutes to 3.",
+                    "Worked with the infrastructure team to containerise the service with Docker and configure load testing.",
+                    "Provided second-line support, handling around 20 incidents a month and rewriting the recovery runbooks.",
                 ),
             ),
             Experience(
                 role="Junior Backend Developer",
-                company="Công ty TNHH Phần mềm Sao Việt",
+                company="Sao Viet Software Ltd",
                 period="06/2020 – 12/2021",
-                location="TP. Hồ Chí Minh",
+                location="London, UK",
                 bullets=(
-                    "Phát triển module thông báo qua email và tin nhắn cho hệ thống quản lý đơn hàng.",
+                    "Built the email and SMS notification module for the order management system.",
                 ),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Khoa học Máy tính",
-                school="Đại học Khoa học Tự nhiên TP. Hồ Chí Minh",
+                degree="BSc Computer Science",
+                school="University of Southampton",
                 period="2016 – 2020",
                 detail="GPA 3.2/4.0.",
             ),
         ),
         certifications=("Microsoft Certified: Azure Fundamentals (2022)",),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1, làm việc với tài liệu)"),
+        languages=("English (fluent)", "Tamil (native)", "Hindi (B1)"),
         applies_to="Backend Python (Gmail)",
-        legacy_filename="CV_03_Chi_Gmail.docx",
+        legacy_filename="CV-03-le_thi_kim_chi-final.docx",
     ),
     Candidate(
         number=4,
-        full_name="Phạm Tiến Dũng",
+        full_name="Thomas Reilly",
         headline="Backend Engineer",
-        email="pham.tien.dung@example.test",
-        phone="0908 741 236",
+        email="thomas.reilly@example.test",
+        phone="+44 7700 900445",
         summary=(
-            "Backend engineer 4 năm kinh nghiệm với Python và PostgreSQL, chủ yếu "
-            "làm hệ thống quản lý đơn hàng. Chú trọng chuẩn hoá dữ liệu đầu vào và "
-            "kiểm thử tích hợp."
+            "Backend engineer with 4 years of experience in Python and PostgreSQL, mostly "
+            "on order management systems. Focused on normalising input data and writing "
+            "integration tests."
         ),
         skills=(
             "Python", "FastAPI", "PostgreSQL", "SQL", "pytest", "Git",
-            "chuẩn hoá dữ liệu", "kiểm thử tích hợp",
+            "data normalisation", "integration testing",
         ),
         experience=(
             Experience(
                 role="Backend Engineer",
-                company="Công ty CP Bán lẻ Hà Thành",
+                company="Hathaway Retail Group",
                 period="04/2022 – 10/2025",
-                location="Hà Nội",
+                location="Leeds, UK",
                 bullets=(
-                    "Xây dựng API quản lý đơn hàng bằng FastAPI, xử lý 6.000 đơn mỗi ngày vào cao điểm.",
-                    "Chuẩn hoá dữ liệu đầu vào từ ba kênh bán hàng, loại bỏ 4.000 bản ghi trùng trong quý đầu.",
-                    "Viết kiểm thử tích hợp cho luồng thanh toán và hoàn tiền, chặn được 9 lỗi hồi quy.",
-                    "Tham gia trực ca và xử lý sự cố liên quan tới hàng đợi xử lý đơn.",
+                    "Built the order management API in FastAPI, handling 6,000 orders per day at peak.",
+                    "Normalised input data from three sales channels, removing 4,000 duplicate records in the first quarter.",
+                    "Wrote integration tests for the payment and refund flow, catching 9 regressions.",
+                    "Took part in on-call rotation and resolved incidents involving the order processing queue.",
                 ),
             ),
             Experience(
                 role="Backend Developer",
-                company="Công ty TNHH Công nghệ Vĩnh Phát",
+                company="Vinh Phat Technology Ltd",
                 period="08/2021 – 03/2022",
-                location="Hà Nội",
+                location="Leeds, UK",
                 bullets=(
-                    "Bảo trì dịch vụ tra cứu tồn kho viết bằng Python và PostgreSQL.",
+                    "Maintained the stock lookup service written in Python and PostgreSQL.",
                 ),
             ),
         ),
         education=(
             Education(
-                degree="Kỹ sư Công nghệ Thông tin",
-                school="Đại học Công nghệ – Đại học Quốc gia Hà Nội",
+                degree="MEng Software Engineering",
+                school="University of Sheffield",
                 period="2017 – 2021",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1)"),
+        languages=("English (native)", "Irish (B1)"),
         projects=(
             (
-                "Đồng bộ danh mục đa kênh",
-                "Gộp danh mục sản phẩm của website, ứng dụng và sàn liên kết về một nguồn; "
-                "viết tác vụ đối soát hằng đêm bằng Python.",
+                "Multi-channel catalogue sync",
+                "Consolidated the product catalogue from the website, mobile app and marketplace "
+                "into one source of truth; wrote the nightly reconciliation job in Python.",
             ),
         ),
         applies_to="Backend Python",
-        legacy_filename="CV_04_Dung.docx",
+        legacy_filename="CV_04_pham_tien_dung_v2.docx",
     ),
     Candidate(
         number=5,
-        full_name="Vũ Thị Hạnh",
+        full_name="Sofia Almeida",
         headline="Backend Engineer · Python & QA",
-        email="vu.thi.hanh@example.test",
-        phone="0934 618 902",
+        email="sofia.almeida@example.test",
+        phone="+44 7700 900556",
         summary=(
-            "Kỹ sư backend 4 năm kinh nghiệm với Django, có thế mạnh ở phần kiểm "
-            "thử: từng làm việc sát nhóm QA để chuẩn hoá test case và tự động hoá "
-            "kiểm thử API."
+            "Backend engineer with 4 years of experience in Django, with a particular "
+            "strength in testing: has worked closely with QA to standardise test cases and "
+            "automate API testing."
         ),
         skills=(
             "Python", "Django", "REST", "PostgreSQL", "pytest", "Docker",
-            "test case", "tự động hoá kiểm thử API",
+            "test case design", "API test automation",
         ),
         experience=(
             Experience(
                 role="Backend Engineer",
-                company="Công ty CP Giáo dục Trực tuyến Nam Việt",
+                company="Nam Viet Online Education",
                 period="02/2022 – 10/2025",
-                location="Hà Nội",
+                location="Birmingham, UK",
                 bullets=(
-                    "Bảo trì dịch vụ Django phục vụ 18.000 học viên, sửa 30 lỗi API trong năm đầu.",
-                    "Phối hợp nhóm QA chuẩn hoá 120 test case và tự động hoá 45 ca kiểm thử API bằng pytest.",
-                    "Đóng gói dịch vụ bằng Docker cho môi trường kiểm thử, giảm lệch cấu hình giữa các máy.",
-                    "Rà soát truy vấn chậm và thêm chỉ mục, cải thiện 35% thời gian tải trang danh sách khoá học.",
+                    "Maintained a Django service used by 18,000 learners, fixing 30 API defects in the first year.",
+                    "Worked with QA to standardise 120 test cases and automated 45 API checks with pytest.",
+                    "Containerised the service with Docker for test environments, reducing configuration drift between machines.",
+                    "Reviewed slow queries and added indexes, improving course list page load time by 35%.",
                 ),
             ),
             Experience(
                 role="Developer",
-                company="Công ty TNHH Phần mềm Đông Á",
+                company="Dong A Software Ltd",
                 period="07/2021 – 01/2022",
-                location="Hà Nội",
-                bullets=("Phát triển module quản lý người dùng cho hệ thống nội bộ.",),
+                location="Birmingham, UK",
+                bullets=("Built the user management module for the internal system.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Công nghệ Thông tin",
-                school="Đại học Thăng Long",
+                degree="BSc Computer Science",
+                school="University of Birmingham",
                 period="2017 – 2021",
             ),
         ),
         certifications=("ISTQB Certified Tester Foundation Level (2022)",),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1)"),
+        languages=("English (fluent)", "Portuguese (native)"),
         applies_to="Backend Python",
-        legacy_filename="CV_05_Hanh.docx",
+        legacy_filename="vu_thi_hanh_CV_2024.pdf",
     ),
     Candidate(
         number=6,
-        full_name="Đỗ Minh Khánh",
+        full_name="Andrei Popescu",
         headline="Backend Engineer · Java",
-        email="do.minh.khanh@example.test",
-        phone="0918 337 064",
+        email="andrei.popescu@example.test",
+        phone="+44 7700 900667",
         summary=(
-            "Kỹ sư backend 5 năm kinh nghiệm phát triển hệ thống Java cho ngân "
-            "hàng và bảo hiểm. Có nền tảng API và cơ sở dữ liệu quan hệ vững, đang "
-            "muốn mở rộng sang Python."
+            "Backend engineer with 5 years of experience building Java systems for banking "
+            "and insurance. Has a solid grounding in APIs and relational databases, and is "
+            "looking to move towards Python."
         ),
         skills=(
             "Java", "Spring Boot", "MySQL", "REST", "JUnit", "Git", "Maven",
-            "thiết kế cơ sở dữ liệu quan hệ",
+            "relational database design",
         ),
         experience=(
             Experience(
                 role="Backend Engineer",
-                company="Công ty CP Công nghệ Ngân hàng Tín Việt",
+                company="Tin Viet Banking Technology",
                 period="03/2021 – 10/2025",
-                location="Hà Nội",
+                location="Edinburgh, UK",
                 bullets=(
-                    "Phát triển API Java cho danh mục sản phẩm tín dụng, phục vụ 3 hệ thống nội bộ.",
-                    "Viết JUnit cho tầng nghiệp vụ, nâng độ phủ kiểm thử của module từ 30% lên 65%.",
-                    "Review truy vấn MySQL và tối ưu 14 câu lệnh chậm, giảm tải cơ sở dữ liệu vào giờ cao điểm.",
-                    "Tham gia thiết kế luồng xử lý hồ sơ và viết tài liệu kỹ thuật bàn giao.",
+                    "Developed Java APIs for the credit product catalogue, serving 3 internal systems.",
+                    "Wrote JUnit tests for the business layer, raising module coverage from 30% to 65%.",
+                    "Reviewed MySQL queries and optimised 14 slow statements, reducing database load at peak.",
+                    "Contributed to the case processing design and wrote the technical handover documentation.",
                 ),
             ),
             Experience(
                 role="Java Developer",
-                company="Công ty TNHH Phần mềm Bảo hiểm An Gia",
+                company="An Gia Insurance Software Ltd",
                 period="06/2019 – 02/2021",
-                location="Hà Nội",
-                bullets=("Phát triển module tính phí bảo hiểm và xuất hợp đồng.",),
+                location="Edinburgh, UK",
+                bullets=("Built the premium calculation and policy export modules.",),
             ),
         ),
         education=(
             Education(
-                degree="Kỹ sư Công nghệ Thông tin",
-                school="Đại học Bách khoa Hà Nội",
+                degree="BSc Computer Science",
+                school="University of Edinburgh",
                 period="2015 – 2019",
             ),
         ),
         certifications=("Oracle Certified Associate, Java SE 8 (2020)",),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (đọc tài liệu, B2)"),
+        languages=("English (fluent)", "Romanian (native)"),
         applies_to="Backend Python",
-        legacy_filename="CV_06_Khanh.docx",
+        legacy_filename="CV 06 andrei_popescu (1).docx",
     ),
     Candidate(
         number=7,
-        full_name="Hoàng Thị Linh",
+        full_name="Hannah Fischer",
         headline="Data Engineer · Python",
-        email="hoang.thi.linh@example.test",
-        phone="0946 820 551",
+        email="hannah.fischer@example.test",
+        phone="+44 7700 900778",
         summary=(
-            "Kỹ sư dữ liệu 4 năm kinh nghiệm xây dựng pipeline xử lý dữ liệu bằng "
-            "Python và SQL. Làm chủ yếu với dữ liệu bán hàng và marketing, quan "
-            "tâm tới chất lượng dữ liệu hơn là số lượng báo cáo."
+            "Data engineer with 4 years of experience building data processing pipelines in "
+            "Python and SQL. Mostly works with sales and marketing data, and cares more about "
+            "data quality than about the number of reports."
         ),
         skills=(
             "Python", "SQL", "PostgreSQL", "pandas", "REST", "pytest",
-            "làm sạch dữ liệu", "thiết kế pipeline",
+            "data cleaning", "pipeline design",
         ),
         experience=(
             Experience(
                 role="Data Engineer",
-                company="Công ty CP Thương mại Điện tử VinaShop",
+                company="VinaShop E-commerce",
                 period="05/2022 – 10/2025",
-                location="TP. Hồ Chí Minh",
+                location="London, UK",
                 bullets=(
-                    "Xây dựng tác vụ làm sạch dữ liệu bằng Python và pandas cho 2,4 triệu bản ghi giao dịch.",
-                    "Kiểm tra giá trị thiếu và xử lý lỗi nhập theo lô, giảm 70% số dòng lỗi trong báo cáo cuối ngày.",
-                    "Viết truy vấn SQL tổng hợp dữ liệu bán hàng cho nhóm phân tích.",
-                    "Đóng gói pipeline bằng Docker và thêm kiểm thử pytest cho từng bước xử lý.",
+                    "Built data cleaning jobs in Python and pandas for 2.4 million transaction records.",
+                    "Checked missing values and handled ingestion errors per batch, cutting bad rows in the end-of-day report by 70%.",
+                    "Wrote SQL queries to aggregate sales data for the analytics team.",
+                    "Containerised the pipeline with Docker and added pytest checks for each processing step.",
                 ),
             ),
             Experience(
                 role="Data Analyst",
-                company="Công ty TNHH Nghiên cứu Thị trường Sài Gòn",
+                company="Saigon Market Research Ltd",
                 period="03/2021 – 04/2022",
-                location="TP. Hồ Chí Minh",
-                bullets=("Tổng hợp dữ liệu khảo sát bằng SQL và Excel cho khoảng 40 dự án.",),
+                location="London, UK",
+                bullets=("Compiled survey data in SQL and Excel for around 40 projects.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Khoa học Dữ liệu",
-                school="Đại học Khoa học Tự nhiên TP. Hồ Chí Minh",
+                degree="BSc Data Science",
+                school="University of Manchester",
                 period="2017 – 2021",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1)"),
+        languages=("English (fluent)", "German (native)"),
         projects=(
             (
-                "Kho dữ liệu bán hàng hợp nhất",
-                "Hợp nhất dữ liệu từ ba kênh bán hàng về một mô hình chung, viết tác vụ đối soát hằng ngày.",
+                "Unified sales warehouse",
+                "Merged data from three sales channels into one common model and wrote the daily reconciliation job.",
             ),
         ),
-        applies_to="Tích hợp dữ liệu",
-        legacy_filename="CV_07_Linh.docx",
+        applies_to="Data Integration",
+        legacy_filename="CV_07_hoang_thi_linh.docx",
     ),
     Candidate(
         number=8,
-        full_name="Ngô Quang Minh",
+        full_name="Owen Hartley",
         headline="Data Integration Specialist",
-        email="ngo.quang.minh@example.test",
-        phone="0912 905 778",
+        email="owen.hartley@example.test",
+        phone="+44 7700 900889",
         summary=(
-            "Chuyên viên tích hợp dữ liệu 5 năm kinh nghiệm, làm việc với SQL và "
-            "Python để đối soát dữ liệu giữa các hệ thống. Quen với môi trường "
-            "nhiều nguồn dữ liệu và yêu cầu số liệu phải khớp."
+            "Data integration specialist with 5 years of experience using SQL and Python to "
+            "reconcile data between systems. Used to environments with many data sources where "
+            "the numbers have to agree."
         ),
         skills=(
             "SQL", "Python", "pandas", "PostgreSQL", "Git", "Excel",
-            "đối soát dữ liệu", "kiểm tra chất lượng dữ liệu",
+            "data reconciliation", "data quality checks",
         ),
         experience=(
             Experience(
-                role="Chuyên viên tích hợp dữ liệu",
-                company="Công ty CP Tài chính Tiêu dùng Phương Đông",
+                role="Data Integration Specialist",
+                company="Phuong Dong Consumer Finance",
                 period="02/2021 – 10/2025",
-                location="Hà Nội",
+                location="Bristol, UK",
                 bullets=(
-                    "Viết truy vấn SQL và script Python đối soát dữ liệu giữa hệ thống lõi và hệ thống báo cáo, chạy hằng ngày.",
-                    "Kiểm tra chất lượng dữ liệu theo bộ 25 quy tắc, phát hiện trung bình 300 dòng lỗi mỗi tháng.",
-                    "Phối hợp với nhóm kế toán xử lý chênh lệch số liệu cuối kỳ, rút thời gian đối soát từ 3 ngày xuống 1 ngày.",
-                    "Viết tài liệu luồng dữ liệu cho 6 hệ thống nguồn.",
+                    "Wrote SQL queries and Python scripts to reconcile data between the core system and the reporting system, running daily.",
+                    "Ran data quality checks against a set of 25 rules, finding an average of 300 bad rows per month.",
+                    "Worked with finance to resolve period-end discrepancies, reducing reconciliation time from 3 days to 1.",
+                    "Documented the data flows for 6 source systems.",
                 ),
             ),
             Experience(
-                role="Chuyên viên dữ liệu",
-                company="Công ty TNHH Dịch vụ Số Hoàng Long",
+                role="Data Specialist",
+                company="Hoang Long Digital Services Ltd",
                 period="08/2019 – 01/2021",
-                location="Hà Nội",
-                bullets=("Tổng hợp và làm sạch dữ liệu khách hàng bằng SQL và Excel.",),
+                location="Bristol, UK",
+                bullets=("Compiled and cleaned customer data in SQL and Excel.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Hệ thống Thông tin Quản lý",
-                school="Đại học Kinh tế Quốc dân",
+                degree="BSc Management Information Systems",
+                school="University of Bath",
                 period="2015 – 2019",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1)"),
-        applies_to="Tích hợp dữ liệu",
-        legacy_filename="CV_08_Minh.docx",
+        languages=("English (native)",),
+        applies_to="Data Integration",
+        legacy_filename="CV_08_ngo_quang_minh.pdf",
     ),
     Candidate(
         number=9,
-        full_name="Trịnh Thị Nga",
+        full_name="Ingrid Solberg",
         headline="Pipeline Engineer",
-        email="trinh.thi.nga@example.test",
-        phone="0975 462 130",
+        email="ingrid.solberg@example.test",
+        phone="+44 7700 900990",
         summary=(
-            "Kỹ sư pipeline 4 năm kinh nghiệm vận hành luồng dữ liệu bằng Airflow "
-            "và Python. Làm nhiều với theo dõi tác vụ thất bại, viết quy trình phục "
-            "hồi và cảnh báo sớm."
+            "Pipeline engineer with 4 years of experience operating data flows in Airflow "
+            "and Python. Spends a lot of time on failed task monitoring, writing recovery "
+            "procedures and early alerting."
         ),
         skills=(
             "Python", "SQL", "Airflow", "PostgreSQL", "Docker", "pytest",
-            "theo dõi tác vụ", "viết tài liệu phục hồi",
+            "task monitoring", "recovery documentation",
         ),
         experience=(
             Experience(
                 role="Pipeline Engineer",
-                company="Công ty CP Dữ liệu Lớn Miền Nam",
+                company="Southern Data Systems",
                 period="06/2022 – 10/2025",
-                location="TP. Hồ Chí Minh",
+                location="London, UK",
                 bullets=(
-                    "Điều chỉnh 60 pipeline Airflow chạy theo lô, giảm số lần chạy lại thủ công 45%.",
-                    "Theo dõi tác vụ thất bại và viết tài liệu phục hồi cho 12 pipeline quan trọng nhất.",
-                    "Thêm kiểm thử pytest cho từng DAG trước khi triển khai, chặn 18 lỗi cấu hình.",
-                    "Đóng gói môi trường chạy bằng Docker để đồng nhất giữa kiểm thử và vận hành.",
+                    "Adjusted 60 Airflow pipelines running in batches, reducing manual re-runs by 45%.",
+                    "Monitored failed tasks and wrote recovery documentation for the 12 most important pipelines.",
+                    "Added pytest checks for each DAG before deployment, catching 18 configuration faults.",
+                    "Containerised the runtime with Docker to keep test and production environments consistent.",
                 ),
             ),
             Experience(
                 role="Data Operations Engineer",
-                company="Công ty TNHH Công nghệ Số Tân Bình",
+                company="Tan Binh Digital Technology Ltd",
                 period="09/2021 – 05/2022",
-                location="TP. Hồ Chí Minh",
-                bullets=("Giám sát luồng dữ liệu hằng ngày và xử lý sự cố tác vụ chậm.",),
+                location="London, UK",
+                bullets=("Monitored daily data flows and handled slow-task incidents.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Công nghệ Thông tin",
-                school="Đại học Công nghệ Thông tin – ĐHQG TP. Hồ Chí Minh",
+                degree="BSc Computer Science",
+                school="University of Glasgow",
                 period="2017 – 2021",
             ),
         ),
         certifications=("Astronomer Certification for Apache Airflow Fundamentals (2023)",),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1)"),
-        applies_to="Tích hợp dữ liệu",
-        legacy_filename="CV_09_Nga.docx",
+        languages=("English (fluent)", "Norwegian (native)"),
+        applies_to="Data Integration",
+        legacy_filename="CV-09-ingrid_solberg-final.docx",
     ),
     Candidate(
         number=10,
-        full_name="Bùi Hồng Phúc",
+        full_name="Rafael Duarte",
         headline="API Integration Engineer",
-        email="bui.hong.phuc@example.test",
-        phone="0938 217 645",
+        email="rafael.duarte@example.test",
+        phone="+44 7700 901001",
         summary=(
-            "Kỹ sư tích hợp 4 năm kinh nghiệm nối hệ thống qua REST API bằng "
-            "Python. Quen thiết kế endpoint, xử lý thử lại và giới hạn tải khi "
-            "làm việc với đối tác bên ngoài."
+            "Integration engineer with 4 years of experience connecting systems over REST "
+            "APIs in Python. Used to designing endpoints, handling retries and rate limiting "
+            "with external partners."
         ),
         skills=(
             "Python", "FastAPI", "SQL", "REST", "Git", "unittest",
-            "tích hợp hệ thống", "thiết kế endpoint",
+            "systems integration", "endpoint design",
         ),
         experience=(
             Experience(
                 role="API Integration Engineer",
-                company="Công ty CP Công nghệ Bán lẻ Thiên Phú",
+                company="Thien Phu Retail Technology",
                 period="04/2022 – 10/2025",
-                location="Hà Nội",
+                location="Leeds, UK",
                 bullets=(
-                    "Tích hợp API giữa ứng dụng bán hàng và hệ thống danh mục, đồng bộ 90.000 bản ghi mỗi ngày.",
-                    "Thêm giới hạn thử lại và backoff khi gọi dịch vụ đối tác, giảm 80% số lần đồng bộ thất bại.",
-                    "Thiết kế 15 endpoint nội bộ bằng FastAPI kèm tài liệu OpenAPI.",
-                    "Viết kiểm thử unittest cho tầng chuyển đổi dữ liệu giữa hai hệ thống.",
+                    "Integrated the sales application with the catalogue system, syncing 90,000 records per day.",
+                    "Added retry limits and backoff for partner calls, cutting failed syncs by 80%.",
+                    "Designed 15 internal FastAPI endpoints with OpenAPI documentation.",
+                    "Wrote unittest coverage for the data mapping layer between the two systems.",
                 ),
             ),
             Experience(
                 role="Backend Developer",
-                company="Công ty TNHH Phần mềm Cầu Vồng",
+                company="Cau Vong Software Ltd",
                 period="07/2021 – 03/2022",
-                location="Hà Nội",
-                bullets=("Phát triển module nhập dữ liệu từ file CSV cho hệ thống quản lý.",),
+                location="Leeds, UK",
+                bullets=("Built the CSV import module for the management system.",),
             ),
         ),
         education=(
             Education(
-                degree="Kỹ sư Công nghệ Thông tin",
-                school="Học viện Công nghệ Bưu chính Viễn thông",
+                degree="BEng Software Engineering",
+                school="Queen Mary University of London",
                 period="2017 – 2021",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1)"),
-        applies_to="Tích hợp dữ liệu",
-        legacy_filename="CV_10_Phuc.docx",
+        languages=("English (fluent)", "Portuguese (native)"),
+        applies_to="Data Integration",
+        legacy_filename="CV_10_bui_hong_phuc_v2.docx",
     ),
     Candidate(
         number=11,
-        full_name="Đặng Kim Quyên",
+        full_name="Claire Bennett",
         headline="Data Analyst",
-        email="dang.kim.quyen@example.test",
-        phone="0903 574 862",
+        email="claire.bennett@example.test",
+        phone="+44 7700 901112",
         summary=(
-            "Chuyên viên phân tích dữ liệu 6 năm kinh nghiệm với SQL và Power BI, "
-            "làm báo cáo vận hành cho khối bán lẻ. Mạnh ở việc hiểu nghiệp vụ và "
-            "trình bày số liệu, chưa có kinh nghiệm phát triển API."
+            "Data analyst with 6 years of experience in SQL and Power BI, producing "
+            "operational reports for retail. Strong on understanding the business and "
+            "presenting numbers; no API development experience."
         ),
         skills=(
-            "SQL", "Excel", "Power BI", "dữ liệu bảng", "tài liệu nghiệp vụ",
-            "phân tích báo cáo", "trực quan hoá dữ liệu",
+            "SQL", "Excel", "Power BI", "tabular data", "business documentation",
+            "report analysis", "data visualisation",
         ),
         experience=(
             Experience(
-                role="Chuyên viên phân tích dữ liệu",
-                company="Công ty CP Bán lẻ Miền Trung",
+                role="Data Analyst",
+                company="Central Retail Group",
                 period="01/2019 – 10/2025",
-                location="Đà Nẵng",
+                location="Nottingham, UK",
                 bullets=(
-                    "Tổng hợp báo cáo doanh thu và tồn kho cho 32 cửa hàng bằng SQL và Power BI.",
-                    "Chuẩn hoá danh mục ngành hàng, giảm số nhóm trùng từ 210 xuống 145.",
-                    "Phối hợp với khối vận hành làm rõ yêu cầu số liệu cho 8 báo cáo định kỳ.",
-                    "Viết tài liệu nghiệp vụ cho hệ thống báo cáo nội bộ.",
+                    "Produced revenue and stock reports for 32 stores using SQL and Power BI.",
+                    "Standardised the product category list, reducing duplicate groups from 210 to 145.",
+                    "Worked with operations to clarify reporting requirements for 8 recurring reports.",
+                    "Wrote business documentation for the internal reporting system.",
                 ),
             ),
             Experience(
-                role="Nhân viên phân tích",
-                company="Công ty TNHH Thương mại Hòa Bình",
+                role="Analyst",
+                company="Hoa Binh Trading Ltd",
                 period="06/2017 – 12/2018",
-                location="Đà Nẵng",
-                bullets=("Làm báo cáo bán hàng tháng bằng Excel và SQL cơ bản.",),
+                location="Nottingham, UK",
+                bullets=("Produced monthly sales reports in Excel and basic SQL.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Thống kê Kinh tế",
-                school="Đại học Kinh tế – Đại học Đà Nẵng",
+                degree="BSc Economics and Statistics",
+                school="University of Nottingham",
                 period="2013 – 2017",
             ),
         ),
         certifications=("Microsoft Power BI Data Analyst Associate (2022)",),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (A2)"),
-        applies_to="Tích hợp dữ liệu",
-        legacy_filename="CV_11_Quyen.docx",
+        languages=("English (native)",),
+        applies_to="Data Integration",
+        legacy_filename="dang_kim_quyen_CV_2024.pdf",
     ),
     Candidate(
         number=12,
-        full_name="Lý Thanh Sơn",
+        full_name="Victor Nunes",
         headline="Data Synchronisation Specialist",
-        email="ly.thanh.son@example.test",
-        phone="0968 130 924",
+        email="victor.nunes@example.test",
+        phone="+44 7700 901223",
         summary=(
-            "Chuyên viên đồng bộ dữ liệu 5 năm kinh nghiệm, viết script Python và "
-            "SQL để giữ dữ liệu giữa các hệ thống khớp nhau. Quen xử lý tình huống "
-            "API timeout và dữ liệu về muộn."
+            "Data synchronisation specialist with 5 years of experience writing Python and "
+            "SQL scripts to keep systems consistent. Used to handling API timeouts and late "
+            "arriving data."
         ),
         skills=(
-            "Python", "SQL", "MySQL", "REST", "Git", "script đồng bộ",
-            "xử lý lỗi tích hợp",
+            "Python", "SQL", "MySQL", "REST", "Git", "sync scripting",
+            "integration error handling",
         ),
         experience=(
             Experience(
-                role="Chuyên viên đồng bộ dữ liệu",
-                company="Công ty CP Logistics Hải Đăng",
+                role="Data Synchronisation Specialist",
+                company="Hai Dang Logistics",
                 period="03/2020 – 10/2025",
-                location="Hải Phòng",
+                location="Liverpool, UK",
                 bullets=(
-                    "Viết script Python đồng bộ dữ liệu vận đơn giữa hệ thống điều phối và kho, 40.000 bản ghi mỗi ngày.",
-                    "Kiểm thử tình huống API timeout và bổ sung cơ chế chạy bù, giảm 65% số đơn thiếu trạng thái.",
-                    "Viết truy vấn MySQL kiểm tra chênh lệch dữ liệu giữa hai hệ thống.",
-                    "Bàn giao quy trình xử lý sự cố cho nhóm vận hành ca đêm.",
+                    "Wrote Python scripts to sync shipment data between dispatch and warehouse, 40,000 records per day.",
+                    "Tested API timeout scenarios and added a catch-up mechanism, reducing orders missing a status by 65%.",
+                    "Wrote MySQL queries to detect discrepancies between the two systems.",
+                    "Handed over incident procedures to the night-shift operations team.",
                 ),
             ),
             Experience(
-                role="Nhân viên kỹ thuật",
-                company="Công ty TNHH Cảng Đình Vũ",
+                role="Technical Support Officer",
+                company="Dinh Vu Port Ltd",
                 period="07/2018 – 02/2020",
-                location="Hải Phòng",
-                bullets=("Hỗ trợ nhập liệu và kiểm tra dữ liệu chuyến hàng.",),
+                location="Liverpool, UK",
+                bullets=("Supported data entry and checked shipment records.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Công nghệ Thông tin",
-                school="Đại học Hàng hải Việt Nam",
+                degree="BSc Information Technology",
+                school="Liverpool John Moores University",
                 period="2014 – 2018",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (A2)"),
-        applies_to="Tích hợp dữ liệu",
-        legacy_filename="CV_12_Son.docx",
+        languages=("English (fluent)", "Portuguese (native)"),
+        applies_to="Data Integration",
+        legacy_filename="CV 12 victor_nunes (1).docx",
     ),
     Candidate(
         number=13,
-        full_name="Nguyễn Phương Thảo",
+        full_name="Emily Zhang",
         headline="Frontend Developer · React",
-        email="nguyen.phuong.thao@example.test",
-        phone="0914 628 305",
+        email="emily.zhang@example.test",
+        phone="+44 7700 901334",
         summary=(
-            "Frontend developer 4 năm kinh nghiệm với React và TypeScript, làm sản "
-            "phẩm nội bộ cho khối vận hành. Quen viết kiểm thử thành phần và phối "
-            "hợp chặt với nhóm QA."
+            "Frontend developer with 4 years of experience in React and TypeScript, building "
+            "internal products for operations teams. Used to writing component tests and "
+            "working closely with QA."
         ),
         skills=(
             "TypeScript", "React", "HTML", "CSS", "REST", "React Testing Library",
-            "quản lý trạng thái tải", "xử lý lỗi API",
+            "loading state handling", "API error handling",
         ),
         experience=(
             Experience(
                 role="Frontend Developer",
-                company="Công ty CP Công nghệ Vận hành Tín Thành",
+                company="Tin Thanh Operations Technology",
                 period="05/2022 – 10/2025",
-                location="Hà Nội",
+                location="London, UK",
                 bullets=(
-                    "Xây dựng 24 biểu mẫu React cho hệ thống quản lý đơn nội bộ, dùng chung bộ thành phần.",
-                    "Quản lý trạng thái tải và hiển thị lỗi API, giảm 50% phản hồi người dùng về màn hình trắng.",
-                    "Viết kiểm thử thành phần bằng React Testing Library cho các luồng nhập liệu quan trọng.",
-                    "Làm việc với nhóm QA để chốt tiêu chí kiểm thử giao diện trước mỗi bản phát hành.",
+                    "Built 24 React forms for the internal order management system, sharing one component library.",
+                    "Handled loading states and API errors, halving user reports of blank screens.",
+                    "Wrote component tests with React Testing Library for the key data entry flows.",
+                    "Agreed UI acceptance criteria with QA before each release.",
                 ),
             ),
             Experience(
                 role="Frontend Developer",
-                company="Công ty TNHH Phần mềm Sao Mai",
+                company="Sao Mai Software Ltd",
                 period="08/2021 – 04/2022",
-                location="Hà Nội",
-                bullets=("Phát triển giao diện trang quản trị bằng React và Ant Design.",),
+                location="London, UK",
+                bullets=("Built admin pages in React and Ant Design.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Công nghệ Thông tin",
-                school="Đại học Quốc gia Hà Nội",
+                degree="BSc Computer Science",
+                school="University College London",
                 period="2017 – 2021",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1)"),
+        languages=("English (fluent)", "Mandarin (native)"),
         applies_to="Frontend React",
-        legacy_filename="CV_13_Thao.docx",
+        legacy_filename="CV_13_nguyen_phuong_thao.docx",
     ),
     Candidate(
         number=14,
-        full_name="Trần Anh Tuấn",
+        full_name="Jack Morrow",
         headline="Frontend Engineer · React & Next.js",
-        email="tran.anh.tuan@example.test",
-        phone="0987 340 216",
+        email="jack.morrow@example.test",
+        phone="+44 7700 901445",
         summary=(
-            "Frontend engineer 5 năm kinh nghiệm với React, Next.js và "
-            "TypeScript. Có kinh nghiệm viết kiểm thử hành trình người dùng bằng "
-            "Playwright và tối ưu hiệu năng tải trang."
+            "Frontend engineer with 5 years of experience in React, Next.js and TypeScript. "
+            "Experienced in writing end-to-end user journey tests with Playwright and "
+            "optimising page load performance."
         ),
         skills=(
             "React", "TypeScript", "Next.js", "CSS", "Playwright", "Git",
-            "tối ưu hiệu năng", "kiểm thử hành trình",
+            "performance optimisation", "user journey testing",
         ),
         experience=(
             Experience(
                 role="Frontend Engineer",
-                company="Công ty CP Thương mại Số Nam Long",
+                company="Nam Long Digital Commerce",
                 period="02/2021 – 10/2025",
-                location="TP. Hồ Chí Minh",
+                location="London, UK",
                 bullets=(
-                    "Phát triển 40 thành phần tái sử dụng cho ứng dụng Next.js phục vụ 120.000 người dùng tháng.",
-                    "Tích hợp REST API và xử lý phân trang, tìm kiếm phía máy chủ.",
-                    "Viết kiểm thử hành trình người dùng bằng Playwright cho 18 luồng chính.",
-                    "Tối ưu tải trang đầu, giảm điểm Largest Contentful Paint từ 4,2s xuống 2,1s.",
+                    "Developed 40 reusable components for a Next.js application serving 120,000 monthly users.",
+                    "Integrated REST APIs and implemented pagination and server-side search.",
+                    "Wrote user journey tests in Playwright for 18 critical flows.",
+                    "Optimised initial page load, reducing Largest Contentful Paint from 4.2 s to 2.1 s.",
                 ),
             ),
             Experience(
                 role="Frontend Developer",
-                company="Công ty TNHH Công nghệ Trẻ Sài Gòn",
+                company="Saigon Young Technology Ltd",
                 period="07/2019 – 01/2021",
-                location="TP. Hồ Chí Minh",
-                bullets=("Xây dựng giao diện landing page và trang sản phẩm bằng React.",),
+                location="London, UK",
+                bullets=("Built landing pages and product pages in React.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Kỹ thuật Phần mềm",
-                school="Đại học Công nghệ Thông tin – ĐHQG TP. Hồ Chí Minh",
+                degree="BSc Software Engineering",
+                school="University of Bristol",
                 period="2015 – 2019",
             ),
         ),
         certifications=("Meta Front-End Developer Professional Certificate (2022)",),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B2)"),
+        languages=("English (native)",),
         projects=(
             (
-                "Bảng điều khiển vận hành",
-                "Thiết kế lại bảng điều khiển cho nhóm vận hành, dùng Next.js và biểu đồ thời gian thực.",
+                "Operations dashboard",
+                "Redesigned the operations dashboard in Next.js with real-time charts.",
             ),
         ),
         applies_to="Frontend React",
-        legacy_filename="CV_14_Tuan.docx",
+        legacy_filename="CV_14_tran_anh_tuan.pdf",
     ),
     Candidate(
         number=15,
-        full_name="Đinh Thị Vân",
+        full_name="Nadia Karim",
         headline="Frontend Developer · Accessible UI",
-        email="dinh.thi.van@example.test",
-        phone="0902 715 438",
+        email="nadia.karim@example.test",
+        phone="+44 7700 901556",
         summary=(
-            "Frontend developer 4 năm kinh nghiệm chú trọng khả năng tiếp cận và "
-            "chất lượng giao diện. Làm việc sát với nhóm thiết kế, quen rà soát "
-            "nhãn form và điều hướng bàn phím."
+            "Frontend developer with 4 years of experience focused on accessibility and "
+            "interface quality. Works closely with design, checking form labels and keyboard "
+            "navigation as part of the definition of done."
         ),
         skills=(
             "JavaScript", "React", "HTML", "CSS", "accessibility", "Figma",
-            "kiểm thử giao diện", "rà soát thiết kế",
+            "interface testing", "design review",
         ),
         experience=(
             Experience(
                 role="Frontend Developer",
-                company="Công ty CP Công nghệ Giáo dục Tri Thức",
+                company="Tri Thuc Education Technology",
                 period="03/2022 – 10/2025",
-                location="Hà Nội",
+                location="London, UK",
                 bullets=(
-                    "Triển khai 30 màn hình theo thiết kế Figma cho nền tảng học trực tuyến.",
-                    "Rà soát nhãn form và khả năng sử dụng bằng bàn phím trên 18 màn hình, sửa 60 lỗi tiếp cận.",
-                    "Chuẩn hoá bộ thành phần giao diện dùng chung cho 4 nhóm sản phẩm.",
-                    "Phối hợp nhóm kiểm thử xây dựng checklist kiểm tra giao diện trước phát hành.",
+                    "Implemented 30 screens from Figma designs for an online learning platform.",
+                    "Audited form labels and keyboard navigation across 18 screens, fixing 60 accessibility defects.",
+                    "Standardised the shared UI component library across 4 product teams.",
+                    "Worked with QA to build an interface checklist for pre-release checks.",
                 ),
             ),
             Experience(
                 role="Web Developer",
-                company="Công ty TNHH Thiết kế Số Hà Nội",
+                company="Hanoi Digital Design Ltd",
                 period="08/2021 – 02/2022",
-                location="Hà Nội",
-                bullets=("Cắt giao diện từ thiết kế và xử lý tương tác cơ bản bằng JavaScript.",),
+                location="London, UK",
+                bullets=("Sliced designs into HTML/CSS and implemented basic JavaScript interactions.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Đa phương tiện",
-                school="Đại học Công nghệ – Đại học Quốc gia Hà Nội",
+                degree="BA Multimedia Design",
+                school="University of the Arts London",
                 period="2017 – 2021",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1)"),
+        languages=("English (fluent)", "Arabic (native)"),
         applies_to="Frontend React",
-        legacy_filename="CV_15_Van.docx",
+        legacy_filename="CV-15-nadia_karim-final.docx",
     ),
     Candidate(
         number=16,
-        full_name="Phan Hải Yến",
+        full_name="Liam Foster",
         headline="Frontend Developer · API Integration",
-        email="phan.hai.yen@example.test",
-        phone="0936 408 571",
+        email="liam.foster@example.test",
+        phone="+44 7700 901667",
         summary=(
-            "Frontend developer 3 năm kinh nghiệm với React và TypeScript, làm các "
-            "màn hình quản lý lịch và xử lý lỗi mạng. Có hiểu biết về API nhưng "
-            "kinh nghiệm backend còn hạn chế."
+            "Frontend developer with 3 years of experience in React and TypeScript, building "
+            "scheduling screens and handling network errors. Understands APIs, though backend "
+            "experience is limited."
         ),
         skills=(
             "TypeScript", "React", "REST", "Node.js", "Git", "Jest",
-            "xử lý lỗi mạng", "tích hợp API",
+            "network error handling", "API integration",
         ),
         experience=(
             Experience(
                 role="Frontend Developer",
-                company="Công ty CP Đặt lịch Trực tuyến Giờ Vàng",
+                company="Gio Vang Online Booking",
                 period="06/2022 – 10/2025",
-                location="Đà Nẵng",
+                location="Oxford, UK",
                 bullets=(
-                    "Xây dựng màn hình quản lý lịch hẹn cho 5.000 người dùng, dùng React và TypeScript.",
-                    "Xử lý lỗi mạng và trạng thái thử lại, giảm 40% số lượt đặt lịch bị bỏ dở.",
-                    "Thêm Jest cho phần logic giao diện, đạt độ phủ 55% các hàm xử lý.",
-                    "Tham gia thiết kế hợp đồng API với nhóm backend trước khi triển khai.",
+                    "Built the appointment scheduling screens for 5,000 users in React and TypeScript.",
+                    "Handled network errors and retry states, reducing abandoned bookings by 40%.",
+                    "Added Jest coverage for the UI logic, reaching 55% function coverage.",
+                    "Contributed to API contract design with the backend team before implementation.",
                 ),
             ),
             Experience(
                 role="Frontend Intern",
-                company="Công ty TNHH Công nghệ Miền Trung",
+                company="Central Technology Ltd",
                 period="01/2022 – 05/2022",
-                location="Đà Nẵng",
-                bullets=("Sửa lỗi giao diện và hỗ trợ kiểm thử trên nhiều kích thước màn hình.",),
+                location="Oxford, UK",
+                bullets=("Fixed layout defects and helped test across screen sizes.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Công nghệ Thông tin",
-                school="Đại học Bách khoa – Đại học Đà Nẵng",
+                degree="BSc Computer Science",
+                school="Oxford Brookes University",
                 period="2017 – 2021",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1)"),
+        languages=("English (native)",),
         applies_to="Frontend React",
-        legacy_filename="CV_16_Yen.docx",
+        legacy_filename="CV_16_phan_hai_yen_v2.docx",
     ),
     Candidate(
         number=17,
-        full_name="Đoàn Gia Bảo",
+        full_name="Grace Okonkwo",
         headline="Web Developer",
-        email="doan.gia.bao@example.test",
-        phone="0917 536 280",
+        email="grace.okonkwo@example.test",
+        phone="+44 7700 901778",
         summary=(
-            "Lập trình viên web 3 năm kinh nghiệm làm website giới thiệu và trang "
-            "quản trị đơn giản bằng HTML, CSS, JavaScript. Đang học React, chưa có "
-            "kinh nghiệm làm dự án React ở môi trường sản phẩm."
+            "Web developer with 3 years of experience building marketing sites and simple "
+            "admin pages in HTML, CSS and JavaScript. Currently learning React; no production "
+            "React project experience yet."
         ),
         skills=(
             "HTML", "CSS", "JavaScript", "Git", "Bootstrap", "jQuery",
-            "làm website giới thiệu", "sửa lỗi hiển thị",
+            "marketing site builds", "layout defect fixing",
         ),
         experience=(
             Experience(
                 role="Web Developer",
-                company="Công ty TNHH Truyền thông Sáng Tạo Việt",
+                company="Sang Tao Creative Communications",
                 period="09/2022 – 10/2025",
-                location="Hà Nội",
+                location="London, UK",
                 bullets=(
-                    "Thực hiện 35 website giới thiệu doanh nghiệp bằng HTML, CSS và Bootstrap.",
-                    "Sửa lỗi hiển thị trên trình duyệt cũ và thiết bị di động.",
-                    "Hỗ trợ kiểm thử thủ công trước khi bàn giao cho khách hàng.",
+                    "Delivered 35 corporate marketing sites using HTML, CSS and Bootstrap.",
+                    "Fixed display defects across older browsers and mobile devices.",
+                    "Supported manual testing before client handover.",
                 ),
             ),
             Experience(
-                role="Thực tập sinh",
-                company="Công ty TNHH Thiết kế Web Hà Thành",
+                role="Intern",
+                company="Ha Thanh Web Design Ltd",
                 period="03/2022 – 08/2022",
-                location="Hà Nội",
-                bullets=("Cắt giao diện từ file thiết kế và nhập nội dung.",),
+                location="London, UK",
+                bullets=("Sliced designs from files and entered content.",),
             ),
         ),
         education=(
             Education(
-                degree="Cao đẳng Công nghệ Thông tin",
-                school="Cao đẳng Công nghệ Hà Nội",
+                degree="Higher National Diploma in Computing",
+                school="City of London College",
                 period="2018 – 2021",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (A2)"),
+        languages=("English (native)", "Igbo (fluent)"),
         applies_to="Frontend React",
-        legacy_filename="CV_17_Bao.docx",
+        legacy_filename="grace_okonkwo_CV_2024.pdf",
     ),
     Candidate(
         number=18,
-        full_name="Mai Đức Cường",
+        full_name="Peter Novak",
         headline="Frontend Developer · React (Junior)",
-        email="mai.duc.cuong@example.test",
-        phone="0925 174 603",
+        email="peter.novak@example.test",
+        phone="+44 7700 901889",
         summary=(
-            "Frontend developer 2 năm kinh nghiệm với React và JavaScript, tham "
-            "gia phát triển màn hình quản lý cho hệ thống nội bộ. Quen kết nối API "
-            "và rà soát dữ liệu nhập."
+            "Frontend developer with 2 years of experience in React and JavaScript, building "
+            "management screens for internal systems. Used to connecting APIs and checking "
+            "input data."
         ),
-        skills=("React", "JavaScript", "CSS", "REST", "Git", "kết nối API", "rà soát dữ liệu nhập"),
+        skills=("React", "JavaScript", "CSS", "REST", "Git", "API integration", "input validation"),
         experience=(
             Experience(
                 role="Frontend Developer",
-                company="Công ty CP Phần mềm Quản lý Tài sản Tín Minh",
+                company="Tin Minh Asset Management Software",
                 period="11/2023 – 10/2025",
-                location="Hà Nội",
+                location="London, UK",
                 bullets=(
-                    "Tham gia phát triển 16 màn hình React cho hệ thống quản lý tài sản nội bộ.",
-                    "Kết nối API và xử lý lỗi xác thực, hiển thị thông báo rõ ràng cho người dùng.",
-                    "Rà soát dữ liệu nhập trên form và bổ sung kiểm tra định dạng.",
+                    "Contributed to 16 React screens for the internal asset management system.",
+                    "Connected APIs and handled authentication errors with clear user messages.",
+                    "Checked form input data and added format validation.",
                 ),
             ),
             Experience(
                 role="Frontend Intern",
-                company="Công ty TNHH Công nghệ Trí Tuệ Số",
+                company="Tri Tue Digital Technology Ltd",
                 period="04/2023 – 10/2023",
-                location="Hà Nội",
-                bullets=("Học và làm quen React, sửa các lỗi giao diện nhỏ.",),
+                location="London, UK",
+                bullets=("Learned React and fixed minor UI defects.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Công nghệ Thông tin",
-                school="Đại học Mở Hà Nội",
+                degree="BSc Information Systems",
+                school="Middlesex University",
                 period="2019 – 2023",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (A2)"),
+        languages=("English (fluent)", "Slovak (native)"),
         applies_to="Frontend React",
-        legacy_filename="CV_18_Cuong.docx",
+        legacy_filename="CV 18 peter_novak (1).docx",
     ),
     Candidate(
         number=19,
-        full_name="Nguyễn Tiến Duy",
+        full_name="Ayesha Siddiqui",
         headline="QA Automation Engineer",
-        email="nguyen.tien.duy@example.test",
-        phone="0913 820 476",
+        email="ayesha.siddiqui@example.test",
+        phone="+44 7700 901990",
         summary=(
-            "Kỹ sư kiểm thử tự động 5 năm kinh nghiệm, chủ yếu kiểm thử API và "
-            "dịch vụ backend bằng Python và pytest. Quen đọc log và phối hợp với "
-            "nhóm phát triển để tái hiện lỗi."
+            "QA automation engineer with 5 years of experience, mostly testing APIs and "
+            "backend services in Python and pytest. Used to reading logs and working with "
+            "developers to reproduce defects."
         ),
         skills=(
             "Python", "pytest", "REST", "SQL", "Playwright", "Git",
-            "thiết kế test case", "kiểm thử API",
+            "test case design", "API testing",
         ),
         experience=(
             Experience(
                 role="QA Automation Engineer",
-                company="Công ty CP Thương mại Điện tử Bình Minh",
+                company="Binh Minh E-commerce Group",
                 period="04/2021 – 10/2025",
-                location="TP. Hồ Chí Minh",
+                location="London, UK",
                 bullets=(
-                    "Thiết kế 260 test case và tự động kiểm thử API cho hệ thống đặt hàng.",
-                    "Viết bộ pytest kiểm tra mã phản hồi, lược đồ dữ liệu và thời gian xử lý.",
-                    "Đưa kiểm thử tự động vào CI, rút thời gian kiểm thử hồi quy từ 2 ngày xuống 3 giờ.",
-                    "Theo dõi lỗi trên môi trường thật và phối hợp nhóm phát triển tái hiện 45 sự cố.",
+                    "Designed 260 test cases and automated API testing for the ordering system.",
+                    "Wrote pytest suites covering response codes, response schema and processing time.",
+                    "Brought automated tests into CI, cutting regression testing from 2 days to 3 hours.",
+                    "Monitored production defects and worked with developers to reproduce 45 incidents.",
                 ),
             ),
             Experience(
                 role="QA Engineer",
-                company="Công ty TNHH Phần mềm Tín Dụng Việt",
+                company="Tin Dung Vietnam Software Ltd",
                 period="07/2019 – 03/2021",
-                location="TP. Hồ Chí Minh",
-                bullets=("Kiểm thử chức năng hệ thống tín dụng và ghi nhận lỗi.",),
+                location="London, UK",
+                bullets=("Tested credit system functions and logged defects.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Công nghệ Thông tin",
-                school="Đại học Sài Gòn",
+                degree="BSc Computer Science",
+                school="University of Westminster",
                 period="2015 – 2019",
             ),
         ),
         certifications=("ISTQB Certified Tester Advanced Level, Test Automation Engineer (2023)",),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1)"),
+        languages=("English (fluent)", "Urdu (native)"),
         applies_to="QA Automation",
-        legacy_filename="CV_19_Duy.docx",
+        legacy_filename="CV_19_nguyen_tien_duy.docx",
     ),
     Candidate(
         number=20,
-        full_name="Trương Thanh Giang",
+        full_name="Grace Whitmore",
         headline="QA Engineer · API & Data",
-        email="truong.thanh.giang@example.test",
-        phone="0978 402 193",
+        email="grace.whitmore@example.test",
+        phone="+44 7700 902001",
         summary=(
-            "Kỹ sư kiểm thử 4 năm kinh nghiệm kiểm thử API và đối soát dữ liệu. "
-            "Viết script Python để tự động hoá việc kiểm tra số liệu và mô tả lỗi "
-            "sao cho nhóm phát triển tái hiện được ngay."
+            "QA engineer with 4 years of experience testing APIs and reconciling data. Writes "
+            "Python scripts to automate data checks, and describes defects so developers can "
+            "reproduce them immediately."
         ),
         skills=(
             "Python", "pytest", "SQL", "Postman", "REST", "Git",
-            "đối soát dữ liệu", "mô tả lỗi",
+            "data reconciliation", "defect reporting",
         ),
         experience=(
             Experience(
                 role="QA Engineer",
-                company="Công ty CP Công nghệ Tài chính Sao Đỏ",
+                company="Sao Do Financial Technology",
                 period="03/2022 – 10/2025",
-                location="Hà Nội",
+                location="Cardiff, UK",
                 bullets=(
-                    "Kiểm thử API và đối soát dữ liệu giữa hệ thống giao dịch và sổ cái, chạy hằng ngày.",
-                    "Viết script pytest và SQL tự động kiểm tra số dư sau mỗi lô giao dịch.",
-                    "Mô tả 120 lỗi kèm bước tái hiện và log, giảm thời gian sửa trung bình từ 3 ngày xuống 1,5 ngày.",
-                    "Dùng Postman xây bộ sưu tập kiểm thử cho 40 endpoint.",
+                    "Tested APIs and reconciled data between the transaction system and the ledger, running daily.",
+                    "Wrote pytest and SQL scripts to automatically check balances after each transaction batch.",
+                    "Reported 120 defects with reproduction steps and logs, reducing mean time to fix from 3 days to 1.5.",
+                    "Built Postman collections covering 40 endpoints.",
                 ),
             ),
             Experience(
                 role="QA Engineer",
-                company="Công ty TNHH Công nghệ Thanh Toán Nhanh",
+                company="Nhanh Payment Technology Ltd",
                 period="08/2021 – 02/2022",
-                location="Hà Nội",
-                bullets=("Kiểm thử chức năng thanh toán và kiểm tra dữ liệu đầu vào.",),
+                location="Cardiff, UK",
+                bullets=("Tested payment functions and checked input data.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Hệ thống Thông tin Quản lý",
-                school="Đại học Thương mại",
+                degree="BSc Business Information Systems",
+                school="Cardiff University",
                 period="2016 – 2020",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1)"),
+        languages=("English (native)",),
         applies_to="QA Automation",
-        legacy_filename="CV_20_Giang.docx",
+        legacy_filename="CV_20_truong_thanh_giang.pdf",
     ),
     Candidate(
         number=21,
-        full_name="Phạm Minh Hải",
+        full_name="Omar Haddad",
         headline="QA Automation Engineer · UI",
-        email="pham.minh.hai@example.test",
-        phone="0941 638 207",
+        email="omar.haddad@example.test",
+        phone="+44 7700 902112",
         summary=(
-            "Kỹ sư kiểm thử tự động 4 năm kinh nghiệm, tập trung vào giao diện web "
-            "với Playwright và TypeScript. Quen kiểm thử hồi quy trên nhiều kích "
-            "thước màn hình và phối hợp với nhóm frontend."
+            "QA automation engineer with 4 years of experience focused on web interfaces with "
+            "Playwright and TypeScript. Used to regression testing across screen sizes and "
+            "working closely with frontend teams."
         ),
         skills=(
-            "TypeScript", "Playwright", "React", "HTML", "test case", "Git",
-            "kiểm thử hồi quy", "kiểm thử giao diện",
+            "TypeScript", "Playwright", "React", "HTML", "test case design", "Git",
+            "regression testing", "interface testing",
         ),
         experience=(
             Experience(
                 role="QA Automation Engineer",
-                company="Công ty CP Bán lẻ Số Hà Nội",
+                company="Hanoi Digital Retail",
                 period="05/2022 – 10/2025",
-                location="Hà Nội",
+                location="London, UK",
                 bullets=(
-                    "Xây dựng bộ kiểm thử hồi quy giao diện bằng Playwright cho 20 màn hình chính.",
-                    "Xác nhận hành trình người dùng trên 5 kích thước màn hình và 3 trình duyệt.",
-                    "Giảm số lỗi giao diện lọt ra môi trường thật từ 12 xuống 3 mỗi quý.",
-                    "Viết test case cho các luồng thanh toán và đổi trả.",
+                    "Built a UI regression suite in Playwright covering 20 key screens.",
+                    "Verified user journeys across 5 screen sizes and 3 browsers.",
+                    "Reduced UI defects reaching production from 12 to 3 per quarter.",
+                    "Wrote test cases for checkout and returns flows.",
                 ),
             ),
             Experience(
                 role="Manual QA",
-                company="Công ty TNHH Công nghệ Bán lẻ Tân Việt",
+                company="Tan Viet Retail Technology Ltd",
                 period="09/2021 – 04/2022",
-                location="Hà Nội",
-                bullets=("Kiểm thử thủ công chức năng giỏ hàng và viết báo cáo lỗi.",),
+                location="London, UK",
+                bullets=("Manually tested cart functions and wrote defect reports.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Công nghệ Thông tin",
-                school="Đại học Giao thông Vận tải",
+                degree="BSc Computer Science",
+                school="City, University of London",
                 period="2017 – 2021",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1)"),
+        languages=("English (fluent)", "Arabic (native)"),
         applies_to="QA Automation",
-        legacy_filename="CV_21_Hai.docx",
+        legacy_filename="CV-21-omar_haddad-final.docx",
     ),
     Candidate(
         number=22,
-        full_name="Bùi Anh Kiệt",
+        full_name="Sven Lindqvist",
         headline="QA Engineer · Automation & CI",
-        email="bui.anh.kiet@example.test",
-        phone="0909 527 348",
+        email="sven.lindqvist@example.test",
+        phone="+44 7700 902223",
         summary=(
-            "Kỹ sư kiểm thử 5 năm kinh nghiệm, mạnh ở đưa kiểm thử tự động vào "
-            "pipeline CI. Quen đóng gói bộ kiểm thử bằng Docker và phân tích kết "
-            "quả chạy trên Linux."
+            "QA engineer with 5 years of experience, strong on bringing automated tests into "
+            "the CI pipeline. Used to packaging test suites with Docker and analysing results "
+            "on Linux."
         ),
         skills=(
             "Python", "pytest", "Docker", "CI", "REST", "Linux",
-            "cấu hình pipeline", "phân tích kết quả kiểm thử",
+            "pipeline configuration", "test result analysis",
         ),
         experience=(
             Experience(
                 role="QA Engineer",
-                company="Công ty CP Công nghệ Chuỗi Cung ứng Đông Dương",
+                company="Dong Duong Supply Chain Technology",
                 period="02/2021 – 10/2025",
-                location="Hà Nội",
+                location="Cambridge, UK",
                 bullets=(
-                    "Tạo bộ kiểm thử hồi quy API bằng pytest cho 70 endpoint, chạy trên pipeline mỗi lần hợp nhất.",
-                    "Cấu hình chạy kiểm thử tự động trên CI, giảm thời gian phát hiện lỗi từ 1 tuần xuống dưới 1 ngày.",
-                    "Đóng gói bộ kiểm thử trong Docker để chạy giống nhau trên máy phát triển và máy chủ.",
-                    "Xuất báo cáo kết quả và phân tích các ca kiểm thử không ổn định.",
+                    "Built a pytest API regression suite covering 70 endpoints, running on the pipeline at every merge.",
+                    "Configured automated test runs in CI, reducing defect detection time from 1 week to under 1 day.",
+                    "Packaged the test suite in Docker so it runs identically on developer machines and servers.",
+                    "Produced result reports and analysed flaky test cases.",
                 ),
             ),
             Experience(
                 role="Test Engineer",
-                company="Công ty TNHH Phần mềm Vận tải Thăng Long",
+                company="Thang Long Transport Software Ltd",
                 period="07/2019 – 01/2021",
-                location="Hà Nội",
-                bullets=("Kiểm thử chức năng và viết script kiểm tra dữ liệu bằng Python.",),
+                location="Cambridge, UK",
+                bullets=("Tested functions and wrote Python data check scripts.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Công nghệ Thông tin",
-                school="Đại học Bách khoa Hà Nội",
+                degree="BSc Computer Science",
+                school="University of Cambridge",
                 period="2015 – 2019",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1)"),
+        languages=("English (fluent)", "Swedish (native)"),
         applies_to="QA Automation",
-        legacy_filename="CV_22_Kiet.docx",
+        legacy_filename="CV_22_bui_anh_kiet_v2.docx",
     ),
     Candidate(
         number=23,
-        full_name="Nguyễn Thị Lâm",
+        full_name="Laura Simmons",
         headline="QA Engineer · Manual Testing",
-        email="nguyen.thi.lam@example.test",
-        phone="0961 482 735",
+        email="laura.simmons@example.test",
+        phone="+44 7700 902334",
         summary=(
-            "Kỹ sư kiểm thử 4 năm kinh nghiệm kiểm thử chức năng web theo test case. "
-            "Làm tốt việc ghi lỗi và phối hợp với lập trình viên, đang học tự động "
-            "hoá kiểm thử."
+            "QA engineer with 4 years of experience testing web functions against written test "
+            "cases. Good at defect reporting and working with developers; currently learning "
+            "test automation."
         ),
         skills=(
-            "test case", "kiểm thử web", "theo dõi lỗi", "SQL cơ bản",
-            "kiểm thử chức năng", "viết báo cáo lỗi",
+            "test case design", "web testing", "defect tracking", "basic SQL",
+            "functional testing", "defect reporting",
         ),
         experience=(
             Experience(
                 role="QA Engineer",
-                company="Công ty CP Giải pháp Nghiệp vụ Hà Nội",
+                company="Hanoi Business Solutions",
                 period="06/2021 – 10/2025",
-                location="Hà Nội",
+                location="London, UK",
                 bullets=(
-                    "Kiểm thử chức năng website quản lý nhân sự cho 14 khách hàng doanh nghiệp.",
-                    "Ghi lỗi và làm việc với lập trình viên để tái hiện, xử lý 380 lỗi trong 4 năm.",
-                    "Viết test case cho các luồng tính lương, nghỉ phép và chấm công.",
-                    "Dùng SQL cơ bản để kiểm tra dữ liệu sau khi thao tác.",
+                    "Tested the HR management website for 14 business customers.",
+                    "Logged defects and worked with developers to reproduce them, closing 380 defects over 4 years.",
+                    "Wrote test cases for payroll, leave and timesheet flows.",
+                    "Used basic SQL to check data after each action.",
                 ),
             ),
             Experience(
-                role="Nhân viên kiểm thử",
-                company="Công ty TNHH Phần mềm Kế toán An Việt",
+                role="Test Analyst",
+                company="An Viet Accounting Software Ltd",
                 period="09/2020 – 05/2021",
-                location="Hà Nội",
-                bullets=("Kiểm thử thủ công phần mềm kế toán và nhập kết quả kiểm thử.",),
+                location="London, UK",
+                bullets=("Manually tested accounting software and recorded test results.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Công nghệ Thông tin",
-                school="Đại học Điện lực",
+                degree="BSc Information Technology",
+                school="University of Hertfordshire",
                 period="2016 – 2020",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (A2)"),
+        languages=("English (native)",),
         applies_to="QA Automation",
-        legacy_filename="CV_23_Lam.docx",
+        legacy_filename="nguyen_thi_lam_CV_2024.pdf",
     ),
     Candidate(
         number=24,
-        full_name="Đinh Quang Nam",
+        full_name="Kevin Duong",
         headline="QA Engineer (Junior)",
-        email="dinh.quang.nam@example.test",
-        phone="0932 715 860",
+        email="kevin.duong@example.test",
+        phone="+44 7700 902445",
         summary=(
-            "QA engineer 2 năm kinh nghiệm kiểm thử API bằng Postman và kiểm thử hồi "
-            "quy thủ công. Có nền SQL và JavaScript cơ bản, đang tìm cơ hội làm tự "
-            "động hoá."
+            "QA engineer with 2 years of experience testing APIs with Postman and running "
+            "manual regression checks. Has a basic SQL and JavaScript background and is "
+            "looking for an automation role."
         ),
         skills=(
-            "Postman", "REST", "SQL", "JavaScript cơ bản", "kiểm thử hồi quy",
-            "ghi kết quả kiểm thử", "kiểm thử API",
+            "Postman", "REST", "SQL", "basic JavaScript", "regression testing",
+            "test result recording", "API testing",
         ),
         experience=(
             Experience(
                 role="QA Engineer",
-                company="Công ty CP Dịch vụ Số Vân Long",
+                company="Van Long Digital Services",
                 period="12/2023 – 10/2025",
-                location="Hà Nội",
+                location="London, UK",
                 bullets=(
-                    "Thực hiện test API bằng Postman cho 30 endpoint và ghi kết quả kiểm thử hồi quy.",
-                    "Dùng SQL kiểm tra dữ liệu sau mỗi lần cập nhật trạng thái đơn.",
-                    "Viết báo cáo lỗi hằng tuần cho nhóm phát triển.",
+                    "Ran Postman API tests across 30 endpoints and recorded regression results.",
+                    "Used SQL to check data after each order status update.",
+                    "Produced weekly defect reports for the development team.",
                 ),
             ),
             Experience(
                 role="QA Intern",
-                company="Công ty TNHH Công nghệ Đông Nam Á",
+                company="Dong Nam A Technology Ltd",
                 period="05/2023 – 11/2023",
-                location="Hà Nội",
-                bullets=("Kiểm thử thủ công ứng dụng di động và nhập kết quả.",),
+                location="London, UK",
+                bullets=("Manually tested the mobile application and recorded results.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Hệ thống Thông tin",
-                school="Đại học Nội vụ Hà Nội",
+                degree="BSc Information Systems",
+                school="University of Greenwich",
                 period="2019 – 2023",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (A2)"),
+        languages=("English (native)", "Vietnamese (fluent)"),
         applies_to="QA Automation",
-        legacy_filename="CV_24_Nam.docx",
+        legacy_filename="CV 24 kevin_duong (1).docx",
     ),
     Candidate(
         number=25,
-        full_name="Nguyễn Thị Oanh",
+        full_name="Mei Ling Tan",
         headline="DevOps Engineer · Python",
-        email="nguyen.thi.oanh@example.test",
-        phone="0912 630 574",
+        email="mei.tan@example.test",
+        phone="+44 7700 902556",
         summary=(
-            "DevOps engineer 5 năm kinh nghiệm vận hành dịch vụ Python trên Linux. "
-            "Quen build pipeline CI/CD, đọc log và phối hợp sửa lỗi triển khai cùng "
-            "nhóm phát triển."
+            "DevOps engineer with 5 years of experience running Python services on Linux. "
+            "Used to building CI/CD pipelines, reading logs and working with developers on "
+            "deployment faults."
         ),
         skills=(
             "Linux", "Docker", "CI/CD", "Python", "Git", "PostgreSQL",
-            "phân tích log", "xử lý lỗi triển khai",
+            "log analysis", "deployment troubleshooting",
         ),
         experience=(
             Experience(
                 role="DevOps Engineer",
-                company="Công ty CP Công nghệ Hạ tầng VinaCloud",
+                company="VinaCloud Infrastructure",
                 period="03/2021 – 10/2025",
-                location="Hà Nội",
+                location="London, UK",
                 bullets=(
-                    "Duy trì pipeline build và triển khai cho 9 dịch vụ Python, chạy trung bình 40 lần mỗi tuần.",
-                    "Phân tích log và phối hợp nhóm phát triển xử lý 60 lỗi triển khai trong năm đầu.",
-                    "Chuẩn hoá Dockerfile cho các dịch vụ, giảm kích thước ảnh trung bình 35%.",
-                    "Viết runbook cho các sự cố thường gặp và hướng dẫn trực ca.",
+                    "Maintained build and deployment pipelines for 9 Python services, running about 40 times a week.",
+                    "Analysed logs and worked with developers to resolve 60 deployment faults in the first year.",
+                    "Standardised Dockerfiles across services, reducing average image size by 35%.",
+                    "Wrote runbooks for common incidents and trained the on-call rotation.",
                 ),
             ),
             Experience(
                 role="System Engineer",
-                company="Công ty TNHH Dịch vụ Máy chủ Sao Bắc",
+                company="Sao Bac Server Services Ltd",
                 period="08/2019 – 02/2021",
-                location="Hà Nội",
-                bullets=("Quản trị máy chủ Linux và hỗ trợ triển khai ứng dụng nội bộ.",),
+                location="London, UK",
+                bullets=("Administered Linux servers and supported internal application deployments.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Mạng máy tính và Truyền thông",
-                school="Đại học Bách khoa Hà Nội",
+                degree="BSc Computer Networks and Communications",
+                school="University of Surrey",
                 period="2015 – 2019",
             ),
         ),
         certifications=("Docker Certified Associate (2022)",),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1)"),
-        applies_to="DevOps và Cloud",
-        legacy_filename="CV_25_Oanh.docx",
+        languages=("English (fluent)", "Mandarin (native)"),
+        applies_to="DevOps & Cloud",
+        legacy_filename="CV_25_nguyen_thi_oanh.docx",
     ),
     Candidate(
         number=26,
-        full_name="Trần Xuân Phong",
+        full_name="Diego Alvarez",
         headline="Cloud Engineer · Infrastructure as Code",
-        email="tran.xuan.phong@example.test",
-        phone="0974 318 652",
+        email="diego.alvarez@example.test",
+        phone="+44 7700 902667",
         summary=(
-            "Cloud engineer 5 năm kinh nghiệm với AWS và Terraform. Xây dựng hạ "
-            "tầng cho dịch vụ container, giám sát tác vụ và tự động hoá triển "
-            "khai."
+            "Cloud engineer with 5 years of experience in AWS and Terraform. Builds "
+            "infrastructure for containerised services, monitors workloads and automates "
+            "deployments."
         ),
         skills=(
             "Linux", "Docker", "AWS", "Terraform", "CI/CD", "Python",
-            "giám sát hệ thống", "triển khai container",
+            "system monitoring", "container deployment",
         ),
         experience=(
             Experience(
                 role="Cloud Engineer",
-                company="Công ty CP Giải pháp Đám mây Tân Hưng",
+                company="Tan Hung Cloud Solutions",
                 period="02/2021 – 10/2025",
-                location="TP. Hồ Chí Minh",
+                location="London, UK",
                 bullets=(
-                    "Viết 40 module Terraform cho hạ tầng AWS của 6 sản phẩm, giảm thời gian dựng môi trường từ 2 ngày xuống 2 giờ.",
-                    "Hỗ trợ triển khai container cho 14 dịch vụ và cấu hình cân bằng tải.",
-                    "Giám sát tác vụ định kỳ, giảm 50% số sự cố phát hiện muộn.",
-                    "Viết script Python cho tác vụ vận hành và dọn dẹp tài nguyên.",
+                    "Wrote 40 Terraform modules for the AWS infrastructure of 6 products, cutting environment setup from 2 days to 2 hours.",
+                    "Supported container deployment for 14 services and configured load balancing.",
+                    "Monitored scheduled workloads, reducing late-detected incidents by 50%.",
+                    "Wrote Python scripts for operational tasks and resource cleanup.",
                 ),
             ),
             Experience(
                 role="Infrastructure Engineer",
-                company="Công ty TNHH Công nghệ Mây Việt",
+                company="May Viet Technology Ltd",
                 period="07/2019 – 01/2021",
-                location="TP. Hồ Chí Minh",
-                bullets=("Quản trị máy chủ và hỗ trợ triển khai ứng dụng lên AWS.",),
+                location="London, UK",
+                bullets=("Administered servers and supported AWS application deployments.",),
             ),
         ),
         education=(
             Education(
-                degree="Kỹ sư Công nghệ Thông tin",
-                school="Đại học Công nghệ Thông tin – ĐHQG TP. Hồ Chí Minh",
+                degree="BEng Computer Engineering",
+                school="Imperial College London",
                 period="2015 – 2019",
             ),
         ),
@@ -1322,198 +1331,197 @@ CANDIDATES: tuple[Candidate, ...] = (
             "AWS Certified Solutions Architect – Associate (2022)",
             "HashiCorp Certified: Terraform Associate (2023)",
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B2)"),
-        applies_to="DevOps và Cloud",
-        legacy_filename="CV_26_Phong.docx",
+        languages=("English (fluent)", "Spanish (native)"),
+        applies_to="DevOps & Cloud",
+        legacy_filename="CV_26_tran_xuan_phong.pdf",
     ),
     Candidate(
         number=27,
-        full_name="Lê Hải Quang",
+        full_name="Rory McAllister",
         headline="DevOps Engineer · CI & Testing",
-        email="le.hai.quang@example.test",
-        phone="0948 206 317",
+        email="rory.mcallister@example.test",
+        phone="+44 7700 902778",
         summary=(
-            "DevOps engineer 4 năm kinh nghiệm, tập trung vào pipeline build và "
-            "kiểm thử tự động. Viết script Python và cấu hình CI cho các nhóm sản "
-            "phẩm."
+            "DevOps engineer with 4 years of experience focused on build pipelines and "
+            "automated testing. Writes Python scripts and configures CI for product teams."
         ),
         skills=(
             "Linux", "Docker", "Git", "CI", "Python", "pytest",
-            "cấu hình pipeline", "theo dõi lỗi build",
+            "pipeline configuration", "build failure triage",
         ),
         experience=(
             Experience(
                 role="DevOps Engineer",
-                company="Công ty CP Phần mềm Doanh nghiệp Tín Phát",
+                company="Tin Phat Enterprise Software",
                 period="05/2022 – 10/2025",
-                location="Hà Nội",
+                location="Glasgow, UK",
                 bullets=(
-                    "Thiết lập pipeline build và test cho 5 sản phẩm, chạy 30 lần mỗi tuần.",
-                    "Viết script Python tự động hoá bước kiểm tra trước khi phát hành.",
-                    "Theo dõi lỗi build và phối hợp nhóm phát triển giảm 40% số lần build hỏng.",
-                    "Cải thiện thời gian phản hồi của pipeline từ 25 phút xuống 12 phút.",
+                    "Set up build and test pipelines for 5 products, running 30 times a week.",
+                    "Wrote Python scripts to automate the pre-release checks.",
+                    "Triaged build failures with developers, reducing broken builds by 40%.",
+                    "Improved pipeline feedback time from 25 minutes to 12 minutes.",
                 ),
             ),
             Experience(
                 role="System Administrator",
-                company="Công ty TNHH Hạ tầng Số Thăng Long",
+                company="Thang Long Digital Infrastructure Ltd",
                 period="09/2021 – 04/2022",
-                location="Hà Nội",
-                bullets=("Quản trị Linux và hỗ trợ triển khai ứng dụng nội bộ.",),
+                location="Glasgow, UK",
+                bullets=("Administered Linux and supported internal application deployments.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Công nghệ Thông tin",
-                school="Đại học Công nghiệp Hà Nội",
+                degree="BSc Computing",
+                school="University of Strathclyde",
                 period="2017 – 2021",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1)"),
-        applies_to="DevOps và Cloud",
-        legacy_filename="CV_27_Quang.docx",
+        languages=("English (native)",),
+        applies_to="DevOps & Cloud",
+        legacy_filename="CV-27-rory_mcallister-final.docx",
     ),
     Candidate(
         number=28,
-        full_name="Nguyễn Thu Trang",
+        full_name="Aisha Rahman",
         headline="Container Operations Engineer",
-        email="nguyen.thu.trang@example.test",
-        phone="0916 507 284",
+        email="aisha.rahman@example.test",
+        phone="+44 7700 902889",
         summary=(
-            "Kỹ sư vận hành container 4 năm kinh nghiệm với Kubernetes và Docker. "
-            "Quen theo dõi logs, viết quy trình xử lý lỗi và phối hợp trực ca. "
-            "Phần lớn tự động hoá hiện tại viết bằng Bash."
+            "Container operations engineer with 4 years of experience in Kubernetes and "
+            "Docker. Used to monitoring logs, writing incident procedures and joining the "
+            "on-call rotation. Most of the current automation is written in Bash."
         ),
         skills=(
             "Linux", "Kubernetes", "Docker", "Bash", "Git", "monitoring",
-            "theo dõi log", "viết quy trình xử lý lỗi",
+            "log monitoring", "incident procedures",
         ),
         experience=(
             Experience(
                 role="Container Operations Engineer",
-                company="Công ty CP Công nghệ Tài chính Số Việt",
+                company="Viet Digital Finance Technology",
                 period="04/2021 – 10/2025",
-                location="TP. Hồ Chí Minh",
+                location="London, UK",
                 bullets=(
-                    "Hỗ trợ vận hành 3 cụm Kubernetes chạy 80 dịch vụ nội bộ.",
-                    "Theo dõi logs và ghi lại quy trình xử lý 25 loại sự cố thường gặp.",
-                    "Viết script Bash kiểm tra tình trạng pod và dọn dẹp tài nguyên mồ côi.",
-                    "Cấu hình cảnh báo cho các chỉ số tài nguyên quan trọng.",
+                    "Supported the operation of 3 Kubernetes clusters running 80 internal services.",
+                    "Monitored logs and documented procedures for 25 recurring incidents.",
+                    "Wrote Bash scripts to check pod health and clean up orphaned resources.",
+                    "Configured alerting for key resource metrics.",
                 ),
             ),
             Experience(
                 role="Operations Engineer",
-                company="Công ty TNHH Dịch vụ Hạ tầng Nam Sài Gòn",
+                company="Nam Saigon Infrastructure Services Ltd",
                 period="08/2019 – 03/2021",
-                location="TP. Hồ Chí Minh",
-                bullets=("Giám sát hệ thống máy chủ và xử lý sự cố theo ca trực.",),
+                location="London, UK",
+                bullets=("Monitored server systems and handled incidents during on-call shifts.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Truyền thông và Mạng máy tính",
-                school="Đại học Công nghệ Thông tin – ĐHQG TP. Hồ Chí Minh",
+                degree="BSc Computer Networks",
+                school="Queen Mary University of London",
                 period="2015 – 2019",
             ),
         ),
         certifications=("Certified Kubernetes Administrator (2022)",),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (B1)"),
-        applies_to="DevOps và Cloud",
-        legacy_filename="CV_28_Trang.docx",
+        languages=("English (fluent)", "Bengali (native)"),
+        applies_to="DevOps & Cloud",
+        legacy_filename="CV_28_nguyen_thu_trang_v2.docx",
     ),
     Candidate(
         number=29,
-        full_name="Phan Quốc Uy",
+        full_name="Billy Chen",
         headline="IT Support Engineer",
-        email="phan.quoc.uy@example.test",
-        phone="0939 164 508",
+        email="billy.chen@example.test",
+        phone="+44 7700 902990",
         summary=(
-            "Kỹ sư hỗ trợ hệ thống 4 năm kinh nghiệm xử lý ticket người dùng và "
-            "kiểm tra kết nối mạng. Mạnh ở quy trình và tài liệu, chưa có kinh "
-            "nghiệm Docker hay CI."
+            "IT support engineer with 4 years of experience handling user tickets and checking "
+            "network connectivity. Strong on process and documentation; no Docker or CI "
+            "experience."
         ),
         skills=(
-            "Windows", "Linux cơ bản", "ticket", "mạng cơ bản", "tài liệu",
-            "hỗ trợ người dùng", "kiểm tra kết nối",
+            "Windows", "basic Linux", "ticketing", "basic networking", "documentation",
+            "user support", "connectivity checks",
         ),
         experience=(
             Experience(
                 role="IT Support Engineer",
-                company="Công ty CP Sản xuất Thực phẩm Hương Việt",
+                company="Huong Viet Food Manufacturing",
                 period="07/2021 – 10/2025",
-                location="Bắc Ninh",
+                location="Milton Keynes, UK",
                 bullets=(
-                    "Theo dõi và xử lý trung bình 180 ticket hỗ trợ mỗi tháng cho 400 người dùng.",
-                    "Kiểm tra kết nối mạng và phối hợp nhà cung cấp đường truyền khi có sự cố.",
-                    "Cập nhật hướng dẫn xử lý cho 30 tình huống thường gặp.",
-                    "Quản lý máy trạm Windows và cài đặt phần mềm theo yêu cầu.",
+                    "Tracked and resolved an average of 180 support tickets a month for 400 users.",
+                    "Checked network connectivity and liaised with the ISP during outages.",
+                    "Updated procedures for 30 recurring issues.",
+                    "Managed Windows workstations and installed software on request.",
                 ),
             ),
             Experience(
-                role="Nhân viên hỗ trợ kỹ thuật",
-                company="Công ty TNHH Dịch vụ Tin học Kinh Bắc",
+                role="Technical Support Officer",
+                company="Kinh Bac IT Services Ltd",
                 period="09/2020 – 06/2021",
-                location="Bắc Ninh",
-                bullets=("Hỗ trợ người dùng qua điện thoại và xử lý sự cố máy tính.",),
+                location="Milton Keynes, UK",
+                bullets=("Supported users by phone and resolved desktop faults.",),
             ),
         ),
         education=(
             Education(
-                degree="Cao đẳng Công nghệ Thông tin",
-                school="Cao đẳng Công nghiệp Bắc Ninh",
+                degree="Higher National Diploma in Computing",
+                school="Milton Keynes College",
                 period="2017 – 2020",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (A2)"),
-        applies_to="DevOps và Cloud",
-        legacy_filename="CV_29_Uy.docx",
+        languages=("English (fluent)", "Mandarin (fluent)"),
+        applies_to="DevOps & Cloud",
+        legacy_filename="phan_quoc_uy_CV_2024.pdf",
     ),
     Candidate(
         number=30,
-        full_name="Trần Thảo Vy",
+        full_name="Nora Lindberg",
         headline="DevOps Engineer (Junior)",
-        email="tran.thao.vy@example.test",
-        phone="0926 408 153",
+        email="nora.lindberg@example.test",
+        phone="+44 7700 903001",
         summary=(
-            "DevOps engineer 2 năm kinh nghiệm với Linux, Docker và CI cơ bản. Hỗ "
-            "trợ đóng gói ứng dụng và cập nhật pipeline theo hướng dẫn của nhóm. "
-            "Đang học Kubernetes."
+            "DevOps engineer with 2 years of experience in Linux, Docker and basic CI. "
+            "Supports application packaging and updates pipelines under team guidance. "
+            "Currently learning Kubernetes."
         ),
         skills=(
-            "Linux", "Bash", "Git", "Docker", "CI cơ bản",
-            "đóng gói ứng dụng", "đọc log",
+            "Linux", "Bash", "Git", "Docker", "basic CI",
+            "application packaging", "log reading",
         ),
         experience=(
             Experience(
                 role="DevOps Engineer",
-                company="Công ty CP Công nghệ Giáo dục Số An Khang",
+                company="An Khang Digital Education",
                 period="11/2023 – 10/2025",
-                location="Hà Nội",
+                location="London, UK",
                 bullets=(
-                    "Hỗ trợ đóng gói 12 ứng dụng bằng Docker theo mẫu có sẵn của nhóm.",
-                    "Đọc log triển khai và báo cáo lỗi cho kỹ sư chính.",
-                    "Cập nhật cấu hình pipeline theo hướng dẫn, chạy được 8 pipeline mới.",
-                    "Viết script Bash kiểm tra tiến trình và dung lượng đĩa.",
+                    "Helped package 12 applications with Docker using the team's existing templates.",
+                    "Read deployment logs and reported faults to the senior engineer.",
+                    "Updated pipeline configuration under guidance, bringing 8 new pipelines into use.",
+                    "Wrote Bash scripts to check running processes and disk usage.",
                 ),
             ),
             Experience(
                 role="IT Intern",
-                company="Công ty TNHH Công nghệ An Khang",
+                company="An Khang Technology Ltd",
                 period="05/2023 – 10/2023",
-                location="Hà Nội",
-                bullets=("Hỗ trợ vận hành máy chủ nội bộ và cài đặt môi trường.",),
+                location="London, UK",
+                bullets=("Supported internal server operations and environment setup.",),
             ),
         ),
         education=(
             Education(
-                degree="Cử nhân Công nghệ Thông tin",
-                school="Đại học Hà Nội",
+                degree="BSc Computer Science",
+                school="University of East London",
                 period="2019 – 2023",
             ),
         ),
-        languages=("Tiếng Việt (bản ngữ)", "Tiếng Anh (A2)"),
-        applies_to="DevOps và Cloud",
-        legacy_filename="CV_30_Vy.docx",
+        languages=("English (fluent)", "Swedish (native)"),
+        applies_to="DevOps & Cloud",
+        legacy_filename="CV 30 nora_lindberg (1).docx",
     ),
 )
 
@@ -1522,4 +1530,4 @@ def by_number(number: int) -> Candidate:
     for candidate in CANDIDATES:
         if candidate.number == number:
             return candidate
-    raise KeyError(f"Không có hồ sơ số {number}")
+    raise KeyError(f"No candidate number {number}")

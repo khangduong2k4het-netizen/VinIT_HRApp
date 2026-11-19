@@ -1,9 +1,13 @@
 BỘ DEMO HRA — 5 JD VÀ 30 CV IT GIẢ
 
 Bắt đầu: mở KICH_BAN_DEMO.md (demo ngắn) và BANG_PHAN_BO_30_CV.md (kế hoạch nhập đủ, opt-in và đối chiếu Talent Pool).
-01_JD: năm JD IT giả. 02_CV: 30 CV (20 DOCX, 10 PDF) của người hư cấu, viết như
-CV thật: họ tên đầy đủ, chức danh, kinh nghiệm theo công ty kèm số liệu, học vấn,
-chứng chỉ. Bộ này do backend/scripts/demo_pack/generate.py sinh ra — sửa dữ liệu
+NGÔN NGỮ: toàn bộ JD và CV là TIẾNG ANH. Nền tảng hướng tới người dùng quốc tế,
+tiếng Anh là ngôn ngữ chuẩn cho JD/CV; tiếng Việt vẫn được hỗ trợ nhưng là tuỳ
+chọn, không phải mặc định. Đừng tạo JD/CV tiếng Việt cho buổi demo chính.
+
+01_JD: năm JD IT tiếng Anh. 02_CV: 30 CV tiếng Anh (20 DOCX, 10 PDF) của người
+hư cấu, viết như CV thật: họ tên đầy đủ, chức danh, kinh nghiệm theo công ty kèm
+số liệu, học vấn, chứng chỉ. Bộ này do backend/scripts/demo_pack/generate.py sinh ra — sửa dữ liệu
 trong cv_data.py rồi chạy lại, đừng sửa tay từng tệp.
 
 Tên tệp cố ý không theo quy chuẩn (viết hoa, dấu cách, "-final", "_v2", " (1)")

@@ -19,6 +19,7 @@ khác đuôi). Không chạm vào `01_JD/` hay `03_GMAIL/`.
 """
 from __future__ import annotations
 
+import re
 import sys
 import unicodedata
 from pathlib import Path
@@ -41,9 +42,11 @@ def slug(name: str) -> str:
     thống không còn lấy tên tệp làm tên ứng viên.
     """
     # Tách dấu bằng NFD rồi bỏ dấu; đ -> d phải xử lý riêng vì đ không tách được.
+    # Tên tiếng Anh có dấu gạch nối và dấu nháy, phải bỏ đi để tên tệp sạch.
     decomposed = unicodedata.normalize("NFD", name.lower())
     without_marks = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
-    return without_marks.replace("đ", "d").replace(" ", "_")
+    cleaned = re.sub(r"[^a-z0-9 ]+", "", without_marks)
+    return cleaned.strip().replace(" ", "_")
 
 
 #: Tên tệp cố ý đa dạng: viết hoa, dấu cách, hậu tố phiên bản, có/không dấu.

@@ -1,23 +1,26 @@
-JD THỬ NGHIỆM — LẬP TRÌNH VIÊN FRONTEND REACT
+DEMO JD — FRONTEND REACT DEVELOPER
 
-Tài liệu tổng hợp cho buổi demo HRA. Đây không phải tin tuyển dụng thật.
+Synthetic document for the HRA demo. This is not a real job advertisement; do not use real personal information.
 
-Mục tiêu
-Phát triển giao diện web cho ứng dụng nghiệp vụ, phối hợp với thiết kế và backend để mang lại trải nghiệm nhất quán.
+Purpose
+Build web interfaces for business applications, working with design and backend teams to deliver a consistent, accessible experience.
 
-Công việc chính
-- Phát triển giao diện bằng React và TypeScript; kết nối API REST.
-- Xây dựng biểu mẫu có kiểm tra dữ liệu, trạng thái tải và xử lý lỗi.
-- Viết kiểm thử giao diện, tối ưu khả năng truy cập và responsive.
-- Phối hợp review mã, làm việc với thiết kế và backend.
+Key responsibilities
+- Develop UI features in React and TypeScript for internal operations tools.
+- Integrate REST APIs, handle loading and error states explicitly.
+- Write component tests and agree UI acceptance criteria with QA.
+- Review designs and flag accessibility issues before implementation.
 
-Yêu cầu bắt buộc
-- Có trải nghiệm JavaScript/TypeScript và React.
-- Hiểu HTML, CSS, HTTP và cách kết nối API.
-- Biết kiểm thử, quản lý phiên bản Git và phối hợp nhóm.
+Mandatory requirements
+- Production experience with React and JavaScript or TypeScript.
+- Solid HTML and CSS skills.
+- Experience integrating a REST API from the browser.
+- Able to work with a design system or component library.
 
-Ưu tiên
-- Next.js, kiểm thử React, accessibility, thiết kế component.
+Preferred requirements
+- Experience with Next.js.
+- Experience with automated UI testing.
+- Awareness of web accessibility practices.
 
-Điều kiện thử nghiệm
-Thông tin vị trí, tổ chức và hồ sơ trong bộ này là giả. HR chọn đơn vị và HM thử nghiệm, đặt trạng thái OPEN và hạn nộp trong tương lai. Mã vị trí do hệ thống tạo.
+Notes for the demo
+- Criteria are extracted from this document; HR reviews and approves the rubric before any CV can be submitted.
