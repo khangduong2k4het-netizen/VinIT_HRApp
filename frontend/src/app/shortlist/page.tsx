@@ -356,7 +356,8 @@ export default function ShortlistPage() {
         {selectedShare && (
           <>
             <DialogTitle>
-              <Typography variant="h6" color="#0A2B57">
+              {/* DialogTitle is already an <h2>; a nested heading element (<h6>) is invalid HTML. */}
+              <Typography component="span" variant="h6" color="#0A2B57" sx={{ display: 'block' }}>
                 Shortlist — {selectedShare.position?.title}
               </Typography>
               <Typography variant="caption" color="text.secondary">{t("                Chia sẻ bởi")} {selectedShare.created_by_profile?.display_name || 'HR'} ·{' '}
