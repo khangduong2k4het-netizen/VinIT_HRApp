@@ -125,7 +125,8 @@ class Settings(BaseSettings):
     MATCHING_PROMPT_VERSION: str = "matching-prompt-v2.0"
     # v1.5: years of experience come from work history only (education no longer counted).
     # v1.6: years/degree rules only MATCH when the criterion's field is evidenced.
-    DETERMINISTIC_RULES_VERSION: str = "deterministic-rules-v1.6"
+    # v1.7: B.Eng./B.Sc./Kỹ sư recognised as bachelor-level degrees.
+    DETERMINISTIC_RULES_VERSION: str = "deterministic-rules-v1.7"
     MANDATORY_CRITERIA_WEIGHT_DEFAULT: float = 0.7
     NICE_TO_HAVE_WEIGHT_DEFAULT: float = 0.3
     MIN_EVIDENCE_COVERAGE: float = 0.7

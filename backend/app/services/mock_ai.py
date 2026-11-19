@@ -43,8 +43,12 @@ def _specific(keywords: list[str]) -> list[str]:
 
 
 def _mentions(keyword: str, sentence: str) -> bool:
-    """Whole-word match, so "Java" does not hit "JavaScript"."""
-    return re.search(rf"(?<![A-Za-z0-9]){re.escape(keyword.strip())}(?![A-Za-z0-9])", sentence, re.IGNORECASE) is not None
+    """Whole-word match, so "Java" does not hit "JavaScript".
+
+    A "py" prefix is accepted because Python bindings name the same tool
+    ("PySpark" is Spark, "PyTorch" is Torch).
+    """
+    return re.search(rf"(?<![A-Za-z0-9])(?:py)?{re.escape(keyword.strip())}(?![A-Za-z0-9])", sentence, re.IGNORECASE) is not None
 
 
 def _sentences(text: str) -> list[str]:

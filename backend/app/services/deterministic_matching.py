@@ -162,8 +162,11 @@ UNCERTAIN_CUES = (
 
 DEGREE_PATTERNS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (5, ("phd", "ph d", "doctorate", "doctoral degree", "tien si")),
-    (4, ("master", "masters", "msc", "mba", "meng", "thac si")),
-    (3, ("bachelor", "bachelors", "bsc", "beng", "bs", "ba", "cu nhan")),
+    (4, ("master", "masters", "msc", "m sc", "mba", "meng", "m eng", "mtech", "m tech", "thac si")),
+    # "B.Eng." / "B.Sc." normalize to "b eng" / "b sc"; "ky su" is the
+    # Vietnamese engineering degree, a bachelor-level qualification.
+    (3, ("bachelor", "bachelors", "bsc", "b sc", "beng", "b eng", "btech", "b tech",
+         "bs", "ba", "cu nhan", "ky su")),
     (2, ("associate degree", "cao dang")),
     (1, ("high school", "thpt", "trung hoc pho thong")),
 )
@@ -195,6 +198,11 @@ FIELD_ABBREVIATIONS: dict[str, tuple[str, ...]] = {
     "cs": ("computer science", "khoa hoc may tinh", "khmt"),
     "cntt": ("information technology", "cong nghe thong tin"),
     "khmt": ("computer science", "khoa hoc may tinh"),
+    # English field names and their Vietnamese / abbreviated forms.
+    "information technology": ("it", "cong nghe thong tin", "cntt"),
+    "computer science": ("cs", "khoa hoc may tinh", "khmt"),
+    "software engineering": ("ky thuat phan mem", "cong nghe phan mem"),
+    "data science": ("khoa hoc du lieu",),
 }
 _FIELD_SPLIT = re.compile(r"[,;/()]|\b(?:or|and|hoac|va|in|of|trong|ve)\b", re.IGNORECASE)
 _FIELD_SUFFIXES = ("ing", "ers", "er", "ed", "s")
@@ -777,8 +785,11 @@ class DeterministicMatchingEngine:
             is_pronoun_it = phrase == ("it",) and not re.search(r"\bIT\b", text or "")
             if not is_pronoun_it and all(_field_stem(token) in stems for token in phrase):
                 return True
-            if len(phrase) == 1 and phrase[0] in FIELD_ABBREVIATIONS:
-                if any(_contains_phrase(normalized, form) for form in FIELD_ABBREVIATIONS[phrase[0]]):
+            for form in FIELD_ABBREVIATIONS.get(" ".join(phrase), ()):
+                if form == "it":
+                    if re.search(r"\bIT\b", text or ""):
+                        return True
+                elif _contains_phrase(normalized, form):
                     return True
         return False
 

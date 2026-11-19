@@ -75,3 +75,10 @@ def test_keywords_match_whole_words_only():
     assert _outcomes(["Java"], "Built single page apps in JavaScript and TypeScript.") == "UNCLEAR"
     assert _outcomes(["Java"], "Built backend services in Java and Spring Boot.") == "MATCH"
     assert _outcomes(["Kafka", "Spark"], "Streamed events with Kafka into Spark jobs.") == "STRONG_MATCH"
+
+
+def test_python_binding_name_counts_as_the_tool():
+    from app.services.mock_ai import _mentions
+    assert _mentions("Spark", "Built Airflow and PySpark pipelines.")
+    assert _mentions("Spark", "Apache Spark jobs")
+    assert not _mentions("Java", "JavaScript apps")
