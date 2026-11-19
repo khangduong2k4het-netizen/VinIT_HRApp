@@ -428,6 +428,18 @@ async def get_application(application_id: UUID, current_user: dict = Depends(get
                         FROM app_private.evidence_items WHERE criterion_result_id = :result_id ORDER BY created_at
                     """), {"result_id": str(item["result_id"])}).mappings().all()
                     criterion_result["evidence"] = [dict(e) for e in evidence]
+                    # The profile page shows "you confirmed this" from this list and
+                    # addresses a new decision by result_id, so the single-application
+                    # payload must carry both — otherwise the reviewer sees the
+                    # buttons, presses one, and the screen cannot say what happened.
+                    reviews = db.execute(text("""
+                        SELECT rv.review_id, rv.decision, rv.comment, rv.reviewed_by AS reviewer_user_id,
+                               p.display_name AS reviewer_name, rv.created_at
+                        FROM app_private.hr_criterion_reviews rv
+                        LEFT JOIN app_private.user_profiles p ON p.user_id = rv.reviewed_by
+                        WHERE rv.result_id = :result_id ORDER BY rv.created_at DESC
+                    """), {"result_id": str(item["result_id"])}).mappings().all()
+                    criterion_result["hr_reviews"] = [dict(r) for r in reviews]
                     latest["criterion_results"].append(criterion_result)
         app["latest_assessment"] = latest
         if not access["can_view_cv"]:
