@@ -1564,5 +1564,13 @@
   "Không có việc nào trong nhóm này.": "No tasks in this group.",
   "Bạn chỉ có quyền xác minh bằng chứng; hồ sơ giữ nguyên trạng thái sau khi hoàn tất.": "You can verify evidence but not change status; the application keeps its current status after finishing.",
   "Nội dung đọc từ tệp DOCX; bố cục gốc có thể khác. Tải CV gốc để xem đúng định dạng.": "Text read from the DOCX file; the original layout may differ. Download the original CV to see it as formatted.",
-  "Không đọc được nội dung tệp DOCX này trong trình duyệt. Hãy tải CV gốc để xem đầy đủ.": "This DOCX could not be read in the browser. Download the original CV to see it in full."
+  "Không đọc được nội dung tệp DOCX này trong trình duyệt. Hãy tải CV gốc để xem đầy đủ.": "This DOCX could not be read in the browser. Download the original CV to see it in full.",
+  "đã ghi nhận bước Mới → Đang xem, chưa tới Shortlist": "the New → In review step was recorded, Shortlist was not reached",
+  "Đã shortlist {0}/{1} hồ sơ; {2} hồ sơ Mới ghi nhận hai lần chuyển trạng thái. {3} hồ sơ lỗi: {4}": "Shortlisted {0}/{1} applications; {2} New applications recorded two status transitions. {3} failed: {4}",
+  "Đã shortlist {0} hồ sơ, trong đó {1} hồ sơ Mới ghi nhận hai lần chuyển trạng thái (Mới → Đang xem → Shortlist).": "Shortlisted {0} applications, of which {1} New applications recorded two status transitions (New → In review → Shortlist).",
+  "Shortlist các hồ sơ Đang xem và Mới trong lựa chọn; hồ sơ Mới đi qua hai bước Mới → Đang xem → Shortlist": "Shortlist the In review and New applications in the selection; New ones go through two steps, New → In review → Shortlist",
+  "Chỉ hồ sơ đang ở trạng thái Đang xem hoặc Mới mới shortlist được": "Only applications in In review or New can be shortlisted",
+  "{0} hồ sơ đang ở trạng thái Mới sẽ ghi nhận hai lần chuyển trạng thái: Mới → Đang xem → Shortlist. Mỗi bước là một lần gọi API trạng thái hiện có, nên lịch sử của hồ sơ sẽ có hai mục.": "{0} applications in New will record two status transitions: New → In review → Shortlist. Each step is one call to the existing status API, so the application history will hold two entries.",
+  "Bỏ qua {0} hồ sơ trong lựa chọn vì không shortlist được từ trạng thái hiện tại (hồ sơ đã Shortlist không cần làm lại; hồ sơ ngoài sàng lọc là lịch sử).": "Skipping {0} selected applications that cannot be shortlisted from their current status (already shortlisted ones need nothing; applications outside screening are history).",
+  "Mới · 2 bước chuyển trạng thái": "New · 2 status transitions"
 }

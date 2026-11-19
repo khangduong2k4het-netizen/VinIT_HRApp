@@ -85,7 +85,7 @@ import {
   type ApplicantSort,
 } from '@/lib/applicantReview';
 import type { RankingItem, UserSummary } from '@/types';
-import { APPLICATION_STATUSES, isApplicationStatus } from '@/lib/applicationStatus';
+import { APPLICATION_STATUSES, isApplicationStatus, type ApplicationStatus } from '@/lib/applicationStatus';
 
 const OUTCOME_META: Record<string, { label: string; color: string }> = {
   STRONG_MATCH: { label: 'Đáp ứng tốt', color: '#067647' },
@@ -499,7 +499,10 @@ export default function ApplicantsRankingPage() {
   const selectableItems = rankingItems.filter(item => inScreening(item.application_status));
   const selectedItems = selectableItems.filter(item => selectedIds.has(item.application_id));
   const selectedShortlistedIds = selectedItems.filter(item => item.is_shortlisted).map(item => item.application_id);
-  const bulkShortlistTargets = selectedItems.filter(item => item.application_status === 'IN_REVIEW');
+  // Hồ sơ Mới shortlist được, nhưng phải qua hai bước hợp lệ của ma trận hiện có:
+  // NEW → IN_REVIEW → SHORTLIST. Không có bước nhảy tắt và không có endpoint mới.
+  const bulkShortlistTargets = selectedItems.filter(item => item.application_status === 'IN_REVIEW' || item.application_status === 'NEW');
+  const bulkTwoStepCount = bulkShortlistTargets.filter(item => item.application_status === 'NEW').length;
   const bulkShortlistSkipped = selectedItems.length - bulkShortlistTargets.length;
   const bulkTargets = bulkMode === 'shortlist' ? bulkShortlistTargets : selectedItems;
 
@@ -521,16 +524,33 @@ export default function ApplicantsRankingPage() {
     if (!targets.length) return;
     if (bulkMode === 'reject' && !reason) return;
     const newStatus = bulkMode === 'shortlist' ? 'SHORTLIST' : 'REJECTED_SCREENING';
+    // Hồ sơ Mới cần hai lần chuyển trạng thái; số bước được chốt trước khi gọi để
+    // thông báo cuối cùng nói đúng những gì đã ghi vào lịch sử hồ sơ.
+    const twoStepCount = bulkMode === 'shortlist' ? targets.filter(item => item.application_status === 'NEW').length : 0;
     setBulkProcessing(true);
     setBulkError(null);
-    // Mỗi hồ sơ một lần gọi endpoint trạng thái hiện có. Không gộp thành giao dịch
-    // giả: lỗi một hồ sơ không được làm mất kết quả của những hồ sơ đã lưu.
+    // Mỗi bước một lần gọi endpoint trạng thái hiện có, theo đúng thứ tự của ma
+    // trận chuyển trạng thái. Không gộp thành giao dịch giả: lỗi một hồ sơ không
+    // được làm mất kết quả của những hồ sơ đã lưu.
     const failures: string[] = [];
     for (const item of targets) {
+      const steps: ApplicationStatus[] = bulkMode === 'shortlist'
+        ? (item.application_status === 'NEW' ? ['IN_REVIEW', 'SHORTLIST'] : ['SHORTLIST'])
+        : ['REJECTED_SCREENING'];
+      let applied = 0;
       try {
-        await applicationsApi.updateStatus(item.application_id, newStatus, reason || undefined);
+        for (const step of steps) {
+          await applicationsApi.updateStatus(item.application_id, step, reason || undefined);
+          applied += 1;
+        }
       } catch (err: any) {
-        failures.push(`${item.candidate_name || item.application_id}: ${localizeServerMessage(err.response?.data?.detail || t('Lỗi không xác định'))}`);
+        const detail = localizeServerMessage(err.response?.data?.detail || t('Lỗi không xác định'));
+        // Nói rõ hồ sơ đã dừng ở đâu: bước đầu có thể đã lưu, và HR không nên
+        // tưởng hồ sơ chưa bị đụng tới.
+        const stopped = applied > 0 && applied < steps.length
+          ? ` (${t('đã ghi nhận bước Mới → Đang xem, chưa tới Shortlist')})`
+          : '';
+        failures.push(`${item.candidate_name || item.application_id}: ${detail}${stopped}`);
       }
     }
     setBulkProcessing(false);
@@ -543,6 +563,14 @@ export default function ApplicantsRankingPage() {
     setSelectedIds(new Set());
     await loadRanking();
     const label = t(APPLICATION_STATUSES[newStatus].label);
+    if (bulkMode === 'shortlist' && twoStepCount > 0) {
+      // Shortlist hàng loạt có cả hồ sơ Mới: nêu số lần chuyển trạng thái đã ghi,
+      // để "một lần bấm" không bị hiểu là "một mục trong lịch sử".
+      setNotice(failures.length
+        ? t('Đã shortlist {0}/{1} hồ sơ; {2} hồ sơ Mới ghi nhận hai lần chuyển trạng thái. {3} hồ sơ lỗi: {4}', targets.length - failures.length, targets.length, twoStepCount, failures.length, failures.join('; '))
+        : t('Đã shortlist {0} hồ sơ, trong đó {1} hồ sơ Mới ghi nhận hai lần chuyển trạng thái (Mới → Đang xem → Shortlist).', targets.length, twoStepCount));
+      return;
+    }
     setNotice(failures.length
       ? t('Đã cập nhật {0}/{1} hồ sơ. {2} hồ sơ lỗi: {3}', targets.length - failures.length, targets.length, failures.length, failures.join('; '))
       : t('Đã cập nhật {0} hồ sơ sang {1}.', targets.length, label));
@@ -843,8 +871,8 @@ export default function ApplicantsRankingPage() {
           <Button size="small" onClick={() => setSelectedIds(new Set())}>{t("Bỏ chọn")}</Button>
           <Box sx={{ flex: 1 }} />
           <Tooltip title={bulkShortlistTargets.length > 0
-            ? t("Shortlist các hồ sơ đang ở trạng thái Đang xem trong lựa chọn")
-            : t("Chỉ hồ sơ đang ở trạng thái Đang xem mới shortlist trực tiếp được")}>
+            ? t("Shortlist các hồ sơ Đang xem và Mới trong lựa chọn; hồ sơ Mới đi qua hai bước Mới → Đang xem → Shortlist")
+            : t("Chỉ hồ sơ đang ở trạng thái Đang xem hoặc Mới mới shortlist được")}>
             <span>
               <Button
                 size="small"
@@ -1282,9 +1310,14 @@ export default function ApplicantsRankingPage() {
               <DialogContentText sx={{ mb: 1.5 }}>
                 {t("Các hồ sơ dưới đây chuyển sang trạng thái Shortlist. Trạng thái của từng hồ sơ được ghi nhận riêng như khi bấm trên từng dòng.")}
               </DialogContentText>
+              {bulkTwoStepCount > 0 && (
+                <Alert severity="info" sx={{ mb: 2 }} data-testid="bulk-two-step">
+                  {t("{0} hồ sơ đang ở trạng thái Mới sẽ ghi nhận hai lần chuyển trạng thái: Mới → Đang xem → Shortlist. Mỗi bước là một lần gọi API trạng thái hiện có, nên lịch sử của hồ sơ sẽ có hai mục.", bulkTwoStepCount)}
+                </Alert>
+              )}
               {bulkShortlistSkipped > 0 && (
                 <Alert severity="warning" sx={{ mb: 2 }} data-testid="bulk-skipped">
-                  {t("Bỏ qua {0} hồ sơ trong lựa chọn vì chưa ở trạng thái Đang xem (hồ sơ Mới cần chuyển sang Đang xem trước; hồ sơ đã Shortlist không cần làm lại).", bulkShortlistSkipped)}
+                  {t("Bỏ qua {0} hồ sơ trong lựa chọn vì không shortlist được từ trạng thái hiện tại (hồ sơ đã Shortlist không cần làm lại; hồ sơ ngoài sàng lọc là lịch sử).", bulkShortlistSkipped)}
                 </Alert>
               )}
             </>
@@ -1295,7 +1328,16 @@ export default function ApplicantsRankingPage() {
           )}
           <Box sx={{ mb: 1.5 }} component="ul">
             {(bulkTargets).map(item => (
-              <li key={item.application_id}><Typography variant="body2">{item.candidate_name || t("Chưa trích xuất tên")}</Typography></li>
+              <li key={item.application_id}>
+                <Typography variant="body2">
+                  {item.candidate_name || t("Chưa trích xuất tên")}
+                  {bulkMode === 'shortlist' && item.application_status === 'NEW' && (
+                    <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                      {t("Mới · 2 bước chuyển trạng thái")}
+                    </Typography>
+                  )}
+                </Typography>
+              </li>
             ))}
           </Box>
           <TextField

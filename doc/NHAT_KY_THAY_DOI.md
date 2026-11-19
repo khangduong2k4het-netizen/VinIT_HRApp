@@ -9,6 +9,49 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-19 — Shortlist hàng loạt được cả hồ sơ Mới (hai bước)
+
+**Vấn đề.** Thanh hành động hàng loạt chỉ shortlist hồ sơ Đang xem; hồ sơ Mới bị
+bỏ qua và hiện cảnh báo “cần chuyển sang Đang xem trước”. HR vừa lọc ra một lô
+ứng viên mới vừa xem xong vẫn phải mở từng hồ sơ bấm hai lần, hoặc bỏ lô đó.
+
+**Thay đổi** (chỉ frontend, không thêm endpoint, không đổi state machine):
+
+- `frontend/src/app/positions/[id]/applicants/page.tsx`: lô shortlist nay gồm cả
+  hồ sơ `NEW`. Mỗi hồ sơ Mới được đẩy qua đúng hai bước của ma trận hiện có:
+  `NEW → IN_REVIEW → SHORTLIST`, mỗi bước một lần gọi
+  `PATCH /applications/{id}/status`; hồ sơ Đang xem vẫn một bước.
+- Hộp thoại xác nhận nêu rõ: số hồ sơ Mới sẽ **ghi nhận hai lần chuyển trạng
+  thái** (`Mới → Đang xem → Shortlist`), mỗi bước là một lần gọi API trạng thái
+  hiện có nên lịch sử hồ sơ có hai mục. Từng dòng trong danh sách được đánh dấu
+  “Mới · 2 bước chuyển trạng thái”.
+- Cảnh báo “bỏ qua” chỉ còn dành cho hồ sơ không shortlist được từ trạng thái
+  hiện tại (đã Shortlist, hoặc ngoài vòng sàng lọc).
+- Lỗi giữa hai bước được báo đúng chỗ dừng: hồ sơ Mới đã lưu bước đầu nhưng
+  chưa tới Shortlist thì thông báo nói rõ, để HR không tưởng hồ sơ còn nguyên
+  trạng thái.
+- Thông báo thành công nêu số hồ sơ Mới đã ghi hai lần chuyển trạng thái.
+
+**Kiểm thử.**
+
+| Lệnh | Kết quả |
+| --- | --- |
+| `npm run type-check` / `npm run lint` / `npm run test:i18n` / `npm run test:unit` | pass |
+| `npm run build` | pass |
+| `npm run test:e2e:bulk-actions` (cập nhật) | pass |
+| `npm run test:e2e:ranking-context`, `ux03-dashboard`, `duplicate-warning`, `vocabulary-locale` | pass |
+
+E2E chọn 3 hồ sơ (Đang xem + đã Shortlist + Mới) và xác nhận: nút ghi
+“Shortlist 2 hồ sơ”; hộp thoại có thông báo hai bước và dòng “Mới · 2 bước”;
+chỉ bỏ qua 1 hồ sơ; các request đúng thứ tự
+`app-0 SHORTLIST`, `app-11 IN_REVIEW`, `app-11 SHORTLIST`; thông báo cuối nêu
+“hai lần chuyển trạng thái”.
+
+**Chưa kiểm.** Chưa chạy với backend thật (mock chấp nhận mọi bước, chỉ kiểm
+thứ tự request). Nhánh lỗi giữa hai bước chỉ được đọc trong code, chưa có e2e
+giả lập PATCH thứ hai thất bại. Chưa xem trực quan hộp thoại — chỉ kiểm qua
+Chromium headless.
+
 ## 2026-11-19 — Xem CV DOCX ngay trong màn hồ sơ (UX mục 4)
 
 **Vấn đề.** Khung “CV gốc” chỉ nhúng được PDF. Với CV `.docx`, HR chỉ thấy dòng

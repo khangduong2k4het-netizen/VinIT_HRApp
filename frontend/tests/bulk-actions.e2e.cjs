@@ -9,9 +9,10 @@
  * Guardrails checked here, because each would be a real defect:
  *  1. Rows that are not shortlisted — including a NEW application — are
  *     selectable.
- *  2. A bulk shortlist only touches In review rows; NEW and already-shortlisted
- *     rows are reported as skipped instead of being forced through an invalid
- *     transition.
+ *  2. A bulk shortlist walks NEW rows through the two valid steps
+ *     (NEW → IN_REVIEW → SHORTLIST) using the same endpoint, says so in the
+ *     dialog, and reports already-shortlisted rows as skipped instead of forcing
+ *     an invalid transition.
  *  3. A bulk rejection cannot be confirmed without a shared reason, and that
  *     reason goes out with every record.
  *  4. The batch uses the existing per-application status endpoint and nothing
@@ -70,20 +71,29 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
 
   await rowCheckbox('Nguyễn Minh Anh').check(); // IN_REVIEW
   await rowCheckbox('Trần Quốc Bảo').check(); // SHORTLIST
-  await rowCheckbox('Phan Trọng Nghĩa').check(); // NEW
+  await rowCheckbox('Phan Trọng Nghĩa').check(); // NEW → shortlisted through two steps
   await bar.waitFor();
   assert.match(await page.getByTestId('bulk-selection-count').innerText(), /3 hồ sơ/);
 
-  // --- 2. Bulk shortlist only touches valid transitions -------------------
-  assert.match(await page.getByTestId('bulk-shortlist-open').innerText(), /Shortlist 1 hồ sơ/);
+  // --- 2. Bulk shortlist walks NEW through two valid steps ----------------
+  assert.match(await page.getByTestId('bulk-shortlist-open').innerText(), /Shortlist 2 hồ sơ/);
   await page.getByTestId('bulk-shortlist-open').click();
   await dialog.waitFor();
-  assert.match(await page.getByTestId('bulk-skipped').innerText(), /Bỏ qua 2 hồ sơ/);
+  const twoStep = page.getByTestId('bulk-two-step');
+  assert.match(await twoStep.innerText(), /1 hồ sơ đang ở trạng thái Mới/);
+  assert.match(await twoStep.innerText(), /hai lần chuyển trạng thái/);
+  assert.match(await dialog.innerText(), /Mới · 2 bước chuyển trạng thái/);
+  assert.match(await page.getByTestId('bulk-skipped').innerText(), /Bỏ qua 1 hồ sơ/);
   await page.getByTestId('bulk-confirm').click();
   await bar.waitFor({ state: 'detached', timeout: 10000 });
-  assert.deepEqual(statusPatches.map(call => [call.id, call.body.new_status]), [['app-0', 'SHORTLIST']]);
-  await waitForNotice('Đã cập nhật 1 hồ sơ');
-  assert.match(await page.getByTestId('action-feedback-success').innerText(), /Đã cập nhật 1 hồ sơ/);
+  // One PATCH per step, in the only order the state machine allows.
+  assert.deepEqual(statusPatches.map(call => [call.id, call.body.new_status]), [
+    ['app-0', 'SHORTLIST'],
+    ['app-11', 'IN_REVIEW'],
+    ['app-11', 'SHORTLIST'],
+  ]);
+  await waitForNotice('hai lần chuyển trạng thái');
+  assert.match(await page.getByTestId('action-feedback-success').innerText(), /Đã shortlist 2 hồ sơ/);
 
   // --- 3 + 4. Bulk rejection needs one shared reason, sent per record -----
   statusPatches.length = 0;
@@ -109,6 +119,6 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
 
   assert.deepEqual(unexpected, [], `all API calls are accounted for: ${unexpected.join(', ')}`);
 
-  console.log('Bulk actions: select any screening row, shortlist only valid transitions, reject with one shared reason, one existing endpoint per record: OK');
+  console.log('Bulk actions: any screening row selectable, NEW shortlisted through NEW → IN_REVIEW → SHORTLIST with the dialog saying so, reject with one shared reason, one existing endpoint per record: OK');
   await browser.close();
 })().catch(err => { console.error(err); process.exit(1); });
