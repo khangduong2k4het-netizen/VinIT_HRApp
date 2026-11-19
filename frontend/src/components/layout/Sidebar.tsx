@@ -3,98 +3,322 @@
 import { useI18n } from '@/i18n/I18nProvider';
 
 import * as React from 'react';
-import { Box, Divider, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography } from '@mui/material';
-import WorkIcon from '@mui/icons-material/Work';
-import PeopleIcon from '@mui/icons-material/People';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import SettingsIcon from '@mui/icons-material/Settings';
-import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
-import ApartmentIcon from '@mui/icons-material/Apartment';
-import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
-import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
-import HistoryIcon from '@mui/icons-material/History';
-import InsightsIcon from '@mui/icons-material/Insights';
+import {
+  Box, Divider, Drawer, IconButton, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Tooltip, Typography,
+} from '@mui/material';
+import WorkOutlineIcon from '@mui/icons-material/WorkOutline';
+import PeopleOutlineIcon from '@mui/icons-material/PeopleOutline';
+import SpaceDashboardOutlinedIcon from '@mui/icons-material/SpaceDashboardOutlined';
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
+import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
+import ApartmentOutlinedIcon from '@mui/icons-material/ApartmentOutlined';
+import LibraryBooksOutlinedIcon from '@mui/icons-material/LibraryBooksOutlined';
+import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined';
+import HistoryOutlinedIcon from '@mui/icons-material/HistoryOutlined';
+import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
+import AutoGraphOutlinedIcon from '@mui/icons-material/AutoGraphOutlined';
+import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
+import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 
-const DRAWER_WIDTH = 260;
+const DRAWER_WIDTH = 248;
+const DRAWER_COLLAPSED_WIDTH = 72;
+
 const menuGroups = [
   {
     label: 'Công việc tuyển dụng',
     items: [
-      { text: 'Tổng quan công việc', icon: <BarChartIcon />, href: '/dashboard' },
-      { text: 'Vị trí tuyển dụng', icon: <WorkIcon />, href: '/positions' },
-      { text: 'Shortlist & phản hồi', icon: <PeopleIcon />, href: '/shortlist' },
-      { text: 'Thư viện rubric', icon: <LibraryBooksIcon />, href: '/rubric-library', hrOnly: true },
-      { text: 'Báo cáo vận hành', icon: <InsightsIcon />, href: '/reports', hrOnly: true },
-      { text: 'Chất lượng AI', icon: <InsightsIcon />, href: '/reports/ai-quality', hrOnly: true },
-      { text: 'Kiểm định chất lượng', icon: <HistoryIcon />, href: '/quality', leadOnly: true },
-      { text: 'Talent Pool', icon: <PeopleIcon />, href: '/talent-pool', hrOnly: true },
-      { text: 'Lưu trữ & xóa dữ liệu', icon: <DeleteSweepIcon />, href: '/retention', hrOnly: true },
+      { text: 'Tổng quan công việc', icon: <SpaceDashboardOutlinedIcon fontSize="small" />, href: '/dashboard' },
+      { text: 'Vị trí tuyển dụng', icon: <WorkOutlineIcon fontSize="small" />, href: '/positions' },
+      { text: 'Shortlist & phản hồi', icon: <PeopleOutlineIcon fontSize="small" />, href: '/shortlist' },
+      { text: 'Thư viện rubric', icon: <LibraryBooksOutlinedIcon fontSize="small" />, href: '/rubric-library', hrOnly: true },
+      { text: 'Talent Pool', icon: <GroupsOutlinedIcon fontSize="small" />, href: '/talent-pool', hrOnly: true },
+    ],
+  },
+  {
+    label: 'Phân tích & tuân thủ',
+    hrGroupOnly: true,
+    items: [
+      { text: 'Báo cáo vận hành', icon: <InsightsOutlinedIcon fontSize="small" />, href: '/reports', hrOnly: true },
+      { text: 'Chất lượng AI', icon: <AutoGraphOutlinedIcon fontSize="small" />, href: '/reports/ai-quality', hrOnly: true },
+      { text: 'Kiểm định chất lượng', icon: <FactCheckOutlinedIcon fontSize="small" />, href: '/quality', leadOnly: true },
+      { text: 'Lưu trữ & xóa dữ liệu', icon: <DeleteSweepOutlinedIcon fontSize="small" />, href: '/retention', hrOnly: true },
     ],
   },
   {
     label: 'Quản trị',
     adminOnly: true,
     items: [
-      { text: 'Quản trị AI', icon: <SettingsIcon />, href: '/admin' },
-      { text: 'Quản lý tài khoản', icon: <ManageAccountsIcon />, href: '/admin/users' },
-      { text: 'Quản lý phòng ban', icon: <ApartmentIcon />, href: '/admin/departments' },
-      { text: 'Nhật ký audit', icon: <HistoryIcon />, href: '/admin/audit' },
+      { text: 'Quản trị AI', icon: <SettingsOutlinedIcon fontSize="small" />, href: '/admin' },
+      { text: 'Quản lý tài khoản', icon: <ManageAccountsOutlinedIcon fontSize="small" />, href: '/admin/users' },
+      { text: 'Quản lý phòng ban', icon: <ApartmentOutlinedIcon fontSize="small" />, href: '/admin/departments' },
+      { text: 'Nhật ký audit', icon: <HistoryOutlinedIcon fontSize="small" />, href: '/admin/audit' },
     ],
   },
 ];
 
-export default function Sidebar({ mobileOpen, onClose, isAdmin, isHr = false, isLead = false }: { mobileOpen: boolean; onClose: () => void; isAdmin: boolean; isHr?: boolean; isLead?: boolean }) {
+interface SidebarProps {
+  mobileOpen: boolean;
+  onClose: () => void;
+  isAdmin: boolean;
+  isHr?: boolean;
+  isLead?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
+}
+
+export default function Sidebar({
+  mobileOpen,
+  onClose,
+  isAdmin,
+  isHr = false,
+  isLead = false,
+  collapsed = false,
+  onToggleCollapse,
+}: SidebarProps) {
   const { t } = useI18n();
   const pathname = usePathname();
-  const content = (
-    <>
-      <Box sx={{ p: 3, pb: 2 }}>
-        <Box sx={{ backgroundColor: '#fff', borderRadius: 1.5, px: 2, py: 1.5, mb: 1.5, display: 'flex', justifyContent: 'center' }}>
-          <Box component="img" src="/vinuni-logo.png" alt="VinUniversity" sx={{ height: 32, width: 'auto', maxWidth: '100%' }} />
+  const width = collapsed ? DRAWER_COLLAPSED_WIDTH : DRAWER_WIDTH;
+
+  const renderContent = (isCollapsed: boolean) => (
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Brand header — Academic Light (clean crest on white with thin crimson rule) */}
+      <Box
+        sx={{
+          height: 56,
+          px: isCollapsed ? 1 : 2,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: isCollapsed ? 'center' : 'space-between',
+          borderBottom: '1px solid #E5EAF0',
+          flexShrink: 0,
+        }}
+      >
+        <Box
+          component={Link}
+          href="/dashboard"
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.25,
+            textDecoration: 'none',
+            minWidth: 0,
+          }}
+        >
+          <Box
+            component="img"
+            src="/vinuni-logo.png"
+            alt="VinUniversity"
+            sx={{ height: isCollapsed ? 24 : 28, width: 'auto', maxWidth: isCollapsed ? 40 : 124, objectFit: 'contain' }}
+          />
+          {!isCollapsed && (
+            <Box sx={{ pl: 1, borderLeft: '1px solid #E2E8F0', lineHeight: 1.15 }}>
+              <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#0A2B57', letterSpacing: '0.02em' }}>
+                HRA
+              </Typography>
+              <Typography sx={{ fontSize: 10, fontWeight: 500, color: '#64748B' }}>
+                CV Screening
+              </Typography>
+            </Box>
+          )}
         </Box>
-        <Typography variant="overline" sx={{ color: 'rgba(255,255,255,.75)', display: 'block', textAlign: 'center' }}>CV Screening Application</Typography>
+        {!isCollapsed && onToggleCollapse && (
+          <Tooltip title={t('Thu gọn thanh bên')}>
+            <IconButton
+              size="small"
+              onClick={onToggleCollapse}
+              aria-label={t('Thu gọn thanh bên')}
+              sx={{
+                display: { xs: 'none', md: 'inline-flex' },
+                color: '#64748B',
+                '&:hover': { backgroundColor: '#F1F5F9', color: '#0A2B57' },
+              }}
+            >
+              <ChevronLeftIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )}
       </Box>
-      <Divider sx={{ borderColor: 'rgba(255,255,255,.12)' }} />
-      <List sx={{ pt: 2 }} component="nav" aria-label={t("Điều hướng chính")}>
-        {menuGroups.filter(group => !group.adminOnly || isAdmin).map(group => (
-          <React.Fragment key={group.label}>
-            <Typography variant="overline" sx={{ display: 'block', px: 3, pt: 1.5, pb: 0.75, color: 'rgba(255,255,255,.62)', fontSize: 10 }}>
-              {t(group.label)}
-            </Typography>
-            {group.items.filter(item => (!('hrOnly' in item) || isHr) && (!('leadOnly' in item) || isLead)).map(item => {
-              const selected = ['/admin', '/reports'].includes(item.href) ? pathname === item.href : pathname.startsWith(item.href);
-              return (
-                <ListItem key={item.href} disablePadding sx={{ mb: 0.5 }}>
-                  <ListItemButton component={Link} href={item.href} onClick={onClose} selected={selected}
-                    aria-current={selected ? 'page' : undefined}
-                    sx={{ mx: 1, borderRadius: 2, minHeight: 46, transition: 'background-color .18s ease',
-                      '&.Mui-selected': { backgroundColor: '#941616', '&:hover': { backgroundColor: '#7a1212' }, '& .MuiListItemIcon-root': { color: 'white' } },
-                      '&:hover': { backgroundColor: 'rgba(255,255,255,.08)' } }}>
-                    <ListItemIcon sx={{ color: 'rgba(255,255,255,.75)', minWidth: 40 }}>{item.icon}</ListItemIcon>
-                    <ListItemText primary={t(item.text)} primaryTypographyProps={{ fontSize: 14, fontWeight: 500 }} />
-                  </ListItemButton>
-                </ListItem>
-              );
-            })}
-          </React.Fragment>
-        ))}
+
+      {/* Navigation groups */}
+      <List
+        sx={{ pt: 1.5, pb: 2, px: 1, flexGrow: 1, overflowY: 'auto' }}
+        component="nav"
+        aria-label={t('Điều hướng chính')}
+      >
+        {menuGroups
+          .filter(group => (!group.adminOnly || isAdmin) && (!group.hrGroupOnly || isHr || isLead))
+          .map((group, groupIndex) => {
+            const visibleItems = group.items.filter(
+              item => (!('hrOnly' in item) || isHr) && (!('leadOnly' in item) || isLead),
+            );
+            if (!visibleItems.length) return null;
+            return (
+              <React.Fragment key={group.label}>
+                {groupIndex > 0 && <Divider sx={{ my: 1.25, borderColor: '#EEF2F7' }} />}
+                {!isCollapsed && (
+                  <Typography
+                    variant="overline"
+                    sx={{
+                      display: 'block',
+                      px: 1.5,
+                      pt: 0.75,
+                      pb: 0.5,
+                      color: '#64748B',
+                      fontSize: 10.5,
+                      letterSpacing: '0.06em',
+                    }}
+                  >
+                    {t(group.label)}
+                  </Typography>
+                )}
+                {visibleItems.map(item => {
+                  const selected = ['/admin', '/reports'].includes(item.href)
+                    ? pathname === item.href
+                    : pathname.startsWith(item.href);
+                  const button = (
+                    <ListItemButton
+                      component={Link}
+                      href={item.href}
+                      onClick={onClose}
+                      selected={selected}
+                      aria-current={selected ? 'page' : undefined}
+                      sx={{
+                        borderRadius: '8px',
+                        minHeight: 38,
+                        px: isCollapsed ? 0 : 1.5,
+                        justifyContent: isCollapsed ? 'center' : 'flex-start',
+                        position: 'relative',
+                        color: selected ? '#0A2B57' : '#334155',
+                        backgroundColor: selected ? '#EEF4FC' : 'transparent',
+                        '&::before': selected
+                          ? {
+                              content: '""',
+                              position: 'absolute',
+                              left: 0,
+                              top: 7,
+                              bottom: 7,
+                              width: 3,
+                              borderRadius: '0 3px 3px 0',
+                              backgroundColor: '#C72127',
+                            }
+                          : undefined,
+                        '&.Mui-selected': {
+                          backgroundColor: '#EEF4FC',
+                          color: '#0A2B57',
+                          '&:hover': { backgroundColor: '#E3EEFA' },
+                          '& .MuiListItemIcon-root': { color: '#0A2B57' },
+                        },
+                        '&:hover': {
+                          backgroundColor: '#F1F5F9',
+                          color: '#0F172A',
+                        },
+                      }}
+                    >
+                      <ListItemIcon
+                        sx={{
+                          color: selected ? '#0A2B57' : '#64748B',
+                          minWidth: isCollapsed ? 0 : 32,
+                          justifyContent: 'center',
+                        }}
+                      >
+                        {item.icon}
+                      </ListItemIcon>
+                      {!isCollapsed && (
+                        <ListItemText
+                          primary={t(item.text)}
+                          primaryTypographyProps={{
+                            fontSize: 13.5,
+                            fontWeight: selected ? 600 : 500,
+                            noWrap: true,
+                          }}
+                        />
+                      )}
+                    </ListItemButton>
+                  );
+                  return (
+                    <ListItem key={item.href} disablePadding sx={{ mb: 0.35 }}>
+                      {isCollapsed ? (
+                        <Tooltip title={t(item.text)} placement="right">
+                          {button}
+                        </Tooltip>
+                      ) : (
+                        button
+                      )}
+                    </ListItem>
+                  );
+                })}
+              </React.Fragment>
+            );
+          })}
       </List>
-      <Box sx={{ flexGrow: 1 }} />
-      <Box sx={{ p: 2, textAlign: 'center' }}><Typography variant="caption" sx={{ color: 'rgba(255,255,255,.5)' }}>© {new Date().getFullYear()} VinUniversity<br />{t("Nội bộ sử dụng")}</Typography></Box>
-    </>
+
+      {/* Footer / expand toggle */}
+      <Box sx={{ borderTop: '1px solid #EEF2F7', p: 1.5, textAlign: 'center', flexShrink: 0 }}>
+        {isCollapsed && onToggleCollapse ? (
+          <Tooltip title={t('Mở rộng thanh bên')} placement="right">
+            <IconButton
+              size="small"
+              onClick={onToggleCollapse}
+              aria-label={t('Mở rộng thanh bên')}
+              sx={{ color: '#64748B', '&:hover': { backgroundColor: '#F1F5F9', color: '#0A2B57' } }}
+            >
+              <ChevronRightIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        ) : (
+          <Typography variant="caption" sx={{ color: '#94A3B8', fontSize: 11, display: 'block', lineHeight: 1.4 }}>
+            © {new Date().getFullYear()} VinUniversity · {t('Nội bộ sử dụng')}
+          </Typography>
+        )}
+      </Box>
+    </Box>
   );
-  const paper = { width: DRAWER_WIDTH, boxSizing: 'border-box', borderRight: 'none', backgroundColor: '#0A2B57', color: 'white' } as const;
+
   return (
     <>
-      <Drawer variant="temporary" open={mobileOpen} onClose={onClose} ModalProps={{ keepMounted: true }}
-        sx={{ display: { xs: 'block', md: 'none' }, '& .MuiDrawer-paper': paper }}>{content}</Drawer>
-      <Drawer variant="permanent" open sx={{ display: { xs: 'none', md: 'block' }, width: DRAWER_WIDTH, flexShrink: 0, '& .MuiDrawer-paper': paper }}>
-        {content}
+      <Drawer
+        variant="temporary"
+        open={mobileOpen}
+        onClose={onClose}
+        ModalProps={{ keepMounted: true }}
+        sx={{
+          display: { xs: 'block', md: 'none' },
+          '& .MuiDrawer-paper': {
+            width: DRAWER_WIDTH,
+            boxSizing: 'border-box',
+            backgroundColor: '#FFFFFF',
+            borderRight: '1px solid #E5EAF0',
+          },
+        }}
+      >
+        {renderContent(false)}
+      </Drawer>
+      <Drawer
+        variant="permanent"
+        open
+        sx={{
+          display: { xs: 'none', md: 'block' },
+          width,
+          flexShrink: 0,
+          transition: 'width 0.18s ease',
+          '& .MuiDrawer-paper': {
+            width,
+            boxSizing: 'border-box',
+            backgroundColor: '#FFFFFF',
+            borderRight: '1px solid #E5EAF0',
+            transition: 'width 0.18s ease',
+            overflowX: 'hidden',
+          },
+        }}
+      >
+        {renderContent(collapsed)}
       </Drawer>
     </>
   );
 }
 
-export { DRAWER_WIDTH };
+export { DRAWER_WIDTH, DRAWER_COLLAPSED_WIDTH };
