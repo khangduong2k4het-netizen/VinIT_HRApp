@@ -223,4 +223,6 @@ Ba việc nên **hoãn có chủ đích**: drawer/split view, sửa tiêu chí i
 
 **Đã đo:** unit 20/20, i18n 3/3, backend `tests/` 266 passed/170 skipped, type-check/lint/`next build` pass, **8 bộ browser mock** pass trên production build (ranking-context, drafts, workflow, shortlist, applicants 123, a11y, accounts, intake).
 
+**Đã push:** `b3d9e88` (sửa deep link), `babf2b3` (ngữ cảnh + CV theo yêu cầu + tìm vị trí + validate), `613725f` (tài liệu). CI run **44452044131 success** cả ba job (backend unit, frontend i18n/type-check/lint/build, backend integration PostgreSQL 17 + pgvector với đủ 32 migration).
+
 **Còn lại:** 3.7 (file lỗi → hồ sơ), 3.8 (sửa tiêu chí inline — cần kiểm API), 3.9 (phản hồi async nhất quán), drawer P2, và toàn bộ nhóm AI. Chưa thử Safari/iOS, chưa E2E với Supabase/Storage/ClamAV thật, chưa usability test.

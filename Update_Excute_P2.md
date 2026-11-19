@@ -404,4 +404,5 @@ Operator báo Ubuntu noble arm64 package candidate ClamAV `1.5.4+dfsg-0ubuntu0.2
 - **Danh sách vị trí:** tìm theo tên **hoặc mã**, chip kèm số lượng, dòng đếm N/M, `?status=`/`?q=` đồng bộ URL, empty state phân biệt "chưa có" vs "không khớp".
 - **Form tạo vị trí:** lỗi tại trường sau lần blur đầu + tóm tắt "Còn thiếu: …" trên nút tạo. Không thêm "Lưu nháp" (backend chưa có `DRAFT`).
 - **Đo:** backend `tests/` 266 passed/170 skipped; unit 20/20, i18n 3/3, type-check/lint/build pass; **8 bộ browser mock** pass trên production build (thêm mới `ranking-context-mock`, chạy 3 lần liên tiếp). Không đổi API/DB ngoài một chuỗi query, không đổi RBAC/consent/approval/matching.
+- Đã push `b3d9e88`, `babf2b3`, `613725f`; CI run **44452044131 success** cả ba job.
 - **Chưa làm:** 3.7 file lỗi → hồ sơ, 3.8 sửa tiêu chí inline (cần kiểm API), 3.9 phản hồi async nhất quán, drawer P2, nhóm AI; chưa thử Safari/iOS, chưa E2E Supabase/Storage/ClamAV thật, chưa usability test; VPS chưa cập nhật.
