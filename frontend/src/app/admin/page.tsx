@@ -271,8 +271,8 @@ export default function AdminPage() {
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2, mb: 3 }}>
-        <Box><Typography variant="h1" sx={{ fontSize: 26, color: '#0A2B57' }}>{t("Quản trị AI")}</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{t("Cấu hình và giám sát dịch vụ xử lý")}</Typography></Box>
+        <Box><Typography variant="h1" sx={{ fontSize: 26, color: '#0A2B57' }}>{t("Quản trị hệ thống")}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{t("Cấu hình, giám sát dịch vụ xử lý và dọn dữ liệu kiểm thử")}</Typography></Box>
         <Button startIcon={<RefreshIcon />} variant="outlined" onClick={() => load()} disabled={loading || saving}>{t("Làm mới")}</Button>
       </Box>
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{t(error)}</Alert>}

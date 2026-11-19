@@ -89,7 +89,7 @@ const waitText=async (page,text)=>page.getByText(text,{exact:false}).filter({vis
  await page.getByRole('button',{name:'Add note',exact:true}).click();await waitText(page,'Synthetic HR-only test note');
  console.log('HR profile version and internal note saved via UI: OK');
  step='admin';
- await page.goto(base+'/admin',{waitUntil:'domcontentloaded'});await waitText(page,'AI administration');
+ await page.goto(base+'/admin',{waitUntil:'domcontentloaded'});await waitText(page,'System administration');
  await page.getByLabel('Temperature',{exact:true}).fill('1.5');await page.getByRole('button',{name:'Create and activate'}).click();
  await waitText(page,'Choose an approved model and endpoint, and a temperature between 0 and 1.');
  await page.getByRole('button',{name:'Tiếng Việt',exact:true}).click();await waitText(page,'Vui lòng chọn model, endpoint và temperature trong khoảng 0–1.');

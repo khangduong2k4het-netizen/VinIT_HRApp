@@ -1497,5 +1497,7 @@
   "Không liệt kê được file trên Storage: {0}. Thao tác xoá vẫn chạy, nhưng sẽ không dọn được file mồ côi.": "Could not list the files in Storage: {0}. The deletion still runs, but orphaned files will not be cleaned up.",
   "Không đối soát được Storage ({0}) — file CV sẽ không được dọn tự động.": "Storage could not be reconciled ({0}) — CV files will not be cleaned up automatically.",
   "Storage không có file mồ côi.": "There are no orphaned files in Storage.",
-  "Đã dọn {0} file mồ côi trên Storage.": "Cleaned up {0} orphaned files in Storage."
+  "Đã dọn {0} file mồ côi trên Storage.": "Cleaned up {0} orphaned files in Storage.",
+  "Quản trị hệ thống": "System administration",
+  "Cấu hình, giám sát dịch vụ xử lý và dọn dữ liệu kiểm thử": "Configure and monitor processing services, and clear test data"
 }

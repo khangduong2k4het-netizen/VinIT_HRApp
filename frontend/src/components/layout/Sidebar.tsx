@@ -33,7 +33,7 @@ const menuGroups = [
     label: 'Quản trị',
     adminOnly: true,
     items: [
-      { text: 'Quản trị AI', icon: <SettingsIcon />, href: '/admin' },
+      { text: 'Quản trị hệ thống', icon: <SettingsIcon />, href: '/admin' },
       { text: 'Quản lý tài khoản', icon: <ManageAccountsIcon />, href: '/admin/users' },
       { text: 'Quản lý phòng ban', icon: <ApartmentIcon />, href: '/admin/departments' },
     ],
