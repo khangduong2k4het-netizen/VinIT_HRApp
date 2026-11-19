@@ -371,3 +371,10 @@ Operator báo Ubuntu noble arm64 package candidate ClamAV `1.5.4+dfsg-0ubuntu0.2
 - Danh sách ứng viên tải theo trang có tiến độ và chỉ mount 50 dòng, mở rộng theo bước 50; lọc/sắp xếp/thứ hạng/chọn chia sẻ vẫn tính toàn danh sách. Workspace share chỉ refetch khi tab ẩn ≥30 giây và có banner dữ liệu cũ; đóng dialog JD hỏi xác nhận khi có thay đổi.
 - Thêm browser mock `applicants-large-list-mock.e2e.cjs` (123 hồ sơ) và unit test cửa sổ danh sách: unit 11/11, i18n 3/3, type-check/lint/build pass, 5 bộ browser mock pass. Backend unit không DB 264 passed/170 skipped; ruff `--select F` pass.
 - **Chưa làm:** E2E thật Supabase/Storage/ClamAV/URL từ VPS, usability và audit accessibility đầy đủ, chặn Back/Forward, lưu nháp server-side. Chưa commit/push/deploy/restart VPS.
+
+### 37. Đợt 7: commit, push và CI xanh
+
+- Đã commit theo nhóm và push lên `arena/ea6e2570-vinit-hrapp`: `de655ed`, `a158e90`, `170b492`, `aff5c86`, `7f7f2d7`, `94fad03`. Không force-push, không đổi nhánh, không sửa lịch sử đã push.
+- CI run **44441175204 success**: backend unit, frontend (i18n/type-check/lint/build) và backend integration trên PostgreSQL 17 + pgvector disposable có áp đủ 32 migration gồm 00032. Số test cụ thể trong log CI không tải được do chặn egress; kết quả local tương ứng 434 passed.
+- Supabase: 00032 đã áp qua cổng migration; RLS bật, 0 policy, chỉ `service_role` ghi; `authenticated` không có grant trên các bảng nhạy cảm đã kiểm tra. Dữ liệu sản phẩm không đổi.
+- **Chưa deploy VPS** (không có SSH trong phiên). Cần operator pull `94fad03`, build/restart và kiểm tra readiness; sau đó mới chạy E2E thật, usability/a11y và các mục còn lại.
