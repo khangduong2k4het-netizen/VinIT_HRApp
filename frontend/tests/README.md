@@ -63,6 +63,9 @@ Storage, ClamAV or VPS involvement).
 Run with `HRA_E2E_BASE_URL` pointing at the local server and a Chromium
 executable (see the commands in `doc/PLAN_CAI_TIEN_WORKFLOW_UX_HR_HM.md`).
 
+- `docx-preview.e2e.cjs` — a DOCX CV served as real bytes is read in the page:
+  nothing fetched on open, text readable after asking, no PDF iframe, page
+  controls disabled, and the "original layout may differ" note kept.
 - `verify-only.e2e.cjs` — the finish action for a reviewer who may verify
   evidence but not change status: the action is available, the status picker is
   hidden with an explanation, verification is recorded with the attestation, no

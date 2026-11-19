@@ -6,6 +6,88 @@
  * NOT_ASSESSED rows are counted as `not_assessed` and skipped before
  * `needs_verification`, which is the drift UX-R1 is about.
  */
+const zlib = require('node:zlib');
+
+/**
+ * A real (if tiny) .docx built at test time: a ZIP with the WordprocessingML
+ * package. Serving real bytes is the point — the preview feature unzips and
+ * parses the file the reviewer actually downloads.
+ */
+const CRC_TABLE = (() => {
+  const table = new Int32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c;
+  }
+  return table;
+})();
+function crc32(buffer) {
+  let c = -1;
+  for (let i = 0; i < buffer.length; i += 1) c = CRC_TABLE[(c ^ buffer[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ -1) >>> 0;
+}
+function buildZip(files) {
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+  for (const file of files) {
+    const name = Buffer.from(file.name, 'utf8');
+    const data = Buffer.from(file.data, 'utf8');
+    const deflated = zlib.deflateRawSync(data);
+    const useDeflate = deflated.length < data.length;
+    const payload = useDeflate ? deflated : data;
+    const method = useDeflate ? 8 : 0;
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(method, 8);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(payload.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    locals.push(local, name, payload);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(method, 10);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(payload.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(offset, 42);
+    centrals.push(central, name);
+    offset += local.length + name.length + payload.length;
+  }
+  const centralSize = centrals.reduce((total, chunk) => total + chunk.length, 0);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(files.length, 8);
+  end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(centralSize, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, ...centrals, end]);
+}
+const DOCX_PARAGRAPHS = [
+  'Vũ Thị Docx',
+  'Senior Backend Engineer · 6 năm kinh nghiệm',
+  '',
+  'Kinh nghiệm: xây dựng hệ thống thanh toán cho 2 triệu giao dịch mỗi ngày, dẫn dắt 4 kỹ sư.',
+  'Học vấn: Kỹ sư Công nghệ thông tin, Đại học Bách khoa Hà Nội.',
+];
+function docxBytes() {
+  const escape = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const body = DOCX_PARAGRAPHS.map(text => (text === ''
+    ? '<w:p/>'
+    : `<w:p><w:r><w:t xml:space="preserve">${escape(text)}</w:t></w:r></w:p>`)).join('');
+  return buildZip([
+    { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>' },
+    { name: 'word/document.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>` },
+  ]);
+}
+
 const POSITION = {
   position_id: 'p1',
   position_code: 'REQ-2026-014',
@@ -379,8 +461,23 @@ function installMockApi(context, overrides = {}) {
       const body = JSON.parse(r.request().postData() || '{}');
       return json({ ...detail, application_id: statusMatch[1], application_status: body.new_status });
     }
-    if (/^\/v1\/applications\/(app-\d+|app-verifier)\/private-notes$/.test(p)) return json([]);
-    if (/^\/v1\/applications\/(app-\d+|app-verifier)\/(status-events|profile|cv-file)$/.test(p)) {
+    // A candidate whose CV is a .docx: the panel must show readable text without
+    // downloading, and must still fetch nothing until HR asks.
+    if (p === '/v1/applications/app-docx') {
+      return json({
+        ...detail,
+        application_id: 'app-docx',
+        candidate_name: 'Vũ Thị Docx',
+        identity: { ...detail.identity, display_name: 'Vũ Thị Docx' },
+        documents: [{ document_id: 'doc-docx', document_type: 'CV', original_filename: 'Vu_Thi_Docx_CV.docx', mime_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', page_count: 1 }],
+        latest_assessment: { ...detail.latest_assessment, application_id: 'app-docx' },
+      });
+    }
+    if (p === '/v1/applications/app-docx/cv-file') {
+      return r.fulfill({ status: 200, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', body: docxBytes() });
+    }
+    if (/^\/v1\/applications\/(app-[a-z0-9-]+)\/private-notes$/.test(p)) return json([]);
+    if (/^\/v1\/applications\/(app-[a-z0-9-]+)\/(status-events|profile|cv-file)$/.test(p)) {
       if (p.endsWith('/status-events')) return json(statusEvents);
       if (p.endsWith('/profile')) return json(profile);
       return r.fulfill({ status: 200, contentType: 'application/pdf', body: '%PDF-1.4\n' });
@@ -394,5 +491,5 @@ function installMockApi(context, overrides = {}) {
 module.exports = {
   POSITION, CRITERIA, RUBRIC, NAMES, ranking, applications, visible,
   workQueue, workQueueSummary, dashboardSummary, detail, me, profile,
-  installMockApi,
+  DOCX_PARAGRAPHS, docxBytes, installMockApi,
 };

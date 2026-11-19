@@ -1,6 +1,7 @@
 'use client';
 
 import { useI18n } from '@/i18n/I18nProvider';
+import { extractDocxParagraphs } from '@/lib/docxText';
 import { localizeServerMessage } from '@/i18n/serverMessages';
 
 import * as React from 'react';
@@ -111,6 +112,10 @@ export default function ApplicantDetailPage() {
   const urlQueueFor = useRef('');
   const [cvUrl, setCvUrl] = useState<string | null>(null);
   const [cvError, setCvError] = useState<string | null>(null);
+  // DOCX is not something a browser can render, so the fetched file is read into
+  // paragraphs here instead of asking the backend for a converted copy.
+  const [cvDocx, setCvDocx] = useState<string[] | null>(null);
+  const [cvDocxError, setCvDocxError] = useState<string | null>(null);
   const [cvDownloading, setCvDownloading] = useState(false);
   // The CV is the heaviest and most sensitive asset on this page. Load it only
   // when the reviewer asks for it; the assessment evidence is readable without it.
@@ -250,6 +255,7 @@ export default function ApplicantDetailPage() {
     // Moving to another profile must not show the previous candidate's CV.
     if (blobUrl.current) { URL.revokeObjectURL(blobUrl.current); blobUrl.current = null; }
     setCvUrl(null); setCvError(null); setCvRequested(false); setCvLoading(false);
+    setCvDocx(null); setCvDocxError(null);
   }, [applicantId]);
 
   const loadCv = useCallback(async () => {
@@ -264,10 +270,26 @@ export default function ApplicantDetailPage() {
       if (blobUrl.current) URL.revokeObjectURL(blobUrl.current);
       blobUrl.current = URL.createObjectURL(file.data);
       setCvUrl(blobUrl.current);
+      const document = application?.documents?.[0];
+      const isPdfFile = document?.mime_type === 'application/pdf' || /\.pdf$/i.test(document?.original_filename || '');
+      if (!isPdfFile) {
+        // Read the text of the .docx already in memory. Nothing leaves the browser
+        // and a format we cannot read only costs the preview, never the download.
+        try {
+          const bytes = file.data instanceof Blob ? await file.data.arrayBuffer() : file.data;
+          const paragraphs = await extractDocxParagraphs(bytes);
+          if (currentRequest !== requestId.current) return;
+          setCvDocx(paragraphs); setCvDocxError(null);
+        } catch {
+          if (currentRequest !== requestId.current) return;
+          setCvDocx(null);
+          setCvDocxError('Không đọc được nội dung tệp DOCX này trong trình duyệt. Hãy tải CV gốc để xem đầy đủ.');
+        }
+      }
     } catch {
       setCvUrl(null); setCvError(t("Không thể tải CV gốc. Vui lòng thử lại sau."));
     } finally { setCvLoading(false); }
-  }, [applicantId, cvLoading, cvUrl, t]);
+  }, [applicantId, application?.documents, cvLoading, cvUrl, t]);
 
   const handleDownloadCv = async () => {
     if (cvDownloading) return;
@@ -798,6 +820,8 @@ export default function ApplicantDetailPage() {
             requested={cvRequested}
             loading={cvLoading}
             onRequest={loadCv}
+            docxParagraphs={cvDocx}
+            docxError={cvDocxError}
           />
         </Grid>
       </Grid>

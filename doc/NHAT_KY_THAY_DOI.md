@@ -9,6 +9,55 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-19 — Xem CV DOCX ngay trong màn hồ sơ (UX mục 4)
+
+**Vấn đề.** Khung “CV gốc” chỉ nhúng được PDF. Với CV `.docx`, HR chỉ thấy dòng
+“Tệp DOCX cần được tải xuống để xem.” — phải tải tệp ra ngoài rồi mở bằng Word
+mới đọc được, trong khi việc đang làm là đối chiếu bằng chứng AI với nội dung CV
+ngay trên màn hình.
+
+**Phương án đã chọn.** Đọc tệp ngay trong trình duyệt, **không đổi backend và
+không thêm thư viện tài liệu**:
+
+- `.docx` là một ZIP chứa `word/document.xml`. Trình duyệt đã có
+  `DecompressionStream('deflate-raw')`, nên chỉ cần đọc central directory của
+  ZIP, giải nén đúng entry đó và lấy text từ các run `<w:t>` (kèm `w:tab`,
+  `w:br`). File mới: `frontend/src/lib/docxText.ts`.
+- Nội dung được render thành các đoạn văn bằng React text node, **không dùng
+  `innerHTML`**, nên tệp CV không thể chèn HTML/script vào app.
+- `CVDocumentViewer` thêm nhánh hiển thị văn bản DOCX cuộn được, kèm ghi chú
+  “bố cục gốc có thể khác, tải CV gốc để xem đúng định dạng”. Nút chuyển trang
+  vẫn tắt vì bản xem này không có số trang.
+- Trang hồ sơ chỉ đọc DOCX **sau khi HR bấm “Xem CV gốc”** (giữ nguyên nguyên tắc
+  tải theo yêu cầu); nếu không đọc được (tệp hỏng, `.doc` đổi đuôi, ZIP mã hoá)
+  thì hiện thông báo và giữ nguyên nút tải bản gốc — không bao giờ mất đường lấy
+  tệp.
+- Lý do không chọn các phương án khác: chuyển DOCX→PDF ở server cần thêm
+  LibreOffice/converter vào đường request (rủi ro vận hành, đổi backend); dùng
+  thư viện render DOCX phía client (mammoth…) thêm dependency nặng và mở thêm bề
+  mặt render HTML. Cách này chỉ thêm một file thuần TS đọc văn bản.
+
+**Kiểm thử.**
+
+| Lệnh | Kết quả |
+| --- | --- |
+| `npm run type-check` / `npm run lint` / `npm run test:i18n` / `npm run test:unit` | pass |
+| `npm run build` | pass |
+| `npm run test:e2e:docx-preview` (mới) | pass |
+| `npm run test:e2e:ux04-sticky-viewer`, `ux02-review`, `finish-application`, `verify-only` | pass |
+
+E2E mới dựng **DOCX thật** trong fixture (tự viết ZIP + WordprocessingML, nén
+DEFLATE) và xác nhận: mở hồ sơ không tải CV; sau khi bấm chỉ có đúng một request
+`cv-file`; văn bản hiện đủ từng đoạn, đoạn đầu đúng thứ tự; không có iframe PDF;
+không có XML thô trong DOM; nút “Trang sau” bị tắt; có câu nhắc tải bản gốc;
+không có exception phía client.
+
+**Chưa kiểm.** Chưa thử với tệp DOCX thật nhiều trang/bảng biểu từ Word (fixture
+là DOCX tối giản, có nén): bảng và cột sẽ được làm phẳng thành đoạn văn, không
+giữ bố cục. Chưa xử lý `.doc` cũ (không phải ZIP) — sẽ rơi vào thông báo “không
+đọc được” kèm nút tải gốc. Tệp DOCX có mật khẩu cũng rơi vào nhánh đó. Chưa đo
+hiệu năng với CV dài trên thiết bị yếu.
+
 ## 2026-11-19 — Nút “Đã xử lý xong hồ sơ này” cho người chỉ có quyền xác minh
 
 **Vấn đề.** Nút hoàn tất hồ sơ và cả nút xác nhận/xoá từng tiêu chí đều bị khoá

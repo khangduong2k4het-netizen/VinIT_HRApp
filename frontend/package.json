@@ -31,7 +31,8 @@
     "test:e2e:verify-only": "node tests/verify-only.e2e.cjs",
     "test:e2e:ux03-dashboard": "node tests/ux03-dashboard.e2e.cjs",
     "test:e2e:ux04-sticky-viewer": "node tests/ux04-sticky-viewer.e2e.cjs",
-    "test:e2e:ux08-feedback": "node tests/ux08-feedback.e2e.cjs"
+    "test:e2e:ux08-feedback": "node tests/ux08-feedback.e2e.cjs",
+    "test:e2e:docx-preview": "node tests/docx-preview.e2e.cjs"
   },
   "dependencies": {
     "@emotion/cache": "11.14.0",

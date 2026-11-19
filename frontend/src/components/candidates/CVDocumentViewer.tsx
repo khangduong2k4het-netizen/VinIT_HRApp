@@ -18,9 +18,12 @@ interface CVDocumentViewerProps {
   requested?: boolean;
   loading?: boolean;
   onRequest?: () => void;
+  /** Text read from a .docx in the browser, so HR can screen without downloading. */
+  docxParagraphs?: string[] | null;
+  docxError?: string | null;
 }
 
-export default function CVDocumentViewer({ cvUrl, cvError, isPdf, canViewCv, selectedPage, onPageChange, requested = true, loading = false, onRequest }: CVDocumentViewerProps) {
+export default function CVDocumentViewer({ cvUrl, cvError, isPdf, canViewCv, selectedPage, onPageChange, requested = true, loading = false, onRequest, docxParagraphs = null, docxError = null }: CVDocumentViewerProps) {
   const { t } = useI18n();
   return (
     <>
@@ -57,6 +60,35 @@ export default function CVDocumentViewer({ cvUrl, cvError, isPdf, canViewCv, sel
           {cvUrl && isPdf ? (
             <Box sx={{ height: '100%', backgroundColor: '#525659', padding: 2 }}>
               <iframe id="cv-pdf-viewer" src={`${cvUrl}#page=${selectedPage}`} width="100%" height="100%" style={{ border: 'none', backgroundColor: 'white' }} title={t("CV gốc")} />
+            </Box>
+          ) : cvUrl && docxParagraphs && docxParagraphs.length > 0 ? (
+            // A .docx cannot be shown as-is by the browser, and converting it on the
+            // server would add a converter to the request path. Instead the file HR
+            // already fetched is read here: the words are what screening needs, and
+            // the original layout stays one click away.
+            <Box sx={{ height: '100%', overflow: 'auto', backgroundColor: 'white' }} data-testid="docx-text">
+              <Box sx={{ px: 3, py: 2, borderBottom: '1px solid #EDF1F5', position: 'sticky', top: 0, backgroundColor: 'white', zIndex: 1 }}>
+                <Typography variant="caption" color="text.secondary">
+                  {t("Nội dung đọc từ tệp DOCX; bố cục gốc có thể khác. Tải CV gốc để xem đúng định dạng.")}
+                </Typography>
+              </Box>
+              <Box sx={{ px: 3, py: 2.5, maxWidth: 760 }}>
+                {docxParagraphs.map((paragraph, index) => paragraph === '' ? (
+                  <Box key={index} sx={{ height: 10 }} />
+                ) : (
+                  <Typography
+                    key={index}
+                    component="p"
+                    sx={{ fontSize: 14, lineHeight: 1.7, color: '#1D2939', mb: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
+                  >
+                    {paragraph}
+                  </Typography>
+                ))}
+              </Box>
+            </Box>
+          ) : cvUrl && !isPdf && docxError ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'text.secondary', p: 3, textAlign: 'center' }}>
+              <Typography variant="body2">{t(docxError)}</Typography>
             </Box>
           ) : !canViewCv ? (
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'text.secondary', p: 3, textAlign: 'center' }}>
