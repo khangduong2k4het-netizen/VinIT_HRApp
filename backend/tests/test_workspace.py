@@ -21,6 +21,7 @@ def _counts(**overrides):
         "meets_mandatory": 0,
         "duplicate_pending": 0,
         "shortlisted": 0,
+        "verification_complete": 0,
     }
     counts.update(overrides)
     return counts
@@ -49,7 +50,75 @@ def test_summarize_applications_separates_review_queues():
         "meets_mandatory": 1,
         "duplicate_pending": 1,
         "shortlisted": 1,
+        "verification_complete": 0,
     }
+
+
+def test_a_fully_reviewed_application_leaves_the_verification_queue():
+    """The queue is a to-do list, not a permanent label.
+
+    Until HR could record a review, the only way an application left "needs
+    verification" was a recruiting decision (reject, or move to interview), because
+    SHORTLIST is still a screening status. That pushed HR into making a hiring call
+    to clear a technical queue. Once every flagged criterion carries a review the
+    row belongs to verification_complete instead — with its application_status
+    untouched.
+    """
+    base = {
+        "application_status": "IN_REVIEW",
+        "processing": False,
+        "needs_review": False,
+        "duplicate": False,
+        "matching_status": "NEEDS_HR_VERIFICATION",
+        "evidence_coverage": 0.9,
+    }
+    pending = summarize_applications([{**base, "pending_reviews": 2, "reviewed_criteria": 1}])
+    assert pending["needs_verification"] == 1
+    assert pending["verification_complete"] == 0
+
+    done = summarize_applications([{**base, "pending_reviews": 0, "reviewed_criteria": 3}])
+    assert done["needs_verification"] == 0
+    assert done["verification_complete"] == 1
+    # Still counted as work that exists, never silently dropped from "assessed".
+    assert done["assessed"] == 1
+    assert done["total"] == 1
+
+
+def test_a_flagged_row_with_no_reviews_at_all_still_needs_verification():
+    """A flagged criterion nobody has looked at must not count as complete."""
+    counts = summarize_applications([{
+        "application_status": "NEW",
+        "processing": False,
+        "needs_review": False,
+        "duplicate": False,
+        "matching_status": "NEEDS_HR_VERIFICATION",
+        "evidence_coverage": 0.9,
+        "pending_reviews": 1,
+        "reviewed_criteria": 0,
+    }])
+    assert counts["needs_verification"] == 1
+    assert counts["verification_complete"] == 0
+
+
+def test_low_coverage_without_flagged_criteria_is_never_marked_complete():
+    """Low coverage alone is not something a reviewer can sign off.
+
+    The engine can flag no criterion at all and still fall under the coverage
+    threshold. Treating "nothing pending" as "reviewed" would then quietly hide
+    rows nobody has checked.
+    """
+    counts = summarize_applications([{
+        "application_status": "IN_REVIEW",
+        "processing": False,
+        "needs_review": False,
+        "duplicate": False,
+        "matching_status": "MEETS_MANDATORY",
+        "evidence_coverage": 0.4,
+        "pending_reviews": 0,
+        "reviewed_criteria": 0,
+    }])
+    assert counts["needs_verification"] == 1
+    assert counts["verification_complete"] == 0
 
 
 def test_workflow_prioritizes_file_review_before_matching_queues():

@@ -1,7 +1,8 @@
 # Đề xuất UX-02 — Candidate Review: HR đọc, xác minh và ra quyết định
 
 - Ngày lập: 2026-11-19. Nhánh `arena/ea6e2570-vinit-hrapp`, sau commit `a1642d9`.
-- Trạng thái: **chờ anh duyệt. Chưa sửa một dòng code nào.**
+- Trạng thái: **ĐÃ DUYỆT và ĐÃ LÀM.** Anh chốt Q1 = duyệt U1 (đồng bộ backend + FE), Q2 = phương án **(c)**, Q3 = giữ thứ tự U2 → U3 → U4 → U1 (và U5 ở đợt sau).
+- Kết quả thực hiện: xem `Update_Excute_P2.md` mục 45 và ảnh trong `doc/ui-review/ux02/`.
 - Phạm vi đọc: chỉ màn hồ sơ ứng viên và những gì nó gọi tới. Không đổi màn Ranking, Dashboard.
 
 ---

@@ -261,7 +261,19 @@ export interface EvidenceItem {
   verification_status: string | null;
 }
 
+export interface HrCriterionReview {
+  review_id: string;
+  decision: 'CONFIRMED' | 'REJECTED';
+  comment?: string | null;
+  reviewer_user_id: string;
+  reviewer_name?: string | null;
+  created_at: string;
+}
+
 export interface CriterionResult {
+  // Present on GET /assessments/{id}; the review endpoint needs it.
+  result_id?: string;
+  hr_reviews?: HrCriterionReview[];
   criterion_id: string;
   criterion_name: string;
   category: string;

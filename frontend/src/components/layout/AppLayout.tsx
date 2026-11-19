@@ -66,9 +66,36 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+      {/* Keyboard users used to tab through the whole sidebar and the language
+          switcher before reaching the page — eleven stops on every profile they
+          opened. The skip link is the first thing focusable, so one Tab lands on
+          content instead. */}
+      <Box
+        component="a"
+        href="#main-content"
+        data-testid="skip-to-content"
+        sx={{
+          position: 'absolute',
+          left: 8,
+          top: -60,
+          zIndex: theme => theme.zIndex.tooltip + 1,
+          backgroundColor: '#0A2B57',
+          color: '#fff',
+          px: 2,
+          py: 1,
+          borderRadius: 1,
+          fontWeight: 700,
+          transition: 'top .15s',
+          '&:focus': { top: 8, outline: '2px solid #fff', outlineOffset: 2 },
+        }}
+      >
+        {t("Tới nội dung chính")}
+      </Box>
       <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} isAdmin={systemRoles.includes('ADMIN')} canAccessRubrics={canAccessRubrics} />
       <Header onOpenMenu={() => setMobileOpen(true)} profile={profile} />
-      <Box component="main" sx={{ flexGrow: 1, minWidth: 0, backgroundColor: '#F8FAFC', minHeight: '100vh' }}>
+      {/* tabIndex={-1} lets the skip link move focus here; it stays out of the
+          normal tab order so it is not an extra stop. */}
+      <Box component="main" id="main-content" tabIndex={-1} sx={{ flexGrow: 1, minWidth: 0, backgroundColor: '#F8FAFC', minHeight: '100vh', '&:focus': { outline: 'none' } }}>
         <Box sx={{ mt: `${APPBAR_HEIGHT}px`, p: { xs: 2, sm: 3, lg: 4 } }}>{children}</Box>
       </Box>
     </Box>

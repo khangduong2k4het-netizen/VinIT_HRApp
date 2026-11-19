@@ -74,6 +74,10 @@ const applications = ranking.map((item, index) => ({
       profile_version_id: 'pv1', version_number: 1,
       identity: { display_name: 'Ứng viên 1', email: null, phone: null }, facts: [],
     });
+    // The profile page loads the approved rubric so a reviewer can read what each
+    // criterion asked for. Not part of what this test checks, but it must not be
+    // reported as an unexpected call.
+    if (p === '/v1/criteria/position/p1/approved') return json(r, { criteria: [] });
     errors.push(`Unexpected ${r.request().method()} ${p}${url.search}`);
     return json(r, {}, 200);
   });

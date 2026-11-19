@@ -3026,3 +3026,95 @@ def test_hr_settings_round_trip_and_reach_the_work_queue(client, seed):
         record = audit if isinstance(audit, dict) else json.loads(audit)
         assert record["key"] == "deadline_soon_days"
         assert record["from"] == 7 and record["to"] == 14, "nhật ký phải ghi cả giá trị cũ và mới"
+
+
+def test_hr_can_verify_a_criterion_and_the_queue_closes(client, seed):
+    """HR xác minh bằng chứng trên Postgres thật: append-only, có audit, và hàng đợi đóng.
+
+    Đây là lỗ hổng nghiệp vụ mà UX-02 đóng lại: trước đó không có endpoint/bảng/nút
+    nào ghi nhận HR đã kiểm, nên hồ sơ chỉ rời hàng đợi "Cần xác minh" bằng cách loại
+    hoặc chuyển sang phỏng vấn — tức HR bị ép ra quyết định tuyển dụng để dọn việc kỹ thuật.
+    """
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.criteria_versions SET status='APPROVED' WHERE criteria_version_id=:id"), {"id": seed["cv"]})
+        document, profile, assessment = uid(), uid(), uid()
+        conn.execute(text("""INSERT INTO app_private.application_documents(document_id,application_id,bucket,storage_path,original_filename,mime_type,size_bytes,file_processing_status)
+            VALUES (:doc,:app,'cv-originals','synthetic','synthetic.pdf','application/pdf',100,'COMPLETED')"""),
+                     {"doc": document, "app": seed["app"]})
+        conn.execute(text("INSERT INTO app_private.profile_versions(profile_version_id,application_id,source_document_id,version_number,status) VALUES (:id,:app,:doc,1,'COMPLETED')"),
+                     {"id": profile, "app": seed["app"], "doc": document})
+        # Flagged so the row lands in the queue; coverage is high, which isolates
+        # the cause to the flag rather than to the 0.7 threshold.
+        conn.execute(text("""INSERT INTO app_private.assessment_runs(assessment_id,position_id,application_id,jd_version_id,criteria_version_id,profile_version_id,status,matching_status,evidence_coverage)
+            VALUES (:id,:pos,:app,:jd,:cv,:profile,'COMPLETED','NEEDS_HR_VERIFICATION',0.95)"""),
+                     {"id": assessment, "pos": seed["pos"], "app": seed["app"], "jd": seed["jd"], "cv": seed["cv"], "profile": profile})
+        result_id = conn.execute(text("""INSERT INTO app_private.criterion_assessment_results(assessment_id,criterion_id,outcome,score,requires_hr_verification)
+            VALUES (:assessment,:criterion,'UNCLEAR',NULL,TRUE) RETURNING result_id"""),
+                                 {"assessment": assessment, "criterion": seed["criterion"]}).scalar_one()
+
+    def queue_summary():
+        return client.get("/v1/dashboard/work-queue", headers=headers(seed["hr"])).json()["summary"]
+
+    before = queue_summary()
+    assert before["applications_needing_verification"] == 1, before
+    assert before["applications_verification_complete"] == 0, before
+
+    # A rejection without a reason is refused before it reaches the table.
+    assert client.post(
+        f"/v1/assessments/results/{result_id}/review", headers=headers(seed["hr"]),
+        json={"decision": "REJECTED"},
+    ).status_code == 422
+
+    # A hiring manager without an HR role on this position must not decide this.
+    assert client.post(
+        f"/v1/assessments/results/{result_id}/review", headers=headers(seed["hm"]),
+        json={"decision": "CONFIRMED"},
+    ).status_code == 403
+
+    created = client.post(
+        f"/v1/assessments/results/{result_id}/review", headers=headers(seed["hr"]),
+        json={"decision": "REJECTED", "comment": "CV chỉ ghi 'lead', không có quy mô nhóm."},
+    )
+    assert created.status_code == 201, created.text
+    first = created.json()
+    assert first["decision"] == "REJECTED"
+    assert first["comment"] == "CV chỉ ghi 'lead', không có quy mô nhóm."
+
+    # The engine's own verdict is untouched: HR's decision is a second layer.
+    with engine.begin() as conn:
+        assert conn.execute(text("SELECT outcome FROM app_private.criterion_assessment_results WHERE result_id=:id"),
+                            {"id": result_id}).scalar_one() == "UNCLEAR"
+        assert conn.execute(text("SELECT count(*) FROM app_private.hr_criterion_reviews WHERE result_id=:id"),
+                            {"id": result_id}).scalar_one() == 1
+        # Status must never move because of a verification.
+        assert conn.execute(text("SELECT application_status FROM app_private.applications WHERE application_id=:id"),
+                            {"id": seed["app"]}).scalar_one() == "NEW"
+        audit = conn.execute(text("""SELECT action_type, object_type, outcome FROM app_private.audit_events
+            WHERE action_type='HR_EVIDENCE_REVIEW' AND object_id=:id"""), {"id": str(result_id)}).mappings().all()
+    assert len(audit) == 1
+    assert dict(audit[0]) == {"action_type": "HR_EVIDENCE_REVIEW", "object_type": "CRITERION_RESULT", "outcome": "SUCCESS"}
+
+    # Every flagged criterion is reviewed -> the application leaves the queue, and
+    # it is accounted for as finished work rather than disappearing.
+    after = queue_summary()
+    assert after["applications_needing_verification"] == 0, after
+    assert after["applications_verification_complete"] == 1, after
+
+    # A second look is a new row, not an overwrite.
+    second = client.post(
+        f"/v1/assessments/results/{result_id}/review", headers=headers(seed["hr"]),
+        json={"decision": "CONFIRMED"},
+    )
+    assert second.status_code == 201
+    with engine.begin() as conn:
+        assert conn.execute(text("SELECT count(*) FROM app_private.hr_criterion_reviews WHERE result_id=:id"),
+                            {"id": result_id}).scalar_one() == 2
+
+    # The assessment response carries the reviews, newest first, so the profile can
+    # show the decision without a second request per criterion.
+    detail = client.get(f"/v1/applications/{seed['app']}", headers=headers(seed["hr"])).json()
+    results = detail["latest_assessment"]["criterion_results"]
+    assert [str(r["result_id"]) for r in results] == [str(result_id)], "result_id must reach the client"
+    # Newest first: the confirmation, then the original rejection.
+    assert [r["decision"] for r in results[0]["hr_reviews"]] == ["CONFIRMED", "REJECTED"]
+    assert detail["application_status"] == "NEW"

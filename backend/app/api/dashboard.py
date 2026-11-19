@@ -59,7 +59,12 @@ _APPLICATIONS_QUERY = _SCOPE_CTE + """
         EXISTS (SELECT 1 FROM app_private.duplicate_signals ds
                 WHERE ds.position_id = a.position_id AND ds.review_status = 'PENDING'
                   AND (ds.application_id_1 = a.application_id OR ds.application_id_2 = a.application_id)) AS duplicate,
-        latest.matching_status, latest.evidence_coverage
+        latest.matching_status, latest.evidence_coverage,
+        -- How many criteria of this assessment still have no reviewer decision,
+        -- and how many a reviewer has actually decided. The queue uses both: a
+        -- flagged application leaves "needs verification" once nothing is pending.
+        COALESCE(flagged.pending_reviews, 0) AS pending_reviews,
+        COALESCE(flagged.reviewed_criteria, 0) AS reviewed_criteria
     FROM app_private.applications a
     JOIN visible_positions p ON p.position_id = a.position_id
     CROSS JOIN privileges priv
@@ -76,6 +81,21 @@ _APPLICATIONS_QUERY = _SCOPE_CTE + """
                       ORDER BY c.version_number DESC LIMIT 1)
         ORDER BY ar.created_at DESC, ar.assessment_id DESC LIMIT 1
     ) latest ON TRUE
+    LEFT JOIN LATERAL (
+        -- Only criteria the engine flagged for HR count. A row that was never
+        -- flagged is not waiting for anyone, and counting it would make the
+        -- fraction on the dashboard describe the rubric size instead of the work.
+        SELECT
+            COUNT(*) FILTER (WHERE NOT EXISTS (
+                SELECT 1 FROM app_private.hr_criterion_reviews rv WHERE rv.result_id = r.result_id
+            )) AS pending_reviews,
+            COUNT(*) FILTER (WHERE EXISTS (
+                SELECT 1 FROM app_private.hr_criterion_reviews rv WHERE rv.result_id = r.result_id
+            )) AS reviewed_criteria
+        FROM app_private.criterion_assessment_results r
+        WHERE r.assessment_id = latest.assessment_id
+          AND r.requires_hr_verification = TRUE
+    ) flagged ON TRUE
     WHERE priv.global_access OR EXISTS (
         SELECT 1 FROM app_private.position_assignments pa
         WHERE pa.position_id = a.position_id AND pa.user_id = :user_id
@@ -338,6 +358,9 @@ def _load_work_queue(user_id: str) -> dict:
             "positions_needing_attention": len({item["position_id"] for item in items}),
             "files_needing_review": sum(counts["file_review"] for counts in counts_by_position.values()),
             "applications_needing_verification": sum(counts["needs_verification"] for counts in counts_by_position.values()),
+            # Finished verification work stays counted, so the dashboard can say
+            # "N need you" without the number silently shrinking as HR works.
+            "applications_verification_complete": sum(counts.get("verification_complete", 0) for counts in counts_by_position.values()),
             "duplicate_alerts": sum(counts["duplicate_pending"] for counts in counts_by_position.values()),
             "criteria_pending_action": criteria_pending_positions,
             "shares_without_feedback": shares_without_feedback,

@@ -63,6 +63,10 @@ def summarize_applications(applications: Iterable[Mapping[str, Any]]) -> dict[st
         "meets_mandatory": 0,
         "duplicate_pending": 0,
         "shortlisted": 0,
+        # Applications a reviewer has finished checking: every criterion the
+        # machine flagged now carries a review. Kept visible so the dashboard can
+        # say "12 need you, 3 you already checked" instead of silently shrinking.
+        "verification_complete": 0,
     }
     for app in applications:
         status = app.get("application_status")
@@ -87,9 +91,21 @@ def summarize_applications(applications: Iterable[Mapping[str, Any]]) -> dict[st
         if not matching_status or matching_status == "NOT_ASSESSED":
             counts["not_assessed"] += 1
             continue
-        needs_verification = matching_status == "NEEDS_HR_VERIFICATION" or (
+        # A criterion the machine flagged is only still "waiting for HR" while no
+        # reviewer has looked at it. When every flagged criterion of this
+        # assessment has a review, the application belongs to "assessed and
+        # confirmed" instead — that is what lets the queue close without anyone
+        # being pushed into a hiring decision just to clear a to-do list.
+        # `pending_reviews` is 0 when the assessment had nothing flagged at all,
+        # so this is a no-op for those rows.
+        pending_reviews = _as_int(app.get("pending_reviews"))
+        reviewed_criteria = _as_int(app.get("reviewed_criteria"))
+        needs_verification = (matching_status == "NEEDS_HR_VERIFICATION") or (
             coverage_value is not None and coverage_value < COVERAGE_THRESHOLD
         )
+        if needs_verification and pending_reviews == 0 and reviewed_criteria > 0:
+            needs_verification = False
+            counts["verification_complete"] = counts.get("verification_complete", 0) + 1
         counts["assessed"] += 1
         counts["needs_verification"] += needs_verification
         if matching_status == "POSSIBLE_MISMATCH":

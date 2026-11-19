@@ -16,9 +16,65 @@ const POSITION = {
   criteria_status: 'APPROVED',
 };
 
+// The approved rubric, as `GET /criteria/position/p1/approved` returns it. The
+// assessment response only carries criterion names, so U2 reads the requirement
+// text from here. c1 has description + spec, c2 has guidance, c3 has neither (so
+// the card must not show an empty toggle), c4 has a JD reference only.
+const RUBRIC = {
+  criteria_version_id: 'cv1',
+  position_id: 'p1',
+  jd_version_id: 'jd1',
+  version_number: 1,
+  status: 'APPROVED',
+  origin: 'HR_CREATED',
+  mandatory_weight_total: 70,
+  nice_to_have_weight_total: 30,
+  criteria: [
+    {
+      criterion_id: 'c1',
+      criteria_version_id: 'cv1',
+      name: 'Kinh nghiệm Python cho dịch vụ production',
+      description: 'Xây dựng và vận hành dịch vụ Python chạy thật, có tải production và số liệu độ trễ.',
+      category: 'MUST_HAVE',
+      weight_in_group: 60,
+      expected_evidence_keywords: ['FastAPI', 'asyncio'],
+      requirement_spec: { kind: 'YEARS', terms: ['FastAPI'], min_years: 3, required_languages: [], required_degree_level: null },
+      evidence_guidance: 'Tên hệ thống, lưu lượng, p99 và vai trò cụ thể của ứng viên.',
+      jd_reference_text: 'Production Python services with measurable latency',
+      display_order: 1,
+    },
+    {
+      criterion_id: 'c2',
+      criteria_version_id: 'cv1',
+      name: 'Thiết kế cơ sở dữ liệu quan hệ và tối ưu truy vấn',
+      description: 'Thiết kế schema quan hệ và tối ưu truy vấn có số liệu trước/sau.',
+      category: 'MUST_HAVE',
+      weight_in_group: 40,
+      expected_evidence_keywords: ['PostgreSQL', 'index'],
+      requirement_spec: null,
+      evidence_guidance: 'Số liệu thời gian truy vấn trước và sau khi tối ưu, không chỉ tên công nghệ.',
+      jd_reference_text: null,
+      display_order: 2,
+    },
+    {
+      criterion_id: 'c3',
+      criteria_version_id: 'cv1',
+      name: 'Kinh nghiệm dẫn dắt nhóm kỹ thuật nhỏ',
+      description: '',
+      category: 'NICE_TO_HAVE',
+      weight_in_group: 100,
+      expected_evidence_keywords: [],
+      requirement_spec: null,
+      evidence_guidance: null,
+      jd_reference_text: null,
+      display_order: 3,
+    },
+  ],
+};
+
 const CRITERIA = [
   {
-    criterion_id: 'c1', criterion_name: 'Kinh nghiệm Python cho dịch vụ production', category: 'MUST_HAVE',
+    result_id: 'r-c1', hr_reviews: [], criterion_id: 'c1', criterion_name: 'Kinh nghiệm Python cho dịch vụ production', category: 'MUST_HAVE',
     outcome: 'STRONG_MATCH', score: 92, confidence: 0.91, decision_source: 'HYBRID', evidence_strength: 0.88,
     requires_verification: false, page_number: 2,
     reasoning: 'Ứng viên mô tả 4 năm xây dịch vụ FastAPI cho 1.2 triệu request/ngày và nêu rõ cách xử lý backpressure.',
@@ -26,7 +82,7 @@ const CRITERIA = [
     evidence: [{ evidence_id: 'e1', verbatim_quote: 'Thiết kế lại luồng ingest bằng FastAPI + asyncio, xử lý 1.2 triệu request/ngày với p99 dưới 120ms.', page_number: 2, verification_status: 'VERIFIED' }],
   },
   {
-    criterion_id: 'c2', criterion_name: 'Thiết kế cơ sở dữ liệu quan hệ và tối ưu truy vấn', category: 'MUST_HAVE',
+    result_id: 'r-c2', hr_reviews: [], criterion_id: 'c2', criterion_name: 'Thiết kế cơ sở dữ liệu quan hệ và tối ưu truy vấn', category: 'MUST_HAVE',
     outcome: 'MATCH', score: 78, confidence: 0.72, decision_source: 'AI', evidence_strength: 0.64,
     requires_verification: true, page_number: 3,
     reasoning: 'Có nhắc tới PostgreSQL và index, nhưng chưa nêu số liệu trước/sau tối ưu nên chưa xác minh được mức độ.',
@@ -34,7 +90,7 @@ const CRITERIA = [
     evidence: [{ evidence_id: 'e2', verbatim_quote: 'Tối ưu truy vấn báo cáo trên PostgreSQL, thêm composite index cho bảng events.', page_number: 3, verification_status: 'UNVERIFIED' }],
   },
   {
-    criterion_id: 'c3', criterion_name: 'Kinh nghiệm dẫn dắt nhóm kỹ thuật nhỏ', category: 'NICE_TO_HAVE',
+    result_id: 'r-c3', hr_reviews: [], criterion_id: 'c3', criterion_name: 'Kinh nghiệm dẫn dắt nhóm kỹ thuật nhỏ', category: 'NICE_TO_HAVE',
     outcome: 'UNCLEAR', score: null, confidence: 0.4, decision_source: 'AI', evidence_strength: 0.31,
     requires_verification: true, page_number: null,
     reasoning: 'CV chỉ nêu vai trò "technical lead" mà không nói quy mô nhóm hay phạm vi trách nhiệm.',
@@ -42,7 +98,7 @@ const CRITERIA = [
     evidence: [{ evidence_id: 'e3', verbatim_quote: 'Technical lead cho mảng thanh toán nội bộ.', page_number: 4, verification_status: 'UNVERIFIED' }],
   },
   {
-    criterion_id: 'c4', criterion_name: 'Kinh nghiệm vận hành Kubernetes trên cloud', category: 'NICE_TO_HAVE',
+    result_id: 'r-c4', hr_reviews: [], criterion_id: 'c4', criterion_name: 'Kinh nghiệm vận hành Kubernetes trên cloud', category: 'NICE_TO_HAVE',
     outcome: 'NO_MATCH', score: 0, confidence: 0.83, decision_source: 'RULE', evidence_strength: 0.9,
     requires_verification: false, page_number: null,
     reasoning: 'Không tìm thấy từ khoá Kubernetes, EKS hay GKE trong CV.',
@@ -203,6 +259,9 @@ const profile = {
  */
 function installMockApi(context, overrides = {}) {
   const unexpected = [];
+  // A review recorded during the test must come back on the reload, otherwise the
+  // test could pass on an optimistic UI that never actually persisted anything.
+  const reviews = {};
   const route = async r => {
     const url = new URL(r.request().url());
     const p = url.pathname;
@@ -218,8 +277,39 @@ function installMockApi(context, overrides = {}) {
     if (p === '/v1/applications') return json(applications);
     if (p === '/v1/operations/position/p1/active') return json(null);
     if (p === '/v1/positions/p1/duplicate-signals') return json([]);
+    if (p === '/v1/criteria/position/p1/approved') return json(RUBRIC);
     if (p === '/v1/shortlist/potential-recipients/p1') return json([]);
-    if (p === '/v1/applications/app-2') return json(detail);
+    if (p === '/v1/applications/app-2') {
+      return json({
+        ...detail,
+        latest_assessment: {
+          ...detail.latest_assessment,
+          criterion_results: (detail.latest_assessment?.criterion_results || CRITERIA).map(c => ({
+            ...c,
+            hr_reviews: reviews[c.result_id] || [],
+          })),
+        },
+      });
+    }
+    const reviewMatch = p.match(/^\/v1\/assessments\/results\/([^/]+)\/review$/);
+    if (reviewMatch && r.request().method() === 'POST') {
+      const body = JSON.parse(r.request().postData() || '{}');
+      const resultId = reviewMatch[1];
+      if (body.decision === 'REJECTED' && !(body.comment || '').trim()) {
+        return json({ detail: 'Cần nêu lý do khi đánh dấu bằng chứng không đúng' }, 400);
+      }
+      const review = {
+        review_id: `rev-${Object.keys(reviews).length + 1}`,
+        decision: body.decision,
+        comment: body.comment || null,
+        reviewer_user_id: 'u-hr',
+        reviewer_name: 'Nguyễn Thu Hằng',
+        created_at: '2026-11-19T09:15:00Z',
+      };
+      // Append-only, like the table: a second look is a new row.
+      reviews[resultId] = [review, ...(reviews[resultId] || [])];
+      return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(review) });
+    }
     if (p === '/v1/applications/app-2/status-events') return json(statusEvents);
     if (p === '/v1/applications/app-2/profile') return json(profile);
     if (p === '/v1/applications/app-2/cv-file') {
@@ -232,7 +322,7 @@ function installMockApi(context, overrides = {}) {
 }
 
 module.exports = {
-  POSITION, CRITERIA, NAMES, ranking, applications, visible,
+  POSITION, CRITERIA, RUBRIC, NAMES, ranking, applications, visible,
   workQueue, workQueueSummary, dashboardSummary, detail, me, profile,
   installMockApi,
 };

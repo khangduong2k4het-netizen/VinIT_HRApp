@@ -66,6 +66,75 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
     };
   });
 
+  // --- U2: the rubric is on the page, and opening it must not cost height -----
+  report.requirement = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll('[data-testid="evidence-card"]')];
+    const toggles = [...document.querySelectorAll('[data-testid="criterion-requirement-toggle"]')];
+    return {
+      cards: cards.length,
+      cardsWithRequirement: cards.filter(c => c.querySelector('[data-testid="criterion-requirement-toggle"]')).length,
+      allCollapsed: toggles.every(t => t.getAttribute('aria-expanded') === 'false'),
+      pageHeightWithClosed: document.documentElement.scrollHeight,
+    };
+  });
+  if (report.requirement.cardsWithRequirement > 0) {
+    const first = page.locator('[data-testid="criterion-requirement-toggle"]').first();
+    await first.click();
+    await page.waitForTimeout(350);
+    report.requirement.afterOpen = await page.evaluate(() => ({
+      expanded: document.querySelector('[data-testid="criterion-requirement-toggle"]').getAttribute('aria-expanded'),
+      pageHeightWithOneOpen: document.documentElement.scrollHeight,
+      text: document.querySelector('[id^="requirement-"]')?.innerText.slice(0, 80) || '',
+    }));
+  }
+
+  // --- U3: no CV request until a citation is pressed --------------------------
+  const cvCalls = [];
+  page.on('request', r => { if (r.url().includes('cv-file')) cvCalls.push(r.url()); });
+  report.citation = await page.evaluate(() => {
+    const quote = document.querySelector('[data-testid="citation-quote"]');
+    return {
+      present: !!quote,
+      isButton: quote?.getAttribute('role') === 'button',
+      label: quote?.getAttribute('aria-label') || null,
+    };
+  });
+  report.citation.cvRequestsBeforeClick = cvCalls.length;
+  if (report.citation.present && report.citation.isButton) {
+    await page.locator('[data-testid="citation-quote"]').first().click();
+    await page.waitForTimeout(900);
+    report.citation.cvRequestsAfterClick = cvCalls.length;
+    report.citation.selectedPageChip = await page.locator('[data-testid="citation-status-VERIFIED"], [data-testid="citation-status-FAILED"], [data-testid="citation-status-PENDING"]').first().innerText().catch(() => null);
+  }
+
+  // --- U4: skip link and citation states -------------------------------------
+  await page.goto(`${base}/positions/p1/applicants/app-2`, { waitUntil: 'networkidle' });
+  await page.waitForSelector('[data-testid="evidence-card"]');
+  await page.keyboard.press('Tab');
+  report.keyboard = await page.evaluate(() => ({
+    firstStop: document.activeElement?.textContent?.trim() || document.activeElement?.getAttribute('aria-label'),
+    firstStopVisible: (() => { const r = document.activeElement?.getBoundingClientRect(); return r ? r.top >= 0 : false; })(),
+  }));
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(300);
+  report.keyboard.afterSkip = await page.evaluate(() => ({
+    focusId: document.activeElement?.id,
+    focusTag: document.activeElement?.tagName,
+  }));
+  report.keyboard.tabsFromContent = 0;
+  for (let i = 0; i < 3; i += 1) {
+    await page.keyboard.press('Tab');
+    report.keyboard[`afterTabsFromContent${i + 1}`] = await page.evaluate(() => document.activeElement?.textContent?.trim().slice(0, 28) || document.activeElement?.getAttribute('aria-label'));
+  }
+  report.citationStates = await page.evaluate(() => {
+    const out = {};
+    document.querySelectorAll('[data-testid^="citation-status-"]').forEach(el => {
+      const key = el.getAttribute('data-testid').replace('citation-status-', '');
+      out[key] = el.textContent.trim();
+    });
+    return out;
+  });
+
   console.log(JSON.stringify(report, null, 2));
   await browser.close();
 })().catch(e => { console.error(e); process.exit(1); });

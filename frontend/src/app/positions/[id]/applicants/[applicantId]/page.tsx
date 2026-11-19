@@ -41,7 +41,7 @@ import ReplayIcon from '@mui/icons-material/Replay';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { applicationsApi, assessmentsApi, listAllApplications, operationsApi } from '@/lib/api';
+import { applicationsApi, assessmentsApi, criteriaApi, listAllApplications, operationsApi } from '@/lib/api';
 import StatusBadge from '@/components/common/StatusBadge';
 import StickyActionBar from '@/components/common/StickyActionBar';
 import CandidateProfilePanel from '@/components/candidates/CandidateProfilePanel';
@@ -61,7 +61,7 @@ import {
   type ApplicantQueue,
   type ApplicantSort,
 } from '@/lib/applicantReview';
-import type { ApplicationWithAssessment, RankingItem } from '@/types';
+import type { ApplicationWithAssessment, Criterion, CriterionResult, RankingItem } from '@/types';
 import { APPLICATION_STATUSES, APPLICATION_TRANSITIONS, isApplicationStatus } from '@/lib/applicationStatus';
 
 interface StatusEvent {
@@ -146,6 +146,25 @@ export default function ApplicantDetailPage() {
     loadData(true);
     return () => { requestId.current += 1; if (blobUrl.current) { URL.revokeObjectURL(blobUrl.current); blobUrl.current = null; } };
   }, [loadData]);
+
+  // The rubric itself, so the reviewer can check "what did this criterion
+  // actually ask for" without leaving the profile. One request per page, keyed
+  // by criterion_id; the assessment response only carries the name, outcome and
+  // quote, not the requirement the candidate was measured against.
+  const [criteriaById, setCriteriaById] = useState<Record<string, Criterion>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    criteriaApi.getApproved(positionId)
+      .then(res => {
+        if (cancelled) return;
+        const next: Record<string, Criterion> = {};
+        (res.data?.criteria || []).forEach((item: Criterion) => { next[item.criterion_id] = item; });
+        setCriteriaById(next);
+      })
+      .catch(() => { if (!cancelled) setCriteriaById({}); });
+    return () => { cancelled = true; };
+  }, [positionId]);
 
   const [urlContext, setUrlContext] = useState<{ queue: string; sort: string; search: string; fromList: boolean }>({ queue: '', sort: '', search: '', fromList: false });
 
@@ -251,6 +270,20 @@ export default function ApplicantDetailPage() {
     } finally { setCvDownloading(false); }
   };
 
+  // Recording a review is not a recruiting action: it never touches
+  // application_status. The reload afterwards is what makes the queue progress
+  // ("đã kiểm 2/4") visible without a manual refresh.
+  const [reviewSaving, setReviewSaving] = useState<string | null>(null);
+  const handleReview = async (resultId: string, decision: 'CONFIRMED' | 'REJECTED', comment?: string) => {
+    setReviewSaving(resultId);
+    try {
+      await assessmentsApi.reviewCriterionResult(resultId, decision, comment);
+      await loadData();
+    } finally {
+      setReviewSaving(null);
+    }
+  };
+
   const handleStatusUpdate = async () => {
     if (!newStatus || statusSubmitting) return;
     const rejected = newStatus.startsWith('REJECTED');
@@ -300,12 +333,27 @@ export default function ApplicantDetailPage() {
     return () => clearInterval(timer);
   }, [reprocessOperationId, loadData, t]);
 
+  // Pages that were asked for while the CV was still downloading. Without this a
+  // reviewer who clicks a citation lands on whatever page the viewer happens to
+  // mount with, which is exactly the wrong page.
+  const pendingPage = React.useRef<number | null>(null);
+
   const jumpToPage = (page: number) => {
     if (page < 1) return;
     setSelectedPage(page);
     // A citation page is only meaningful against the file itself.
-    if (application?.can_view_cv && !cvUrl) void loadCv();
+    if (application?.can_view_cv && !cvUrl) {
+      pendingPage.current = page;
+      void loadCv();
+    }
   };
+
+  useEffect(() => {
+    if (cvUrl && pendingPage.current != null) {
+      setSelectedPage(pendingPage.current);
+      pendingPage.current = null;
+    }
+  }, [cvUrl]);
 
   if (loading) {
     return (
@@ -322,6 +370,16 @@ export default function ApplicantDetailPage() {
   const assessment = application.latest_assessment;
   const criteriaResults = assessment?.criterion_results || [];
   const canViewEvidence = Boolean(application.can_view_assessment_evidence);
+  // How much of the verdict rests on a quote the system itself located in the
+  // CV file. Shown next to the total so the number cannot be read as a certainty.
+  const verifiedCriteriaCount = criteriaResults.filter((r: CriterionResult) => {
+    const status = r.evidence?.[0]?.verification_status;
+    return status === 'VERIFIED' || status === 'MANUAL_FIX';
+  }).length;
+  // Only criteria the engine flagged are HR's work. A criterion nobody flagged is
+  // not "reviewed" and must not count towards the fraction.
+  const flaggedCriteria = criteriaResults.filter((r: CriterionResult) => r.requires_verification);
+  const pendingCriteria = flaggedCriteria.filter((r: CriterionResult) => !(r.hr_reviews && r.hr_reviews.length > 0));
   const currentStatus = isApplicationStatus(application.application_status) ? application.application_status : null;
   const nextStatuses = currentStatus ? APPLICATION_TRANSITIONS[currentStatus] : [];
   const statusLabel = currentStatus ? APPLICATION_STATUSES[currentStatus] : null;
@@ -488,6 +546,32 @@ export default function ApplicantDetailPage() {
 
       {cvError && <Alert severity="error" sx={{ mb: 2 }}>{t(cvError)}</Alert>}
 
+      {/* Option (c) of the review decision: an application leaves the "needs
+          verification" queue only when every flagged criterion has been checked,
+          and until then the remaining work is stated in numbers. One review is
+          not "done", and treating it as done would hide the rest. */}
+      {canViewEvidence && flaggedCriteria.length > 0 && (
+        <Box
+          data-testid="verification-progress"
+          sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}
+        >
+          <Chip
+            size="small"
+            sx={{ backgroundColor: pendingCriteria.length === 0 ? '#ECFDF3' : '#FFFAEB', color: pendingCriteria.length === 0 ? '#067647' : '#B54708', fontWeight: 700 }}
+            label={
+              pendingCriteria.length === 0
+                ? t('Đã xác minh đủ {0}/{0} tiêu chí cần kiểm', flaggedCriteria.length)
+                : t('Đã xác minh {0}/{1} tiêu chí cần kiểm', flaggedCriteria.length - pendingCriteria.length, flaggedCriteria.length)
+            }
+          />
+          <Typography variant="caption" color="text.secondary">
+            {pendingCriteria.length === 0
+              ? t('Hồ sơ sẽ rời hàng đợi "Cần xác minh". Trạng thái hồ sơ không thay đổi.')
+              : t('Xác minh nốt {0} tiêu chí còn lại để hồ sơ rời hàng đợi "Cần xác minh".', pendingCriteria.length)}
+          </Typography>
+        </Box>
+      )}
+
       {/* Verdict strip. Three numbers on one row: the reviewer decides "do I
           trust this score?" before scrolling, which is exactly what the old
           three-card block pushed below the fold. The "not enough data" warning
@@ -496,7 +580,12 @@ export default function ApplicantDetailPage() {
         <Card sx={{ mb: 3 }}>
           <CardContent sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 2, py: 1.75, '&:last-child': { pb: 1.75 } }}>
             <Box>
-              <Typography variant="caption" color="text.secondary">{t("Điểm trên tiêu chí đã có bằng chứng")}</Typography>
+              {/* The old label ("Điểm trên tiêu chí đã có bằng chứng") read as
+                  "the score counts only criteria that have evidence", which is the
+                  opposite of what the number is. It is a weighted total over the
+                  whole rubric; how much of it rests on verified quotes is the
+                  coverage figure next to it. */}
+              <Typography variant="caption" color="text.secondary">{t("Điểm tổng hợp")}</Typography>
               <Typography
                 variant="h3"
                 sx={{
@@ -509,6 +598,9 @@ export default function ApplicantDetailPage() {
                 }}
               >
                 {assessment.matching_score !== null ? `${assessment.matching_score}%` : '-'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }} data-testid="score-explanation">
+                {t("Trên {0} tiêu chí; {1} tiêu chí có trích dẫn đã xác minh", criteriaResults.length, verifiedCriteriaCount)}
               </Typography>
             </Box>
             <Box>
@@ -563,9 +655,12 @@ export default function ApplicantDetailPage() {
                 <EvidenceCard
                   key={result.criterion_id}
                   result={result}
+                  criterion={criteriaById[result.criterion_id]}
                   isPdf={isPdf}
                   hasCv={Boolean(cvUrl)}
                   selected={selectedEvidenceId === result.criterion_id}
+                  canReview={Boolean(application.can_update_status) && !shareContext && reviewSaving === null}
+                  onReview={handleReview}
                   onJumpToPage={(page, criterionId) => { setSelectedEvidenceId(criterionId); jumpToPage(page); }}
                 />
               ))}

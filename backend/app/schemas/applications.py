@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import Field, model_validator
 from datetime import datetime
-from typing import Optional, List
+from typing import List, Literal, Optional
 from uuid import UUID
 from enum import Enum
 from .common import BaseSchema, TimestampMixin
@@ -90,7 +90,32 @@ class EvidenceItem(BaseSchema):
     verification_status: Optional[str] = None
 
 
+class HrCriterionReviewOut(BaseSchema):
+    review_id: UUID
+    decision: str
+    comment: Optional[str] = None
+    reviewer_user_id: UUID
+    reviewer_name: Optional[str] = None
+    created_at: datetime
+
+
+class HrCriterionReviewCreate(BaseSchema):
+    decision: Literal["CONFIRMED", "REJECTED"]
+    comment: Optional[str] = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def rejection_needs_reason(self):
+        # Enforced again in the database: a rejection without a reason is a click,
+        # not a review, and the next person to open the profile cannot use it.
+        if self.decision == "REJECTED" and not (self.comment or "").strip():
+            raise ValueError("Cần nêu lý do khi đánh dấu bằng chứng không đúng")
+        return self
+
+
 class CriterionResult(BaseSchema):
+    # Needed by the review endpoint; without it the profile page cannot address
+    # the decision the reviewer just took.
+    result_id: Optional[UUID] = None
     criterion_id: UUID
     criterion_name: str
     category: str
@@ -107,6 +132,9 @@ class CriterionResult(BaseSchema):
     verbatim_quote: Optional[str] = None
     page_number: Optional[int] = None
     evidence: List[EvidenceItem] = Field(default_factory=list)
+    # Reviewer decisions, newest first. Present so the profile page can show
+    # "you confirmed this" without a second request per criterion.
+    hr_reviews: List[HrCriterionReviewOut] = Field(default_factory=list)
 
 
 class AssessmentRun(BaseSchema, TimestampMixin):

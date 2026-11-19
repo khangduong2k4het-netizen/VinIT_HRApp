@@ -9,7 +9,12 @@ from app.core.permissions import application_access, check_position_access, is_s
 from app.services.ai_config import sanitize_provider_snapshot
 from app.core.security import get_current_user
 from app.db.database import SessionLocal
-from app.schemas.applications import AssessmentRun, RankingItem
+from app.schemas.applications import (
+    AssessmentRun,
+    HrCriterionReviewCreate,
+    HrCriterionReviewOut,
+    RankingItem,
+)
 from app.schemas.common import OperationResponse
 
 router = APIRouter()
@@ -114,6 +119,13 @@ async def get_assessment(assessment_id: UUID, current_user: dict = Depends(get_c
                 SELECT evidence_id, verbatim_quote, page_number, verification_status FROM app_private.evidence_items
                 WHERE criterion_result_id = :id ORDER BY created_at
             """), {"id": str(item["result_id"])}).mappings().all()]
+            item["hr_reviews"] = [dict(row) for row in db.execute(text("""
+                SELECT rv.review_id, rv.decision, rv.comment, rv.reviewed_by AS reviewer_user_id,
+                       p.display_name AS reviewer_name, rv.created_at
+                FROM app_private.hr_criterion_reviews rv
+                LEFT JOIN app_private.user_profiles p ON p.user_id = rv.reviewed_by
+                WHERE rv.result_id = :id ORDER BY rv.created_at DESC
+            """), {"id": str(item["result_id"])}).mappings().all()]
             assessment["criterion_results"].append(item)
         return assessment
     finally:
@@ -203,5 +215,64 @@ async def get_latest_ranking(position_id: UUID, current_user: dict = Depends(get
         for item in items:
             item.pop("assessment_id", None)
         return items
+    finally:
+        db.close()
+
+
+@router.post("/results/{result_id}/review", response_model=HrCriterionReviewOut, status_code=status.HTTP_201_CREATED)
+async def review_criterion_result(
+    result_id: UUID,
+    payload: HrCriterionReviewCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    """Record that a reviewer checked one criterion of an assessment.
+
+    This is deliberately separate from ``evidence_items.verification_status``: that
+    column is what the machine found, this is what a person decided. A reviewer
+    who disagrees with the engine does not overwrite its verdict — both are kept.
+
+    No application status changes here, and none may: leaving the "needs
+    verification" queue must never require a recruiting decision.
+    """
+    db = SessionLocal()
+    try:
+        row = db.execute(text("""
+            SELECT r.result_id, r.assessment_id, ar.position_id, ar.application_id
+            FROM app_private.criterion_assessment_results r
+            JOIN app_private.assessment_runs ar ON ar.assessment_id = r.assessment_id
+            WHERE r.result_id = :id
+        """), {"id": str(result_id)}).mappings().first()
+        if not row:
+            raise NotFoundError("Criterion result")
+        position_id = str(row["position_id"])
+        # Same gate as the rest of the HR write paths: active HR on this position,
+        # rechecked under lock so a revocation cannot race the insert.
+        access = application_access(current_user["user_id"], position_id, str(row["application_id"]), db)
+        if not access.get("hr_notes_access"):
+            raise HTTPException(status_code=403, detail="Chỉ HR phụ trách mới có quyền xác minh bằng chứng của vị trí này")
+        review = db.execute(text("""
+            INSERT INTO app_private.hr_criterion_reviews (result_id, app_position_id, decision, comment, reviewed_by)
+            VALUES (:result, :position, :decision, :comment, :user)
+            RETURNING review_id, decision, comment, reviewed_by AS reviewer_user_id, created_at
+        """), {
+            "result": str(result_id),
+            "position": position_id,
+            "decision": payload.decision,
+            "comment": (payload.comment or "").strip() or None,
+            "user": current_user["user_id"],
+        }).mappings().one()
+        db.execute(text("""
+            INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, position_id, outcome)
+            VALUES (:user, 'HR_EVIDENCE_REVIEW', 'CRITERION_RESULT', :result, :position, 'SUCCESS')
+        """), {"user": current_user["user_id"], "result": str(result_id), "position": position_id})
+        db.commit()
+        out = dict(review)
+        name = db.execute(text("SELECT display_name FROM app_private.user_profiles WHERE user_id = :id"),
+                          {"id": current_user["user_id"]}).scalar_one_or_none()
+        out["reviewer_name"] = name
+        return out
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()

@@ -181,6 +181,10 @@ export const assessmentsApi = {
     apiClient.post(`/assessments/ranking/generate/${positionId}`),
   getLatestRanking: (positionId: string) =>
     apiClient.get(`/assessments/ranking/latest/${positionId}`),
+  // The reviewer's own decision about one criterion. Kept apart from the engine's
+  // verification_status: this records a person, a time and a reason.
+  reviewCriterionResult: (resultId: string, decision: 'CONFIRMED' | 'REJECTED', comment?: string) =>
+    apiClient.post(`/assessments/results/${resultId}/review`, { decision, comment }),
 };
 
 export const usersApi = {
