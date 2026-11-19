@@ -640,7 +640,7 @@ export default function ApplicantDetailPage() {
       )}
 
       {/* Side-by-side layout: Evidence on left, CV on right */}
-      <Grid container spacing={3}>
+      <Grid container spacing={3} alignItems="flex-start">
         {/* Left Column: Criteria Assessment & Evidence */}
         <Grid item xs={12} md={6}>
           <Typography variant="h4" sx={{ fontSize: 16, fontWeight: 600, color: '#0A2B57', mb: 2 }}>{t("Kết quả đánh giá theo tiêu chí")}</Typography>
@@ -668,8 +668,28 @@ export default function ApplicantDetailPage() {
           )}
         </Grid>
 
-        {/* Right Column: CV Viewer */}
-        <Grid item xs={12} md={6}>
+        {/* Right Column: CV Viewer.
+            Sticky, because the work is comparing a quote in criterion 3 with page 4
+            of the CV: once the viewer scrolls away the reviewer has to scroll back
+            up for every single criterion. Measured before this change: at the last
+            criterion the viewer sat 637px above the fold while 900px of the right
+            column was empty. Sticky turns the empty column into the CV.
+            Only from md up — on a phone the columns stack and sticky would pin the
+            CV over the evidence it is supposed to be compared with. */}
+        {/* alignSelf stays flex-start: a sticky element can only travel through the
+            gap between its own height and its parent's. Stretching the item to the
+            container's full height leaves zero gap, and sticky then silently behaves
+            like a normal block — which is exactly what the first attempt measured. */}
+        {/* top must clear BOTH the fixed 64px header and the sticky queue bar
+            (76px + 67px ≈ 143px). At top:88 the bar covered the "CV gốc" heading
+            entirely — the viewer was on screen but its own title was not. */}
+        {/* A sticky element stops at its container's bottom edge, and the item's
+            bottom is pinned to that edge — so adding padding here makes the panel
+            climb HIGHER, not lower (measured: 71px before padding, -89px after).
+            The only lever that works is making the panel short enough to fit the
+            space that is left at the last criterion; see card height in
+            CVDocumentViewer. */}
+        <Grid item xs={12} md={6} sx={{ position: { md: 'sticky' }, top: { md: 152 }, alignSelf: { md: 'flex-start' }, pb: { md: 4 } }}>
           <CVDocumentViewer
             cvUrl={cvUrl}
             cvError={cvError}

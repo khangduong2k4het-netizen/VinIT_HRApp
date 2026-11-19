@@ -511,3 +511,30 @@ Operator báo Ubuntu noble arm64 package candidate ClamAV `1.5.4+dfsg-0ubuntu0.2
 - Thêm `frontend/tests/queue-contract.test.cjs`: đọc các mã backend **thực sự phát** từ `workspace.py`, áp đúng phép biến đổi backend dùng (`queue.upper()` — test assert luôn tên phép biến đổi để không đoán), rồi đưa qua `isApplicantQueue` thật của trang. Có case cho link cũ dạng thường (bookmark không chết) và case mã lạ phải bị từ chối.
 - **Kiểm ngược cả hai phía, làm thật:** đổi `'NEEDS_VERIFICATION'` trong mảng queue của FE → backend pytest **đỏ** (`'queue=NEEDS_VERIFICATION' would not filter the ranking page`), hoàn nguyên → 25 passed. Lần phá đầu tiên rơi vào dòng type union nên không đỏ — đúng, vì đó không phải mảng; đã phá lại đúng dòng 46.
 - **Test:** backend 292 passed / 174 skipped, `ruff --select F` sạch trên file đã sửa; FE unit **40** (thêm 3 test hợp đồng).
+
+### 48. UX-04, UX-07 và hai lỗi CSS/dữ liệu thật
+
+**Rà trước khi làm — bốn hạng mục tài liệu đã lỗi thời.** Đo lại thì UX-05 (`?q=` + `?status=` + empty state phân biệt), UX-06 (`Còn thiếu: …`), lazy-load CV (`cvRequested`, **0 request** khi mở hồ sơ) và giữ context qua Prev/Next (`keepContext` + `scrollY`) **đều đã có**. Không làm lại. Cái còn thiếu thật là hai chỗ dưới.
+
+#### UX-04 — CV gốc phải ở lại trong tầm mắt (đây là việc của màn hình review, không phải drawer)
+
+Quyết định **không** làm drawer/split view như GPT đề xuất: trang chi tiết đã là bố cục hai cột, thêm drawer chỉ nhân đôi đường đi. Thay vào đó sửa đúng chỗ đau: khi HR đối chiếu tới tiêu chí thứ 3–4, khung CV đã trôi khỏi màn hình.
+
+- **Đo trước:** cuộn tới tiêu chí 4 → đỉnh khung CV **−637px**, cột phải còn **900px trống**.
+- **Ba nguyên nhân xếp tầng, phải sửa lần lượt:**
+  1. **`html, body { overflow-x: hidden }` vô hiệu hoá MỌI `position: sticky` trong app.** `hidden` ở một trục ép trục kia thành `auto`, biến body thành scroll container; sticky bám vào body mà body cuộn cùng trang nên không bao giờ "dính". Đổi sang **`overflow-x: clip`** (không tạo scroll container). Đã kiểm 8 trang × 3 bề rộng (1440/768/390) — **không trang nào tràn ngang**.
+  2. **Cột CV phải sticky từ `md`** và `alignSelf: flex-start` — thử `stretch` trước: item cao bằng container ⇒ **0px đường đi**, sticky im lặng như block thường.
+  3. **Che khuất:** header cố định 64px + thanh hàng đợi sticky tới **143px**; đặt `top: 88` thì tiêu đề "CV gốc" bị che hoàn toàn. Nâng `top: 152`, và hạ chiều cao khung `calc(100vh - 400px)` để ở tiêu chí cuối nó vẫn nằm dưới thanh. Ghi lại phát hiện ngược đời: **thêm `padding-bottom` làm panel trèo CAO HƠN** (71 → −89px) vì đáy item bị neo vào đáy container — nên bỏ padding, chỉ hạ chiều cao.
+- **Kết quả:** tiêu chí cuối → heading CV ở **151px**, thanh điều hướng hết ở 143px (**không bị che**), khung CV nhìn thấy. Trước: −637px.
+- **E2E `ux04-sticky-viewer`** khoá cả ba nguyên nhân: assert `overflow-x` là `clip`, heading phải **vượt qua** thanh 143px (không chỉ `> 0` — chính cách kiểm lỏng đó để lọt bản bị che), và **0 request CV** khi mở hồ sơ, đúng **1** sau khi bấm "Xem CV gốc".
+- **Kiểm ngược có chạy thật:** đổi `clip` → `hidden` ⇒ e2e **đỏ** đúng thông điệp; hoàn nguyên ⇒ xanh.
+
+#### UX-07 — từ "file lỗi" tới đúng hồ sơ
+
+`cv_batch_items` **đã có** `application_id` từ lâu nhưng `/v1/operations/{id}` không trả ra, và UI chỉ hiện câu chung "Tệp không hợp lệ hoặc vượt giới hạn." ⇒ HR không biết tệp nào có hồ sơ, cũng không biết lỗi vì đâu.
+
+- Backend trả thêm `application_id` và `error_code` (đã có sẵn trong bảng).
+- `frontend/src/lib/invalidFileReason.ts` (hàm thuần, **3 unit test**): dịch cả **mã máy** (`FILE_TOO_LARGE`) lẫn **câu exception tiếng Anh** (`File x is not a valid PDF or DOCX`) sang việc phải làm; lý do lạ → `UNKNOWN`, **không đoán bừa**.
+- `InvalidFileList` dùng chung cho panel tiến trình và trang vị trí: có `application_id` → link thẳng tới hồ sơ; không có → nói rõ "tệp này không tạo hồ sơ, chỉ cần tải lại đúng định dạng" (trước đây HR đi tìm một hồ sơ không tồn tại).
+
+**Test:** backend **292 passed / 174 skipped**, `ruff --select F` sạch; FE unit **43** (10 U5 + 3 hợp đồng queue + 3 lý do tệp lỗi), i18n 3/3, e2e **14/14** (thêm `ux04-sticky-viewer`), tsc/lint/build sạch.

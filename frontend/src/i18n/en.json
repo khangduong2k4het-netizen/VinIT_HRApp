@@ -1450,5 +1450,11 @@
   "Đã đủ bằng chứng và máy đã xác minh — không cần làm gì": "Enough evidence, verified by the engine — nothing to do",
   "Xem trích dẫn trong CV nếu cần — máy chưa đối chiếu tiêu chí này": "Open the quote in the CV if useful — the engine did not verify this criterion",
   "Chưa có bằng chứng rõ ràng — xem CV để kết luận": "No clear evidence — read the CV to decide",
-  "Đã xác minh xong {0} hồ sơ — số trên chỉ tính việc còn lại": "Finished verifying {0} applications — the figure above counts only what is left"
+  "Đã xác minh xong {0} hồ sơ — số trên chỉ tính việc còn lại": "Finished verifying {0} applications — the figure above counts only what is left",
+  "Tệp quá lớn so với giới hạn cho phép.": "The file is larger than the allowed limit.",
+  "Tệp không phải PDF hoặc DOCX đọc được.": "The file is not a readable PDF or DOCX.",
+  "Tệp rỗng hoặc không đọc được nội dung.": "The file is empty or unreadable.",
+  "Tệp không hợp lệ.": "The file is not valid.",
+  "Hồ sơ đã được tạo nhưng cần HR kiểm tra — mở hồ sơ": "An application was created but needs HR review — open it",
+  "Tệp này không tạo hồ sơ — chỉ cần tải lại đúng định dạng.": "This file did not create an application — just upload it again in the right format."
 }

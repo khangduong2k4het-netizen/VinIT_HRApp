@@ -50,6 +50,7 @@ import WorkflowStepper from '@/components/workflow/WorkflowStepper';
 import NextActionCard from '@/components/workflow/NextActionCard';
 import PositionSummary from '@/components/workflow/PositionSummary';
 import OperationProgressPanel from '@/components/workflow/OperationProgressPanel';
+import InvalidFileList from '@/components/workflow/InvalidFileList';
 import CVIntakePanel from '@/components/positions/CVIntakePanel';
 import ApplyRubric from '@/components/positions/ApplyRubric';
 import HiringManagerChange from './HiringManagerChange';
@@ -593,7 +594,7 @@ export default function PositionDetailPage() {
 
       {/* Processing status — shared operation progress */}
       {operationStatus && operationStatus.status !== 'COMPLETED' && operationStatus.status !== 'FAILED' && (
-        <OperationProgressPanel operation={operationStatus} processingCount={appCounts?.processing} />
+        <OperationProgressPanel operation={operationStatus} processingCount={appCounts?.processing} positionId={positionId} />
       )}
 
       {/* Background CV processing (no single operation, worker still parsing files) */}
@@ -614,9 +615,7 @@ export default function PositionDetailPage() {
           {operationStatus.progress?.total && !operationStatus.progress?.processed
             ? t("Không có tệp nào được xử lý thành công.") : t("Đã hoàn tất xử lý và cập nhật kết quả.")}
           {operationStatus.progress?.failed ? t(" Có {0} tệp cần kiểm tra.", operationStatus.progress.failed) : ''}
-          {(operationStatus.progress?.invalid_files || []).map((file: any, index: number) => (
-            <Typography key={`${file.original_filename}-${index}`} variant="caption" display="block">{file.original_filename}: {t("Tệp không hợp lệ hoặc vượt giới hạn.")}</Typography>
-          ))}
+          <InvalidFileList files={operationStatus.progress?.invalid_files || []} positionId={positionId} />
         </Alert>
       )}
 

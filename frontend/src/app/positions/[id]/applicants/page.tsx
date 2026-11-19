@@ -579,7 +579,7 @@ export default function ApplicantsRankingPage() {
 
       {/* Operation progress */}
       {operationStatus && operationStatus.status && operationStatus.status !== 'COMPLETED' && operationStatus.status !== 'FAILED' && (
-        <OperationProgressPanel operation={operationStatus} />
+        <OperationProgressPanel operation={operationStatus} positionId={positionId} />
       )}
 
       {loading && loadingProgress != null && <Alert severity="info" sx={{ mb: 3 }} icon={<CircularProgress size={18} />}>{t("Đang tải danh sách ứng viên theo trang: {0} hồ sơ. Bộ lọc và xếp hạng áp dụng sau khi tải xong.", loadingProgress)}</Alert>}

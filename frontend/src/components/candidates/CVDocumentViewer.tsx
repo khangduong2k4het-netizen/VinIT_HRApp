@@ -45,7 +45,14 @@ export default function CVDocumentViewer({ cvUrl, cvError, isPdf, canViewCv, sel
         </Box>
       </Box>
 
-      <Card sx={{ height: 'calc(100vh - 250px)', minHeight: 420, overflow: 'auto' }}>
+      {/* Height is bounded by where the panel may sit, not by taste. The panel
+          sticks at top:152 and the criteria column ends 777px down the viewport
+          when the last criterion is on screen; the heading row (34px) plus this
+          card must fit inside that 625px, or sticky pins the bottom to the
+          container edge and pushes the title up under the queue bar (bar ends at
+          143px). 400 = 152 + heading + grid padding, with enough slack that the title
+          clears the bar at the last criterion instead of ducking under it. */}
+      <Card sx={{ height: 'calc(100vh - 400px)', minHeight: 360, overflow: 'auto' }}>
         <CardContent sx={{ p: 0, height: '100%' }}>
           {cvUrl && isPdf ? (
             <Box sx={{ height: '100%', backgroundColor: '#525659', padding: 2 }}>

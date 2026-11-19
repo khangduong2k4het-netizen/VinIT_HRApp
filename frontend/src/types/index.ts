@@ -159,7 +159,8 @@ export interface OperationProgress {
   processed: number;
   failed: number;
   percent_complete: number;
-  invalid_files?: Array<{ original_filename: string; error_code?: string }>;
+  /** `application_id` is present when the rejected file still created a profile. */
+  invalid_files?: Array<{ original_filename: string; error_code?: string; application_id?: string | null }>;
 }
 
 export interface OperationStatus {

@@ -3,15 +3,18 @@
 import * as React from 'react';
 import { Alert, Box, Card, CardContent, CircularProgress, LinearProgress, Typography } from '@mui/material';
 import { useI18n } from '@/i18n/I18nProvider';
+import InvalidFileList from '@/components/workflow/InvalidFileList';
 import { localizeServerMessage } from '@/i18n/serverMessages';
 import type { OperationStatus } from '@/types';
 
 interface OperationProgressPanelProps {
   operation: OperationStatus;
   processingCount?: number;
+  /** Needed so a rejected file that still produced an application can link to it. */
+  positionId?: string;
 }
 
-export default function OperationProgressPanel({ operation, processingCount }: OperationProgressPanelProps) {
+export default function OperationProgressPanel({ operation, processingCount, positionId }: OperationProgressPanelProps) {
   const { t, locale } = useI18n();
   const status = operation.status || '';
   const isAssessment = operation.stage === 'ASSESSMENT' || operation.capability === 'ASSESSMENT' || operation.capability === 'RANKING';
@@ -61,15 +64,7 @@ export default function OperationProgressPanel({ operation, processingCount }: O
             ) : (
               <Typography variant="caption" color="text.secondary">{t("Hệ thống đang cập nhật tiến trình.")}</Typography>
             )}
-            {(progress?.invalid_files || []).length > 0 && (
-              <Box sx={{ mt: 1 }}>
-                {progress!.invalid_files!.map((file, index) => (
-                  <Typography key={`${file.original_filename}-${index}`} variant="caption" display="block" color="error.main">
-                    {file.original_filename}: {t("Tệp không hợp lệ hoặc vượt giới hạn.")}
-                  </Typography>
-                ))}
-              </Box>
-            )}
+            <InvalidFileList files={progress?.invalid_files || []} positionId={positionId} />
           </Box>
         </Box>
       </CardContent>

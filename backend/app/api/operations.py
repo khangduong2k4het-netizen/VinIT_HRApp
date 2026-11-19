@@ -39,8 +39,11 @@ async def get_operation_status(operation_id: UUID, current_user: dict = Depends(
                 total = batch["total_files"] or 0
                 processed = batch["processed_files"] or 0
                 failed = batch["failed_files"] or 0
+                # application_id is the point of this list: a rejected file with a
+                # row behind it can be opened directly. Without it HR sees only a
+                # filename and has to go hunting in the ranking page.
                 invalid = db.execute(text("""
-                    SELECT original_filename, error_code FROM app_private.cv_batch_items
+                    SELECT original_filename, error_code, application_id FROM app_private.cv_batch_items
                     WHERE batch_id = (SELECT batch_id FROM app_private.cv_batches WHERE operation_id = :operation_id LIMIT 1)
                       AND validation_result = 'ERROR' ORDER BY created_at
                 """), {"operation_id": str(operation_id)}).mappings().all()
