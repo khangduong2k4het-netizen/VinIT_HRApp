@@ -1,5 +1,6 @@
 """Integration tests against real PostgreSQL with mocked external AI only."""
 import io
+import json
 import os
 from uuid import uuid4
 
@@ -2956,13 +2957,8 @@ def test_work_queue_reports_a_passed_deadline_and_waiting_times(client, seed):
 
 def test_hr_settings_round_trip_and_reach_the_work_queue(client, seed):
     """Bảng settings thật trên Postgres: đọc, ghi, validate và ảnh hưởng tới work queue."""
-    # Mặc định lấy từ migration, không phải từ code.
-    body = client.get("/v1/admin/settings", headers=headers(seed["hr"])).json()
-    by_key = {item["key"]: item for item in body["settings"]}
-    assert by_key["deadline_soon_days"]["value"] == 7
-    assert by_key["waiting_attention_days"]["min"] == 1 and by_key["waiting_attention_days"]["max"] == 90
-
-    # Chỉ ADMIN đổi được: HR_RECRUITER bị từ chối.
+    # Chỉ ADMIN đọc/ghi được: HR_RECRUITER chưa có role ADMIN bị từ chối ở cả hai.
+    assert client.get("/v1/admin/settings", headers=headers(seed["hr"])).status_code == 403
     assert client.patch(
         "/v1/admin/settings/deadline_soon_days", headers=headers(seed["hr"]), json={"value": 5}
     ).status_code == 403
@@ -3005,7 +3001,14 @@ def test_hr_settings_round_trip_and_reach_the_work_queue(client, seed):
     )
     assert too_big.status_code == 400
     assert "1–60" in too_big.json()["detail"]
-    assert client.get("/v1/admin/settings", headers=headers(seed["hr"])).json()["settings"][0]["value"] == 14
+    after = {item["key"]: item["value"] for item in client.get("/v1/admin/settings", headers=headers(seed["hr"])).json()["settings"]}
+    assert after["deadline_soon_days"] == 14, "400 thì không được ghi gì"
+
+    # Mặc định đọc lên từ migration, không phải từ hằng số trong code.
+    by_key = {item["key"]: item for item in client.get("/v1/admin/settings", headers=headers(seed["hr"])).json()["settings"]}
+    assert by_key["deadline_soon_days"]["value"] == 14, "giá trị vừa lưu phải là giá trị đọc lại được"
+    assert by_key["waiting_attention_days"]["value"] == 7
+    assert by_key["waiting_attention_days"]["min"] == 1 and by_key["waiting_attention_days"]["max"] == 90
 
     # Khoá lạ: 400, không tạo dòng mới.
     unknown = client.patch(
@@ -3018,5 +3021,8 @@ def test_hr_settings_round_trip_and_reach_the_work_queue(client, seed):
             SELECT metadata FROM app_private.audit_events
             WHERE action_type = 'UPDATE_APP_SETTING' ORDER BY created_at DESC LIMIT 1
         """)).scalar_one()
-        assert audit["key"] == "deadline_soon_days"
-        assert audit["from"] == 7 and audit["to"] == 14, "nhật ký phải ghi cả giá trị cũ và mới"
+        # jsonb: SQLAlchemy trả dict, nhưng chấp nhận cả chuỗi JSON để test không
+        # phụ thuộc vào driver.
+        record = audit if isinstance(audit, dict) else json.loads(audit)
+        assert record["key"] == "deadline_soon_days"
+        assert record["from"] == 7 and record["to"] == 14, "nhật ký phải ghi cả giá trị cũ và mới"
