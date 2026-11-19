@@ -1,0 +1,23 @@
+JD THỬ NGHIỆM — KỸ SƯ QA AUTOMATION
+
+Tài liệu tổng hợp cho buổi demo HRA. Đây không phải tin tuyển dụng thật.
+
+Mục tiêu
+Đảm bảo chất lượng sản phẩm web và API thông qua chiến lược kiểm thử thực tế và tự động hóa phù hợp.
+
+Công việc chính
+- Phân tích yêu cầu, thiết kế test case và dữ liệu kiểm thử.
+- Xây dựng kiểm thử API và giao diện bằng công cụ phù hợp.
+- Theo dõi lỗi, mô tả bước tái hiện và phối hợp với lập trình viên.
+- Duy trì test regression và báo cáo kết quả rõ ràng.
+
+Yêu cầu bắt buộc
+- Có kiến thức kiểm thử phần mềm và theo dõi lỗi.
+- Có trải nghiệm kiểm thử API, SQL cơ bản và một ngôn ngữ lập trình.
+- Biết xây dựng test case và phối hợp nhóm.
+
+Ưu tiên
+- Python/pytest, Playwright, CI, kiểm thử dữ liệu.
+
+Điều kiện thử nghiệm
+Thông tin vị trí, tổ chức và hồ sơ trong bộ này là giả. HR chọn đơn vị và HM thử nghiệm, đặt trạng thái OPEN và hạn nộp trong tương lai. Mã vị trí do hệ thống tạo.

@@ -1,0 +1,24 @@
+MẪU EMAIL GIẢ — KHÔNG GỬI CV THẬT
+
+THƯ HỢP LỆ
+Người nhận: hộp Gmail thử nghiệm riêng của anh (không dùng địa chỉ bên dưới làm người nhận).
+Tiêu đề: [HRA-TEST] <MÃ-VỊ-TRÍ-BACKEND-THỰC-TẾ> Hồ sơ thử nghiệm Chi
+Nội dung:
+Chào bộ phận tuyển dụng thử nghiệm,
+Đây là email và hồ sơ hoàn toàn giả để kiểm tra luồng Gmail HRA.
+Trân trọng,
+Ứng viên giả Chi
+Đính kèm: duy nhất tệp CV_03_Chi_Gmail.docx.
+Sau khi thư tới, gắn nhãn HRA_TEST cho đúng thư trong hộp Gmail thử nghiệm.
+
+THƯ CẦN REVIEW — gửi thư mới riêng, không đính kèm tệp
+Tiêu đề: [HRA-TEST] <MÃ-VỊ-TRÍ-BACKEND-THỰC-TẾ> Thử thiếu tệp
+Nội dung: Email hoàn toàn giả để kiểm tra trạng thái cần HR xử lý.
+Đính kèm: không có.
+Gắn nhãn HRA_TEST. Khi nguyên nhân là nội dung sai, nút Thử lại không thể tự sửa thư; gửi một thư giả mới nếu muốn nhận hồ sơ.
+
+QUAN TRỌNG
+- Thay <MÃ-VỊ-TRÍ-BACKEND-THỰC-TẾ> bằng đúng một mã do HRA sinh, ví dụ minh họa REQ-IT-001 (không tự giả định mã thật là ví dụ này). Không dùng dấu <>.
+- Đúng tiền tố [HRA-TEST] theo sau bởi một dấu cách. Không đặt thêm mã vị trí khác trong tiêu đề.
+- Chỉ dùng Gmail test riêng và CV giả. Tạo nhãn/đính kèm/gửi bằng Gmail; HRA không tự sửa hoặc xóa thư.
+- HRA dùng danh tính giữ chỗ Gmail thử nghiệm / gmail-test@example.test khi nhập. HR có thể xác nhận tên/email giả sau khi worker hoàn tất. Không suy ra người gửi thật hay consent Talent Pool từ email.

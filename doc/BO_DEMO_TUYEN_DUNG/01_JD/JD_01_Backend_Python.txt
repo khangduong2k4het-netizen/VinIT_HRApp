@@ -1,0 +1,26 @@
+JD THỬ NGHIỆM — CHUYÊN VIÊN BACKEND PYTHON
+
+Tài liệu tổng hợp cho buổi demo HRA. Đây không phải tin tuyển dụng thật; không sử dụng thông tin cá nhân thực tế.
+
+Mục tiêu
+Xây dựng API và dịch vụ backend cho hệ thống quản lý dữ liệu, phối hợp với HR và các nhóm kỹ thuật để cung cấp luồng xử lý ổn định, có kiểm thử và bảo vệ dữ liệu.
+
+Công việc chính
+- Xây dựng và bảo trì API REST bằng Python và FastAPI.
+- Thiết kế truy vấn PostgreSQL, xử lý giao dịch và kiểm soát dữ liệu đầu vào.
+- Viết unit test, integration test và đọc log để tìm nguyên nhân lỗi.
+- Phối hợp review mã, tài liệu hóa API và trao đổi yêu cầu với nhóm sản phẩm.
+- Tuân thủ nguyên tắc phân quyền, giảm thiểu dữ liệu nhạy cảm và quản lý bí mật.
+
+Yêu cầu bắt buộc
+- Có trải nghiệm phát triển ứng dụng bằng Python.
+- Hiểu API HTTP/REST và có trải nghiệm với một framework web Python.
+- Có trải nghiệm SQL và cơ sở dữ liệu quan hệ.
+- Biết viết kiểm thử và phối hợp làm việc trong nhóm.
+
+Ưu tiên
+- FastAPI, PostgreSQL, Docker hoặc triển khai qua CI.
+- Đã xử lý hàng đợi tác vụ hoặc tích hợp dịch vụ bên ngoài.
+
+Điều kiện thử nghiệm
+Mọi thông tin vị trí, tổ chức và hồ sơ trong gói này là giả. HR chọn phòng ban và HM thử nghiệm phù hợp, đặt trạng thái OPEN và hạn nộp sau thời điểm demo. Mã vị trí do hệ thống tạo; không tự nhập mã từ ví dụ.

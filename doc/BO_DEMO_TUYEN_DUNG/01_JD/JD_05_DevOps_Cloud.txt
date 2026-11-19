@@ -1,0 +1,23 @@
+JD THỬ NGHIỆM — KỸ SƯ DEVOPS VÀ CLOUD
+
+Tài liệu tổng hợp cho buổi demo HRA. Đây không phải tin tuyển dụng thật.
+
+Mục tiêu
+Hỗ trợ triển khai và vận hành dịch vụ IT ổn định, có thể quan sát và tái lập trong môi trường cloud.
+
+Công việc chính
+- Xây dựng pipeline CI/CD, đóng gói ứng dụng bằng Docker.
+- Quản lý cấu hình và hỗ trợ triển khai dịch vụ Linux/cloud.
+- Theo dõi logs, metrics, xử lý sự cố và lập tài liệu vận hành.
+- Phối hợp với nhóm phát triển để cải thiện tính ổn định.
+
+Yêu cầu bắt buộc
+- Có trải nghiệm Linux, Git và một ngôn ngữ script.
+- Hiểu container, pipeline CI/CD và kiến thức mạng cơ bản.
+- Biết đọc logs, kiểm tra sự cố và phối hợp nhóm.
+
+Ưu tiên
+- AWS hoặc cloud tương đương, Terraform, Kubernetes, Python.
+
+Điều kiện thử nghiệm
+Thông tin vị trí, tổ chức và hồ sơ trong bộ này là giả. HR chọn đơn vị và HM thử nghiệm, đặt trạng thái OPEN và hạn nộp trong tương lai. Mã vị trí do hệ thống tạo.

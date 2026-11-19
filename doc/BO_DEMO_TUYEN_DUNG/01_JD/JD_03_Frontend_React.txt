@@ -1,0 +1,23 @@
+JD THỬ NGHIỆM — LẬP TRÌNH VIÊN FRONTEND REACT
+
+Tài liệu tổng hợp cho buổi demo HRA. Đây không phải tin tuyển dụng thật.
+
+Mục tiêu
+Phát triển giao diện web cho ứng dụng nghiệp vụ, phối hợp với thiết kế và backend để mang lại trải nghiệm nhất quán.
+
+Công việc chính
+- Phát triển giao diện bằng React và TypeScript; kết nối API REST.
+- Xây dựng biểu mẫu có kiểm tra dữ liệu, trạng thái tải và xử lý lỗi.
+- Viết kiểm thử giao diện, tối ưu khả năng truy cập và responsive.
+- Phối hợp review mã, làm việc với thiết kế và backend.
+
+Yêu cầu bắt buộc
+- Có trải nghiệm JavaScript/TypeScript và React.
+- Hiểu HTML, CSS, HTTP và cách kết nối API.
+- Biết kiểm thử, quản lý phiên bản Git và phối hợp nhóm.
+
+Ưu tiên
+- Next.js, kiểm thử React, accessibility, thiết kế component.
+
+Điều kiện thử nghiệm
+Thông tin vị trí, tổ chức và hồ sơ trong bộ này là giả. HR chọn đơn vị và HM thử nghiệm, đặt trạng thái OPEN và hạn nộp trong tương lai. Mã vị trí do hệ thống tạo.
