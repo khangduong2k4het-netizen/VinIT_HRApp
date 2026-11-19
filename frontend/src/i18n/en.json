@@ -1565,5 +1565,7 @@
   "Nhận hồ sơ công khai qua trang /apply": "Accept public applications through /apply",
   "Ứng viên có thể nộp CV tại": "Candidates can submit a CV at",
   "Vị trí không ở trạng thái Đang mở nên chưa hiện trên trang /apply.": "The position is not Open, so it does not appear on /apply yet.",
-  "Cổng /apply đang tắt trên server (PUBLIC_INTAKE_ENABLED=false), nên ứng viên chưa nộp được dù đã bật ở đây.": "The /apply portal is off on the server (PUBLIC_INTAKE_ENABLED=false), so candidates cannot apply even with this switched on."
+  "Cổng /apply đang tắt trên server (PUBLIC_INTAKE_ENABLED=false), nên ứng viên chưa nộp được dù đã bật ở đây.": "The /apply portal is off on the server (PUBLIC_INTAKE_ENABLED=false), so candidates cannot apply even with this switched on.",
+  "Nội dung đăng tuyển (hiện cho ứng viên)": "Posting content (shown to candidates)",
+  "Giới thiệu, quyền lợi, hạn nộp… Hiện cùng JD trên trang tuyển dụng; không dùng để chấm điểm.": "Introduction, benefits, deadline… Shown with the JD on the careers site; never used for scoring."
 }

@@ -69,6 +69,7 @@ export default function PositionsPage() {
     hiring_manager_user_id: '',
     job_family_id: '',
     level: '',
+    posting_content: '',
   });
   // Import a JD draft from a public job-posting link.
   const [jdUrl, setJdUrl] = useState('');
@@ -117,10 +118,11 @@ export default function PositionsPage() {
         hiring_manager_user_id: formData.hiring_manager_user_id,
         ...(formData.job_family_id ? { job_family_id: formData.job_family_id } : {}),
         ...(formData.level.trim() ? { level: formData.level.trim() } : {}),
+        ...(formData.posting_content.trim() ? { posting_content: formData.posting_content.trim() } : {}),
       };
       await positionsApi.create(payload);
       setCreateDialogOpen(false);
-      setFormData({ department_id: '', title: '', jd_content: '', hiring_manager_user_id: '', job_family_id: '', level: '' });
+      setFormData({ department_id: '', title: '', jd_content: '', hiring_manager_user_id: '', job_family_id: '', level: '', posting_content: '' });
       setJdUrl(''); setJdImportResult(null); setJdImportError(null);
       setHmSelectedName('');
       setHmSearchQuery('');
@@ -144,6 +146,7 @@ export default function PositionsPage() {
       setFormData(prev => ({
         ...prev,
         jd_content: data.jd_content || prev.jd_content,
+        posting_content: data.posting_content || prev.posting_content,
         title: prev.title.trim() ? prev.title : (data.title || ''),
       }));
       setJdImportResult(data);
@@ -549,6 +552,18 @@ export default function PositionsPage() {
                 onChange={(e) => setFormData({ ...formData, jd_content: e.target.value })}
                 placeholder="Paste full JD content here..."
                 helperText={t("Sau khi tạo, bạn có thể yêu cầu AI đề xuất bản nháp tiêu chí từ JD")}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                label={t("Nội dung đăng tuyển (hiện cho ứng viên)")}
+                fullWidth
+                multiline
+                rows={5}
+                inputProps={{ maxLength: 20000 }}
+                value={formData.posting_content}
+                onChange={(e) => setFormData({ ...formData, posting_content: e.target.value })}
+                helperText={t("Giới thiệu, quyền lợi, hạn nộp… Hiện cùng JD trên trang tuyển dụng; không dùng để chấm điểm.")}
               />
             </Grid>
           </Grid>

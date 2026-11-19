@@ -32,6 +32,7 @@ export interface Position {
   department_code_format?: string;
   department_sequence?: number;
   level?: string;
+  posting_content?: string | null;
   work_location?: string;
   work_mode?: string;
   employment_type?: string;

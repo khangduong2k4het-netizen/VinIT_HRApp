@@ -30,6 +30,9 @@ class PositionBase(BaseSchema):
     work_mode: Optional[str] = None  # Remote, Hybrid, On-site
     employment_type: Optional[str] = None  # Full-time, Contract, etc.
     headcount: Optional[int] = Field(default=1, ge=1)
+    # F3.03: candidate-facing posting text (intro, benefits, deadline). Shown on the
+    # candidate website next to the JD; never used for screening.
+    posting_content: Optional[str] = Field(default=None, max_length=20000)
 
 
 class PositionCreate(PositionBase):
@@ -54,6 +57,7 @@ class PositionUpdate(BaseSchema):
     level: Optional[str] = Field(default=None, max_length=100)
     work_location: Optional[str] = None
     work_mode: Optional[str] = None
+    posting_content: Optional[str] = Field(default=None, max_length=20000)
 
 
 class PositionStatusEvent(BaseModel):

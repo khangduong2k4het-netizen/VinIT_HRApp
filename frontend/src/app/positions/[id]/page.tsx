@@ -184,6 +184,7 @@ export default function PositionDetailPage() {
   const [families, setFamilies] = useState<JobFamily[]>([]);
   const [positionFamilyId, setPositionFamilyId] = useState('');
   const [positionLevel, setPositionLevel] = useState('');
+  const [positionPosting, setPositionPosting] = useState('');
   const [creatingVersion, setCreatingVersion] = useState(false);
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [templateMatches, setTemplateMatches] = useState<TemplateMatch[]>([]);
@@ -441,6 +442,7 @@ export default function PositionDetailPage() {
         ...(statusChanged && positionStatusReason.trim() ? { status_reason: positionStatusReason.trim() } : {}),
         ...(positionFamilyId && positionFamilyId !== position?.job_family_id ? { job_family_id: positionFamilyId } : {}),
         ...(positionLevel.trim() !== (position?.level || '') ? { level: positionLevel.trim() } : {}),
+        ...(positionPosting.trim() !== (position?.posting_content || '').trim() ? { posting_content: positionPosting.trim() } : {}),
       });
       setPositionDialogOpen(false);
       await loadData();
@@ -511,6 +513,7 @@ export default function PositionDetailPage() {
     if (!position) return;
     setPositionTitle(position.title); setPositionStatus(position.status); setPositionStatusReason('');
     setPositionFamilyId(position.job_family_id || ''); setPositionLevel(position.level || '');
+    setPositionPosting(position.posting_content || '');
     setPositionEditError(null); setPositionDialogOpen(true);
     if (!families.length) {
       try { setFamilies((await rubricApi.listFamilies()).data || []); } catch { setFamilies([]); }
@@ -1289,6 +1292,9 @@ export default function PositionDetailPage() {
             </TextField>
             <TextField fullWidth label={t("Cấp bậc")} value={positionLevel} inputProps={{ maxLength: 100 }}
               onChange={e => setPositionLevel(e.target.value)} />
+            <TextField fullWidth multiline minRows={4} maxRows={12} label={t("Nội dung đăng tuyển (hiện cho ứng viên)")}
+              value={positionPosting} inputProps={{ maxLength: 20000 }} onChange={e => setPositionPosting(e.target.value)}
+              helperText={t("Giới thiệu, quyền lợi, hạn nộp… Hiện cùng JD trên trang tuyển dụng; không dùng để chấm điểm.")} />
             <FormControl fullWidth>
               <InputLabel id="position-status-label">{t("Trạng thái vị trí")}</InputLabel>
               <Select labelId="position-status-label" label={t("Trạng thái vị trí")} value={positionStatus}
