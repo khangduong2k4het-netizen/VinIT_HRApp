@@ -125,3 +125,74 @@ sudo -u ubuntu backend/.venv/bin/python backend/scripts/check_test_scanners.py \
 - HANG-01 không được làm giảm an toàn khi chạy thật: mọi thay đổi phải giữ
   fail-closed cho môi trường production, chỉ mở đường "nhận vào hàng chờ" khi có
   cờ test bật rõ ràng.
+
+---
+
+## HANG-04 — Sinh tiêu chí chạy đồng bộ trong request (A và B)
+
+**Trạng thái:** hoãn có điều kiện (2026-11-19), sau khi luồng tạo vị trí chạy
+thành công trên VPS. **Không phải việc gấp.**
+
+### Vấn đề
+
+`POST /criteria/generate/{position_id}` khai báo `202 ACCEPTED` nhưng chạy LLM
+ngay trong request. Cấu hình hiện tại có thể khiến một request kéo rất dài:
+
+- `timeout=120s` mỗi lần gọi (`llm_client.py:530`)
+- retry 3 lần (`stop_after_attempt(3)`, `llm_client.py:413`)
+- tối đa 4 route (primary + 3 fallback, `llm_client.py:380`)
+
+Trường hợp xấu nhất là hàng chục phút cho một request. Đây là gốc của nhóm lỗi
+"không biết kết quả" đã gặp.
+
+### Vì sao hoãn
+
+Sau khi sửa hai lỗi serialize (`88c13cc`) và trang chịu lỗi từng phần
+(`6395669`), luồng đã chạy được trên VPS. Ở quy mô hiện tại (1 người tạo vị trí,
+1 request mỗi lần) rủi ro còn lại chỉ là **thời gian chờ**, không phải mất dữ
+liệu: vị trí luôn được lưu trước, tiêu chí hoặc có hoặc sinh lại được.
+
+### Bước A — không làm
+
+Gồm: hạ timeout 120s → ~45s, hoặc giảm retry 3 → 2, hoặc đặt `LLM_SEED` cố định.
+
+**Lý do bỏ:** đây là cấu hình dùng chung cho **mọi tác vụ AI** (trích CV, chấm
+điểm, sinh tiêu chí). Hạ ngưỡng để chữa một luồng có thể làm CV dài hỏng ở luồng
+khác — đánh đổi không tương xứng, và không sửa được nguyên nhân.
+
+### Bước B — điều kiện để bắt tay vào
+
+Chỉ làm khi gặp **một trong hai** dấu hiệu sau, vì đó là lúc lợi ích thật:
+
+1. HR thực sự gặp request bị cắt/504 khi sinh tiêu chí (không phải chỉ chậm).
+2. Cần sinh tiêu chí **hàng loạt** — nhập nhiều vị trí một lúc, hoặc sinh lại
+   cho toàn bộ vị trí sau khi đổi JD.
+
+Nếu chỉ chậm mà vẫn ra kết quả thì **không cần làm gì**.
+
+### Hướng đã thống nhất khi làm
+
+Thêm capability `CRITERIA_GENERATION` vào worker có sẵn:
+
+- Endpoint trả `operation_id` ngay, không chờ LLM.
+- Dùng lại `OperationProgressPanel` đã có cho CV processing.
+- Popup của trang tạo vị trí giữ nguyên, chỉ đổi nguồn dữ liệu sang theo dõi
+  operation thay vì chờ một request dài.
+
+**Quy mô thật:** `app/workers/processor.py` là **1.761 dòng**, 23 hàm, dùng
+advisory lock + `FencedSession` + heartbeat + phân trang queue. Nó được thiết kế
+cho CV processing (nhiều tệp, chạy hàng phút), không phải một job ~20 giây. Phải
+sửa: claim query, dispatch, `_load_operations`, và có thể cần migration.
+
+### Rủi ro cần xử lý khi làm
+
+`LLM_SEED` mặc định `None` → retry không tất định, 3 lần thử có thể cho 3 kết quả
+khác nhau. Với luồng đồng bộ đây chỉ là "thử lại chậm"; với luồng nền thì khó tái
+hiện lỗi hơn nhiều. Nên đặt seed cố định **trong phạm vi capability này**, không
+đổi toàn cục.
+
+### Bài học giữ lại
+
+Khi một endpoint dài bị cắt, response **không có `detail`** — giao diện phải hỏi
+lại server thay vì đoán. Đã làm ở `frontend/src/lib/criteriaGeneration.ts`.
+Chi tiết chẩn đoán: `doc/CHAN_DOAN_TAO_TIEU_CHI.md`.
