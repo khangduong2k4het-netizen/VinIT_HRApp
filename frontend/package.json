@@ -12,7 +12,10 @@
     "test:unit": "node --test tests/workspace-ui.test.cjs tests/synthetic-intake.test.cjs",
     "test:e2e:synthetic": "node tests/synthetic-ui.e2e.cjs",
     "test:e2e:accounts": "node tests/account-ui.e2e.cjs",
-    "test:e2e:intake-mock": "node tests/intake-ui.e2e.cjs"
+    "test:e2e:intake-mock": "node tests/intake-ui.e2e.cjs",
+    "test:e2e:workflow-mock": "node tests/workflow-create-mock.e2e.cjs",
+    "test:e2e:shortlist-mock": "node tests/shortlist-filter-mock.e2e.cjs && node tests/shortlist-workspace-mock.e2e.cjs",
+    "test:e2e:applicants-mock": "node tests/applicants-large-list-mock.e2e.cjs"
   },
   "dependencies": {
     "@emotion/cache": "11.14.0",
