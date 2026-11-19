@@ -91,7 +91,7 @@ curl --max-time 5 -fsS http://127.0.0.1:8012/health/ready 2>/dev/null || curl --
 1. Sao lưu/ghi lại phiên bản đang chạy (commit, `pm2 list`) để rollback. Không dump `.env`, không đổi cấu hình Supabase.
 2. `git fetch origin arena/ea6e2570-vinit-hrapp && git checkout db81b61` (hoặc merge theo quy trình của anh). Migration 00032 **đã áp trên Supabase**, không chạy lại `supabase db push`; kiểm tra `to_regclass('app_private.position_create_requests')` vẫn khác NULL.
 3. Build lại frontend (`npm ci && npm run build` trong `frontend`) và cài lại backend (`pip install -e './backend[dev]'` nếu dùng) trước khi restart `hra-backend` / `hra-frontend`. Không đụng `fastapi-backend`/`nextjs-dashboard`.
-4. Kiểm tra sau deploy: `health/ready`, trang `/positions` 200, tạo một vị trí **già lập** rồi gửi lại cùng `request_id` để thấy header `Idempotent-Replay: true` (hoặc `Idempotent-Replay` không có nghĩa là lỗi), mở `/shortlist/<share>` bằng tài khoản HM thử.
+4. Kiểm tra sau deploy: `health/ready`, trang `/positions` 200, tạo một vị trí **già lập** rồi gửi lại cùng `request_id` và xác nhận phản hồi 200 có header `Idempotent-Replay: true`, cùng `position_id` và không sinh mã vị trí mới, mở `/shortlist/<share>` bằng tài khoản HM thử.
 5. Chỉ sau bước 4 mới chạy E2E hai vai trò với dữ liệu trong `BO_DEMO_TUYEN_DUNG` và ghi kết quả vào `Update_Excute_P2.md`.
 
 Lưu ý: code mới gửi `request_id` khi trình duyệt có secure context. Truy cập HTTP qua IP công khai thì trình duyệt không có `crypto.randomUUID()`, nên UI bỏ `request_id` và **không** có bảo vệ chống trùng phía server trong môi trường demo HTTP; chỉ kiểm tra danh sách trước khi thử lại.
