@@ -74,7 +74,10 @@ def test_qa_storage_rejects_paths_outside_bucket(tmp_path, monkeypatch):
     bucket.mkdir()
     secret = tmp_path / 'secret'
     secret.write_text('private')
-    (bucket / 'link').symlink_to(secret)
+    try:
+        (bucket / 'link').symlink_to(secret)
+    except (OSError, NotImplementedError):
+        pytest.skip('symlinks unavailable (no privilege on this OS account)')
     with pytest.raises(HTTPException):
         read_storage(settings.SUPABASE_STORAGE_BUCKET_CV, 'link')
 
