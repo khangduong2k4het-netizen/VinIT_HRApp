@@ -1548,5 +1548,18 @@
   "Thử tải lại cảnh báo trùng": "Retry loading duplicate warnings",
   "Chưa có cặp hồ sơ đối ứng trong danh sách cảnh báo.": "No matching application in the duplicate warnings.",
   "Trùng với:": "Duplicates:",
-  "Mở hồ sơ đối ứng {0}": "Open the matching application {0}"
+  "Mở hồ sơ đối ứng {0}": "Open the matching application {0}",
+  "Cần tôi xử lý": "Needs my action",
+  "Cần tôi quyết": "Needs my decision",
+  "Đã quyết": "Decided",
+  "Chạy đánh giá": "Run assessment",
+  "Đánh giá & HR rà soát": "Assessment & HR review",
+  "Một số hồ sơ đã sẵn sàng nhưng chưa được đánh giá.": "Some applications are ready but have not been assessed yet.",
+  "Điểm phù hợp cao nhất": "Highest fit score",
+  "Mức phù hợp": "Fit level",
+  "Đã đánh giá": "Assessed",
+  "{0} việc": "{0} tasks",
+  "{0} hồ sơ đã xác minh xong": "{0} applications verified",
+  "Chưa có hồ sơ nào được xác minh xong.": "No application has been fully verified yet.",
+  "Không có việc nào trong nhóm này.": "No tasks in this group."
 }

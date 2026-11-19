@@ -78,6 +78,8 @@ const applications = ranking.map((item, index) => ({
     // criterion asked for. Not part of what this test checks, but it must not be
     // reported as an unexpected call.
     if (p === '/v1/criteria/position/p1/approved') return json(r, { criteria: [] });
+    // The ranking page loads duplicate signals by itself when a row is flagged.
+    if (p === '/v1/positions/p1/duplicate-signals') return json(r, []);
     errors.push(`Unexpected ${r.request().method()} ${p}${url.search}`);
     return json(r, {}, 200);
   });

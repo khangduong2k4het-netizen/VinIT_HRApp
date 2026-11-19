@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { Alert, Box, Button, Card, CardContent, Checkbox, CircularProgress, Container, FormControlLabel, Stack, TextField, Typography } from '@mui/material';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type Job = { position_id: string; position_code: string; title: string; org_unit: string | null; work_location: string | null; work_mode: string | null; application_deadline_at: string; description: string; can_apply: boolean };
 
 export default function CareersDemo() {
+  const { dateLocale } = useI18n();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
@@ -57,7 +59,7 @@ export default function CareersDemo() {
       {jobs.map(item => <Card variant="outlined" key={item.position_id}><CardContent>
         <Typography variant="h2" sx={{ fontSize: 21 }}>{item.title}</Typography>
         <Typography>{item.position_code} · {item.org_unit || '—'} · {item.work_location || '—'} · {item.work_mode || '—'}</Typography>
-        <Typography>Hạn: {new Date(item.application_deadline_at).toLocaleString('vi-VN')}</Typography>
+        <Typography>Hạn: {new Date(item.application_deadline_at).toLocaleString(dateLocale)}</Typography>
         <Typography component="p" sx={{ whiteSpace: 'pre-wrap', my: 2 }}>{item.description}</Typography>
         <Button variant="contained" disabled={!item.can_apply || busy} onClick={() => { setJob(item); setRequestId(crypto.randomUUID()); setPoolToken(Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('')); setSavedToken(''); setError(''); setSuccess(''); }}>Ứng tuyển demo</Button>
         {!item.can_apply && <Typography variant="caption" display="block">Chưa thể nộp: rubric của JD hiện tại chưa được duyệt.</Typography>}

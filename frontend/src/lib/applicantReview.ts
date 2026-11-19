@@ -1,4 +1,5 @@
 import type { RankingItem } from '@/types';
+import { WORK_CONCEPT_LABELS } from './workVocabulary';
 
 /**
  * Evidence coverage under this value means the assessment is not solid enough to
@@ -49,16 +50,19 @@ export const APPLICANT_QUEUES: ApplicantQueue[] = [
   'MEETS_MANDATORY',
 ];
 
-/** Vietnamese labels shared by the filter chips and the result summary. */
+/**
+ * Vietnamese labels shared by the filter chips, the result summary and the
+ * Dashboard work queue (see lib/workVocabulary.ts). One wording per concept.
+ */
 export const APPLICANT_QUEUE_LABELS: Record<ApplicantQueue, string> = {
   ALL: 'Tất cả',
-  SHORTLIST: 'Đã shortlist',
-  FILE_REVIEW: 'Cần kiểm tra file',
-  NEEDS_VERIFICATION: 'Cần xác minh',
-  DUPLICATE: 'Cảnh báo trùng',
-  POSSIBLE_MISMATCH: 'Có dấu hiệu chưa đáp ứng',
-  NOT_ASSESSED: 'Chưa matching',
-  MEETS_MANDATORY: 'Đáp ứng bắt buộc',
+  SHORTLIST: WORK_CONCEPT_LABELS.SHORTLIST,
+  FILE_REVIEW: WORK_CONCEPT_LABELS.FILE_REVIEW,
+  NEEDS_VERIFICATION: WORK_CONCEPT_LABELS.NEEDS_VERIFICATION,
+  DUPLICATE: WORK_CONCEPT_LABELS.DUPLICATE,
+  POSSIBLE_MISMATCH: WORK_CONCEPT_LABELS.POSSIBLE_MISMATCH,
+  NOT_ASSESSED: WORK_CONCEPT_LABELS.NOT_ASSESSED,
+  MEETS_MANDATORY: WORK_CONCEPT_LABELS.MEETS_MANDATORY,
 };
 
 export const APPLICANT_SORTS: ApplicantSort[] = [

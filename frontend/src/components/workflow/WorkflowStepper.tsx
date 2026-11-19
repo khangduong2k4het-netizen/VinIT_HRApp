@@ -12,7 +12,7 @@ const STEP_LABELS: Record<string, string> = {
   JD: 'JD',
   CRITERIA: 'Tiêu chí',
   CV_INTAKE: 'Tiếp nhận CV',
-  HR_REVIEW: 'Matching & HR rà soát',
+  HR_REVIEW: 'Đánh giá & HR rà soát',
   SHORTLIST: 'Shortlist / HM',
 };
 

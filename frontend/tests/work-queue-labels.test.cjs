@@ -18,11 +18,33 @@ function loadTypeScriptModule(relativePath, shims = {}) {
   return loaded.exports;
 }
 
-const labels = loadTypeScriptModule('src/lib/workQueueLabels.ts');
+const vocabulary = loadTypeScriptModule('src/lib/workVocabulary.ts');
+const labels = loadTypeScriptModule('src/lib/workQueueLabels.ts', { './workVocabulary': vocabulary });
 const english = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src/i18n/en.json'), 'utf8'));
 const { translate } = loadTypeScriptModule('src/i18n/translate.ts', { './en.json': { __esModule: true, default: english } });
 
 const t = (key, ...args) => translate(key, 'vi', ...args);
+
+test('both queue screens use one vocabulary and three clusters', () => {
+  // Cùng một việc thì cùng một tên ở Dashboard và ở chip lọc trang xếp hạng.
+  assert.equal(labels.workQueueTypeLabel({ type: 'FILE_REVIEW' }), vocabulary.WORK_CONCEPT_LABELS.FILE_REVIEW);
+  assert.equal(labels.workQueueTypeLabel({ type: 'NEEDS_VERIFICATION' }), vocabulary.WORK_CONCEPT_LABELS.NEEDS_VERIFICATION);
+  assert.equal(labels.workQueueTypeLabel({ type: 'DUPLICATE_PENDING' }), vocabulary.WORK_CONCEPT_LABELS.DUPLICATE);
+  assert.equal(labels.workQueueTypeLabel({ type: 'NOT_ASSESSED' }), 'Chưa đánh giá');
+  // Ba cụm nghiệp vụ, và mỗi cụm có ít nhất một việc.
+  assert.deepEqual(vocabulary.WORK_CLUSTERS, ['ACTION', 'DECISION', 'DONE']);
+  assert.equal(vocabulary.WORK_CLUSTER_LABELS.ACTION, 'Cần tôi xử lý');
+  assert.equal(vocabulary.WORK_CLUSTER_LABELS.DECISION, 'Cần tôi quyết');
+  assert.equal(vocabulary.WORK_CLUSTER_LABELS.DONE, 'Đã quyết');
+  assert.equal(vocabulary.workQueueItemCluster('FILE_REVIEW'), 'ACTION');
+  assert.equal(vocabulary.workQueueItemCluster('CRITERIA_PENDING_HM'), 'DECISION');
+  assert.equal(vocabulary.workQueueItemCluster('SHARE_WITHOUT_FEEDBACK'), 'DECISION');
+  // Chip xếp hạng: quyết định đã ghi nhận nằm ở cụm "Đã quyết".
+  assert.equal(vocabulary.applicantQueueCluster('SHORTLIST'), 'DONE');
+  assert.equal(vocabulary.applicantQueueCluster('MEETS_MANDATORY'), 'DECISION');
+  assert.equal(vocabulary.applicantQueueCluster('NEEDS_VERIFICATION'), 'ACTION');
+  assert.equal(vocabulary.applicantQueueCluster('ALL'), null);
+});
 
 test('deadline items get their own wording instead of a shared generic label', () => {
   assert.equal(labels.workQueueTypeLabel({ type: 'POSITION_DEADLINE_PASSED' }), 'Vị trí đã quá hạn ứng tuyển');

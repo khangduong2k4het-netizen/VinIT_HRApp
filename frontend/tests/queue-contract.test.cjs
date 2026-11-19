@@ -19,7 +19,7 @@ const ts = require('typescript');
 
 const root = path.join(__dirname, '..');
 
-function loadTypeScriptModule(relativePath) {
+function loadTypeScriptModule(relativePath, shims = {}) {
   const filename = path.join(root, relativePath);
   const source = fs.readFileSync(filename, 'utf8');
   const output = ts.transpileModule(source, {
@@ -27,11 +27,13 @@ function loadTypeScriptModule(relativePath) {
     fileName: filename,
   }).outputText;
   const loaded = { exports: {} };
-  new Function('module', 'exports', 'require', output)(loaded, loaded.exports, require);
+  const localRequire = id => (id in shims ? shims[id] : require(id));
+  new Function('module', 'exports', 'require', output)(loaded, loaded.exports, localRequire);
   return loaded.exports;
 }
 
-const { APPLICANT_QUEUES, normalizeApplicantQueue, isApplicantQueue } = loadTypeScriptModule('src/lib/applicantReview.ts');
+const vocabulary = loadTypeScriptModule('src/lib/workVocabulary.ts');
+const { APPLICANT_QUEUES, normalizeApplicantQueue, isApplicantQueue } = loadTypeScriptModule('src/lib/applicantReview.ts', { './workVocabulary': vocabulary });
 
 /** Queue codes as the backend actually emits them, read from its source. */
 function backendQueueCodes() {

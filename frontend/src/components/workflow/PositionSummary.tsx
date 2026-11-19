@@ -11,7 +11,7 @@ export default function PositionSummary({ workspace, isHR }: { workspace: Positi
   const counts = workspace.counts;
   const cards = [
     { label: t("Tổng hồ sơ"), value: counts.total, color: '#0A2B57', path: '?tab=applications' },
-    { label: t("Đã matching"), value: counts.assessed, color: '#067647', path: null },
+    { label: t("Đã đánh giá"), value: counts.assessed, color: '#067647', path: null },
     { label: t("Đang xử lý"), value: counts.processing, color: counts.processing ? '#B54708' : '#667085', path: '?tab=applications' },
     { label: t("Cần kiểm tra file"), value: counts.file_review, color: counts.file_review ? '#B42318' : '#667085', path: '?queue=FILE_REVIEW' },
     { label: t("Cần xác minh"), value: counts.needs_verification, color: counts.needs_verification ? '#B54708' : '#667085', path: '?queue=NEEDS_VERIFICATION' },

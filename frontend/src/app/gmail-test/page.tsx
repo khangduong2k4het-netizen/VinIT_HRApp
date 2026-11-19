@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Box, Button, Card, CardContent, Checkbox, FormControlLabel, Stack, TextField, Typography } from '@mui/material';
 import apiClient from '@/lib/api';
+import { useI18n } from '@/i18n/I18nProvider';
 
 type Item = { receipt_id: string; message_id: string; status: string; reason: string | null; application_id: string | null; updated_at: string };
 type Identity = { receipt_id: string; application_id: string; position_id: string; display_name: string; email: string; updated_at: string };
@@ -19,6 +20,7 @@ const reasons: Record<string, string> = {
 const displayError = (err: any, fallback: string) => typeof err.response?.data?.detail === 'string' ? err.response.data.detail : fallback;
 
 export default function GmailTestPage() {
+  const { dateLocale } = useI18n();
   const [items, setItems] = useState<Item[]>([]);
   const [page, setPage] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -85,7 +87,7 @@ export default function GmailTestPage() {
       <Typography variant="h2" sx={{ fontSize: 20 }}>Kết quả gần đây</Typography>
       {!items.length && <Typography>Chưa có email đã kiểm tra.</Typography>}
       {items.map(item => <Card variant="outlined" key={item.receipt_id}><CardContent><Stack spacing={1}>
-        <Typography>{new Date(item.updated_at).toLocaleString('vi-VN')} · {statuses[item.status] || 'Cần kiểm tra'}</Typography>
+        <Typography>{new Date(item.updated_at).toLocaleString(dateLocale)} · {statuses[item.status] || 'Cần kiểm tra'}</Typography>
         {item.reason && <Typography>{reasons[item.reason] || 'Cần HR kiểm tra trong Gmail.'}</Typography>}
         <Stack direction="row" spacing={1} flexWrap="wrap">
           <Button href={`https://mail.google.com/mail/u/0/#all/${encodeURIComponent(item.message_id)}`} target="_blank" rel="noopener noreferrer">Mở Gmail thử nghiệm</Button>

@@ -123,7 +123,7 @@ interface EvidenceCardProps {
 }
 
 export default function EvidenceCard({ result, criterion, isPdf, hasCv, selected, canReview, onReview, onJumpToPage }: EvidenceCardProps) {
-  const { t } = useI18n();
+  const { t, dateLocale } = useI18n();
   const [savingReview, setSavingReview] = React.useState(false);
   const [reviewError, setReviewError] = React.useState<string | null>(null);
   const [rejectOpen, setRejectOpen] = React.useState(false);
@@ -271,7 +271,7 @@ export default function EvidenceCard({ result, criterion, isPdf, hasCv, selected
                       : t('Bạn đã đánh dấu trích dẫn này không đúng')}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {latestReview.reviewer_name || t('HR')} · {new Date(latestReview.created_at).toLocaleString('vi-VN')}
+                    {latestReview.reviewer_name || t('HR')} · {new Date(latestReview.created_at).toLocaleString(dateLocale)}
                   </Typography>
                   {latestReview.comment && (
                     <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#344054' }}>

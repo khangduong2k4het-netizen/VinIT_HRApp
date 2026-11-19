@@ -157,14 +157,7 @@ export default function DashboardPage() {
                     {t("{0} vị trí đã quá hạn ứng tuyển · {1} vị trí sắp hết hạn", workQueue.summary.positions_deadline_passed ?? 0, workQueue.summary.positions_deadline_soon ?? 0)}
                   </Typography>
                 )}
-                {/* Việc đã kiểm xong vẫn phải nhìn thấy: nếu chỉ hiện "cần xác minh"
-                    thì con số nhỏ đi mỗi lần HR làm việc, và không ai phân biệt được
-                    "đã xử lý" với "dữ liệu biến mất". */}
-                {workQueue && (workQueue.summary.applications_verification_complete ?? 0) > 0 && (
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }} data-testid="verification-complete-summary">
-                    {t("Đã xác minh xong {0} hồ sơ — số trên chỉ tính việc còn lại", workQueue.summary.applications_verification_complete ?? 0)}
-                  </Typography>
-                )}
+
                 {/* Tuổi hồ sơ: null nghĩa là chưa đo được, không phải 0 ngày. */}
                 {workQueue && workQueue.summary.oldest_waiting_days != null && (
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -175,7 +168,12 @@ export default function DashboardPage() {
               {workQueue && <Chip label={t("Cập nhật theo quyền truy cập")} size="small" variant="outlined" />}
             </Box>
             {queueError && <Alert severity="warning" sx={{ mb: 2 }} action={<Button color="inherit" onClick={() => loadData()}>{t("Thử lại")}</Button>}>{t(queueError)}</Alert>}
-            {workQueue ? <WorkQueueList items={workQueue.items} /> : !queueError ? <Skeleton variant="rounded" height={180} /> : null}
+            {/* Việc đã kiểm xong nằm trong cụm "Đã quyết" của danh sách: nếu chỉ
+                hiện "cần xác minh" thì con số nhỏ đi mỗi lần HR làm việc, và không
+                ai phân biệt được "đã xử lý" với "dữ liệu biến mất". */}
+            {workQueue
+              ? <WorkQueueList items={workQueue.items} doneCount={workQueue.summary.applications_verification_complete ?? 0} />
+              : !queueError ? <Skeleton variant="rounded" height={180} /> : null}
           </Box>
 
           <Typography variant="h2" sx={{ fontSize: 19, color: '#0A2B57', mb: 2 }}>{t("Tổng quan phân tích")}</Typography>

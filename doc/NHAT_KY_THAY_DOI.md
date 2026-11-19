@@ -9,6 +9,64 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-19 — Một bộ từ vựng hàng đợi, bỏ thuật ngữ “matching”, ngày theo ngôn ngữ
+
+**Vấn đề.** Dashboard và trang xếp hạng gọi cùng một việc bằng hai tên khác nhau
+(“File CV cần HR kiểm tra” / “Cần kiểm tra file”; “Hồ sơ cần xác minh bằng chứng” /
+“Cần xác minh”), nên HR phải học lại từ vựng khi đổi màn hình. UI còn dùng chữ
+“matching” của lập trình viên, và nhiều chỗ format ngày cứng `vi-VN` dù người
+dùng đã chọn tiếng Anh.
+
+**Thay đổi.**
+
+- `frontend/src/lib/workVocabulary.ts` (mới): một nguồn duy nhất cho tên việc và
+  ba cụm **Cần tôi xử lý / Cần tôi quyết / Đã quyết**, kèm hàm xếp từng loại
+  việc Dashboard và từng hàng đợi xếp hạng vào cụm.
+- `frontend/src/lib/applicantReview.ts` và `frontend/src/lib/workQueueLabels.ts`
+  lấy nhãn từ module đó: chip lọc và việc trên Dashboard dùng đúng một cách gọi.
+- Dashboard: `WorkQueueList` nhóm việc theo ba cụm có tiêu đề và số lượng; cụm
+  “Đã quyết” hiện số hồ sơ đã xác minh xong (giữ `data-testid`
+  `verification-complete-summary`), thay cho dòng rời phía trên.
+- Trang xếp hạng: chip lọc được nhóm theo cùng ba cụm, ghi cụm ngay trước các
+  chip trên cùng dòng chảy để không đẩy bảng dữ liệu xuống (đo lại: dòng đầu
+  647px, vẫn dưới ngưỡng 720px của `ranking-compact`).
+- Bỏ thuật ngữ “matching” khỏi UI: `Nhóm matching` → `Mức phù hợp`,
+  `Điểm matching cao nhất` → `Điểm phù hợp cao nhất`, `Chưa matching` →
+  `Chưa đánh giá`, `Đã matching` → `Đã đánh giá`, `Chạy matching` →
+  `Chạy đánh giá`, `Matching & HR rà soát` → `Đánh giá & HR rà soát`.
+- Định dạng ngày dùng `dateLocale` của ngôn ngữ đang chọn thay cho `vi-VN` cứng
+  ở: `EvidenceCard`, `careers`, `careers-demo`, `talent-pool`,
+  `talent-pool-demo`, `gmail-test`.
+- `frontend/src/i18n/en.json`: 13 chuỗi mới cho cụm, nhãn và thông báo.
+- Test: thêm assertion cụm/từ vựng vào `work-queue-labels.test.cjs`; loader của
+  `workspace-ui` và `queue-contract` biết shim `./workVocabulary`; e2e mới
+  `vocabulary-locale.e2e.cjs`; `ranking-context` mock thêm endpoint cảnh báo
+  trùng (trang tự tải từ mục trước). `loadDuplicates` giờ chịu được payload
+  không phải mảng thay vì làm sập cả trang.
+
+**Kiểm thử đã chạy (pass).**
+
+| Lệnh | Kết quả |
+| --- | --- |
+| `npm run type-check` / `npm run lint` | pass |
+| `npm run test:i18n` | 3/3 |
+| `npm run test:unit` | 44/44 (thêm test cụm) |
+| `npm run build` | pass |
+| `npm run test:e2e:vocabulary-locale` | pass |
+| `npm run test:e2e:ux03-dashboard` | pass |
+| `npm run test:e2e:ranking-compact` | pass (dòng đầu 647px) |
+| `npm run test:e2e:ranking-context` | pass |
+| `npm run test:e2e:duplicate-warning`, `bulk-actions`, `finish-application`, `deadline-mock` | pass |
+
+E2E xác nhận: Dashboard và chip xếp hạng cùng có ba cụm “Cần tôi xử lý / Cần tôi
+quyết / Đã quyết” và cùng từ ngữ cho từng việc; không còn chữ “matching” trong
+nội dung hiển thị của Dashboard và trang xếp hạng; với ngôn ngữ tiếng Anh, hạn
+ứng tuyển hiển thị `11/25/2026` thay vì `25/11/2026`.
+
+**Chưa kiểm.** Chưa chạy với backend thật. Các trang public (careers, talent-pool)
+đã dùng `dateLocale` nhưng chỉ được kiểm qua `careers-demo`; chưa xem trực quan
+ở breakpoint khác ngoài 1440×1000.
+
 ## 2026-11-19 — Cảnh báo trùng không còn ngõ cụt
 
 **Vấn đề.** Dòng bị gắn cờ chỉ hiện “Hồ sơ trùng lặp” mà không nói trùng với ai.

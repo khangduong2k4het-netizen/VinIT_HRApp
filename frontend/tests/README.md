@@ -63,6 +63,11 @@ Storage, ClamAV or VPS involvement).
 Run with `HRA_E2E_BASE_URL` pointing at the local server and a Chromium
 executable (see the commands in `doc/PLAN_CAI_TIEN_WORKFLOW_UX_HR_HM.md`).
 
+- `vocabulary-locale.e2e.cjs` — one work vocabulary for both queue screens:
+  the dashboard and the ranking chips use the same three clusters (Cần tôi xử
+  lý / Cần tôi quyết / Đã quyết) and the same wording per task, no screen shows
+  the word "matching", and dates follow the selected language (vi day-first,
+  en month-first).
 - `duplicate-warning.e2e.cjs` — duplicate warnings are actionable where they
   appear: the flagged row names its counterpart and links to that profile, the
   signal list loads automatically (no bottom-of-page button), and the duplicate

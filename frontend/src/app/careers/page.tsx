@@ -2,12 +2,14 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { careersFailure } from '@/lib/syntheticIntake';
+import { useI18n } from '@/i18n/I18nProvider';
 import { Alert, Box, Button, Card, CardContent, Checkbox, CircularProgress, Container, FormControlLabel, Stack, TextField, Typography } from '@mui/material';
 
 type Job = { position_id: string; position_code: string; title: string; org_unit: string | null; work_location: string | null; work_mode: string | null; employment_type: string | null; application_deadline_at: string; description: string | null; can_apply_test: boolean };
 type JobPage = { items: Job[]; next_cursor: string | null };
 
 export default function CareersPage() {
+  const { dateLocale } = useI18n();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -74,7 +76,7 @@ export default function CareersPage() {
     <Stack spacing={2}>{jobs.map(item => <Card variant="outlined" key={item.position_id}><CardContent>
       <Typography variant="h2" sx={{ fontSize: 21 }}>{item.title}</Typography>
       <Typography>{[item.position_code, item.org_unit, item.work_location, item.work_mode, item.employment_type].filter(Boolean).join(' · ')}</Typography>
-      <Typography>Hạn: {new Date(item.application_deadline_at).toLocaleString('vi-VN')}</Typography>
+      <Typography>Hạn: {new Date(item.application_deadline_at).toLocaleString(dateLocale)}</Typography>
       {item.description ? <Typography component="p" sx={{ whiteSpace: 'pre-wrap', my: 2 }}>{item.description}</Typography> : <Typography sx={{ my: 2 }}>Chưa có mô tả công việc.</Typography>}
       <Button variant="contained" disabled={!item.can_apply_test || busy || !!job} onClick={() => selectJob(item)}>Ứng tuyển thử nghiệm</Button>
       {!item.can_apply_test && <Typography variant="caption" display="block">Chưa mở nhận hồ sơ thử nghiệm hoặc rubric chưa duyệt.</Typography>}

@@ -4,7 +4,7 @@ const path = require('node:path');
 const test = require('node:test');
 const ts = require('typescript');
 
-function loadTypeScriptModule(relativePath) {
+function loadTypeScriptModule(relativePath, shims = {}) {
   const filename = path.join(__dirname, '..', relativePath);
   const source = fs.readFileSync(filename, 'utf8');
   const output = ts.transpileModule(source, {
@@ -12,11 +12,13 @@ function loadTypeScriptModule(relativePath) {
     fileName: filename,
   }).outputText;
   const loaded = { exports: {} };
-  new Function('module', 'exports', 'require', output)(loaded, loaded.exports, require);
+  const localRequire = id => (id in shims ? shims[id] : require(id));
+  new Function('module', 'exports', 'require', output)(loaded, loaded.exports, localRequire);
   return loaded.exports;
 }
 
-const review = loadTypeScriptModule('src/lib/applicantReview.ts');
+const vocabulary = loadTypeScriptModule('src/lib/workVocabulary.ts');
+const review = loadTypeScriptModule('src/lib/applicantReview.ts', { './workVocabulary': vocabulary });
 const intake = loadTypeScriptModule('src/lib/intake.ts');
 
 const items = [

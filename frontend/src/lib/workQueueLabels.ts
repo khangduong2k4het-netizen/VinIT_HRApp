@@ -1,4 +1,5 @@
 import type { WorkQueueItem } from '@/types';
+import { WORK_CONCEPT_LABELS } from './workVocabulary';
 
 // Nhãn hiển thị của danh sách việc cần làm, tách khỏi component để test được
 // mà không phải render React.
@@ -7,12 +8,13 @@ const TYPE_LABELS: Record<WorkQueueItem['type'], string> = {
   POSITION_SETUP: 'Thiết lập vị trí',
   CRITERIA_PENDING_HR: 'Tiêu chí chờ HR rà soát',
   CRITERIA_PENDING_HM: 'Tiêu chí chờ HM duyệt',
-  FILE_REVIEW: 'File CV cần HR kiểm tra',
+  // Cùng một việc thì cùng một tên với chip lọc ở trang xếp hạng.
+  FILE_REVIEW: WORK_CONCEPT_LABELS.FILE_REVIEW,
   PROCESSING: 'Hồ sơ đang xử lý',
-  NEEDS_VERIFICATION: 'Hồ sơ cần xác minh bằng chứng',
-  DUPLICATE_PENDING: 'Cảnh báo trùng cần kiểm tra',
-  POSSIBLE_MISMATCH: 'Hồ sơ có dấu hiệu chưa đáp ứng',
-  NOT_ASSESSED: 'Hồ sơ chưa matching',
+  NEEDS_VERIFICATION: WORK_CONCEPT_LABELS.NEEDS_VERIFICATION,
+  DUPLICATE_PENDING: WORK_CONCEPT_LABELS.DUPLICATE,
+  POSSIBLE_MISMATCH: WORK_CONCEPT_LABELS.POSSIBLE_MISMATCH,
+  NOT_ASSESSED: WORK_CONCEPT_LABELS.NOT_ASSESSED,
   SHARE_WITHOUT_FEEDBACK: 'Shortlist chưa có phản hồi',
   POSITION_DEADLINE_PASSED: 'Vị trí đã quá hạn ứng tuyển',
   POSITION_DEADLINE_SOON: 'Vị trí sắp hết hạn ứng tuyển',

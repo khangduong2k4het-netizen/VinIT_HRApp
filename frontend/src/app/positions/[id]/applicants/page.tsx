@@ -111,7 +111,9 @@ export default function ApplicantsRankingPage() {
     setDuplicateError(null);
     try {
       const response = await positionsApi.getDuplicateSignals(positionId);
-      setDuplicateSignals(response.data);
+      // An unexpected payload must not take the whole ranking screen down: the
+      // duplicate block is an enhancement, the list itself is the work.
+      setDuplicateSignals(Array.isArray(response.data) ? response.data : []);
     } catch (err: any) {
       setDuplicateSignals(null);
       setDuplicateError(err.response?.data?.detail || t("Không thể tải cảnh báo trùng"));
@@ -774,7 +776,7 @@ export default function ApplicantsRankingPage() {
           >
             <MenuItem value="REVIEW_PRIORITY">{t("Ưu tiên rà soát")}</MenuItem>
             <MenuItem value="RANK">{t("Thứ hạng")}</MenuItem>
-            <MenuItem value="SCORE_DESC">{t("Điểm matching cao nhất")}</MenuItem>
+            <MenuItem value="SCORE_DESC">{t("Điểm phù hợp cao nhất")}</MenuItem>
             <MenuItem value="COVERAGE_ASC">{t("Độ phủ thấp trước")}</MenuItem>
             <MenuItem value="NEWEST">{t("Mới nhất")}</MenuItem>
           </Select>
@@ -943,7 +945,7 @@ export default function ApplicantsRankingPage() {
               </TableCell>
               <TableCell width="70">{t("Thứ hạng")}</TableCell>
               <TableCell>{t("Ứng viên")}</TableCell>
-              <TableCell width="170">{t("Nhóm matching")}</TableCell>
+              <TableCell width="170">{t("Mức phù hợp")}</TableCell>
               <TableCell width="110" align="center">{t("Điểm")}</TableCell>
               <TableCell width="160">{t("Độ phủ")}</TableCell>
               <TableCell width="100" align="center">Shortlist</TableCell>
