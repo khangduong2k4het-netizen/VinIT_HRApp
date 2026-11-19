@@ -66,8 +66,11 @@ import StatusBadge from '@/components/common/StatusBadge';
 import QueueFilterChips from '@/components/applicants/QueueFilterChips';
 import OperationProgressPanel from '@/components/workflow/OperationProgressPanel';
 import {
+  APPLICANT_CRITERION_OUTCOMES,
+  APPLICANT_CRITERION_OUTCOME_LABELS,
   APPLICANT_QUEUE_LABELS,
   COVERAGE_THRESHOLD,
+  hasApplicantCriteriaFilter,
   applicantProfileHref,
   applicantQueueCounts,
   applicantSearchParams,
@@ -81,6 +84,8 @@ import {
   storeApplicantNavigation,
   WAITING_ATTENTION_DAYS,
   windowApplicantItems,
+  type ApplicantCriteriaFilter,
+  type ApplicantCriterionOutcome,
   type ApplicantQueue,
   type ApplicantSort,
 } from '@/lib/applicantReview';
@@ -152,6 +157,11 @@ export default function ApplicantsRankingPage() {
   const [queue, setQueue] = useState<ApplicantQueue>('ALL');
   const [sort, setSort] = useState<ApplicantSort>('RANK');
   const [searchQuery, setSearchQuery] = useState('');
+  // Lọc theo bằng chứng: câu hỏi HR hỏi hằng ngày là "hồ sơ nào thiếu bằng chứng
+  // cho tiêu chí này" và "hồ sơ nào chờ tôi xác minh quá 3 ngày".
+  const [criterionId, setCriterionId] = useState('');
+  const [criterionOutcome, setCriterionOutcome] = useState<ApplicantCriterionOutcome>('MISSING');
+  const [verificationWaiting, setVerificationWaiting] = useState<'' | 'any' | '3' | '7'>('');
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [urlInitialized, setUrlInitialized] = useState(false);
 
@@ -498,17 +508,40 @@ export default function ApplicantsRankingPage() {
 
   // "Clear filters" only appears when something is actually narrowed, and it
   // resets the sort too so the reviewer is never left in a filtered-looking view.
-  const clearFilters = () => { setQueue('ALL'); setSort('RANK'); setSearchQuery(''); };
-  const filtersActive = queue !== 'ALL' || searchQuery.trim() !== '' || sort !== 'RANK';
+  const criteriaFilter: ApplicantCriteriaFilter = {
+    criterionId: criterionId || null,
+    // Kết quả chỉ có nghĩa khi đã chọn tiêu chí; không chọn thì không lọc theo kết quả.
+    outcome: criterionId ? criterionOutcome : 'ALL',
+    verificationWaitingDays: verificationWaiting === '' ? null : verificationWaiting === 'any' ? 0 : Number(verificationWaiting),
+  };
+  const criterionOptions = Array.from(
+    rankingItems.reduce((all, item) => {
+      for (const result of item.criterion_results || []) {
+        if (!all.has(result.criterion_id)) all.set(result.criterion_id, result.criterion_name);
+      }
+      return all;
+    }, new Map<string, string>()).entries(),
+  ).map(([id, name]) => ({ id, name }));
+  const criterionName = criterionOptions.find(option => option.id === criterionId)?.name || '';
+
+  const clearFilters = () => {
+    setQueue('ALL');
+    setSort('RANK');
+    setSearchQuery('');
+    setCriterionId('');
+    setCriterionOutcome('MISSING');
+    setVerificationWaiting('');
+  };
+  const filtersActive = queue !== 'ALL' || searchQuery.trim() !== '' || sort !== 'RANK' || hasApplicantCriteriaFilter(criteriaFilter);
 
   // Queues describe work still in screening. Rows outside it can still be
   // rendered (badge "Ngoài sàng lọc") but must not inflate a queue figure that
   // the dashboard reports under the same name.
   const screeningItems = rankingItems.filter(item => inScreening(item.application_status));
   const queueCounts = applicantQueueCounts(screeningItems);
-  const filteredItems = filterAndSortApplicantItems(rankingItems, queue, searchQuery, sort);
+  const filteredItems = filterAndSortApplicantItems(rankingItems, queue, searchQuery, sort, criteriaFilter);
   const { visible: visibleItems, hasMore, nextLimit } = windowApplicantItems(filteredItems, visibleLimit);
-  useEffect(() => { setVisibleLimit(50); }, [queue, sort, searchQuery]);
+  useEffect(() => { setVisibleLimit(50); }, [queue, sort, searchQuery, criterionId, criterionOutcome, verificationWaiting]);
 
   // --- Hành động hàng loạt ------------------------------------------------
   // Chỉ hồ sơ còn trong vòng sàng lọc mới chọn được; hồ sơ đã phỏng vấn/đã loại
@@ -831,6 +864,55 @@ export default function ApplicantsRankingPage() {
       </Typography>
       {/* Review queues and filters */}
       <QueueFilterChips value={queue} counts={queueCounts} onChange={setQueue} />
+      {/* Lọc theo bằng chứng, không chỉ theo tên: "hồ sơ thiếu bằng chứng cho tiêu
+          chí X" và "hồ sơ chờ tôi xác minh quá 3 ngày" là hai thao tác HR làm mỗi
+          ngày, trước đây phải mở từng hồ sơ để tự dò. */}
+      <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }} data-testid="criteria-filter">
+        <FormControl size="small" sx={{ minWidth: 230, maxWidth: 330 }}>
+          <InputLabel id="applicant-criterion-label">{t("Tiêu chí")}</InputLabel>
+          <Select
+            labelId="applicant-criterion-label"
+            value={criterionId}
+            label={t("Tiêu chí")}
+            onChange={(e) => setCriterionId(e.target.value)}
+            inputProps={{ 'data-testid': 'criterion-filter-select' }}
+          >
+            <MenuItem value="">{t("Mọi tiêu chí")}</MenuItem>
+            {criterionOptions.map(option => (
+              <MenuItem key={option.id} value={option.id}>{option.name}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 190 }} disabled={!criterionId}>
+          <InputLabel id="applicant-criterion-outcome-label">{t("Bằng chứng")}</InputLabel>
+          <Select
+            labelId="applicant-criterion-outcome-label"
+            value={criterionId ? criterionOutcome : 'ALL'}
+            label={t("Bằng chứng")}
+            onChange={(e) => setCriterionOutcome(e.target.value as ApplicantCriterionOutcome)}
+            inputProps={{ 'data-testid': 'criterion-outcome-select' }}
+          >
+            {APPLICANT_CRITERION_OUTCOMES.map(outcome => (
+              <MenuItem key={outcome} value={outcome}>{t(APPLICANT_CRITERION_OUTCOME_LABELS[outcome])}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 220 }}>
+          <InputLabel id="applicant-waiting-label">{t("Chờ xác minh")}</InputLabel>
+          <Select
+            labelId="applicant-waiting-label"
+            value={verificationWaiting}
+            label={t("Chờ xác minh")}
+            onChange={(e) => setVerificationWaiting(e.target.value as '' | 'any' | '3' | '7')}
+            inputProps={{ 'data-testid': 'verification-waiting-select' }}
+          >
+            <MenuItem value="">{t("Không lọc theo thời gian chờ")}</MenuItem>
+            <MenuItem value="any">{t("Đang chờ tôi xác minh")}</MenuItem>
+            <MenuItem value="3">{t("Quá 3 ngày")}</MenuItem>
+            <MenuItem value="7">{t("Quá 7 ngày")}</MenuItem>
+          </Select>
+        </FormControl>
+      </Box>
       <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center', flexWrap: 'wrap' }}>
         <OutlinedInput
           placeholder={t("Tìm kiếm theo tên ứng viên...")}
@@ -885,6 +967,12 @@ export default function ApplicantsRankingPage() {
           {t("Hiển thị {0}/{1} hồ sơ của vị trí.", filteredItems.length, rankingItems.length)}
           {searchQuery.trim() ? ` · ${t("Đang lọc theo tên: “{0}”.", searchQuery.trim())}` : ` · ${t("Không lọc theo tên.")}`}
           {queue !== 'ALL' ? ` · ${t("Hàng đợi: {0}.", t(APPLICANT_QUEUE_LABELS[queue]))}` : ''}
+          {criterionId ? ` · ${t("Tiêu chí “{0}”: {1}.", criterionName, t(APPLICANT_CRITERION_OUTCOME_LABELS[criterionOutcome]))}` : ''}
+          {criteriaFilter.verificationWaitingDays !== null
+            ? ` · ${verificationWaiting === 'any'
+              ? t("Chỉ hồ sơ đang chờ tôi xác minh.")
+              : t("Chỉ hồ sơ chờ xác minh quá {0} ngày.", criteriaFilter.verificationWaitingDays)}`
+            : ''}
         </Typography>
         {filtersActive && (
           <Button size="small" onClick={clearFilters} data-testid="clear-applicant-filters">{t("Xoá bộ lọc và tìm kiếm")}</Button>

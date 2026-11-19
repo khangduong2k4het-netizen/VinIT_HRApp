@@ -77,14 +77,25 @@ const DOCX_PARAGRAPHS = [
   'Kinh nghiệm: xây dựng hệ thống thanh toán cho 2 triệu giao dịch mỗi ngày, dẫn dắt 4 kỹ sư.',
   'Học vấn: Kỹ sư Công nghệ thông tin, Đại học Bách khoa Hà Nội.',
 ];
+// A CV table, the layout student CVs use most. Its first row is a real Word header
+// row (w:tblHeader), so the reader keeps it as a header instead of guessing.
+const DOCX_TABLE = [
+  ['Thời gian', 'Công ty', 'Vai trò'],
+  ['2022–2026', 'VinIT', 'Backend Engineer'],
+];
 function docxBytes() {
   const escape = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const body = DOCX_PARAGRAPHS.map(text => (text === ''
     ? '<w:p/>'
     : `<w:p><w:r><w:t xml:space="preserve">${escape(text)}</w:t></w:r></w:p>`)).join('');
+  const table = `<w:tbl><w:tblGrid><w:gridCol/><w:gridCol/><w:gridCol/></w:tblGrid>${
+    DOCX_TABLE.map((row, index) => `<w:tr>${index === 0 ? '<w:trPr><w:tblHeader/></w:trPr>' : ''}${
+      row.map(cell => `<w:tc><w:p><w:r><w:t xml:space="preserve">${escape(cell)}</w:t></w:r></w:p></w:tc>`).join('')
+    }</w:tr>`).join('')
+  }</w:tbl>`;
   return buildZip([
     { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>' },
-    { name: 'word/document.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>` },
+    { name: 'word/document.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}${table}</w:body></w:document>` },
   ]);
 }
 
@@ -520,5 +531,5 @@ function installMockApi(context, overrides = {}) {
 module.exports = {
   POSITION, CRITERIA, RUBRIC, NAMES, ranking, applications, visible,
   workQueue, workQueueSummary, dashboardSummary, detail, me, profile,
-  DOCX_PARAGRAPHS, docxBytes, installMockApi,
+  DOCX_PARAGRAPHS, DOCX_TABLE, docxBytes, installMockApi,
 };

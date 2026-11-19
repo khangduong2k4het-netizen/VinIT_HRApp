@@ -1,7 +1,7 @@
 'use client';
 
 import { useI18n } from '@/i18n/I18nProvider';
-import { extractDocxParagraphs } from '@/lib/docxText';
+import { extractDocxBlocks, type DocxBlock } from '@/lib/docxText';
 import { localizeServerMessage } from '@/i18n/serverMessages';
 
 import * as React from 'react';
@@ -115,7 +115,7 @@ export default function ApplicantDetailPage() {
   const [cvError, setCvError] = useState<string | null>(null);
   // DOCX is not something a browser can render, so the fetched file is read into
   // paragraphs here instead of asking the backend for a converted copy.
-  const [cvDocx, setCvDocx] = useState<string[] | null>(null);
+  const [cvDocx, setCvDocx] = useState<DocxBlock[] | null>(null);
   const [cvDocxError, setCvDocxError] = useState<string | null>(null);
   const [cvDownloading, setCvDownloading] = useState(false);
   // The CV is the heaviest and most sensitive asset on this page. Load it only
@@ -279,9 +279,9 @@ export default function ApplicantDetailPage() {
         // and a format we cannot read only costs the preview, never the download.
         try {
           const bytes = file.data instanceof Blob ? await file.data.arrayBuffer() : file.data;
-          const paragraphs = await extractDocxParagraphs(bytes);
+          const blocks = await extractDocxBlocks(bytes);
           if (currentRequest !== requestId.current) return;
-          setCvDocx(paragraphs); setCvDocxError(null);
+          setCvDocx(blocks); setCvDocxError(null);
         } catch {
           if (currentRequest !== requestId.current) return;
           setCvDocx(null);
@@ -827,7 +827,7 @@ export default function ApplicantDetailPage() {
             requested={cvRequested}
             loading={cvLoading}
             onRequest={loadCv}
-            docxParagraphs={cvDocx}
+            docxBlocks={cvDocx}
             docxError={cvDocxError}
           />
         </Grid>

@@ -9,6 +9,54 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-19 — Bảng DOCX giữ hàng cột; lọc hồ sơ theo bằng chứng và thời gian chờ
+
+**Vấn đề 1 — CV dạng bảng đọc lệch hàng.** Bộ đọc DOCX duyệt mọi `w:p` trong tài
+liệu, kể cả đoạn nằm trong ô bảng, nên bảng bị làm phẳng thành một dòng cho mỗi ô:
+“Python”, “2022”, “VinIT” rơi xuống ba dòng và HR đối chiếu nhầm hàng khi so với tiêu
+chí. CV sinh viên rất hay dùng bảng, nên đây là lỗi đọc sai chứ không chỉ là xấu.
+
+**Thay đổi 1.** `frontend/src/lib/docxText.ts` giữ nguyên cấu trúc: duyệt con của
+`w:body` theo đúng thứ tự, `w:p` thành đoạn, `w:tbl` thành **bảng** (hàng `w:tr`, ô
+`w:tc`, text các đoạn trong ô ghép lại). Ô trộn giữ đúng vị trí cột (`w:gridSpan` → ô
+trống đệm), hàng tiêu đề chỉ được đánh dấu khi Word đánh dấu (`w:tblHeader`), không
+đoán. Nội dung trong content control (`w:sdt`) vẫn được đọc. `extractDocxBlocks()`
+trả block cho phần hiển thị; `extractDocxParagraphs()` cũ vẫn còn cho chỗ chỉ cần
+text (mỗi hàng bảng thành một dòng tab). `CVDocumentViewer` render block bảng bằng
+`Table` của MUI, có tiêu đề khi Word đánh dấu. Vẫn không thêm thư viện, không đổi
+backend, không dùng `innerHTML`.
+
+**Vấn đề 2 — ô tìm chỉ lọc tên.** Dòng đếm chỉ nói “Đang lọc theo tên”, trong khi
+việc HR làm hằng ngày là “hồ sơ nào thiếu bằng chứng cho tiêu chí X” và “hồ sơ nào
+chờ tôi xác minh quá 3 ngày”; hai câu đó trước đây phải mở từng hồ sơ để tự dò.
+
+**Thay đổi 2.** `frontend/src/lib/applicantReview.ts` thêm
+`ApplicantCriteriaFilter` (`criterionId`, `outcome`, `verificationWaitingDays`) và
+`matchesApplicantCriteriaFilter()`, ghép với bộ lọc hàng đợi và ô tên thay vì thay
+thế nhau:
+
+- “Thiếu bằng chứng” gồm kết quả `UNCLEAR`, kết quả còn `requires_verification`, và
+  hồ sơ **không có** kết quả cho tiêu chí đó (kể cả hồ sơ chưa đánh giá) — đúng tập
+  hồ sơ HR phải xem.
+- Kết quả khác (`Chưa đáp ứng`, `Đã đáp ứng`, `Mọi kết quả`) lọc đúng kết quả đó;
+  `MATCH` bao gồm `STRONG_MATCH`.
+- “Chờ xác minh quá N ngày” đòi cả cờ cần xác minh **và** tuổi hồ sơ; hồ sơ không
+  rõ ngày tạo không bị coi là đã chờ đủ N ngày.
+- Màn xếp hạng có ba ô chọn (tiêu chí / bằng chứng / thời gian chờ), dòng đếm nói
+  đúng đang lọc gì, và “Xoá bộ lọc và tìm kiếm” đặt lại cả ba. Không đổi API, không
+  đổi schema; danh sách tiêu chí lấy từ chính `criterion_results` đã có trong xếp hạng.
+
+**Kiểm thử.** `frontend/tests/applicant-criteria-filter.test.cjs` (mới, 5 test) cho
+“thiếu bằng chứng”, từng kết quả, thời gian chờ (kể cả ngày tạo không rõ), và việc
+ghép với hàng đợi/ô tên. `applicant-criteria-filter.e2e.cjs` (mới) bấm thật ba ô chọn
+trên dữ liệu xếp hạng biến thiên và đối chiếu số dòng + tên dòng. `docx-preview.e2e.cjs`
+giờ phục vụ một DOCX **có bảng** và kiểm bảng giữ đúng hàng, đúng thứ tự cột, hàng
+tiêu đề là `th` thật.
+
+**Chưa kiểm.** Không có backend chạy ở VM này nên dữ liệu xếp hạng thật vẫn qua
+mock; DOCX thật của ứng viên (bảng trộn ô phức tạp, ảnh, chữ trong shape) chưa được
+thử — bộ đọc vẫn chỉ đọc text, không dựng lại bố cục.
+
 ## 2026-11-19 — Hành động hàng loạt có biên bản: tiến trình, chỗ dừng, thử lại phần lỗi
 
 **Vấn đề.** Shortlist/loại hàng loạt chạy lần lượt từng hồ sơ rồi mới báo kết quả,

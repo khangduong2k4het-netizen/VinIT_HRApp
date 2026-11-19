@@ -1,11 +1,15 @@
 'use client';
 
 import * as React from 'react';
-import { Box, Button, Card, CardContent, CircularProgress, IconButton, Tooltip, Typography } from '@mui/material';
+import {
+  Box, Button, Card, CardContent, CircularProgress, IconButton, Table, TableBody, TableCell,
+  TableHead, TableRow, Tooltip, Typography,
+} from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import { useI18n } from '@/i18n/I18nProvider';
+import type { DocxBlock } from '@/lib/docxText';
 
 interface CVDocumentViewerProps {
   cvUrl: string | null;
@@ -18,12 +22,16 @@ interface CVDocumentViewerProps {
   requested?: boolean;
   loading?: boolean;
   onRequest?: () => void;
-  /** Text read from a .docx in the browser, so HR can screen without downloading. */
-  docxParagraphs?: string[] | null;
+  /**
+   * Blocks read from a .docx in the browser, so HR can screen without downloading.
+   * Tables stay tables: a CV with a table read as a flat paragraph stream puts each
+   * cell on its own line and the reviewer compares the wrong row.
+   */
+  docxBlocks?: DocxBlock[] | null;
   docxError?: string | null;
 }
 
-export default function CVDocumentViewer({ cvUrl, cvError, isPdf, canViewCv, selectedPage, onPageChange, requested = true, loading = false, onRequest, docxParagraphs = null, docxError = null }: CVDocumentViewerProps) {
+export default function CVDocumentViewer({ cvUrl, cvError, isPdf, canViewCv, selectedPage, onPageChange, requested = true, loading = false, onRequest, docxBlocks = null, docxError = null }: CVDocumentViewerProps) {
   const { t } = useI18n();
   return (
     <>
@@ -61,7 +69,7 @@ export default function CVDocumentViewer({ cvUrl, cvError, isPdf, canViewCv, sel
             <Box sx={{ height: '100%', backgroundColor: '#525659', padding: 2 }}>
               <iframe id="cv-pdf-viewer" src={`${cvUrl}#page=${selectedPage}`} width="100%" height="100%" style={{ border: 'none', backgroundColor: 'white' }} title={t("CV gốc")} />
             </Box>
-          ) : cvUrl && docxParagraphs && docxParagraphs.length > 0 ? (
+          ) : cvUrl && docxBlocks && docxBlocks.length > 0 ? (
             // A .docx cannot be shown as-is by the browser, and converting it on the
             // server would add a converter to the request path. Instead the file HR
             // already fetched is read here: the words are what screening needs, and
@@ -73,16 +81,41 @@ export default function CVDocumentViewer({ cvUrl, cvError, isPdf, canViewCv, sel
                 </Typography>
               </Box>
               <Box sx={{ px: 3, py: 2.5, maxWidth: 760 }}>
-                {docxParagraphs.map((paragraph, index) => paragraph === '' ? (
-                  <Box key={index} sx={{ height: 10 }} />
+                {docxBlocks.map((block, index) => block.kind === 'paragraph' ? (
+                  block.text === '' ? (
+                    <Box key={index} sx={{ height: 10 }} />
+                  ) : (
+                    <Typography
+                      key={index}
+                      component="p"
+                      sx={{ fontSize: 14, lineHeight: 1.7, color: '#1D2939', mb: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
+                    >
+                      {block.text}
+                    </Typography>
+                  )
                 ) : (
-                  <Typography
-                    key={index}
-                    component="p"
-                    sx={{ fontSize: 14, lineHeight: 1.7, color: '#1D2939', mb: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
-                  >
-                    {paragraph}
-                  </Typography>
+                  // A table in the CV stays a table. Rows and cells are read in document
+                  // order, so "Python | 2022 | VinIT" cannot drift onto three lines.
+                  <Box key={index} sx={{ mb: 1.5, maxWidth: '100%', overflowX: 'auto' }} data-testid="docx-table">
+                    <Table size="small" sx={{ border: '1px solid #D0D5DD', '& td, & th': { border: '1px solid #EAECF0', verticalAlign: 'top', fontSize: 13, lineHeight: 1.5, color: '#1D2939' } }}>
+                      {block.header && block.rows.length > 1 ? (
+                        <TableHead>
+                          <TableRow>
+                            {block.rows[0].map((cell, column) => (
+                              <TableCell key={column} sx={{ fontWeight: 700, backgroundColor: '#F9FAFB' }}>{cell}</TableCell>
+                            ))}
+                          </TableRow>
+                        </TableHead>
+                      ) : null}
+                      <TableBody>
+                        {(block.header && block.rows.length > 1 ? block.rows.slice(1) : block.rows).map((row, rowIndex) => (
+                          <TableRow key={rowIndex}>
+                            {row.map((cell, column) => <TableCell key={column}>{cell}</TableCell>)}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </Box>
                 ))}
               </Box>
             </Box>

@@ -10,10 +10,12 @@
  *  2. After asking, the DOCX text is readable in-app with no PDF iframe.
  *  3. The page stepper stays disabled (a .docx has no pages here), and the text
  *     is rendered as text, not as raw bytes or markup.
+ *  4. A table in the CV stays a table: one row per Word row, cells in column
+ *     order, and the Word header row as a real header — not a paragraph per cell.
  */
 const { chromium } = require('playwright-core');
 const assert = require('node:assert/strict');
-const { installMockApi, DOCX_PARAGRAPHS } = require('./fixtures/hr-screens.cjs');
+const { installMockApi, DOCX_PARAGRAPHS, DOCX_TABLE } = require('./fixtures/hr-screens.cjs');
 
 const base = process.env.HRA_E2E_BASE_URL;
 if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostname)) {
@@ -62,12 +64,20 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
   assert.equal(await page.getByTestId('docx-text').locator('w\\:p').count(), 0, 'raw document XML must not leak into the DOM');
   assert.match(text, /Tải CV gốc để xem đúng định dạng/, 'HR is told the original layout may differ');
 
+  // --- 4. A table stays a table, aligned row by row ------------------------
+  const docxTable = page.getByTestId('docx-table').locator('table');
+  assert.equal(await docxTable.count(), 1, 'the Word table is rendered as one table');
+  assert.deepEqual(await docxTable.locator('thead th').allInnerTexts(), DOCX_TABLE[0], 'a Word header row is a real header, cells in column order');
+  const bodyRows = docxTable.locator('tbody tr');
+  assert.equal(await bodyRows.count(), DOCX_TABLE.length - 1, 'one rendered row per Word row');
+  assert.deepEqual(await bodyRows.first().locator('td').allInnerTexts(), DOCX_TABLE[1], 'cells stay on their own row instead of being flattened into paragraphs');
+
   // --- 3. No pagination for a flattened document ---------------------------
   assert.equal(await page.getByRole('button', { name: 'Trang sau' }).isDisabled(), true);
 
   assert.deepEqual(pageErrors, [], `no client-side exceptions: ${pageErrors.join(' | ')}`);
   assert.deepEqual(unexpected, [], `all API calls are accounted for: ${unexpected.join(', ')}`);
 
-  console.log('DOCX preview: fetched only on ask, text readable in-app, no PDF viewer, original layout disclaimer kept: OK');
+  console.log('DOCX preview: fetched only on ask, text readable in-app, a CV table stays a table with its Word header row, no PDF viewer, original layout disclaimer kept: OK');
   await browser.close();
 })().catch(err => { console.error(err); process.exit(1); });

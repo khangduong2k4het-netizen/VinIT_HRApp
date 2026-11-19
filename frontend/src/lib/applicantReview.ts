@@ -194,10 +194,94 @@ export function sortApplicantItems(items: RankingItem[], sort: ApplicantSort) {
   });
 }
 
-export function filterAndSortApplicantItems(items: RankingItem[], queue: ApplicantQueue, search: string, sort: ApplicantSort) {
+/**
+ * Lọc theo bằng chứng, không chỉ theo tên. HR thường hỏi "hồ sơ nào thiếu bằng
+ * chứng cho tiêu chí này" hoặc "hồ sơ nào đang chờ tôi xác minh quá 3 ngày", nên
+ * hai câu hỏi đó phải bấm được thay vì tự dò từng hồ sơ.
+ */
+export type ApplicantCriterionOutcome = 'ALL' | 'MISSING' | 'UNCLEAR' | 'NO_MATCH' | 'MATCH';
+
+export interface ApplicantCriteriaFilter {
+  /** `null` = mọi tiêu chí; ngược lại là `criterion_id` của bộ tiêu chí đang dùng. */
+  criterionId: string | null;
+  outcome: ApplicantCriterionOutcome;
+  /** `null` = không lọc theo thời gian chờ; `0` = mọi hồ sơ đang chờ xác minh. */
+  verificationWaitingDays: number | null;
+}
+
+export const DEFAULT_APPLICANT_CRITERIA_FILTER: ApplicantCriteriaFilter = {
+  criterionId: null,
+  outcome: 'ALL',
+  verificationWaitingDays: null,
+};
+
+export const APPLICANT_CRITERION_OUTCOMES: ApplicantCriterionOutcome[] = ['ALL', 'MISSING', 'UNCLEAR', 'NO_MATCH', 'MATCH'];
+
+export const APPLICANT_CRITERION_OUTCOME_LABELS: Record<ApplicantCriterionOutcome, string> = {
+  ALL: 'Mọi kết quả',
+  MISSING: 'Thiếu bằng chứng',
+  UNCLEAR: 'Chưa rõ',
+  NO_MATCH: 'Chưa đáp ứng',
+  MATCH: 'Đã đáp ứng',
+};
+
+export function hasApplicantCriteriaFilter(filter: ApplicantCriteriaFilter) {
+  return filter.criterionId !== null || filter.verificationWaitingDays !== null;
+}
+
+/**
+ * "Thiếu bằng chứng" gồm cả hồ sơ chưa có kết quả cho tiêu chí đó (kể cả hồ sơ chưa
+ * được đánh giá) và kết quả còn phải xác minh — đó mới là việc HR phải làm.
+ */
+function criterionLacksEvidence(item: RankingItem, criterionId: string) {
+  const result = (item.criterion_results || []).find(candidate => candidate.criterion_id === criterionId);
+  if (!result) return true;
+  return result.outcome === 'UNCLEAR' || Boolean(result.requires_verification);
+}
+
+export function matchesApplicantCriteriaFilter(item: RankingItem, filter: ApplicantCriteriaFilter, now: Date = new Date()) {
+  if (filter.verificationWaitingDays !== null) {
+    if (!needsVerification(item)) return false;
+    if (filter.verificationWaitingDays > 0) {
+      const waiting = daysWaiting(item.created_at, now);
+      // Không biết ngày tạo thì không được coi là "đã chờ quá N ngày".
+      if (waiting === null || waiting < filter.verificationWaitingDays) return false;
+    }
+  }
+  if (filter.criterionId) {
+    const result = (item.criterion_results || []).find(candidate => candidate.criterion_id === filter.criterionId);
+    switch (filter.outcome) {
+      case 'MISSING':
+        if (!criterionLacksEvidence(item, filter.criterionId)) return false;
+        break;
+      case 'UNCLEAR':
+        if (result?.outcome !== 'UNCLEAR') return false;
+        break;
+      case 'NO_MATCH':
+        if (result?.outcome !== 'NO_MATCH') return false;
+        break;
+      case 'MATCH':
+        if (!(result?.outcome === 'MATCH' || result?.outcome === 'STRONG_MATCH')) return false;
+        break;
+      default:
+        break;
+    }
+  }
+  return true;
+}
+
+export function filterAndSortApplicantItems(
+  items: RankingItem[],
+  queue: ApplicantQueue,
+  search: string,
+  sort: ApplicantSort,
+  criteria: ApplicantCriteriaFilter = DEFAULT_APPLICANT_CRITERIA_FILTER,
+  now: Date = new Date(),
+) {
   const normalizedSearch = search.trim().toLowerCase();
   const filtered = items.filter(item => {
     if (!matchesApplicantQueue(item, queue)) return false;
+    if (!matchesApplicantCriteriaFilter(item, criteria, now)) return false;
     return !normalizedSearch || String(item.candidate_name || '').toLowerCase().includes(normalizedSearch);
   });
   return sortApplicantItems(filtered, sort);
