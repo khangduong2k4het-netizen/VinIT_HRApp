@@ -14,6 +14,10 @@ from typing import Any
 COVERAGE_THRESHOLD = 0.7
 
 WORKFLOW_STEPS = ("JD", "CRITERIA", "CV_INTAKE", "HR_REVIEW", "SHORTLIST")
+# Application statuses that record an HR decision after reviewing the evidence.
+HR_DECIDED_STATUSES = frozenset({
+    "SHORTLIST", "REJECTED_SCREENING", "INTERVIEW", "REJECTED_INTERVIEW", "OFFERED", "ACCEPTED",
+})
 _PRIORITY_RANK = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
 
 
@@ -62,6 +66,11 @@ def summarize_applications(applications: Iterable[Mapping[str, Any]]) -> dict[st
             counts["not_assessed"] += 1
             continue
         counts["assessed"] += 1
+        if app.get("application_status") in HR_DECIDED_STATUSES:
+            # HR already verified and decided (shortlist, reject, interview...):
+            # the AI's "needs verification" flag is no longer pending work, so
+            # it must not keep the Matching & HR review step open.
+            continue
         counts["needs_verification"] += needs_verification
         if matching_status == "POSSIBLE_MISMATCH":
             counts["possible_mismatch"] += 1
