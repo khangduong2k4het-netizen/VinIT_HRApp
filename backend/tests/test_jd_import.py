@@ -149,7 +149,8 @@ def test_api_returns_a_reviewable_draft_and_audits_only_metadata(client, seed, m
     async def fake_ai(page_text, title_hint, *, source_host):
         calls["host"] = source_host
         return {"is_job_posting": True, "title": "QA/QC Engineer", "language_code": "en",
-                "jd_content": "Requirements\n- 3+ years in medical device quality", "notes": ["No salary listed"]}
+                "jd_content": "Requirements\n- 3+ years in medical device quality", "notes": ["No salary listed"],
+                "posting_content": "Benefits\n- Health insurance"}
 
     monkeypatch.setattr(jd_import, "fetch_page", fake_fetch)
     monkeypatch.setattr(llm_client, "extract_jd_from_page", fake_ai)
@@ -163,6 +164,7 @@ def test_api_returns_a_reviewable_draft_and_audits_only_metadata(client, seed, m
     assert data["ai_used"] is True and data["extraction"] == "JSON_LD" and data["title"] == "QA/QC Engineer"
     assert data["jd_content"].startswith("Requirements") and data["metadata"]["posting_id"] == "11227"
     assert calls["host"] == "vinuni.talent.vn"
+    assert data["posting_content"] == "Benefits\n- Health insurance"  # candidate-facing text, kept apart from the JD
     with engine.connect() as conn:
         meta = conn.execute(text("""
             SELECT metadata FROM app_private.audit_events WHERE action_type = 'IMPORT_JD_FROM_URL'
@@ -178,7 +180,7 @@ def test_api_returns_a_reviewable_draft_and_audits_only_metadata(client, seed, m
     monkeypatch.setattr(llm_client, "extract_jd_from_page", broken_ai)
     fallback = client.post(route, headers=headers(seed["hr"]), json=body).json()
     assert fallback["ai_used"] is False and "3+ years in medical device quality" in fallback["jd_content"]
-    assert fallback["notes"]
+    assert fallback["notes"] and fallback["posting_content"] == ""
 
     # Not a job posting according to the AI.
     async def not_a_job(*args, **kwargs):

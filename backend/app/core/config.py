@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     TALENT_POOL_RETENTION_MONTHS: int = 60
     # P3-1 phase 2: most pooled applications one scan may score (each one can call the LLM).
     TALENT_POOL_SCAN_MAX_CANDIDATES: int = 200
+    # F3.03: server-to-server API for a separate candidate website (/v1/intake, header X-Intake-Key).
+    # Keys are created with scripts/intake_clients.py; without a valid key every call is 401.
+    INTAKE_API_ENABLED: bool = True
+    INTAKE_MAX_PER_CLIENT_HOUR: int = 1000
 
     # File upload limits
     MAX_FILE_SIZE_BYTES: int = 10_000_000  # 10 MB
@@ -124,7 +128,10 @@ class Settings(BaseSettings):
     PROFILE_PROMPT_VERSION: str = "profile-prompt-v2.0"
     MATCHING_PROMPT_VERSION: str = "matching-prompt-v2.0"
     # v1.5: years of experience come from work history only (education no longer counted).
-    DETERMINISTIC_RULES_VERSION: str = "deterministic-rules-v1.5"
+    # v1.6: years/degree rules only MATCH when the criterion's field is evidenced.
+    # v1.7: B.Eng./B.Sc./Kỹ sư recognised as bachelor-level degrees.
+    # v1.8: dotted abbreviations (B.Eng., Ph.D.) no longer split evidence quotes.
+    DETERMINISTIC_RULES_VERSION: str = "deterministic-rules-v1.8"
     MANDATORY_CRITERIA_WEIGHT_DEFAULT: float = 0.7
     NICE_TO_HAVE_WEIGHT_DEFAULT: float = 0.3
     MIN_EVIDENCE_COVERAGE: float = 0.7

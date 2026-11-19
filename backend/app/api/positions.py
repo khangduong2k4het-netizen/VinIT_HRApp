@@ -148,7 +148,7 @@ async def import_jd_from_url(request: JDImportRequest, current_user: dict = Depe
             outcome = exc.code
             raise HTTPException(status_code=400, detail=exc.message)
         source, chars = job.source, len(job.text)
-        title, jd_content, language = job.title, job.text, "en"
+        title, jd_content, language, posting_content = job.title, job.text, "en", ""
         try:
             draft = await llm_client.extract_jd_from_page(job.text, job.title, source_host=host)
             if not draft["is_job_posting"]:
@@ -157,6 +157,7 @@ async def import_jd_from_url(request: JDImportRequest, current_user: dict = Depe
             if draft["jd_content"].strip():
                 jd_content, ai_used = draft["jd_content"].strip(), True
             title = draft["title"].strip() or title
+            posting_content = (draft.get("posting_content") or "").strip()
             language = draft["language_code"]
             notes = [n for n in draft["notes"] if isinstance(n, str) and n.strip()][:5]
         except LLMError:
@@ -164,6 +165,7 @@ async def import_jd_from_url(request: JDImportRequest, current_user: dict = Depe
         outcome = "SUCCESS"
         return {"source_url": request.url.strip(), "final_url": job.final_url, "extraction": job.source,
                 "ai_used": ai_used, "title": title[:200], "jd_content": jd_content, "language_code": language,
+                "posting_content": posting_content,
                 "metadata": job.metadata, "notes": notes}
     finally:
         audit_db = SessionLocal()
@@ -239,6 +241,7 @@ async def create_position(
             "department_id": str(position_data.department_id),
             "department_sequence": department_sequence,
             "created_by": user_id,
+            "posting_content": (position_data.posting_content or "").strip() or None,
         })
         # F2.01: an ACTIVE job family drives rubric template suggestions; its
         # name is mirrored into the legacy job_family text column.
@@ -249,9 +252,10 @@ async def create_position(
             params["job_family_id"] = None
         new_position = db.execute(text("""
             INSERT INTO app_private.positions (position_code, title, job_family, job_family_id, org_unit, level, work_location,
-                work_mode, employment_type, headcount, created_by, department_id, department_sequence)
+                work_mode, employment_type, headcount, created_by, department_id, department_sequence, posting_content)
             VALUES (:position_code, :title, :job_family, :job_family_id, :org_unit, :level, :work_location,
-                :work_mode, :employment_type, :headcount, :created_by, :department_id, :department_sequence) RETURNING *
+                :work_mode, :employment_type, :headcount, :created_by, :department_id, :department_sequence,
+                :posting_content) RETURNING *
         """), params).mappings().one()
         position_id = new_position["position_id"]
         db.execute(text("""
@@ -436,7 +440,7 @@ async def update_position(position_id: UUID, update: PositionUpdate, current_use
     status_reason = (values.pop("status_reason", None) or "").strip() or None
     if "status" in values and values["status"] is not None:
         values["status"] = values["status"].value
-    allowed = {k: v for k, v in values.items() if k in {"title", "job_family", "job_family_id", "org_unit", "level", "work_location", "work_mode", "employment_type", "headcount", "status"} and v is not None}
+    allowed = {k: v for k, v in values.items() if k in {"title", "job_family", "job_family_id", "org_unit", "level", "work_location", "work_mode", "employment_type", "headcount", "status", "posting_content"} and v is not None}
     if not allowed:
         raise HTTPException(status_code=400, detail="Không có nội dung cần cập nhật")
     if "title" in allowed:
@@ -453,6 +457,8 @@ async def update_position(position_id: UUID, update: PositionUpdate, current_use
             allowed["job_family_id"] = str(allowed["job_family_id"])
         if "level" in allowed:
             allowed["level"] = allowed["level"].strip() or None
+        if "posting_content" in allowed:
+            allowed["posting_content"] = allowed["posting_content"].strip() or None
         sets = ", ".join(f"{key} = :{key}" for key in allowed)
         if "status" in allowed:
             # closed_at represents the current closure; the status-event trail

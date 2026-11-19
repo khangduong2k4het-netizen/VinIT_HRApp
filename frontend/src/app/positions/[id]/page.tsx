@@ -48,6 +48,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { positionsApi, criteriaApi, applicationsApi, operationsApi, authApi, dashboardApi, rubricApi } from '@/lib/api';
+import { setUrlParam } from '@/lib/navMemory';
+
+const TAB_SLUGS = ['criteria', 'applications', 'shortlist', 'jd', 'history'] as const;
+const tabFromSlug = (slug: string | null) => { const i = (TAB_SLUGS as readonly string[]).indexOf(slug || ''); return i >= 0 ? i : null; };
 import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import StatusBadge from '@/components/common/StatusBadge';
@@ -144,6 +148,11 @@ export default function PositionDetailPage() {
   const [savingJd, setSavingJd] = useState(false);
   const [me, setMe] = useState<any>(null);
   const [activeTab, setActiveTab] = useState(0);
+  const tabUrlReady = React.useRef(false);
+  // Keep the open tab in the URL (?tab=) so returning to this page reopens it.
+  useEffect(() => {
+    if (tabUrlReady.current) setUrlParam('tab', activeTab === 0 ? null : TAB_SLUGS[activeTab]);
+  }, [activeTab]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -185,6 +194,7 @@ export default function PositionDetailPage() {
   const [families, setFamilies] = useState<JobFamily[]>([]);
   const [positionFamilyId, setPositionFamilyId] = useState('');
   const [positionLevel, setPositionLevel] = useState('');
+  const [positionPosting, setPositionPosting] = useState('');
   const [creatingVersion, setCreatingVersion] = useState(false);
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [templateMatches, setTemplateMatches] = useState<TemplateMatch[]>([]);
@@ -258,9 +268,9 @@ export default function PositionDetailPage() {
 
   useEffect(() => {
     const search = new URLSearchParams(window.location.search);
-    const tab = search.get('tab');
-    const tabIndex = { criteria: 0, applications: 1, shortlist: 2, jd: 3 }[tab || ''];
+    const tabIndex = tabFromSlug(search.get('tab'));
     if (tabIndex != null) setActiveTab(tabIndex);
+    tabUrlReady.current = true;
     if (search.get('intake') === '1') {
       const timer = window.setTimeout(() => document.getElementById('cv-intake')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 350);
       return () => window.clearTimeout(timer);
@@ -453,6 +463,7 @@ export default function PositionDetailPage() {
         ...(statusChanged && positionStatusReason.trim() ? { status_reason: positionStatusReason.trim() } : {}),
         ...(positionFamilyId && positionFamilyId !== position?.job_family_id ? { job_family_id: positionFamilyId } : {}),
         ...(positionLevel.trim() !== (position?.level || '') ? { level: positionLevel.trim() } : {}),
+        ...(positionPosting.trim() !== (position?.posting_content || '').trim() ? { posting_content: positionPosting.trim() } : {}),
       });
       setPositionDialogOpen(false);
       await loadData();
@@ -523,6 +534,7 @@ export default function PositionDetailPage() {
     if (!position) return;
     setPositionTitle(position.title); setPositionStatus(position.status); setPositionStatusReason('');
     setPositionFamilyId(position.job_family_id || ''); setPositionLevel(position.level || '');
+    setPositionPosting(position.posting_content || '');
     setPositionEditError(null); setPositionDialogOpen(true);
     if (!families.length) {
       try { setFamilies((await rubricApi.listFamilies()).data || []); } catch { setFamilies([]); }
@@ -552,9 +564,13 @@ export default function PositionDetailPage() {
       return group.length === 0 || (group.every(item => /^\d{1,3}(?:\.\d{0,2})?$/.test(itemWeightDraft[item.criterion_id] || '') && Number(itemWeightDraft[item.criterion_id]) >= 0 && Number(itemWeightDraft[item.criterion_id]) <= 100) && Math.abs(draftWeightTotal(category) - 100) < 0.005);
     });
 
+  // Each pick ADDS to the batch, so HR can collect CVs from several folders.
+  // Re-picking the very same file (name, size and timestamp) is ignored.
   const handleFilesSelected = (files: File[]) => {
-    setSelectedFiles(files);
-    setUploadError(validateIntakeFiles(files).batchError);
+    const sameFile = (a: File, b: File) => a.name === b.name && a.size === b.size && a.lastModified === b.lastModified;
+    const next = [...selectedFiles, ...files.filter(file => !selectedFiles.some(existing => sameFile(existing, file)))];
+    setSelectedFiles(next);
+    setUploadError(validateIntakeFiles(next).batchError);
   };
 
   const handleRemoveFile = (index: number) => {
@@ -596,7 +612,7 @@ export default function PositionDetailPage() {
       return;
     }
     const search = new URLSearchParams(action.target.search || '');
-    const tabIndex = { criteria: 0, applications: 1, shortlist: 2, jd: 3 }[search.get('tab') || ''];
+    const tabIndex = tabFromSlug(search.get('tab'));
     if (tabIndex != null) setActiveTab(tabIndex);
     if (search.get('intake') === '1') scrollToIntake();
   };
@@ -1310,6 +1326,9 @@ export default function PositionDetailPage() {
             </TextField>
             <TextField fullWidth label={t("Cấp bậc")} value={positionLevel} inputProps={{ maxLength: 100 }}
               onChange={e => setPositionLevel(e.target.value)} />
+            <TextField fullWidth multiline minRows={4} maxRows={12} label={t("Nội dung đăng tuyển (hiện cho ứng viên)")}
+              value={positionPosting} inputProps={{ maxLength: 20000 }} onChange={e => setPositionPosting(e.target.value)}
+              helperText={t("Giới thiệu, quyền lợi, hạn nộp… Hiện cùng JD trên trang tuyển dụng; không dùng để chấm điểm.")} />
             <FormControl fullWidth>
               <InputLabel id="position-status-label">{t("Trạng thái vị trí")}</InputLabel>
               <Select labelId="position-status-label" label={t("Trạng thái vị trí")} value={positionStatus}

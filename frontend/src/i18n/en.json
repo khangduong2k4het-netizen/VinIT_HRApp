@@ -1054,6 +1054,8 @@
   "Điểm một phần: chỉ tính trên {0}% trọng số tiêu chí đã có bằng chứng, chưa phải điểm cuối.": "Partial score: calculated only on the {0}% of rubric weight that already has evidence; not the final score.",
   "Điểm cuối: đã tính trên toàn bộ trọng số tiêu chí.": "Final score: calculated on the full rubric weight.",
   "một phần": "partial",
+  "chưa đủ bằng chứng": "not enough evidence",
+  "Chưa so sánh được điểm: chỉ tính trên {0}% trọng số tiêu chí đã có bằng chứng.": "Score not comparable yet: calculated only on the {0}% of rubric weight that has evidence.",
   "Chi tiết tiêu chí": "Criterion details",
   "Chi tiết tiêu chí của {0}": "Criterion details of {0}",
   "Thu gọn chi tiết tiêu chí": "Collapse criterion details",
@@ -1573,4 +1575,6 @@
   "Nội dung đồng ý đã thay đổi. Vui lòng tải lại trang trước khi nộp hồ sơ.": "The consent notice has changed. Please reload the page before applying.",
   "Tôi đồng ý cho VinUniversity xử lý hồ sơ, bao gồm hỗ trợ đánh giá bằng AI, để ứng tuyển vị trí này và tham gia Talent Pool cho các vị trí phù hợp khác. Hồ sơ được lưu tối đa 5 năm kể từ khi vị trí tuyển dụng đóng; quyền dùng lại trong Talent Pool có hiệu lực 5 năm từ ngày đồng ý.": "I consent to VinUniversity processing my application, including AI-assisted assessment, for this position and including it in the Talent Pool for other suitable positions. My application is retained for up to 5 years after this position closes; Talent Pool reuse is permitted for 5 years from consent.",
   "Bạn cần đồng ý để nộp hồ sơ. Sau khi nộp, bạn nhận mã để rút lại đồng ý dùng hồ sơ cho vị trí khác; mã chỉ hiển thị một lần.": "Consent is required to apply. After submitting, you receive a code to withdraw consent for reuse for other positions; it is shown only once."
+  "Nội dung đăng tuyển (hiện cho ứng viên)": "Posting content (shown to candidates)",
+  "Giới thiệu, quyền lợi, hạn nộp… Hiện cùng JD trên trang tuyển dụng; không dùng để chấm điểm.": "Introduction, benefits, deadline… Shown with the JD on the careers site; never used for scoring."
 }

@@ -37,6 +37,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import LinkOffIcon from '@mui/icons-material/LinkOff';
 import { useCallback, useEffect, useState } from 'react';
 import { scorecardApi, shortlistApi } from '@/lib/api';
+import { readUrlParam, setUrlParam, useScrollMemory } from '@/lib/navMemory';
 import ScorecardDialog, { RECOMMENDATION_LABELS, SCORECARD_STATUS_LABELS } from '@/components/shortlist/ScorecardDialog';
 import type { Recommendation, Scorecard } from '@/types';
 import StatusBadge from '@/components/common/StatusBadge';
@@ -90,6 +91,8 @@ export default function ShortlistPage() {
   const { t, dateLocale } = useI18n();
   const [shares, setShares] = useState<ShortlistShare[]>([]);
   const [loading, setLoading] = useState(true);
+  useScrollMemory(!loading);
+  const shareRestored = React.useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [revokeShare, setRevokeShare] = useState<ShortlistShare | null>(null);
@@ -119,6 +122,7 @@ export default function ShortlistPage() {
 
   const handleOpenDetail = async (share: ShortlistShare) => {
     setSelectedShare(share);
+    setUrlParam('share', share.share_id);
     setFeedbackText(''); setDetailError(null);
     try {
       setDetailLoading(true);
@@ -138,8 +142,21 @@ export default function ShortlistPage() {
     }
   };
 
+  // Reopen the shortlist that was open (?share=) once the list has loaded.
+  useEffect(() => {
+    if (loading || shareRestored.current) return;
+    shareRestored.current = true;
+    const wanted = readUrlParam('share');
+    const share = wanted ? shares.find(s => s.share_id === wanted) : undefined;
+    if (share) handleOpenDetail(share);
+    else if (wanted) setUrlParam('share', null);
+    // handleOpenDetail is recreated each render; run once after the first load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, shares]);
+
   const handleCloseDetail = () => {
     setSelectedShare(null);
+    setUrlParam('share', null);
     setFeedbackText(''); setDetailError(null);
   };
 
@@ -339,7 +356,8 @@ export default function ShortlistPage() {
         {selectedShare && (
           <>
             <DialogTitle>
-              <Typography variant="h6" color="#0A2B57">
+              {/* DialogTitle is already an <h2>; a nested heading element (<h6>) is invalid HTML. */}
+              <Typography component="span" variant="h6" color="#0A2B57" sx={{ display: 'block' }}>
                 Shortlist — {selectedShare.position?.title}
               </Typography>
               <Typography variant="caption" color="text.secondary">{t("                Chia sẻ bởi")} {selectedShare.created_by_profile?.display_name || 'HR'} ·{' '}

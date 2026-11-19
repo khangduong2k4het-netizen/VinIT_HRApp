@@ -5,6 +5,7 @@ from app.core.security import get_current_user
 from app.core.permissions import check_position_access, can_update_application_status
 from app.core.logging import get_logger
 from app.core.exceptions import CriteriaNotApprovedError, NotFoundError
+from app.core.config import settings
 from app.schemas.criteria import (
     CriteriaItemWeightsUpdate,
     CriteriaVersion,
@@ -253,9 +254,11 @@ async def generate_criteria_from_jd(position_id: UUID, current_user: dict = Depe
             raise HTTPException(status_code=409, detail="JD đã thay đổi trong lúc tạo tiêu chí. Vui lòng thử lại.")
         version = db.execute(text("SELECT COALESCE(MAX(version_number), 0) + 1 FROM app_private.criteria_versions WHERE position_id = :id"), {"id": str(position_id)}).scalar_one()
         version_id = db.execute(text("""
-            INSERT INTO app_private.criteria_versions (position_id, jd_version_id, version_number, origin, status)
-            VALUES (:position, :jd, :version, 'AI_DRAFT', 'DRAFT') RETURNING criteria_version_id
-        """), {"position": str(position_id), "jd": jd["jd_version_id"], "version": version}).scalar_one()
+            INSERT INTO app_private.criteria_versions (position_id, jd_version_id, version_number, origin, status,
+                mandatory_weight_total, nice_to_have_weight_total)
+            VALUES (:position, :jd, :version, 'AI_DRAFT', 'DRAFT', :mandatory, :nice) RETURNING criteria_version_id
+        """), {"position": str(position_id), "jd": jd["jd_version_id"], "version": version,
+               **dict(zip(("mandatory", "nice"), draft_group_totals(items)))}).scalar_one()
         for index, item in enumerate(items):
             db.execute(text("""
                 INSERT INTO app_private.criteria_items (criteria_version_id, name, description, category, weight_in_group,
@@ -276,6 +279,16 @@ async def generate_criteria_from_jd(position_id: UUID, current_user: dict = Depe
         raise
     finally:
         db.close()
+
+
+def draft_group_totals(items: list[dict]) -> tuple[float, float]:
+    """Group totals for a new AI draft. A draft without preferred criteria gets
+    100/0 instead of the 70/30 default, otherwise the empty 30% group blocks
+    approval until HR notices and edits the totals by hand."""
+    if any(item["category"] == "NICE_TO_HAVE" for item in items):
+        mandatory = round(settings.MANDATORY_CRITERIA_WEIGHT_DEFAULT * 100, 2)
+        return mandatory, round(100 - mandatory, 2)
+    return 100.0, 0.0
 
 
 def criteria_decision(current_status: str, action: ApprovalAction, position_roles: set[str], system_roles: set[str]) -> tuple[str, str]:

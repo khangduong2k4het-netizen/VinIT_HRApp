@@ -298,7 +298,7 @@ def test_oversized_public_body_is_refused_before_parsing(client, portal, monkeyp
 def test_portal_job_is_tied_to_position_and_waits_for_a_running_job(client, portal):
     """The worker needs operations.position_id to assess and rank a portal CV, and the
     one-job-per-position guard must see portal jobs. A CV that arrives while a job is
-    running is kept for HR, who queues it with the existing reprocess action."""
+    running is held; HR can still queue it with the existing reprocess action."""
     seed = portal
     assert _apply(client, seed).status_code == 202
     first = _count("""SELECT COUNT(*) FROM app_private.operations
@@ -313,7 +313,8 @@ def test_portal_job_is_tied_to_position_and_waits_for_a_running_job(client, port
         parked = conn.execute(text("""SELECT a.application_id, d.file_processing_status, d.processing_error
             FROM app_private.applications a JOIN app_private.application_documents d USING (application_id)
             WHERE a.source_code = 'PORTAL' ORDER BY a.created_at DESC LIMIT 1""")).one()
-    assert parked.file_processing_status == "NEEDS_HR_REVIEW" and "Xử lý lại" in parked.processing_error
+    from app.services.portal_dispatch import DEFERRED_WHILE_BUSY
+    assert parked.file_processing_status == "NEEDS_HR_REVIEW" and parked.processing_error == DEFERRED_WHILE_BUSY
     assert _count("SELECT COUNT(*) FROM app_private.operations WHERE position_id = :p", p=seed["pos"]) == 1
 
     # Once the running job ends, HR's reprocess action queues the parked CV.
@@ -593,3 +594,58 @@ def test_oversized_chunked_upload_is_413_through_the_real_app(client, portal, mo
     res = client.post(f"/v1/public/positions/{portal['pos']}/apply", content=chunks(),
                       headers={"content-type": "multipart/form-data; boundary=b"})
     assert res.status_code == 413, res.text
+
+
+@integration
+def test_worker_queues_held_portal_cvs_as_one_job(client, portal):
+    """Bug #2: CVs that arrive while the position is busy are held, then queued together
+    as one job once the position is free, without HR pressing "reprocess" for each."""
+    from app.services.portal_dispatch import LEGACY_DEFERRED_WHILE_BUSY, dispatch_held_portal_cvs
+    seed = portal
+    assert _apply(client, seed).status_code == 202  # first CV starts a job right away
+    for i in range(3):
+        assert _apply(client, seed, content=PDF + f"\n%held-{i}".encode()).status_code == 202
+    held_sql = """SELECT COUNT(*) FROM app_private.application_documents d JOIN app_private.applications a USING (application_id)
+        WHERE a.position_id = :p AND d.file_processing_status = 'NEEDS_HR_REVIEW'"""
+    assert _count(held_sql, p=seed["pos"]) == 3
+    # An older row stored with the previous wording is picked up as well.
+    with engine.begin() as conn:
+        conn.execute(text("""UPDATE app_private.application_documents SET processing_error = :t WHERE document_id = (
+            SELECT d.document_id FROM app_private.application_documents d JOIN app_private.applications a USING (application_id)
+            WHERE a.position_id = :p AND d.file_processing_status = 'NEEDS_HR_REVIEW' ORDER BY d.created_at LIMIT 1)"""),
+                     {"t": LEGACY_DEFERRED_WHILE_BUSY, "p": seed["pos"]})
+
+    # Still busy: nothing is queued.
+    assert dispatch_held_portal_cvs() == 0
+    assert _count("SELECT COUNT(*) FROM app_private.operations WHERE position_id = :p", p=seed["pos"]) == 1
+
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.operations SET status = 'COMPLETED' WHERE position_id = :p"), {"p": seed["pos"]})
+    assert dispatch_held_portal_cvs() == 3
+    pending = _count("""SELECT COUNT(*) FROM app_private.operations
+        WHERE position_id = :p AND capability = 'CV_PROCESSING' AND status = 'PENDING'""", p=seed["pos"])
+    assert pending == 1
+    with engine.connect() as conn:
+        batch = conn.execute(text("""SELECT b.total_files, (SELECT COUNT(*) FROM app_private.cv_batch_items i WHERE i.batch_id = b.batch_id) AS items,
+                (SELECT COUNT(*) FROM app_private.document_processing_runs r WHERE r.operation_id = b.operation_id) AS runs
+            FROM app_private.cv_batches b JOIN app_private.operations o USING (operation_id)
+            WHERE o.position_id = :p AND o.status = 'PENDING'"""), {"p": seed["pos"]}).one()
+        audited = conn.execute(text("""SELECT COUNT(*) FROM app_private.audit_events
+            WHERE action_type = 'QUEUE_HELD_PUBLIC_CVS' AND position_id = :p"""), {"p": seed["pos"]}).scalar_one()
+    assert (batch.total_files, batch.items, batch.runs) == (3, 3, 3) and audited == 1
+    assert _count(held_sql, p=seed["pos"]) == 0
+    # Nothing left: a second poll is a no-op.
+    assert dispatch_held_portal_cvs() == 0
+
+
+@integration
+def test_held_portal_cvs_wait_while_position_is_closed(client, portal):
+    from app.services.portal_dispatch import dispatch_held_portal_cvs
+    seed = portal
+    assert _apply(client, seed).status_code == 202
+    assert _apply(client, seed, content=PDF + b"\n%held-closed").status_code == 202
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.operations SET status = 'COMPLETED' WHERE position_id = :p"), {"p": seed["pos"]})
+        conn.execute(text("UPDATE app_private.positions SET status = 'CLOSED', closed_at = NOW() WHERE position_id = :p"), {"p": seed["pos"]})
+    assert dispatch_held_portal_cvs() == 0
+    assert _count("""SELECT COUNT(*) FROM app_private.operations WHERE position_id = :p AND status = 'PENDING'""", p=seed["pos"]) == 0

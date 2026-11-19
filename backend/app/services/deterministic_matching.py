@@ -162,11 +162,77 @@ UNCERTAIN_CUES = (
 
 DEGREE_PATTERNS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (5, ("phd", "ph d", "doctorate", "doctoral degree", "tien si")),
-    (4, ("master", "masters", "msc", "mba", "meng", "thac si")),
-    (3, ("bachelor", "bachelors", "bsc", "beng", "bs", "ba", "cu nhan")),
+    (4, ("master", "masters", "msc", "m sc", "mba", "meng", "m eng", "mtech", "m tech", "thac si")),
+    # "B.Eng." / "B.Sc." normalize to "b eng" / "b sc"; "ky su" is the
+    # Vietnamese engineering degree, a bachelor-level qualification.
+    (3, ("bachelor", "bachelors", "bsc", "b sc", "beng", "b eng", "btech", "b tech",
+         "bs", "ba", "cu nhan", "ky su")),
     (2, ("associate degree", "cao dang")),
     (1, ("high school", "thpt", "trung hoc pho thong")),
 )
+
+# Words that describe a requirement rather than its field: "3+ years of
+# experience in Data Engineering" names the field "data engineering";
+# "Bachelor's degree in IT or a related field" names "it".
+FIELD_FILLER = {
+    "related", "field", "fields", "equivalent", "similar", "relevant", "relevent",
+    "area", "areas", "discipline", "major", "majors", "background", "s",
+    "professional", "hands", "on", "hands-on", "industry", "practical", "total",
+    "least", "at", "over", "more", "than", "preferred", "preferably", "ideally",
+    "good", "solid", "plus", "nganh", "chuyen", "lien", "quan", "tuong", "duong",
+    "it's", "e", "g", "eg", "etc", "such", "like", "relevant", "bang", "dai", "hoc",
+    "tot", "nghiep", "toi", "thieu", "tren", "building", "build", "developing",
+    "designing", "implementing", "maintaining", "managing", "leading", "delivering",
+    "education", "educational", "qualification", "qualifications", "academic", "trinh", "do", "van",
+}
+# A lone word like these is a degree title or umbrella word, not a field:
+# "Bachelor of Science in Accounting" must not satisfy "Data Science".
+WEAK_FIELD_WORDS = {
+    "science", "sciences", "arts", "art", "technology", "engineering",
+    "information", "management", "system", "systems", "business", "studies",
+    "data", "it", "s",
+}
+# Short field abbreviations and the spelled-out forms a CV may use instead.
+FIELD_ABBREVIATIONS: dict[str, tuple[str, ...]] = {
+    "it": ("information technology", "cong nghe thong tin", "cntt"),
+    "cs": ("computer science", "khoa hoc may tinh", "khmt"),
+    "cntt": ("information technology", "cong nghe thong tin"),
+    "khmt": ("computer science", "khoa hoc may tinh"),
+    # English field names and their Vietnamese / abbreviated forms.
+    "information technology": ("it", "cong nghe thong tin", "cntt"),
+    "computer science": ("cs", "khoa hoc may tinh", "khmt"),
+    "software engineering": ("ky thuat phan mem", "cong nghe phan mem"),
+    "data science": ("khoa hoc du lieu",),
+}
+_FIELD_SPLIT = re.compile(r"[,;/()]|\b(?:or|and|hoac|va|in|of|trong|ve)\b", re.IGNORECASE)
+_FIELD_SUFFIXES = ("ing", "ers", "er", "ed", "s")
+
+
+_ABBREVIATION = re.compile(r"(?:[A-Za-z]{1,2}\.)+[A-Za-z]{0,4}\.?")
+
+
+def _is_abbreviation_period(text: str, index: int) -> bool:
+    """True for a period inside or ending a dotted abbreviation."""
+    if index + 1 < len(text) and text[index + 1].isalpha():
+        return True  # "B.Eng": the period is followed directly by a letter
+    start = index
+    while start > 0 and (text[start - 1].isalpha() or text[start - 1] == "."):
+        start -= 1
+    word = text[start:index + 1]
+    return word.count(".") >= 2 and _ABBREVIATION.fullmatch(word) is not None
+
+
+def _field_stem(token: str) -> str:
+    """Crude stem so "engineer", "engineers" and "engineering" compare equal."""
+    for _ in range(2):
+        for suffix in _FIELD_SUFFIXES:
+            if len(token) > len(suffix) + 3 and token.endswith(suffix):
+                token = token[: -len(suffix)]
+                break
+        else:
+            break
+    return token
+
 
 CEFR_RANK = {"a1": 1, "a2": 2, "b1": 3, "b2": 4, "c1": 5, "c2": 6}
 QUALITATIVE_LANGUAGE_RANK = {
@@ -688,6 +754,76 @@ class DeterministicMatchingEngine:
             required_language_rank=qualitative_rank if kind == "LANGUAGE" else None,
         )
 
+    # ------------------------------------------------------------- field gate
+    @staticmethod
+    def field_phrases(criterion_text: str) -> tuple[tuple[str, ...], ...]:
+        """Field alternatives named by a YEARS/DEGREE criterion.
+
+        Each alternative is a tuple of normalized tokens that must all be
+        present.  An empty result means the criterion names no field (e.g.
+        "3+ years of professional experience"), so the gate does not apply.
+        """
+        phrases: list[tuple[str, ...]] = []
+        for piece in _FIELD_SPLIT.split(criterion_text or ""):
+            if not piece or not piece.strip():
+                continue
+            has_upper_it = bool(re.search(r"\bIT\b", piece))
+            tokens = []
+            for token in normalize_text(piece).split():
+                if token == "it" and not has_upper_it:
+                    continue
+                if token.isdigit() or any(ch.isdigit() for ch in token):
+                    continue
+                if token in STOPWORDS or token in FIELD_FILLER or token in GENERIC_TERMS:
+                    continue
+                if any(token in patterns for _level, patterns in DEGREE_PATTERNS):
+                    continue
+                if len(token) < 2:
+                    continue
+                tokens.append(token)
+            if not tokens:
+                continue
+            if len(tokens) == 1 and tokens[0] in WEAK_FIELD_WORDS and tokens[0] != "it":
+                continue
+            phrase = tuple(tokens)
+            if phrase not in phrases:
+                phrases.append(phrase)
+        return tuple(phrases)
+
+    @staticmethod
+    def _field_in_text(phrases: tuple[tuple[str, ...], ...], text: str) -> bool:
+        normalized = normalize_text(text)
+        stems = {_field_stem(token) for token in normalized.split()}
+        for phrase in phrases:
+            # Lower-case "it" is a pronoun; only the upper-case abbreviation counts.
+            is_pronoun_it = phrase == ("it",) and not re.search(r"\bIT\b", text or "")
+            if not is_pronoun_it and all(_field_stem(token) in stems for token in phrase):
+                return True
+            for form in FIELD_ABBREVIATIONS.get(" ".join(phrase), ()):
+                if form == "it":
+                    if re.search(r"\bIT\b", text or ""):
+                        return True
+                elif _contains_phrase(normalized, form):
+                    return True
+        return False
+
+    def _field_evidenced(
+        self,
+        spec: RequirementSpec,
+        texts: list[str],
+    ) -> bool:
+        """True when the criterion names no field or a text shows that field.
+
+        Without this gate the years rule counted any job (a sewing operator's
+        twelve years satisfied "3+ years Data Engineering") and the degree
+        rule any major (Accounting satisfied "Bachelor in IT").  Unproven
+        field fit is left unresolved for HR/LLM review, never a NO_MATCH.
+        """
+        phrases = self.field_phrases(spec.name)
+        if not phrases:
+            return True
+        return any(self._field_in_text(phrases, text) for text in texts if text)
+
     # ------------------------------------------------------------- durations
     @staticmethod
     def _explicit_years_in(text: str) -> list[float]:
@@ -1032,6 +1168,11 @@ class DeterministicMatchingEngine:
                     and text[index - 1].isdigit() and text[index + 1].isdigit()):
                 index += 1
                 continue
+            if char == "." and _is_abbreviation_period(text, index):
+                # "B.Eng.", "B.Sc.", "Ph.D." or "e.g." are one token, not
+                # sentence ends; splitting them left a useless "B." quote.
+                index += 1
+                continue
             if char in ".!?":
                 end = index + 1
                 while end < len(text) and text[end] in ".!?":
@@ -1144,6 +1285,11 @@ class DeterministicMatchingEngine:
         best = max(evidence_pool, key=evidence_rank)
         matched_text = ", ".join(best.matched_labels) if best.matched_labels else "experience history"
         if years >= spec.min_years:
+            work_texts = [
+                chunk.text for chunk in chunks if chunk.section in {"WORK", "PROJECT", "SUMMARY"}
+            ] + list(self._iter_strings((candidate_profile or {}).get("work_history")))
+            if not self._field_evidenced(spec, work_texts):
+                return None
             outcome = "STRONG_MATCH" if years >= spec.min_years + 2 or years >= spec.min_years * 1.5 else "MATCH"
             return self._finding(
                 spec, best, outcome, max(best.strength, 0.88),
@@ -1198,6 +1344,11 @@ class DeterministicMatchingEngine:
             coverage=1.0, strength=0.9,
         )
         if highest >= required:
+            education_texts = [best_chunk.text] + [
+                chunk.text for chunk in education_chunks
+            ] + list(self._iter_strings((candidate_profile or {}).get("education")))
+            if not self._field_evidenced(spec, education_texts):
+                return None
             outcome = "STRONG_MATCH" if highest > required else "MATCH"
             return self._finding(
                 spec, candidate, outcome, 0.92,

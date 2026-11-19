@@ -15,8 +15,9 @@ import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import HistoryIcon from '@mui/icons-material/History';
 import InsightsIcon from '@mui/icons-material/Insights';
 import RecentActorsIcon from '@mui/icons-material/RecentActors';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { onUrlStateChange, recallPage, rememberPage, sectionFor } from '@/lib/navMemory';
 
 const DRAWER_WIDTH = 260;
 const menuGroups = [
@@ -49,6 +50,26 @@ const menuGroups = [
 export default function Sidebar({ mobileOpen, onClose, isAdmin, isHr = false, isLead = false }: { mobileOpen: boolean; onClose: () => void; isAdmin: boolean; isHr?: boolean; isLead?: boolean }) {
   const { t } = useI18n();
   const pathname = usePathname();
+  const router = useRouter();
+  const sections = React.useMemo(() => menuGroups.flatMap(group => group.items.map(item => item.href)), []);
+  // Remember the last page (with its filters) seen in each section.
+  React.useEffect(() => {
+    const record = (url: string) => {
+      const section = sectionFor(url.split('?')[0], sections);
+      if (section) rememberPage(section, url);
+    };
+    record(window.location.pathname + window.location.search);
+    return onUrlStateChange(record);
+  }, [pathname, sections]);
+  // Clicking a section you are not in returns to where you left it; clicking the
+  // section you are already in goes to its main list.
+  const openSection = (event: React.MouseEvent, href: string) => {
+    onClose();
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+    if (sectionFor(pathname, sections) === href) return;
+    const last = recallPage(href);
+    if (last && last !== href) { event.preventDefault(); router.push(last); }
+  };
   const content = (
     <>
       <Box sx={{ p: 3, pb: 2 }}>
@@ -68,7 +89,7 @@ export default function Sidebar({ mobileOpen, onClose, isAdmin, isHr = false, is
               const selected = ['/admin', '/reports'].includes(item.href) ? pathname === item.href : pathname.startsWith(item.href);
               return (
                 <ListItem key={item.href} disablePadding sx={{ mb: 0.5 }}>
-                  <ListItemButton component={Link} href={item.href} onClick={onClose} selected={selected}
+                  <ListItemButton component={Link} href={item.href} onClick={(e: React.MouseEvent) => openSection(e, item.href)} selected={selected}
                     aria-current={selected ? 'page' : undefined}
                     sx={{ mx: 1, borderRadius: 2, minHeight: 46, transition: 'background-color .18s ease',
                       '&.Mui-selected': { backgroundColor: '#941616', '&:hover': { backgroundColor: '#7a1212' }, '& .MuiListItemIcon-root': { color: 'white' } },

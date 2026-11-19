@@ -30,6 +30,7 @@ from app.services.llm_client import (
     llm_client, LLMError, normalize_profile_page_number, sanitize_profile_page_numbers,
 )
 from app.services.matching import matching_engine
+from app.services.portal_dispatch import dispatch_held_portal_cvs
 from app.services.deterministic_matching import deterministic_matcher
 from app.services.embedding import (
     chunk_text_sha256, get_embedding_provider, parse_vector_literal,
@@ -146,6 +147,11 @@ class ProcessingWorker:
         """Main worker loop - polls for pending operations"""
         logger.info("Worker entering run loop")
         while self.running:
+            try:
+                # Portal CVs held while their position was busy become one job here.
+                dispatch_held_portal_cvs()
+            except Exception as e:
+                logger.error("Error queueing held portal CVs", error_type=type(e).__name__)
             try:
                 self._process_pending_operations()
             except Exception as e:

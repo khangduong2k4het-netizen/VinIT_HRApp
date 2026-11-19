@@ -122,7 +122,8 @@ export default function ScorecardDialog({ scorecardId, onClose, onChanged }: {
       <Box key={c.criterion_id} sx={{ py: 1.5, borderTop: '1px solid #EDF1F5' }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
           <Box sx={{ minWidth: 220, flex: 1 }}>
-            <Typography variant="body2" fontWeight={600}>
+            {/* component="div": the Chip renders a <div>, which is not allowed inside <p>. */}
+            <Typography component="div" variant="body2" fontWeight={600}>
               <Chip size="small" label={c.category === 'MUST_HAVE' ? t("Bắt buộc") : t("Ưu tiên")} sx={{ mr: 1, height: 20, fontSize: 11 }} />
               {c.name}
             </Typography>
@@ -146,7 +147,8 @@ export default function ScorecardDialog({ scorecardId, onClose, onChanged }: {
   return (
     <Dialog open={!!scorecardId} onClose={() => !busy && onClose()} maxWidth="md" fullWidth>
       <DialogTitle>
-        <Typography variant="h6" color="#0A2B57">{t("Scorecard")} — {card?.candidate_name || t("Ứng viên")}</Typography>
+        {/* DialogTitle is already an <h2>; a nested heading element (<h6>) is invalid HTML. */}
+        <Typography component="span" variant="h6" color="#0A2B57" sx={{ display: 'block' }}>{t("Scorecard")} — {card?.candidate_name || t("Ứng viên")}</Typography>
         {card && (
           <Typography variant="caption" color="text.secondary">
             {card.position_title} · {t("Người chấm")}: {card.reviewer_name || 'Hiring Manager'} · {t("Bộ tiêu chí phiên bản {0}", card.criteria_version_number ?? '—')}

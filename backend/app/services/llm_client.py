@@ -140,7 +140,7 @@ class LLMError(Exception):
     pass
 
 
-JD_IMPORT_PROMPT_VERSION = "jd-import-v1"
+JD_IMPORT_PROMPT_VERSION = "jd-import-v2"
 
 
 def _jd_sections_to_text(value: Any) -> str:
@@ -165,6 +165,7 @@ class JDImportSchema(BaseModel):
     is_job_posting: bool
     title: str = Field(default="", max_length=300)
     jd_content: str = Field(default="", max_length=60000)
+    posting_content: str = Field(default="", max_length=20000)
     language_code: Literal["en", "vi"] = "en"
     notes: List[str] = Field(default_factory=list, max_length=10)
 
@@ -567,7 +568,8 @@ RULES:
 5. If the text is not a job posting, return is_job_posting=false and an empty jd_content.
 6. language_code is the language of the posting: "en" or "vi".
 7. notes: up to 5 short notes for the recruiter, e.g. requirements that are vague or missing (such as no minimum years of experience).
-Return JSON with keys: is_job_posting (boolean), title (string), jd_content (ONE plain-text string, not an object or list), language_code, notes (array of strings)."""
+8. posting_content: the candidate-facing parts that rule 2 drops from jd_content - a short introduction of the organisation/team, benefits, deadline and how to apply - copied closely from the page as plain text with "- " bullets. Leave out contact details of people (names, personal emails, phone numbers). Empty string if the page has none.
+Return JSON with keys: is_job_posting (boolean), title (string), jd_content (ONE plain-text string, not an object or list), posting_content (ONE plain-text string), language_code, notes (array of strings)."""
         user_prompt = json.dumps({"title_hint": redact_text(title_hint or ""),
                                   "untrusted_job_page": redact_text(page_text)}, ensure_ascii=False)
         metadata: dict[str, Any] = {}
@@ -592,6 +594,7 @@ Return JSON with keys: is_job_posting (boolean), title (string), jd_content (ONE
             if result.get("title") is None:
                 result["title"] = ""
             result["jd_content"] = _jd_sections_to_text(result.get("jd_content"))
+            result["posting_content"] = _jd_sections_to_text(result.get("posting_content"))[:20000]
         try:
             parsed = JDImportSchema.model_validate(result)
         except ValidationError as exc:
@@ -771,6 +774,11 @@ EVALUATION RULES:
         for criterion in rubric:
             clean = redact_payload(criterion)
             clean["name"] = redact_text(str(criterion.get("name") or ""))
+            # The id is a system UUID, not personal data. Redacting it (a digit
+            # run such as "4727-4724-9556" looks like a phone number) made the
+            # model's finding impossible to map back to its criterion.
+            if "criterion_id" in criterion:
+                clean["criterion_id"] = str(criterion.get("criterion_id") or "")
             safe_rubric.append(clean)
 
         prompt_payload: Dict[str, Any] = {
@@ -842,7 +850,12 @@ EVALUATION RULES:
             "rubric_version": rubric_version,
             "findings": matching_engine.canonicalize_findings(rubric, parsed_findings),
         }
+        criterion_ids = [finding["criterion_id"] for finding in result["findings"]]
         result = redact_payload(result)
+        # Redaction must not touch system ids (see safe_rubric above);
+        # canonical findings keep rubric order, so restore them by position.
+        for finding, criterion_id in zip(result["findings"], criterion_ids):
+            finding["criterion_id"] = criterion_id
         result["candidate_identifier"] = candidate_identifier
         result["rubric_version"] = rubric_version
         result["_provider_metadata"] = metadata
