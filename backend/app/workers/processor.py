@@ -69,6 +69,51 @@ POLL_INTERVAL_SECONDS = 5
 HEARTBEAT_SECONDS = 20
 
 
+#: Tên dài hơn mức này gần như chắc chắn không phải tên người (thường là cả dòng
+#: tiêu đề hoặc địa chỉ bị model nhận nhầm).
+MAX_DISPLAY_NAME_CHARS = 80
+
+#: Ký tự cho phép trong tên hiển thị. Giữ dấu tiếng Việt và các dấu phổ biến
+#: (apostrophe, hyphen, dấu chấm cho tên viết tắt), loại mọi thứ trông như mã.
+_NAME_ALLOWED = re.compile(r"^[\w\s.'\-]+$", re.UNICODE)
+
+
+def _normalise_for_match(value: str) -> str:
+    """Chuẩn hoá để so khớp: bỏ khoảng trắng thừa, không phân biệt hoa thường."""
+    return re.sub(r"\s+", " ", (value or "").strip()).casefold()
+
+
+def _verified_candidate_name(raw: object, cv_text: str) -> Optional[str]:
+    """Kiểm chứng tên do model bóc tách: chỉ nhận khi tên đó có thật trong CV.
+
+    Vì sao không tin model ngay: nó có thể chép lại tên công ty, trường học,
+    chức danh, hoặc đơn giản là bịa ra một cái tên nghe hợp lý. Một cái tên sai
+    tệ hơn không có tên: HR sẽ gọi nhầm người.
+
+    Trả ``None`` nghĩa là "không xác định được tên". Nơi gọi hiển thị
+    "Chưa trích xuất tên" và giữ tên tệp ở ``original_filename`` làm tham chiếu.
+    """
+    if not isinstance(raw, str):
+        return None
+    name = re.sub(r"\s+", " ", raw).strip()
+    if not name or len(name) > MAX_DISPLAY_NAME_CHARS:
+        return None
+    if not _NAME_ALLOWED.match(name):
+        return None
+    # Quá ít hoặc quá nhiều từ so với một họ tên: không phải tên người.
+    words = name.split(" ")
+    if not 1 <= len(words) <= 6:
+        return None
+    # Bắt buộc xuất hiện nguyên vẹn trong text gốc (không phân biệt hoa thường).
+    if _normalise_for_match(name) not in _normalise_for_match(cv_text):
+        logger.warning(
+            "Bỏ tên ứng viên do model trả về vì không có trong CV",
+            reason="not_found_in_text",
+        )
+        return None
+    return name
+
+
 class LostOwnership(RuntimeError):
     """The connection or fencing token for an operation was lost."""
 
@@ -585,9 +630,20 @@ class ProcessingWorker:
                             "extraction_config": json.dumps(extraction_config)})
                     profile_version_id = profile_ver_result.fetchone()[0]
 
-                    # Extract basic contact signals locally; never infer a name from the
-                    # opaque candidate_identifier returned by the model.
-                    display_name = os.path.splitext(doc["original_filename"])[0]
+                    # Tên hiển thị: đọc từ chính CV, KHÔNG phải tên file.
+                    #
+                    # Trước đây chỗ này là os.path.splitext(original_filename)[0] — với
+                    # tên file kiểu "CV_final_v2 (1).pdf" thì HR thấy đúng chuỗi đó
+                    # làm tên ứng viên. Tên file chỉ còn là tham chiếu
+                    # (original_filename giữ nguyên), không dùng làm nhãn.
+                    #
+                    # Chỉ nhận khi tên thật sự xuất hiện trong text gốc của CV.
+                    # Phải dùng raw_text: full_text đã bị redact nên tên trong đó
+                    # đã thành [REDACTED], đối chiếu với nó sẽ luôn thất bại.
+                    extracted_name = loop.run_until_complete(
+                        llm_client.extract_candidate_name(raw_text, application_id)
+                    )
+                    display_name = _verified_candidate_name(extracted_name, raw_text)
                     email = email_match.group(0).lower() if email_match else None
                     phone = re.sub(r"\D", "", phone_match.group(0)) if phone_match else None
 

@@ -45,7 +45,7 @@ if (process.env.CAREERS_DEMO_E2E !== '1' || !base || !health ||
     await page.getByRole('option', { name: /DEMO-IT-002/ }).click();
     await page.getByRole('button', { name: 'Kiểm tra pool demo' }).click();
     await page.getByText('Ứng viên giả Browser', { exact: false }).waitFor();
-    await page.getByText('Ứng viên giả An', { exact: false }).waitFor();
+    await page.getByText('Nguyễn Văn An', { exact: false }).waitFor();
     console.log('Worker + Talent Pool HR demo: OK');
     await page.goto(base + '/careers-demo');
     await page.getByLabel('Mã demo').fill(token);
@@ -57,7 +57,7 @@ if (process.env.CAREERS_DEMO_E2E !== '1' || !base || !health ||
     await page.getByRole('combobox', { name: 'Vị trí đích có rubric duyệt' }).click();
     await page.getByRole('option', { name: /DEMO-IT-002/ }).click();
     await page.getByRole('button', { name: 'Kiểm tra pool demo' }).click();
-    await page.getByText('Ứng viên giả An', { exact: false }).waitFor();
+    await page.getByText('Nguyễn Văn An', { exact: false }).waitFor();
     assert.equal(await page.getByText('Ứng viên giả Browser', { exact: false }).count(), 0);
     console.log('Consent withdrawal prevents later demo scan: OK');
     await page.goto(base + '/email-demo');

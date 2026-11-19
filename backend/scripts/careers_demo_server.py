@@ -66,7 +66,7 @@ def demo_fixture(kind: str):
     require_demo()
     if kind == 'cv':
         return Response(synthetic_cv(), media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                        headers={'Content-Disposition': 'attachment; filename="cv-gia.docx"', 'Cache-Control': 'no-store'})
+                        headers={'Content-Disposition': 'attachment; filename="cv-demo-nguyen-van-an.docx"', 'Cache-Control': 'no-store'})
     if kind == 'email':
         return Response(synthetic_email(), media_type='message/rfc822',
                         headers={'Content-Disposition': 'attachment; filename="email-gia.eml"', 'Cache-Control': 'no-store'})

@@ -75,6 +75,26 @@ def redact_text(value: str, *, detect_first_line_name: bool = False) -> str:
     return result
 
 
+def redact_contacts_only(value: str) -> str:
+    """Xoá liên hệ và định danh máy móc, nhưng **giữ nguyên tên người**.
+
+    Ngược lại với ``redact_text``: hàm đó xoá cả tên vì profile dùng để chấm
+    điểm không được chứa tên. Ở đây ta cần đúng cái ngược lại — một lần gọi
+    model chuyên đọc tên in trên CV, nên chỉ bỏ email, URL, số điện thoại và
+    các dòng nhãn như "Địa chỉ:", "Ngày sinh:".
+
+    Không dùng cho dữ liệu đi vào chấm điểm hay lưu trữ: đầu ra vẫn còn tên.
+    """
+    if not value:
+        return value
+    result = _EMAIL.sub(REDACTED, value)
+    result = _URL.sub(REDACTED, result)
+    result = _NUMBER.sub(
+        lambda m: REDACTED if len(re.sub(r"\D", "", m.group())) >= 9 else m.group(), result
+    )
+    return _LABEL.sub(REDACTED, result)
+
+
 def redact_payload(value: Any) -> Any:
     """Recursively minimise structured model inputs and outputs.
 

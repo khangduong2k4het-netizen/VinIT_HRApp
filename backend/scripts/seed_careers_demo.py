@@ -9,7 +9,16 @@ from psycopg2.extensions import parse_dsn
 from app.api.careers_demo import require_demo
 from app.core.config import settings
 from app.db.database import engine
-from careers_demo_support import DEMO_USER_ID, SOURCE_ID, TARGET_ID, SOURCE_CODE, TARGET_CODE, synthetic_cv
+from careers_demo_support import (
+    DEMO_CANDIDATE_EMAIL,
+    DEMO_CANDIDATE_NAME,
+    DEMO_USER_ID,
+    SOURCE_CODE,
+    SOURCE_ID,
+    TARGET_CODE,
+    TARGET_ID,
+    synthetic_cv,
+)
 
 
 def main():
@@ -43,9 +52,9 @@ def main():
                 VALUES (:id,'Python (giả)','Tiêu chí minh họa, chưa được HR phê duyệt nghiệp vụ.','MUST_HAVE',100)"""), {'id': criteria})
         application, document = str(uuid4()), str(uuid4())
         conn.execute(text("INSERT INTO app_private.applications(application_id,position_id,source_code) VALUES (:app,:pos,'CAREERS_DEMO')"), {'app': application, 'pos': SOURCE_ID})
-        conn.execute(text("INSERT INTO app_private.application_identities(application_id,display_name,email) VALUES (:app,'Ứng viên giả An','an@example.invalid')"), {'app': application})
+        conn.execute(text("INSERT INTO app_private.application_identities(application_id,display_name,email) VALUES (:app,:name,:email)"), {'app': application, 'name': DEMO_CANDIDATE_NAME, 'email': DEMO_CANDIDATE_EMAIL})
         conn.execute(text("""INSERT INTO app_private.application_documents(document_id,application_id,bucket,storage_path,original_filename,mime_type,size_bytes,file_processing_status)
-            VALUES (:doc,:app,:bucket,:path,'cv-gia.docx','application/vnd.openxmlformats-officedocument.wordprocessingml.document',:size,'COMPLETED')"""),
+            VALUES (:doc,:app,:bucket,:path,'cv-demo-nguyen-van-an.docx','application/vnd.openxmlformats-officedocument.wordprocessingml.document',:size,'COMPLETED')"""),
             {'doc': document, 'app': application, 'bucket': settings.SUPABASE_STORAGE_BUCKET_CV, 'path': relative, 'size': len(synthetic_cv())})
         conn.execute(text("""INSERT INTO app_private.talent_pool_demo_consents(application_id,notice_version,token_hash,expires_at)
             VALUES (:app,'synthetic-demo-v1',:token,now()+interval '7 days')"""), {'app': application, 'token': hashlib.sha256(os.urandom(32)).hexdigest()})

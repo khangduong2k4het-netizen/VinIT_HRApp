@@ -486,6 +486,13 @@ export default function ApplicantDetailPage() {
             <Typography variant="body2" color="text.secondary" fontFamily="monospace">
               ID: {application.application_id.slice(0, 8)}...
             </Typography>
+            {/* Tên tệp gốc là tham chiếu: tên ứng viên nay đọc từ nội dung CV,
+                nhưng HR vẫn cần biết hồ sơ này đến từ tệp nào. */}
+            {application.documents?.[0]?.original_filename && (
+              <Typography variant="caption" color="text.secondary" fontFamily="monospace">
+                {t("Tệp gốc:")} {application.documents[0].original_filename}
+              </Typography>
+            )}
             {application.file_processing_status === 'PROCESSING' && (
               <Chip label={t("Đang xử lý CV")} size="small" />
             )}

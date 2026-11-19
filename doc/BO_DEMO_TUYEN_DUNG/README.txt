@@ -1,7 +1,14 @@
 BỘ DEMO HRA — 5 JD VÀ 30 CV IT GIẢ
 
 Bắt đầu: mở KICH_BAN_DEMO.md (demo ngắn) và BANG_PHAN_BO_30_CV.md (kế hoạch nhập đủ, opt-in và đối chiếu Talent Pool).
-01_JD: năm JD IT giả. 02_CV: 30 CV giả (29 DOCX, 1 PDF).
+01_JD: năm JD IT giả. 02_CV: 30 CV (20 DOCX, 10 PDF) của người hư cấu, viết như
+CV thật: họ tên đầy đủ, chức danh, kinh nghiệm theo công ty kèm số liệu, học vấn,
+chứng chỉ. Bộ này do backend/scripts/demo_pack/generate.py sinh ra — sửa dữ liệu
+trong cv_data.py rồi chạy lại, đừng sửa tay từng tệp.
+
+Tên tệp cố ý không theo quy chuẩn (viết hoa, dấu cách, "-final", "_v2", " (1)")
+đúng như tệp HR nhận ngoài đời. Hệ thống đọc tên ứng viên từ nội dung CV; tên tệp
+chỉ còn là tham chiếu (original_filename) và hiển thị ở trang chi tiết hồ sơ.
 03_GMAIL: mẫu email giả; thay mã vị trí do HRA tạo.
 
 Chỉ dùng dữ liệu và tài khoản test. HTTP qua IP công khai không mã hóa; không dùng thông tin thật. Browser có thể không tạo được mã ứng tuyển qua HTTP/IP: xem cách mở localhost qua SSH tunnel ở đầu kịch bản. Talent Pool hiện lọc điều kiện, không tự chấm hay xếp hạng theo JD. Chưa test end-to-end trên VPS.

@@ -16,9 +16,9 @@ Anh đang truy cập `http://IP:3005`, không thay đổi cấu hình firewall t
 |---|---|---|
 | `01_JD/JD_01_Backend_Python.txt` | JD vị trí nguồn | Tạo vị trí Backend Python demo |
 | `01_JD/JD_02_Tich_hop_Du_lieu.txt` | JD vị trí đích | Tạo vị trí Tích hợp dữ liệu demo |
-| `02_CV/CV_01_An_Careers_Dong_y.docx` | An có Python, API, SQL và dự án dữ liệu giả | Nộp qua Careers và **chọn** Talent Pool |
-| `02_CV/CV_02_Binh_Careers_Khong_dong_y.pdf` | Bình có Python/Flask/SQL, kinh nghiệm khác An | Nộp qua Careers và **không chọn** Talent Pool |
-| `02_CV/CV_03_Chi_Gmail.docx` | Chi có Backend Python giả | Gửi qua Gmail thử nghiệm |
+| `02_CV/CV_01_nguyen_van_an.docx` | An có Python, API, SQL và dự án dữ liệu giả | Nộp qua Careers và **chọn** Talent Pool |
+| `02_CV/CV_02_tran_dinh_binh.pdf` | Bình có Python/Flask/SQL, kinh nghiệm khác An | Nộp qua Careers và **không chọn** Talent Pool |
+| `02_CV/CV-03-le_thi_kim_chi-final.docx` | Chi có Backend Python giả | Gửi qua Gmail thử nghiệm |
 | `03_GMAIL/MAU_EMAIL.txt` | Tiêu đề, nội dung thư hợp lệ và thư thiếu tệp | Thay mã vị trí thật do HRA tạo trước khi gửi |
 
 Tất cả tên, tổ chức, kinh nghiệm và email `@example.test` trong tài liệu là **hư cấu**; không có số điện thoại thật. Các kỹ năng chỉ giúp câu chuyện dễ hiểu, không đảm bảo AI chấm điểm/xếp hạng hay kết luận ai phù hợp.
@@ -97,10 +97,10 @@ HR cần cấu hình trọng số phù hợp và hoàn thành quy trình phê du
 
 **Lời dẫn:** “Đồng ý vào Talent Pool là lựa chọn riêng, không phải điều kiện nộp hồ sơ.”
 
-1. Chọn vị trí **nguồn**. Điền tên `Ứng viên giả An`, email `an@example.test`, để trống điện thoại; chọn `CV_01_An_Careers_Dong_y.docx`.
+1. Chọn vị trí **nguồn**. Điền tên `Nguyễn Văn An`, email `nguyen.van.an@example.test`, điện thoại `0912 384 617`; chọn `CV_01_nguyen_van_an.docx`.
 2. Tích chọn Talent Pool thử nghiệm **7 ngày**, sao chép/lưu an toàn mã rút của An ở nơi chỉ người demo biết, rồi nộp. Hiển thị “đã tiếp nhận yêu cầu”; lưu ý chưa đồng nghĩa worker đã hoàn tất.
 3. Trên màn HR, chờ tác vụ An hoàn tất rồi mở hồ sơ thử nghiệm để kiểm tra CV. Nếu có lỗi/mất kết nối, giữ nguyên form, tệp và mã rút để thử lại cùng yêu cầu; nội dung thay đổi hoặc yêu cầu mới có thể tạo bản ghi khác.
-4. Nộp Bình tại cùng vị trí: tên `Ứng viên giả Bình`, email `binh@example.test`, tệp `CV_02_Binh_Careers_Khong_dong_y.pdf`; **không tích** Talent Pool. Chờ xử lý hoàn tất. Nộp tuần tự để tránh xung đột khi vị trí đang có tác vụ.
+4. Nộp Bình tại cùng vị trí: tên `Trần Đình Bình`, email `tran.dinh.binh@example.test`, tệp `CV_02_tran_dinh_binh.pdf`; **không tích** Talent Pool. Chờ xử lý hoàn tất. Nộp tuần tự để tránh xung đột khi vị trí đang có tác vụ.
 
 **Đạt khi:** có hai hồ sơ giả riêng; An có consent riêng, Bình không có; không suy consent từ việc nộp. Nếu worker chưa COMPLETED thì chưa dùng kết quả đó để kết luận Talent Pool.
 
@@ -119,9 +119,9 @@ HR cần cấu hình trọng số phù hợp và hoàn thành quy trình phê du
 
 **Lời dẫn:** “HR chủ động kiểm tra một hộp Gmail test; email và tệp được quét trước khi bóc tách. Gmail không tự cấp consent Talent Pool.”
 
-1. Trong Gmail riêng, gửi/nhận thư giả theo `03_GMAIL/MAU_EMAIL.txt`: thay placeholder bằng **MÃ NGUỒN thực tế**, tiêu đề bắt đầu `[HRA-TEST] `, đúng một tệp `CV_03_Chi_Gmail.docx`, sau đó gắn nhãn `HRA_TEST`.
+1. Trong Gmail riêng, gửi/nhận thư giả theo `03_GMAIL/MAU_EMAIL.txt`: thay placeholder bằng **MÃ NGUỒN thực tế**, tiêu đề bắt đầu `[HRA-TEST] `, đúng một tệp `CV-03-le_thi_kim_chi-final.docx`, sau đó gắn nhãn `HRA_TEST`.
 2. Đảm bảo vị trí nguồn không còn tác vụ đang chạy. HR Lead/Admin mở `/gmail-test`, bấm **Kiểm tra Gmail**, xem kết quả. Gmail chỉ xử lý tối đa 5 email mỗi trang; nếu cần bấm kiểm tra trang tiếp. `ACCEPTED` là đã tiếp nhận, không đồng nghĩa worker xong.
-3. Sau khi worker hoàn tất, mở **Xác nhận thông tin giả**, nhập tên `Ứng viên giả Chi`, email `chi@example.test`, tích xác nhận giả và lưu. Mặc định hồ sơ giữ tên/email giả cố định; không coi dữ liệu người gửi hoặc thông tin HR nhập là xác minh danh tính thật. Không tạo consent Pool từ Gmail.
+3. Sau khi worker hoàn tất, mở **Xác nhận thông tin giả**, nhập tên `Lê Thị Kim Chi`, email `le.thi.kim.chi@example.test`, tích xác nhận giả và lưu. Mặc định hồ sơ giữ tên/email giả cố định; không coi dữ liệu người gửi hoặc thông tin HR nhập là xác minh danh tính thật. Không tạo consent Pool từ Gmail.
 4. Bấm đồng bộ lại: thư đã ACCEPTED không tự tạo application mới. Gửi một **thư giả mới thiếu tệp** theo mẫu, gắn nhãn rồi kiểm tra; kỳ vọng `Cần HR kiểm tra` / số tệp không hợp lệ. Nút **Thử lại** chỉ phù hợp khi nguyên nhân dịch vụ đã được khắc phục; không sửa nội dung email đã gửi.
 
 **Đạt khi:** thư hợp lệ được nhập một lần; thư thiếu tệp vào REVIEW; không có consent Pool tự phát. Gmail spam/trash có thể không xuất hiện trong danh sách. Nếu OAuth/scanner/Storage lỗi, dừng và báo chưa nghiệm thu; không tắt ClamAV hay tạo bản ghi giả để trình bày thay.

@@ -1,6 +1,7 @@
 import hashlib
 import json
 import ipaddress
+import re
 import socket
 import time
 from collections import Counter
@@ -13,7 +14,12 @@ from app.core.logging import get_logger
 from pydantic import BaseModel, Field, ValidationError
 from app.services import langfuse_observability as observability
 from app.services.llm_usage import record_attempt
-from app.services.redaction import redact_payload, redact_professional_profile, redact_text
+from app.services.redaction import (
+    redact_contacts_only,
+    redact_payload,
+    redact_professional_profile,
+    redact_text,
+)
 from app.services.ai_config import (
     AIConfigError, canonical_endpoint, get_active_runtime, hydrate_runtime_secret,
     runtime_context, validate_runtime,
@@ -151,6 +157,13 @@ Output only the requested JSON. A qualified human must independently review ever
 """
 
 
+#: Số ký tự đầu CV gửi đi khi chỉ cần đọc tên. Đủ cho phần tiêu đề (tên, chức
+#: danh, liên hệ) mà vẫn giữ lượng dữ liệu gửi đi ở mức tối thiểu.
+NAME_EXCERPT_CHARS = 600
+
+#: Phiên bản prompt đọc tên, ghi vào log để truy vết khi chất lượng trích xuất đổi.
+NAME_PROMPT_VERSION = "candidate-name-v1"
+
 CRITERIA_PROMPT_VERSION = settings.CRITERIA_PROMPT_VERSION
 PROFILE_PROMPT_VERSION = settings.PROFILE_PROMPT_VERSION
 MATCHING_PROMPT_VERSION = settings.MATCHING_PROMPT_VERSION
@@ -176,6 +189,15 @@ class CandidateProfileSchema(BaseModel):
     certifications: List[Dict[str, Any]]
     languages: List[Dict[str, Any] | str] = Field(default_factory=list)
     projects: List[Dict[str, Any] | str] = Field(default_factory=list)
+
+
+class CandidateNameSchema(BaseModel):
+    """Tên in trên CV, dùng làm nhãn hiển thị cho HR.
+
+    Tách hẳn khỏi ``CandidateProfileSchema``: tên KHÔNG được đi vào profile
+    dùng để chấm điểm hay xếp hạng.
+    """
+    full_name: Optional[str] = None
 
 
 class EvidenceSchema(BaseModel):
@@ -621,6 +643,7 @@ STRICT PRIVACY & ANTI-BIAS RULES:
 - Retain ONLY: Professional experience, education history, technical/soft skills, languages, and verifiable certifications.
 - Record the exact page number where each block of information is located.
 - Return JSON with candidate_identifier, total_years_experience (number), education (array of objects), work_history (array of objects), skills (array of strings), certifications, languages and projects (arrays of objects with professional names and optional page_number). Use empty arrays when information is missing.
+
 """
 
         user_prompt = json.dumps({"candidate_identifier": candidate_identifier,
@@ -648,6 +671,70 @@ STRICT PRIVACY & ANTI-BIAS RULES:
         except ValidationError as e:
             logger.error("LLM profile extraction failed schema validation")
             raise LLMError("Extracted candidate profile failed validation")
+
+        result = sanitize_profile_page_numbers(redact_professional_profile(result))
+        result["candidate_identifier"] = candidate_identifier
+        result["_provider_metadata"] = metadata
+        result["_prompt_version"] = PROFILE_PROMPT_VERSION
+        return result
+
+    async def extract_candidate_name(self, cv_text: str, candidate_identifier: str) -> Optional[str]:
+        """Đọc tên in trên CV, dùng làm nhãn hiển thị. Trả ``None`` nếu không chắc.
+
+        Vì sao là một lần gọi riêng, không gộp vào ``extract_candidate_profile``:
+        prompt bóc tách profile nhận bản text **đã redact**, trong đó tên đã bị
+        thay bằng ``[REDACTED]``. Hỏi tên ở đó thì model chỉ có thể bịa. Lần gọi
+        này gửi một đoạn trích ngắn **chưa redact** ở phần đầu CV — nơi tên được
+        in — và không gửi gì khác (không ngày sinh, không địa chỉ, không ảnh).
+
+        Kết quả chỉ là nhãn: không được đưa vào prompt chấm điểm, không vào
+        ranking. Nơi gọi còn kiểm lại tên có thật trong CV (xem
+        ``_verified_candidate_name`` trong processor) trước khi lưu.
+        """
+        if not cv_text:
+            return None
+
+        # Chỉ phần đầu CV: tên nằm ở đó, và càng ít dữ liệu gửi đi càng tốt.
+        excerpt = redact_contacts_only(cv_text)[:NAME_EXCERPT_CHARS]
+
+        system_prompt = """You read the candidate's name from the top of a resume.
+Return only the JSON object {"full_name": <string or null>}.
+
+RULES:
+- full_name is the person's own name as printed on the resume, usually the first non-empty line, or the value of a line labelled "Name", "Full name", "Họ và tên", "Họ tên".
+- Copy it exactly as written, including Vietnamese diacritics. Do not translate, do not convert to Western order, do not change capitalisation.
+- Return null when the header is a job title, a section heading, a company or school name, an email address, a file name, a placeholder such as "[REDACTED]" or "Ứng viên giả", or when no personal name is clearly printed.
+- Never guess and never invent a plausible-sounding name. A wrong name is worse than null.
+"""
+
+        metadata: dict[str, Any] = {}
+        try:
+            result = await self._call_llm(
+                system_prompt=system_prompt,
+                user_prompt=json.dumps({"resume_header": excerpt}, ensure_ascii=False),
+                temperature=0.0,
+                metadata_out=metadata,
+                task_name="hra.llm.candidate_name",
+                output_validator=CandidateNameSchema.model_validate,
+                prompt_version=NAME_PROMPT_VERSION,
+                observability_metadata={
+                    "application_id": candidate_identifier,
+                    "input_characters": len(excerpt),
+                },
+            )
+        except LLMError:
+            # Không đọc được tên thì để trống; đây không phải lỗi chặn xử lý.
+            logger.warning("Không đọc được tên ứng viên từ CV", reason="llm_error")
+            return None
+
+        raw = result.get("full_name") if isinstance(result, dict) else None
+        if not isinstance(raw, str):
+            return None
+        name = re.sub(r"\s+", " ", raw).strip()
+        # Model đôi khi trả nguyên chuỗi vô nghĩa thay cho null.
+        if not name or name.lower() in {"null", "none", "n/a", "[redacted]"}:
+            return None
+        return name
 
         result = sanitize_profile_page_numbers(redact_professional_profile(result))
         result["candidate_identifier"] = candidate_identifier

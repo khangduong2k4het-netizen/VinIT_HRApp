@@ -4,7 +4,7 @@
 
 Bản demo này sử dụng **dữ liệu tổng hợp, database PostgreSQL riêng dùng một lần và Storage local**. Link preview cho phép người có link vào workspace HR giả **không cần mật khẩu**, do đó không gửi hoặc tải lên CV, email, số điện thoại, thông tin cá nhân hay JD thật; không dùng để tuyển dụng thực tế. Không kết nối Supabase/Gmail thật, không có quét mã độc hoặc chống spam. Dữ liệu và tiến trình demo có thể mất khi sandbox dừng. Không coi demo là nghiệm thu hay production.
 
-Trang đầu `/demo` cho tải `cv-gia.docx` và `email-gia.eml` và mở workspace HR demo. Nếu dịch vụ được chạy với `DEMO_PREVIEW=1`, đường dẫn `/` tự chuyển đến `/demo`. Server demo tạo JWT tạm thời trong bộ nhớ; đây chỉ là cơ chế mô phỏng, không thay thế Supabase Auth. Worker sử dụng profile giả và **bỏ qua toàn bộ đánh giá/xếp hạng AI**; không có quyết định tuyển dụng tự động.
+Trang đầu `/demo` cho tải `cv-demo-nguyen-van-an.docx` (hồ sơ hư cấu Nguyễn Văn An, mở đầu bằng đúng họ tên để hệ thống đọc được tên ứng viên) và `email-gia.eml`, rồi mở workspace HR demo. Nếu dịch vụ được chạy với `DEMO_PREVIEW=1`, đường dẫn `/` tự chuyển đến `/demo`. Server demo tạo JWT tạm thời trong bộ nhớ; đây chỉ là cơ chế mô phỏng, không thay thế Supabase Auth. Worker sử dụng profile giả và **bỏ qua toàn bộ đánh giá/xếp hạng AI**; không có quyết định tuyển dụng tự động.
 
 ## Kịch bản demo
 
