@@ -13,6 +13,15 @@ from typing import Any
 
 COVERAGE_THRESHOLD = 0.7
 
+# The one place that decides which applications a *work* queue may count.
+# Applications outside the screening stage (rejected, interviewed, offered) are
+# still part of the position history and still appear in the status breakdown,
+# but they are not "work left to do": counting them made the dashboard promise
+# more items than the ranking page could list. Keep in step with
+# frontend/src/lib/applicantReview.ts and the ranking endpoint
+# (backend/app/api/assessments.py).
+SCREENING_APPLICATION_STATUSES = ("NEW", "IN_REVIEW", "SHORTLIST")
+
 WORKFLOW_STEPS = ("JD", "CRITERIA", "CV_INTAKE", "HR_REVIEW", "SHORTLIST")
 _PRIORITY_RANK = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
 
@@ -29,7 +38,13 @@ def _as_int(value: Any) -> int:
 
 
 def summarize_applications(applications: Iterable[Mapping[str, Any]]) -> dict[str, int]:
-    """Summarize scoped application rows using the ranking queue definitions."""
+    """Summarize scoped application rows using the ranking queue definitions.
+
+    Only screening-stage rows are counted: these figures drive the work queue and
+    its deep links, so they must describe applications the ranking page can
+    actually show. Rows without ``application_status`` are kept (unit fixtures
+    omit it) rather than silently dropped.
+    """
     counts = {
         "total": 0,
         "assessed": 0,
@@ -43,6 +58,9 @@ def summarize_applications(applications: Iterable[Mapping[str, Any]]) -> dict[st
         "shortlisted": 0,
     }
     for app in applications:
+        status = app.get("application_status")
+        if status and status not in SCREENING_APPLICATION_STATUSES:
+            continue
         counts["total"] += 1
         counts["processing"] += _as_bool(app.get("processing"))
         counts["file_review"] += _as_bool(app.get("needs_review"))
@@ -55,12 +73,16 @@ def summarize_applications(applications: Iterable[Mapping[str, Any]]) -> dict[st
             coverage_value = float(coverage) if coverage is not None else None
         except (TypeError, ValueError):
             coverage_value = None
-        needs_verification = matching_status == "NEEDS_HR_VERIFICATION" or (
-            coverage_value is not None and coverage_value < COVERAGE_THRESHOLD
-        )
+        # A row that was never assessed has no score to verify: it belongs to the
+        # "not assessed" queue only. Counting it here as well made the same
+        # application appear in two queues and inflated the dashboard figure the
+        # reviewer had to reconcile by hand.
         if not matching_status or matching_status == "NOT_ASSESSED":
             counts["not_assessed"] += 1
             continue
+        needs_verification = matching_status == "NEEDS_HR_VERIFICATION" or (
+            coverage_value is not None and coverage_value < COVERAGE_THRESHOLD
+        )
         counts["assessed"] += 1
         counts["needs_verification"] += needs_verification
         if matching_status == "POSSIBLE_MISMATCH":

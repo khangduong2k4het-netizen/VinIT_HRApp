@@ -201,3 +201,74 @@ def test_position_workspace_links_stay_inside_the_position():
 
     for item in items:
         assert "/positions/pos-9" in item["target"]["pathname"]
+
+
+def test_queue_counts_ignore_applications_outside_screening():
+    """Work queues must describe work left to do, not position history.
+
+    An application that was rejected, interviewed or already offered is still
+    counted in the status breakdown (a different query), but it must never
+    inflate a queue the dashboard links to: the ranking page cannot show it, so
+    the number would open a shorter list than it promised.
+    """
+    rows = [
+        {"application_status": "IN_REVIEW", "matching_status": "NEEDS_HR_VERIFICATION",
+         "evidence_coverage": 0.4, "needs_review": True, "duplicate": False},
+        {"application_status": "SHORTLIST", "matching_status": "MEETS_MANDATORY",
+         "evidence_coverage": 0.9, "needs_review": False, "duplicate": False},
+        # Outside screening: same kind of problems, must not be counted.
+        {"application_status": "REJECTED_SCREENING", "matching_status": "NEEDS_HR_VERIFICATION",
+         "evidence_coverage": 0.3, "needs_review": True, "duplicate": True},
+        {"application_status": "INTERVIEW", "matching_status": "NEEDS_HR_VERIFICATION",
+         "evidence_coverage": 0.5, "needs_review": True, "duplicate": True},
+        {"application_status": "OFFERED", "matching_status": "NOT_ASSESSED",
+         "evidence_coverage": 0.0, "needs_review": False, "duplicate": False},
+    ]
+
+    counts = summarize_applications(rows)
+
+    assert counts["total"] == 2
+    assert counts["needs_verification"] == 1
+    assert counts["file_review"] == 1
+    assert counts["duplicate_pending"] == 0
+    assert counts["not_assessed"] == 0
+
+
+def test_unassessed_application_is_not_also_needing_verification():
+    """One application, one queue: no score means nothing to verify yet."""
+    counts = summarize_applications([
+        {"application_status": "NEW", "matching_status": "NOT_ASSESSED",
+         "evidence_coverage": 0.0, "needs_review": False, "duplicate": False},
+        {"application_status": "IN_REVIEW", "matching_status": "NEEDS_HR_VERIFICATION",
+         "evidence_coverage": 0.0, "needs_review": False, "duplicate": False},
+    ])
+
+    assert counts["not_assessed"] == 1
+    assert counts["needs_verification"] == 1, "chỉ hồ sơ đã đánh giá mới được tính"
+    assert counts["total"] == 2
+
+
+def test_queue_counts_match_the_ranking_page_dataset():
+    """Same fixture, two definitions: workspace counts and the FE chip must agree.
+
+    The ranking endpoint returns only screening applications and, since the same
+    change, only marks assessed rows as needing verification. This test pins the
+    backend half of that contract; frontend/tests/workspace-ui.test.cjs pins the
+    other half on an identical fixture.
+    """
+    rows = [
+        {"application_status": "IN_REVIEW", "matching_status": "NEEDS_HR_VERIFICATION", "evidence_coverage": 0.55},
+        {"application_status": "SHORTLIST", "matching_status": "MEETS_MANDATORY", "evidence_coverage": 0.92},
+        {"application_status": "IN_REVIEW", "matching_status": "NEEDS_HR_VERIFICATION", "evidence_coverage": 0.61},
+        {"application_status": "IN_REVIEW", "matching_status": "POSSIBLE_MISMATCH", "evidence_coverage": 0.78},
+        {"application_status": "IN_REVIEW", "matching_status": "MEETS_MANDATORY", "evidence_coverage": 0.49},
+        {"application_status": "NEW", "matching_status": "NOT_ASSESSED", "evidence_coverage": 0.0},
+        {"application_status": "REJECTED_SCREENING", "matching_status": "NEEDS_HR_VERIFICATION", "evidence_coverage": 0.3},
+    ]
+
+    counts = summarize_applications(rows)
+
+    assert counts["total"] == 6
+    assert counts["needs_verification"] == 3
+    assert counts["not_assessed"] == 1
+    assert counts["possible_mismatch"] == 1

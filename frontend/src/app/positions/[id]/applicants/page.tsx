@@ -63,21 +63,25 @@ import QueueFilterChips from '@/components/applicants/QueueFilterChips';
 import OperationProgressPanel from '@/components/workflow/OperationProgressPanel';
 import {
   APPLICANT_QUEUE_LABELS,
+  COVERAGE_THRESHOLD,
   applicantProfileHref,
   applicantQueueCounts,
   applicantSearchParams,
+  daysWaiting,
   filterAndSortApplicantItems,
+  inScreening,
+  isApplicantSort,
+  isAssessed,
   normalizeApplicantQueue,
   readApplicantNavigation,
   storeApplicantNavigation,
+  WAITING_ATTENTION_DAYS,
   windowApplicantItems,
   type ApplicantQueue,
   type ApplicantSort,
 } from '@/lib/applicantReview';
 import type { RankingItem, UserSummary } from '@/types';
 import { APPLICATION_STATUSES, isApplicationStatus } from '@/lib/applicationStatus';
-
-const inScreening = (status?: string) => ['NEW', 'IN_REVIEW', 'SHORTLIST'].includes(status || '');
 
 const OUTCOME_META: Record<string, { label: string; color: string }> = {
   STRONG_MATCH: { label: 'Đáp ứng tốt', color: '#067647' },
@@ -204,10 +208,13 @@ export default function ApplicantsRankingPage() {
         };
       });
 
-      // Add unassessed applications to list (if they exist in apps response but not ranks)
+      // Unassessed applications belong to the list too, but only while they are
+      // still being screened: rejected/interviewed/offered rows are history, and
+      // letting them in made the "Tất cả" count disagree with the dashboard and
+      // put rows with no score into queues that promise a score.
       const rankedIds = new Set(merged.map(r => r.application_id));
       apps.forEach((a: any) => {
-        if (!rankedIds.has(a.application_id)) {
+        if (!rankedIds.has(a.application_id) && inScreening(a.application_status)) {
           const identity = a.identity;
           let name = t("Chưa trích xuất tên");
           if (Array.isArray(identity) && identity[0]) name = identity[0].display_name || name;
@@ -300,11 +307,39 @@ export default function ApplicantsRankingPage() {
     setUrlInitialized(true);
   }, [positionId]);
 
+  // Changing the queue or the sort is a deliberate move between two views, so it
+  // deserves a history entry: Back should return to the previous filter, not
+  // leave the app. Typing in the search box replaces instead, otherwise every
+  // keystroke would add one.
+  const navigableState = useRef({ queue, sort });
   useEffect(() => {
     if (!urlInitialized) return;
     const query = applicantSearchParams(queue, sort, searchQuery).toString();
-    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+    const href = `${window.location.pathname}${query ? `?${query}` : ''}`;
+    const previous = navigableState.current;
+    const isDeliberateMove = previous.queue !== queue || previous.sort !== sort;
+    navigableState.current = { queue, sort };
+    if (isDeliberateMove) window.history.pushState(null, '', href);
+    else window.history.replaceState(null, '', href);
   }, [queue, sort, searchQuery, urlInitialized]);
+
+  // Browser Back/Forward must restore what the URL says, or the pushed entry is
+  // worse than no entry at all.
+  useEffect(() => {
+    if (!urlInitialized) return;
+    const onPopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const nextQueue = normalizeApplicantQueue(params.get('queue')) || 'ALL';
+      const nextSortParam = params.get('sort');
+      const nextSort: ApplicantSort = isApplicantSort(nextSortParam) ? (nextSortParam as ApplicantSort) : 'RANK';
+      navigableState.current = { queue: nextQueue, sort: nextSort };
+      setQueue(nextQueue);
+      setSort(nextSort);
+      setSearchQuery(params.get('q') || '');
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [urlInitialized]);
 
   // Coming back from a profile should land where the reviewer left off, not at
   // the top of a list that may have 50+ mounted rows.
@@ -417,7 +452,11 @@ export default function ApplicantsRankingPage() {
   const clearFilters = () => { setQueue('ALL'); setSort('RANK'); setSearchQuery(''); };
   const filtersActive = queue !== 'ALL' || searchQuery.trim() !== '' || sort !== 'RANK';
 
-  const queueCounts = applicantQueueCounts(rankingItems);
+  // Queues describe work still in screening. Rows outside it can still be
+  // rendered (badge "Ngoài sàng lọc") but must not inflate a queue figure that
+  // the dashboard reports under the same name.
+  const screeningItems = rankingItems.filter(item => inScreening(item.application_status));
+  const queueCounts = applicantQueueCounts(screeningItems);
   const filteredItems = filterAndSortApplicantItems(rankingItems, queue, searchQuery, sort);
   const { visible: visibleItems, hasMore, nextLimit } = windowApplicantItems(filteredItems, visibleLimit);
   useEffect(() => { setVisibleLimit(50); }, [queue, sort, searchQuery]);
@@ -458,8 +497,8 @@ export default function ApplicantsRankingPage() {
     return '#B54708';
   };
 
-  const assessedCount = rankingItems.filter(i => i.matching_status && i.matching_status !== 'NOT_ASSESSED').length;
-  const totalApplications = rankingItems.length;
+  const assessedCount = screeningItems.filter(isAssessed).length;
+  const totalApplications = screeningItems.length;
 
   if (loading) {
     return (
@@ -638,13 +677,13 @@ export default function ApplicantsRankingPage() {
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
                 <Box><Typography variant="subtitle1" fontWeight={700} color="#0A2B57">{item.candidate_name || t("Chưa trích xuất tên")}</Typography>
-                  <Typography variant="caption" color="text.secondary">{t("Thứ hạng: ")}{item.rank_number ?? '—'} · {item.application_status && isApplicationStatus(item.application_status) ? t(APPLICATION_STATUSES[item.application_status].label) : t("Chưa rõ trạng thái")}</Typography></Box>
+                  <Typography variant="caption" color="text.secondary">{t("Thứ hạng: ")}{item.rank_number ?? '—'} · {item.application_status && isApplicationStatus(item.application_status) ? t(APPLICATION_STATUSES[item.application_status].label) : t("Chưa rõ trạng thái")}{daysWaiting(item.created_at) != null ? ` · ${daysWaiting(item.created_at) === 0 ? t("Nhận hôm nay") : t("Chờ {0} ngày", daysWaiting(item.created_at) as number)}` : ''}</Typography></Box>
                 {getMatchingStatusBadge(item)}
               </Box>
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 1.5 }}>
                 {item.file_processing_status === 'NEEDS_HR_REVIEW' && <Chip size="small" color="error" variant="outlined" label={t("Cần HR xử lý CV")} />}
                 {item.has_duplicate_warning && <Chip size="small" color="warning" variant="outlined" label={t("Hồ sơ trùng lặp")} />}
-                {item.evidence_coverage != null && item.evidence_coverage < 0.7 && <Chip size="small" color="warning" variant="outlined" label={t("Độ phủ thấp — cần xác minh")} />}
+                {item.evidence_coverage != null && item.evidence_coverage < COVERAGE_THRESHOLD && <Chip size="small" color="warning" variant="outlined" label={t("Độ phủ thấp — cần xác minh")} />}
               </Box>
               <Typography variant="body2" sx={{ mt: 1.5 }}>{t("Điểm: ")}<strong>{item.matching_score == null ? '—' : `${item.matching_score}%`}</strong>{isPartialScore(item) && <Chip size="small" label={t("một phần")} sx={{ height: 20, fontSize: 10, ml: 0.5, backgroundColor: '#FFFAEB', color: '#B54708', fontWeight: 700 }} />}{t("· Độ phủ: ")}<strong>{item.evidence_coverage == null ? '—' : `${Math.round(item.evidence_coverage * 100)}%`}</strong></Typography>
               <Button size="small" onClick={() => toggleExpanded(item.application_id)} endIcon={expandedIds.has(item.application_id) ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />} sx={{ mt: 0.5, px: 0.5 }}>{t("Chi tiết tiêu chí")}</Button>
@@ -727,8 +766,22 @@ export default function ApplicantsRankingPage() {
                     <Typography variant="body2" fontWeight={500}>
                       {item.candidate_name || t("Chưa trích xuất tên")}
                     </Typography>
-                    <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
+                    <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
                       {item.application_status && isApplicationStatus(item.application_status) && <Chip label={t(APPLICATION_STATUSES[item.application_status].label)} size="small" sx={{ height: 20, fontSize: 10 }} />}
+                      {(() => {
+                        // Age is information, not a sort key: it never changes the
+                        // rank or the order the reviewer chose.
+                        const waiting = daysWaiting(item.created_at);
+                        if (waiting == null) return null;
+                        return (
+                          <Typography
+                            variant="caption"
+                            sx={{ color: waiting >= WAITING_ATTENTION_DAYS ? '#B54708' : 'text.secondary', fontWeight: waiting >= WAITING_ATTENTION_DAYS ? 600 : 400 }}
+                          >
+                            {waiting === 0 ? t("Nhận hôm nay") : t("Chờ {0} ngày", waiting)}
+                          </Typography>
+                        );
+                      })()}
                       {item.file_processing_status === 'NEEDS_HR_REVIEW' && (
                         <Chip
                           label={t("Cần HR xử lý CV")}
@@ -745,7 +798,7 @@ export default function ApplicantsRankingPage() {
                           sx={{ height: 20, fontSize: 10, backgroundColor: '#FEF0C7', color: '#B54708' }}
                         />
                       )}
-                      {item.evidence_coverage != null && item.evidence_coverage < 0.7 && (
+                      {item.evidence_coverage != null && item.evidence_coverage < COVERAGE_THRESHOLD && (
                         <Chip
                           label={t("Chưa đủ dữ liệu để xếp hạng ổn định")}
                           size="small"
@@ -796,7 +849,7 @@ export default function ApplicantsRankingPage() {
                             backgroundColor: '#F2F4F7',
                             '& .MuiLinearProgress-bar': {
                               backgroundColor:
-                                (item.evidence_coverage ?? 0) >= 0.7 ? '#067647'
+                                (item.evidence_coverage ?? 0) >= COVERAGE_THRESHOLD ? '#067647'
                                 : (item.evidence_coverage ?? 0) >= 0.5 ? '#B54708'
                                 : '#C72127',
                               borderRadius: 4,

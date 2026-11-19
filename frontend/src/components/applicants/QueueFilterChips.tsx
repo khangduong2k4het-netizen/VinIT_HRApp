@@ -14,7 +14,7 @@ interface QueueFilterChipsProps {
 export default function QueueFilterChips({ value, counts, onChange }: QueueFilterChipsProps) {
   const { t } = useI18n();
   return (
-    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }} role="group" aria-label={t("Hàng đợi rà soát ứng viên")}
+    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }} role="group" aria-label={t("Hàng đợi rà soát ứng viên")} data-testid="queue-chip-counts"
       title={t("Số trên mỗi nhóm tính trên toàn bộ hồ sơ của vị trí, không theo từ khóa đang tìm.")}>
       {(Object.keys(QUEUE_LABELS) as ApplicantQueue[]).map(queue => {
         const selected = value === queue;

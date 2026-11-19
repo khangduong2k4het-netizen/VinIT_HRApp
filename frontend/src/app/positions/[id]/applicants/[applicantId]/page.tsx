@@ -41,7 +41,7 @@ import ReplayIcon from '@mui/icons-material/Replay';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { applicationsApi, operationsApi } from '@/lib/api';
+import { applicationsApi, assessmentsApi, listAllApplications, operationsApi } from '@/lib/api';
 import StatusBadge from '@/components/common/StatusBadge';
 import StickyActionBar from '@/components/common/StickyActionBar';
 import CandidateProfilePanel from '@/components/candidates/CandidateProfilePanel';
@@ -49,14 +49,19 @@ import EvidenceCard from '@/components/candidates/EvidenceCard';
 import CVDocumentViewer from '@/components/candidates/CVDocumentViewer';
 import HRNotesPanel from '@/components/candidates/HRNotesPanel';
 import {
+  COVERAGE_THRESHOLD,
   applicantProfileHref,
+  filterAndSortApplicantItems,
+  inScreening,
+  isApplicantSort,
+  normalizeApplicantQueue,
   readApplicantNavigation,
   readApplicantSearchParams,
   type ApplicantNavigationContext,
   type ApplicantQueue,
   type ApplicantSort,
 } from '@/lib/applicantReview';
-import type { ApplicationWithAssessment } from '@/types';
+import type { ApplicationWithAssessment, RankingItem } from '@/types';
 import { APPLICATION_STATUSES, APPLICATION_TRANSITIONS, isApplicationStatus } from '@/lib/applicationStatus';
 
 interface StatusEvent {
@@ -95,6 +100,11 @@ export default function ApplicantDetailPage() {
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
   const [shareContext, setShareContext] = useState('');
   const [navigationContext, setNavigationContext] = useState<ApplicantNavigationContext | null>(null);
+  // Prev/next used to exist only when sessionStorage still held the list, so a
+  // link opened in a new tab or sent to a colleague silently lost them. The URL
+  // already carries queue/sort/q, so rebuild the same filtered list from it.
+  const [urlQueue, setUrlQueue] = useState<string[] | null>(null);
+  const urlQueueFor = useRef('');
   const [cvUrl, setCvUrl] = useState<string | null>(null);
   const [cvError, setCvError] = useState<string | null>(null);
   const [cvDownloading, setCvDownloading] = useState(false);
@@ -151,10 +161,48 @@ export default function ApplicantDetailPage() {
       fromList: Boolean(fromUrl.queue || fromUrl.sort || fromUrl.search || params.get('from') === 'list'),
     });
     setNavigationContext(readApplicantNavigation(positionId));
+    setUrlQueue(null);
+    const queueParam = normalizeApplicantQueue(params.get('queue'));
+    const sortParam = isApplicantSort(params.get('sort')) ? (params.get('sort') as ApplicantSort) : 'RANK';
+    if (queueParam || sortParam !== 'RANK' || params.get('q')) {
+      const contextKey = `${positionId}:${queueParam || 'ALL'}:${sortParam}:${params.get('q') || ''}`;
+      urlQueueFor.current = contextKey;
+      Promise.all([assessmentsApi.getLatestRanking(positionId), listAllApplications(positionId)])
+        .then(([rankRes, appsRes]) => {
+          if (urlQueueFor.current !== contextKey) return;
+          const appMap = new Map<string, any>();
+          (appsRes || []).forEach((a: any) => appMap.set(a.application_id, a));
+          const merged: RankingItem[] = (rankRes.data || [])
+            .filter((r: RankingItem) => inScreening(appMap.get(r.application_id)?.application_status))
+            .map((r: RankingItem) => ({ ...r, application_status: appMap.get(r.application_id)?.application_status }));
+          const known = new Set(merged.map(item => item.application_id));
+          (appsRes || []).forEach((a: any) => {
+            if (known.has(a.application_id) || !inScreening(a.application_status)) return;
+            const identity = a.identity;
+            let name = t("Chưa trích xuất tên");
+            if (Array.isArray(identity) && identity[0]) name = identity[0].display_name || name;
+            else if (identity && typeof identity === 'object') name = identity.display_name || name;
+            merged.push({
+              application_id: a.application_id,
+              candidate_name: name,
+              rank_number: null,
+              matching_status: 'NOT_ASSESSED',
+              matching_score: null,
+              evidence_coverage: null,
+              needs_verification: false,
+              has_mismatch: false,
+              application_status: a.application_status,
+            } as RankingItem);
+          });
+          setUrlQueue(filterAndSortApplicantItems(merged, queueParam || 'ALL', params.get('q') || '', sortParam)
+            .map(item => item.application_id));
+        })
+        .catch(() => { if (urlQueueFor.current === contextKey) setUrlQueue(null); });
+    }
     setShareContext(params.get('share') || '');
     setSelectedEvidenceId(null);
     setSelectedPage(1);
-  }, [positionId, applicantId]);
+  }, [positionId, applicantId, t]);
 
   useEffect(() => {
     // Moving to another profile must not show the previous candidate's CV.
@@ -279,10 +327,12 @@ export default function ApplicantDetailPage() {
   const statusLabel = currentStatus ? APPLICATION_STATUSES[currentStatus] : null;
   const selectedLabel = isApplicationStatus(newStatus) ? t(APPLICATION_STATUSES[newStatus].label) : newStatus;
   const isPdf = application.documents?.[0]?.mime_type === 'application/pdf' || /\.pdf$/i.test(application.documents?.[0]?.original_filename || '');
-  const navigationIndex = application.can_update_status && !shareContext ? (navigationContext?.applicationIds.indexOf(applicantId) ?? -1) : -1;
-  const previousApplicantId = navigationIndex > 0 ? navigationContext?.applicationIds[navigationIndex - 1] : undefined;
-  const nextApplicantId = navigationContext && navigationIndex >= 0 && navigationIndex < navigationContext.applicationIds.length - 1
-    ? navigationContext.applicationIds[navigationIndex + 1]
+  const browseIds = urlQueue ?? navigationContext?.applicationIds ?? null;
+  const browseTotal = browseIds?.length ?? 0;
+  const navigationIndex = application.can_update_status && !shareContext && browseIds ? browseIds.indexOf(applicantId) : -1;
+  const previousApplicantId = navigationIndex > 0 ? browseIds?.[navigationIndex - 1] : undefined;
+  const nextApplicantId = browseIds && navigationIndex >= 0 && navigationIndex < browseIds.length - 1
+    ? browseIds[navigationIndex + 1]
     : undefined;
   // URL context wins over stored context: it is what the reviewer actually
   // browsed, and it survives refresh, new tabs and shared links.
@@ -318,13 +368,11 @@ export default function ApplicantDetailPage() {
       <StickyActionBar>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
           <Box sx={{ minWidth: 220, flex: 1 }}>
-            <Typography variant="body1" fontWeight={700} color="#0A2B57">{application.identity?.display_name || t("Hồ sơ ứng viên")}</Typography>
             <Typography variant="caption" color="text.secondary">
-              {navigationIndex >= 0 && navigationContext
-                ? t("Hồ sơ {0}/{1} trong hàng đợi đang xem", navigationIndex + 1, navigationContext.applicationIds.length)
+              {navigationIndex >= 0
+                ? t("Hồ sơ {0}/{1} trong hàng đợi đang xem", navigationIndex + 1, browseTotal)
                 : t("Đang xem chi tiết hồ sơ")}
-              {assessment?.matching_score != null ? ` · ${t("Điểm matching")} ${assessment.matching_score}%` : ''}
-              {assessment?.evidence_coverage != null ? ` · ${t("Độ phủ bằng chứng")} ${Math.round(assessment.evidence_coverage * 100)}%` : ''}
+              {assessment?.matching_status === 'NEEDS_HR_VERIFICATION' ? ` · ${t("Cần HR xác minh")}` : ''}
             </Typography>
           </Box>
           {previousApplicantId ? (
@@ -368,7 +416,9 @@ export default function ApplicantDetailPage() {
         </Alert>
       )}
 
-      {/* Applicant Header */}
+      {/* Applicant Header. The name is the h1 here and is deliberately NOT
+          repeated in the sticky bar above, so the first screen spends its space
+          on the verdict and the criteria instead of on the same name twice. */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap', mb: 2 }}>
         <Box>
           <Typography variant="h1" sx={{ fontSize: 24, color: '#0A2B57', mb: 0.5 }}>
@@ -437,68 +487,58 @@ export default function ApplicantDetailPage() {
       </Box>
 
       {cvError && <Alert severity="error" sx={{ mb: 2 }}>{t(cvError)}</Alert>}
-      {assessment?.evidence_coverage != null && assessment.evidence_coverage < 0.7 && (
-        <Alert severity="warning" sx={{ mb: 2 }}>{t("Chưa đủ dữ liệu để xếp hạng ổn định. Điểm chỉ mang tính tham khảo; HR cần kiểm tra bằng chứng trước khi quyết định.")}</Alert>
-      )}
 
-      {/* Score summary */}
+      {/* Verdict strip. Three numbers on one row: the reviewer decides "do I
+          trust this score?" before scrolling, which is exactly what the old
+          three-card block pushed below the fold. The "not enough data" warning
+          lives here now instead of in its own banner. */}
       {assessment && (
-        <Grid container spacing={2} sx={{ mb: 3 }}>
-          <Grid item xs={12} sm={4}>
-            <Card>
-              <CardContent sx={{ textAlign: 'center' }}>
-                <Typography variant="caption" color="text.secondary">{t("Điểm trên tiêu chí đã có bằng chứng")}</Typography>
-                <Typography
-                  variant="h3"
-                  sx={{
-                    fontSize: 32,
-                    fontWeight: 'bold',
-                    color: assessment.evidence_coverage != null && assessment.evidence_coverage < 0.7 ? '#B54708' :
-                            assessment.matching_score != null && assessment.matching_score >= 80 ? '#067647' :
-                            assessment.matching_score != null && assessment.matching_score >= 60 ? '#0A2B57' : '#B54708',
-                    mt: 1,
-                  }}
-                >
-                  {assessment.matching_score !== null ? `${assessment.matching_score}%` : '-'}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <Card>
-              <CardContent sx={{ textAlign: 'center' }}>
-                <Typography variant="caption" color="text.secondary">{t("Độ phủ bằng chứng")}</Typography>
-                <Typography
-                  variant="h3"
-                  sx={{
-                    fontSize: 32,
-                    fontWeight: 'bold',
-                    color: (assessment.evidence_coverage || 0) >= 0.7 ? '#067647' : '#B54708',
-                    mt: 1,
-                  }}
-                >
-                  {assessment.evidence_coverage !== null ? `${Math.round(assessment.evidence_coverage * 100)}%` : '-'}
-                </Typography>
-                {assessment.evidence_coverage !== null && assessment.evidence_coverage < 0.7 && (
-                  <Typography variant="caption" color="#B54708">{t("Chưa đủ dữ liệu để xếp hạng ổn định")}</Typography>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <Card>
-              <CardContent sx={{ textAlign: 'center' }}>
-                <Typography variant="caption" color="text.secondary">{t("Số tiêu chí đánh giá")}</Typography>
-                <Typography variant="h3" sx={{ fontSize: 32, fontWeight: 'bold', color: '#0A2B57', mt: 1 }}>
-                  {canViewEvidence ? criteriaResults.length : '—'}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {canViewEvidence ? t("{0} đáp ứng, {1} chưa rõ", criteriaResults.filter(r => r.outcome === 'MATCH' || r.outcome === 'STRONG_MATCH').length, criteriaResults.filter(r => r.outcome === 'UNCLEAR').length) : t("Chỉ được phép xem tóm tắt")}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <Card sx={{ mb: 3 }}>
+          <CardContent sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 2, py: 1.75, '&:last-child': { pb: 1.75 } }}>
+            <Box>
+              <Typography variant="caption" color="text.secondary">{t("Điểm trên tiêu chí đã có bằng chứng")}</Typography>
+              <Typography
+                variant="h3"
+                sx={{
+                  fontSize: 28,
+                  fontWeight: 'bold',
+                  lineHeight: 1.2,
+                  color: assessment.evidence_coverage != null && assessment.evidence_coverage < COVERAGE_THRESHOLD ? '#B54708' :
+                          assessment.matching_score != null && assessment.matching_score >= 80 ? '#067647' :
+                          assessment.matching_score != null && assessment.matching_score >= 60 ? '#0A2B57' : '#B54708',
+                }}
+              >
+                {assessment.matching_score !== null ? `${assessment.matching_score}%` : '-'}
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">{t("Độ phủ bằng chứng")}</Typography>
+              <Typography
+                variant="h3"
+                sx={{
+                  fontSize: 28,
+                  fontWeight: 'bold',
+                  lineHeight: 1.2,
+                  color: (assessment.evidence_coverage || 0) >= COVERAGE_THRESHOLD ? '#067647' : '#B54708',
+                }}
+              >
+                {assessment.evidence_coverage !== null ? `${Math.round(assessment.evidence_coverage * 100)}%` : '-'}
+              </Typography>
+              {assessment.evidence_coverage !== null && assessment.evidence_coverage < COVERAGE_THRESHOLD && (
+                <Typography variant="caption" color="#B54708" sx={{ display: 'block' }}>{t("Chưa đủ dữ liệu để xếp hạng ổn định. Điểm chỉ mang tính tham khảo; HR cần kiểm tra bằng chứng trước khi quyết định.")}</Typography>
+              )}
+            </Box>
+            <Box>
+              <Typography variant="caption" color="text.secondary">{t("Số tiêu chí đánh giá")}</Typography>
+              <Typography variant="h3" sx={{ fontSize: 28, fontWeight: 'bold', lineHeight: 1.2, color: '#0A2B57' }}>
+                {canViewEvidence ? criteriaResults.length : '—'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                {canViewEvidence ? t("{0} đáp ứng, {1} chưa rõ", criteriaResults.filter(r => r.outcome === 'MATCH' || r.outcome === 'STRONG_MATCH').length, criteriaResults.filter(r => r.outcome === 'UNCLEAR').length) : t("Chỉ được phép xem tóm tắt")}
+              </Typography>
+            </Box>
+          </CardContent>
+        </Card>
       )}
 
       {error && (

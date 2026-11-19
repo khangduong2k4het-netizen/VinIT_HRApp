@@ -24,7 +24,9 @@ const applications = ranking.map((item, index) => ({
   application_status: 'IN_REVIEW',
   file_processing_status: index === 1 ? 'NEEDS_HR_REVIEW' : 'COMPLETED',
   has_duplicate_warning: index === 2,
-  created_at: '2031-01-01T00:00:00Z',
+  // Fixed past date so the "waiting N days" line has something real to show;
+  // a future timestamp is deliberately hidden by daysWaiting().
+  created_at: '2026-01-01T00:00:00Z',
 }));
 
 (async () => {
@@ -165,8 +167,64 @@ const applications = ranking.map((item, index) => ({
   await page.waitForFunction(() => document.querySelectorAll('table tbody tr').length === 1);
   assert.match(await page.getByTestId('position-count').innerText(), /1\/3 vị trí/);
 
+  // --- 9. Browser Back/Forward revisits the filter, not the previous site ----
+  // Changing the queue is a deliberate move between two views, so it must push a
+  // history entry; typing in the search box must not (one entry per keystroke).
+  await page.goto(base + '/positions/p1/applicants?queue=NEEDS_VERIFICATION&sort=REVIEW_PRIORITY');
+  await page.getByTestId('applicant-count').waitFor();
+  const historyStart = await page.evaluate(() => window.history.length);
+  await page.getByRole('button', { name: /Đã shortlist/ }).click();
+  await page.waitForTimeout(300);
+  assert.match(decodeURIComponent(page.url()), /queue=SHORTLIST/, 'the queue is in the URL');
+  assert.equal(await page.evaluate(() => window.history.length), historyStart + 1, 'a queue change adds one entry');
+  await page.getByRole('button', { name: /Cần xác minh/ }).click();
+  await page.waitForTimeout(300);
+  const historyAfterTwo = await page.evaluate(() => window.history.length);
+  assert.equal(historyAfterTwo, historyStart + 2, 'each deliberate move adds exactly one entry');
+  const searchBox = page.getByRole('textbox', { name: /Tìm kiếm theo tên/ });
+  await searchBox.fill('Hà');
+  await page.waitForTimeout(400);
+  assert.equal(await page.evaluate(() => window.history.length), historyAfterTwo, 'searching replaces instead of pushing');
+  await page.goBack();
+  await page.waitForTimeout(600);
+  assert.match(decodeURIComponent(page.url()), /queue=SHORTLIST/, 'Back returns to the previous filter');
+  assert.match(await page.getByTestId('applicant-count').innerText(), /Hàng đợi: Đã shortlist/);
+  await page.goBack();
+  await page.waitForTimeout(600);
+  assert.match(decodeURIComponent(page.url()), /queue=NEEDS_VERIFICATION/, 'Back again reaches the first filter');
+  assert.match(await page.getByTestId('applicant-count').innerText(), /Hàng đợi: Cần xác minh/);
+  await page.goForward();
+  await page.waitForTimeout(600);
+  assert.match(decodeURIComponent(page.url()), /queue=SHORTLIST/, 'Forward replays the move');
+  // The queue counts agree with the backend definition: a NOT_ASSESSED row is
+  // "chưa matching" only, never also "cần xác minh".
+  const queueLabels = await page.getByTestId('queue-chip-counts').innerText().catch(() => '');
+  assert.match(queueLabels, /Cần xác minh \(3\)/, `chip counts must follow the shared definition (got ${queueLabels})`);
+  assert.match(queueLabels, /Tất cả \(6\)/, 'every fixture row is in screening, so all six stay in the list');
+
+  // --- 10. Prev/next survive a cold deep link -------------------------------
+  // Regression for UX-R2: these used to exist only while sessionStorage still
+  // held the list, so a link opened in a new tab silently disabled them.
+  await page.evaluate(() => window.sessionStorage.clear());
+  await page.goto(base + '/positions/p1/applicants/app-0?queue=NEEDS_VERIFICATION&sort=REVIEW_PRIORITY');
+  await page.getByRole('heading', { level: 1 }).waitFor();
+  assert.match(await page.evaluate(() => document.body.innerText), /Hồ sơ 1\/3 trong hàng đợi/, 'the counter is rebuilt from the URL');
+  // app-0 is first in this queue, so "previous" is legitimately disabled; what
+  // matters is that "next" is a live link rather than a dead button.
+  assert.equal(await page.getByRole('link', { name: /Hồ sơ tiếp theo/ }).count(), 1, 'stepping forward works without sessionStorage');
+  assert.equal(await page.getByRole('button', { name: /Hồ sơ trước/ }).isDisabled(), true, 'the first row has nowhere to go back to');
+  await page.getByRole('link', { name: /Hồ sơ tiếp theo/ }).click();
+  await page.getByRole('heading', { level: 1 }).waitFor();
+  assert.match(decodeURIComponent(page.url()), /queue=NEEDS_VERIFICATION/, 'stepping keeps the queue in the URL');
+
+  // --- 11. Age is shown, rank is untouched ---------------------------------
+  await page.goto(base + '/positions/p1/applicants');
+  await page.getByTestId('applicant-count').waitFor();
+  const firstRow = await page.locator('table tbody tr').first().innerText();
+  assert.match(firstRow, /(Chờ \d+ ngày|Nhận hôm nay)/, 'reviewers can see how long a file has been waiting');
+
   if (errors.length) throw Error(errors.join('\n'));
   await c.close();
   await browser.close();
-  console.log('Ranking context: deep-link queues, shown/total counts, clear filters, context-carrying profile links, lazy CV and searchable positions: OK; all /v1 intercepted');
+  console.log('Ranking context: deep-link queues, shown/total counts, clear filters, context-carrying profile links, lazy CV, searchable positions, Back/Forward and cold-link prev/next: OK; all /v1 intercepted');
 })().catch(e => { console.error(e); process.exit(1); });

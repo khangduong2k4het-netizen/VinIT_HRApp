@@ -195,3 +195,49 @@ test('applicant queue labels stay in one place for chips and summaries', () => {
   assert.equal(review.APPLICANT_QUEUE_LABELS.NEEDS_VERIFICATION, 'Cần xác minh');
   assert.equal(Object.keys(review.APPLICANT_QUEUE_LABELS).length, review.APPLICANT_QUEUES.length);
 });
+
+// Shared fixture with backend/tests/test_workspace.py::
+// test_queue_counts_match_the_ranking_page_dataset. If the two halves ever
+// drift apart again, one of the two suites fails.
+const queueContractFixture = [
+  { application_id: 'q1', matching_status: 'NEEDS_HR_VERIFICATION', evidence_coverage: 0.55, needs_verification: true, application_status: 'IN_REVIEW', file_processing_status: 'COMPLETED' },
+  { application_id: 'q2', matching_status: 'MEETS_MANDATORY', evidence_coverage: 0.92, needs_verification: false, application_status: 'SHORTLIST', file_processing_status: 'COMPLETED' },
+  { application_id: 'q3', matching_status: 'NEEDS_HR_VERIFICATION', evidence_coverage: 0.61, needs_verification: true, application_status: 'IN_REVIEW', file_processing_status: 'COMPLETED' },
+  { application_id: 'q4', matching_status: 'POSSIBLE_MISMATCH', evidence_coverage: 0.78, needs_verification: false, has_mismatch: true, application_status: 'IN_REVIEW', file_processing_status: 'COMPLETED' },
+  { application_id: 'q5', matching_status: 'MEETS_MANDATORY', evidence_coverage: 0.49, needs_verification: true, application_status: 'IN_REVIEW', file_processing_status: 'COMPLETED' },
+  { application_id: 'q6', matching_status: 'NOT_ASSESSED', evidence_coverage: 0.0, needs_verification: false, application_status: 'NEW', file_processing_status: 'COMPLETED' },
+  // Outside screening: the ranking page cannot list it, so no queue may count it.
+  { application_id: 'q7', matching_status: 'NEEDS_HR_VERIFICATION', evidence_coverage: 0.3, needs_verification: true, application_status: 'REJECTED_SCREENING', file_processing_status: 'COMPLETED' },
+];
+
+test('queue counts agree with the backend contract on the same fixture', () => {
+  const screening = queueContractFixture.filter(item => review.inScreening(item.application_status));
+  const counts = review.applicantQueueCounts(screening);
+
+  assert.equal(counts.ALL, 6, 'only screening applications belong to a queue');
+  assert.equal(counts.NEEDS_VERIFICATION, 3, 'backend reports 3 for the same rows');
+  assert.equal(counts.NOT_ASSESSED, 1);
+  assert.equal(counts.POSSIBLE_MISMATCH, 1);
+  assert.equal(counts.SHORTLIST, 1);
+});
+
+test('a never-assessed application is not also counted as needing verification', () => {
+  const [assessed, never] = [
+    { application_id: 'n1', matching_status: 'NOT_ASSESSED', evidence_coverage: 0.0, needs_verification: false },
+    // Deliberately inconsistent payload: an old backend could still send the flag.
+    { application_id: 'n2', matching_status: 'NOT_ASSESSED', evidence_coverage: 0.0, needs_verification: true },
+  ];
+
+  assert.equal(review.needsVerification(assessed), false);
+  assert.equal(review.needsVerification(never), false, 'the status wins over a stale flag');
+  assert.equal(review.isAssessed(assessed), false);
+  assert.equal(review.isAssessed({ matching_status: 'MEETS_MANDATORY' }), true);
+});
+
+test('the coverage threshold is defined once and exported', () => {
+  assert.equal(review.COVERAGE_THRESHOLD, 0.7);
+  const source = fs.readFileSync(path.join(__dirname, '..', 'src/app/positions/[id]/applicants/page.tsx'), 'utf8');
+  const detail = fs.readFileSync(path.join(__dirname, '..', 'src/app/positions/[id]/applicants/[applicantId]/page.tsx'), 'utf8');
+  const matches = `${source}${detail}`.match(/evidence_coverage\s*(?:<|>=|!==?\s*null\s*&&\s*[^)]*<)\s*0\.7/g) || [];
+  assert.deepEqual(matches, [], 'screens must import COVERAGE_THRESHOLD instead of hard-coding 0.7');
+});

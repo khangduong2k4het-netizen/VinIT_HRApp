@@ -1368,5 +1368,7 @@
   "Chọn đơn vị cho vị trí.": "Choose a department for this position.",
   "Chọn Hiring Manager đang hoạt động.": "Choose an active Hiring Manager.",
   "Dán, tải lên hoặc nhập JD trước khi tạo.": "Paste, upload or fetch the JD before creating.",
-  "Còn thiếu: {0}.": "Still missing: {0}."
+  "Còn thiếu: {0}.": "Still missing: {0}.",
+  "Nhận hôm nay": "Received today",
+  "Chờ {0} ngày": "Waiting {0} days"
 }

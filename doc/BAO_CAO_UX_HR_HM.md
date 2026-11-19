@@ -1,9 +1,9 @@
-# Rà soát UI/UX – HR & Hiring Manager (báo cáo, chưa sửa code)
+# Rà soát UI/UX – HR & Hiring Manager (đã xử lý UX-R1…R5)
 
-- Nhánh: `arena/ea6e2570-vinit-hrapp`, HEAD `f871deb` (đã push, CI run 44452044131 xanh).
-- Phạm vi: **chỉ trải nghiệm UI/UX của HR/HM** trên ba màn Dashboard – Applicant Ranking – Candidate Review. Không đi sâu logic backend/API/kiến trúc nghiệp vụ, không đổi API/DB/quyền/consent/approval/matching/thứ hạng.
-- Lượt này **chỉ báo cáo**: mỗi mục theo đúng 5 phần Finding → Evidence → Impact → Proposed fix → Regression tests. Chưa có thay đổi mã nguồn nào.
-- Ảnh chụp thật (gửi kèm báo cáo): `doc/ui-review/01-dashboard.png`, `02-applicant-ranking.png`, `03-candidate-review.png`. Ảnh chụp trên **production build** (`next build` + `next start`), viewport 1440, locale `vi`, dữ liệu mock cố định — không phải hồ sơ thật, không có dữ liệu cá nhân nào của ứng viên ngoài đời.
+- Nhánh: `arena/ea6e2570-vinit-hrapp`. Báo cáo gốc lập tại `f871deb`; phần sửa code ở các commit sau đó trên cùng nhánh.
+- Phạm vi: **chỉ trải nghiệm UI/UX của HR/HM** trên ba màn Dashboard – Applicant Ranking – Candidate Review. Không đổi schema, quyền, consent, approval, công thức matching hay thứ hạng.
+- **Trạng thái:** UX-R1 → UX-R5 đã sửa và có test; **UX-R6 (P2) hoãn** theo đúng khuyến nghị. Bảng trạng thái ở mục 10.
+- Ảnh trước/sau: `doc/ui-review/before/*.png` và `doc/ui-review/after/*.png` — chụp trên **production build** (`next build` + `next start`), viewport 1440, locale `vi`, dữ liệu mock cố định (không phải hồ sơ thật, không có dữ liệu cá nhân ngoài đời).
 
 ## 0. Cách đọc báo cáo
 
@@ -11,15 +11,15 @@ Mỗi phát hiện có mã `UX-Rn`, và mỗi kết luận đều trỏ tới m�
 
 | Nguồn | Nội dung | Cách tái lập |
 | --- | --- | --- |
-| **Ảnh** | `doc/ui-review/0{1,2,3}-*.png` | `node tests/ui-screenshots.cjs` |
+| **Ảnh** | `doc/ui-review/after/0{1,2,3}-*.png` | `node tests/ui-screenshots.cjs` |
 | **Số đo giao diện** | `doc/ui-review/metrics.json` | `node tests/ui-ux-metrics.cjs` |
 | **Số liệu dữ liệu** | `backend/scripts/probe_queue_drift.py` | `cd backend && ./.venv/bin/python scripts/probe_queue_drift.py` (chỉ đọc, không chạm DB) |
 
-Điểm quan trọng trước khi đọc tiếp: **ba màn này không thiếu tính năng**. Vấn đề còn lại là *thông tin đặt sai chỗ*, *số liệu đếm theo ba định nghĩa khác nhau*, và *ngữ cảnh duyệt hồ sơ không bền*. Vì vậy mọi đề xuất dưới đây đều là tái bố cục / thống nhất nguồn số / bền hoá URL — không có đề xuất nào cần module mới.
+Điểm quan trọng trước khi đọc tiếp: **ba màn này không thiếu tính năng**. Vấn đề còn lại là *thông tin đặt sai chỗ*, *số liệu đếm theo ba định nghĩa khác nhau*, và *ngữ cảnh duyệt hồ sơ không bền*. Vì vậy mọi thay đổi đã làm đều là tái bố cục / thống nhất nguồn số / bền hoá URL — không có module mới, không thêm màn hình.
 
 ---
 
-## 1. UX-R1 (P0) — Ba màn đang đếm "cần xác minh" theo ba định nghĩa khác nhau
+## 1. UX-R1 (P0) — Ba màn đang đếm "cần xác minh" theo ba định nghĩa khác nhau  ✅ ĐÃ SỬA
 
 ### Finding
 
@@ -78,7 +78,7 @@ Tổng hồ sơ                                 15               12      3
 
 ---
 
-## 2. UX-R2 (P0) — Prev/Next sống bằng `sessionStorage`: mất khi mở tab mới, không có TTL
+## 2. UX-R2 (P0) — Prev/Next sống bằng `sessionStorage`: mất khi mở tab mới, không có TTL  ✅ ĐÃ SỬA
 
 ### Finding
 
@@ -121,7 +121,7 @@ Trực tiếp chặn mục tiêu "duyệt CV liên tục" (P0 theo GPT): HR mở
 
 ---
 
-## 3. UX-R3 (P1) — Đổi bộ lọc dùng `replaceState`: Back của trình duyệt đưa người dùng ra khỏi ứng dụng
+## 3. UX-R3 (P1) — Đổi bộ lọc dùng `replaceState`: Back của trình duyệt đưa người dùng ra khỏi ứng dụng  ✅ ĐÃ SỬA
 
 ### Finding
 
@@ -159,7 +159,7 @@ HR đang soát danh sách, bấm nhầm hoặc muốn quay lại bộ lọc trư
 
 ---
 
-## 4. UX-R4 (P1) — Trang Candidate Review: hai nút chính bị đẩy xuống dưới tiêu đề, và thanh ngữ cảnh chiếm chỗ
+## 4. UX-R4 (P1) — Trang Candidate Review: hai nút chính bị đẩy xuống dưới tiêu đề, và thanh ngữ cảnh chiếm chỗ  ✅ ĐÃ SỬA
 
 ### Finding
 
@@ -193,7 +193,7 @@ Với hồ sơ cần xác minh — đúng nhóm HR phải xử lý nhiều nhấ
 
 ---
 
-## 5. UX-R5 (P1) — Không có mốc thời gian nào trên Dashboard, dù dữ liệu hạn đã có sẵn
+## 5. UX-R5 (P1) — Không có mốc thời gian nào trên Dashboard, dù dữ liệu hạn đã có sẵn  ✅ ĐÃ SỬA (mức A)
 
 ### Finding
 
@@ -227,7 +227,7 @@ HR/HM chỉ thấy *khối lượng* (ví dụ "5 hồ sơ cần xác minh") mà
 
 ---
 
-## 6. UX-R6 (P2) — Danh sách xếp hạng: 16 phần tử điều khiển trước dòng dữ liệu đầu tiên
+## 6. UX-R6 (P2) — Danh sách xếp hạng: 16 phần tử điều khiển trước dòng dữ liệu đầu tiên  ⏸ HOÃN
 
 ### Finding
 
@@ -301,9 +301,55 @@ Người dùng lặp lại thao tác "chọn hàng đợi → xem ứng viên" n
 
 **Gate nghiệm thu (không đổi):** CI xanh và mock E2E xanh **không thay thế** usability test trên staging. Kịch bản 6 bước đã chốt vẫn là điều kiện duyệt, và nên bổ sung một bước số 7: *mở link hồ sơ ở tab mới rồi bấm "Hồ sơ tiếp theo"* — chính là chỗ UX-R2 đang hỏng.
 
-## 9. Những gì lượt này KHÔNG làm
+## 9. Những gì KHÔNG làm (và vì sao)
 
-- Không sửa một dòng code sản phẩm nào. Chỉ thêm công cụ đo và bằng chứng: `frontend/tests/fixtures/hr-screens.cjs`, `frontend/tests/ui-screenshots.cjs`, `frontend/tests/ui-ux-metrics.cjs`, `backend/scripts/probe_queue_drift.py` + `probe_queue_counts.py`, ba ảnh PNG và `metrics.json` trong `doc/ui-review/`.
-- Không đổi API/schema/quyền/consent/approval/matching/thứ hạng.
-- Không kết luận gì về backend ngoài phần cần để giải thích lệch số liệu (UX-R1) và nguồn dữ liệu hạn (UX-R5).
-- Không thay thế usability test. Số đo trong báo cáo là **đo giao diện** (offset, số phần tử, số dòng), không phải đo người dùng.
+- **Không thêm tính năng, không thêm màn hình, không có module mới.** Mọi thay đổi nằm trong 3 màn đã có.
+- **Không đổi schema, quyền, consent, approval, công thức matching, thứ hạng.** Thay đổi backend duy nhất liên quan dữ liệu là *điều kiện chọn hồ sơ vào hàng đợi công việc* (UX-R1) — xem mục 10 để biết chính xác đã đổi gì.
+- **UX-R6 (P2) chưa làm** — chưa đủ giá trị so với rủi ro đổi bố cục danh sách vừa được nghiệm thu.
+- **UX-R5 chọn mức A** (dùng `created_at` đã có sẵn, không chạm API). Mức B (`age_days`/`due_at` trong payload, sort "quá hạn trước", item hạn ứng tuyển) **vẫn để mở**, cần anh duyệt vì đổi payload API.
+- Không thay thế usability test. Số đo là **đo giao diện** (offset, số phần tử, số dòng), không phải đo người dùng.
+
+---
+
+## 10. Đã sửa gì (2026-11-19, cùng nhánh)
+
+### 10.1 Bảng trạng thái
+
+| Mã | Nội dung đã làm | Chạm API? |
+| --- | --- | --- |
+| UX-R1 | Một định nghĩa "cần xác minh" cho cả ba nơi; hàng đợi công việc chỉ tính hồ sơ **đang sàng lọc**; ngưỡng 0.7 gom về một hằng số; frontend loại `NOT_ASSESSED` khỏi nhóm cần xác minh | Có — 1 điều kiện trong hàm thuần `summarize_applications` + cờ dẫn xuất `needs_verification` |
+| UX-R2 | Prev/Next dựng lại hàng đợi **từ URL** khi mở link trực tiếp/tab mới; `sessionStorage` chỉ còn là dự phòng | Không |
+| UX-R3 | Đổi hàng đợi/sắp xếp → `pushState`; gõ tìm kiếm → `replaceState`; thêm `popstate` đọc lại URL | Không |
+| UX-R4 | Bỏ tên lặp ở thanh trên; ba ô số liệu gộp thành một dải ngay dưới tên; banner "chưa đủ dữ liệu" gộp vào ô độ phủ | Không |
+| UX-R5 | Hiện "Chờ N ngày"/"Nhận hôm nay" ngay dưới tên ứng viên, tô màu từ 7 ngày; **không** đổi thứ tự hay thứ hạng | Không |
+| UX-R6 | **Hoãn** (P2) | — |
+
+### 10.2 Kết quả đo trước/sau (cùng fixture, cùng viewport 1440×900)
+
+| Chỉ số | Trước | Sau |
+| --- | --- | --- |
+| Chip "Cần xác minh" vs Dashboard | 6 vs 4 | **4 vs 4** |
+| Lệch số ở 6/6 hàng đợi | 4 hàng lệch | **0 hàng lệch** |
+| Ba nguồn đếm (Dashboard / API / chip FE) | 6 / 4 / 6 | **4 / 4 / 4** |
+| Prev/Next khi mở link trực tiếp | 0/2 nút bật | **2/2 bật**, "Hồ sơ 3/4" |
+| Back sau khi đổi bộ lọc | rời khỏi ứng dụng | **về đúng bộ lọc trước** |
+| `history.length` khi gõ tìm kiếm | không đổi | **không đổi** (giữ nguyên, đúng ý) |
+| Chiều cao trang hồ sơ | 1842px | **1777px** |
+| Ô điểm 69% | 426px | **352px** |
+| Tiêu chí đầu tiên | 537px | **472px** |
+| Tên ứng viên trong 260px đầu | 2 lần | **1 lần** |
+| Dòng dữ liệu đầu (danh sách) | 896px | 896px (UX-R6 chưa làm) |
+
+### 10.3 Thay đổi hành vi cần anh biết trước khi merge
+
+1. **Con số trên Dashboard sẽ *giảm*** (ví dụ "cần xác minh" 6 → 4). Đây là bỏ đếm trùng và bỏ hồ sơ đã ra khỏi vòng sàng lọc, **không phải mất hồ sơ**. Hồ sơ đã loại/phỏng vấn/đề nghị vẫn còn nguyên trong bảng "Trạng thái hồ sơ" — chỉ không còn nằm trong danh sách việc cần làm.
+2. **Trang xếp hạng không còn liệt kê hồ sơ ngoài sàng lọc.** Badge "Ngoài sàng lọc" vẫn còn trong code cho trường hợp dữ liệu cũ, nhưng danh sách/ bộ đếm hàng đợi chỉ tính hồ sơ đang sàng lọc. Nếu HR cần tra hồ sơ đã loại, đường đi là trang vị trí → tab hồ sơ (đã có sẵn).
+3. **Trang hồ sơ tải thêm 2 request** (`ranking` + danh sách hồ sơ) khi mở bằng link có bộ lọc, để dựng lại prev/next. Không tải khi mở link trần.
+
+### 10.4 Kiểm chứng
+
+- Backend: `pytest tests` → **269 passed, 170 skipped** (thêm 3 test cho UX-R1).
+- Frontend: unit **23/23** (thêm 3 test, gồm 1 test đọc mã nguồn chặn hard-code `0.7`), i18n **3/3**, `tsc`, `lint`, `next build` đều pass.
+- E2E mock trên production build: **8/8 bộ pass** (drafts, ranking-context, applicants 123, a11y, workflow, shortlist, accounts, intake). Riêng `ranking-context` thêm 3 phần mới (Back/Forward, prev/next từ link lạnh, tuổi hồ sơ) và chạy **3 lần liên tiếp** đều pass; các phần cũ vẫn xanh.
+- Test chống hồi quy quan trọng nhất: `test_queue_counts_ignore_applications_outside_screening` và `test_queue_counts_match_the_ranking_page_dataset` — đã thử revert bản sửa thì **2 test fail đúng như mong đợi**, khôi phục thì xanh.
+- Gate còn lại: **usability test staging** (kịch bản 6 bước + bước 7 "mở link hồ sơ ở tab mới rồi bấm Hồ sơ tiếp theo"). CI xanh không thay thế bước này.

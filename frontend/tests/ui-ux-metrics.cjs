@@ -97,6 +97,9 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
       .filter(el => /^(Hồ sơ trước|Hồ sơ tiếp theo)$/.test((el.textContent || '').trim()));
     const body = document.body.innerText;
     const title = document.querySelector('h1');
+    const y = el => (el ? Math.round(el.getBoundingClientRect().top + window.scrollY) : null);
+    const byText = (sel, re) => [...document.querySelectorAll(sel)].find(el => re.test(el.textContent || ''));
+    const headings = [...document.querySelectorAll('h1')].map(el => el.textContent.trim());
     return {
       prevNextEnabled: nav.filter(el => !el.disabled && el.getAttribute('aria-disabled') !== 'true').length,
       prevNextTotal: nav.length,
@@ -104,6 +107,16 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
       hiddenPageHeight: document.documentElement.scrollHeight,
       viewportHeight: window.innerHeight,
       h1: title ? title.textContent.trim() : null,
+      /** UX-R4: how much of the first screen is spent before the verdict. */
+      h1OffsetPx: y(title),
+      verdictStripOffsetPx: y(byText('h3, p, span', /^Điểm trên tiêu chí đã có bằng chứng$/)),
+      scoreOffsetPx: y(byText('h3, p', /^69%$/)),
+      criteriaHeaderOffsetPx: y(byText('h4, h3, p', /^Kết quả đánh giá theo tiêu chí$/)),
+      h1Count: headings.length,
+      nameRepeatedInFirstScreen: headings.filter(h => (body.indexOf(h) !== -1) && h).length >= 1
+        ? [...document.querySelectorAll('h1, [class*="MuiTypography-root"]')]
+            .filter(el => y(el) !== null && y(el) < 260 && (el.textContent || '').trim() === (title ? title.textContent.trim() : '\u0000')).length
+        : 0,
       // The CV is deliberately lazy now (UX P1-4): it must NOT be fetched
       // just because the profile opened. Recorded so the report can't claim
       // otherwise by accident.

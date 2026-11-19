@@ -370,7 +370,11 @@ class MatchingEngine:
                 "rank_number": rank_num,
                 "ltr_score": scores.get(application_id(item)),
                 "has_mismatch": status == "POSSIBLE_MISMATCH",
-                "needs_verification": status == "NEEDS_HR_VERIFICATION" or coverage < settings.MIN_EVIDENCE_COVERAGE
+                # Same rule as app/api/assessments.py: an unassessed application
+                # is not "needing verification", it simply has no score yet.
+                "needs_verification": status == "NEEDS_HR_VERIFICATION" or (
+                    status != "NOT_ASSESSED" and coverage < settings.MIN_EVIDENCE_COVERAGE
+                )
             })
 
             if rank_num is not None:

@@ -164,7 +164,16 @@ async def get_latest_ranking(position_id: UUID, current_user: dict = Depends(get
             item = dict(row)
             item["matching_status"] = item["matching_status"] or "NOT_ASSESSED"
             item["has_mismatch"] = item["matching_status"] == "POSSIBLE_MISMATCH"
-            item["needs_verification"] = item["matching_status"] == "NEEDS_HR_VERIFICATION" or (item["evidence_coverage"] or 0) < settings.MIN_EVIDENCE_COVERAGE
+            # A row that was never assessed has no score to verify; it belongs to
+            # the "not assessed" queue. Marking it here as well made the ranking
+            # chip and the dashboard disagree with each other.
+            item["needs_verification"] = (
+                item["matching_status"] == "NEEDS_HR_VERIFICATION"
+                or (
+                    item["matching_status"] != "NOT_ASSESSED"
+                    and (item["evidence_coverage"] or 0) < settings.MIN_EVIDENCE_COVERAGE
+                )
+            )
             items.append(item)
         # Attach the per-criterion breakdown of the exact assessment each
         # ranking row points at, so the list can explain a (partial) score

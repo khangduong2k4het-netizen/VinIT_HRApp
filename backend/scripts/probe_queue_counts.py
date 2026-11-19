@@ -1,4 +1,4 @@
-"""In ra bảng lệch số liệu "cần xác minh" giữa Dashboard, API ranking và chip FE.
+"""In ra bảng đối chiếu số "cần xác minh" giữa Dashboard, API ranking và chip FE.
 
 Chỉ đọc: dùng hàm thuần của backend, không kết nối DB.
 
@@ -37,10 +37,12 @@ rows = [
 dashboard = summarize_applications(rows)
 # API ranking: chỉ trả hồ sơ đang sàng lọc.
 ranking = summarize_applications([r for r in rows if r["application_status"] in SCREENING])
-# Chip trang xếp hạng: frontend needsVerification() không loại NOT_ASSESSED.
+# Chip trang xếp hạng, theo đúng frontend/src/lib/applicantReview.ts::needsVerification
+# sau khi thống nhất: hồ sơ chưa đánh giá không thuộc nhóm "cần xác minh".
 chip = sum(
     1 for r in rows
     if r["application_status"] in SCREENING
+    and r["matching_status"] != "NOT_ASSESSED"
     and (r["matching_status"] == "NEEDS_HR_VERIFICATION" or r["evidence_coverage"] < 0.7)
 )
 

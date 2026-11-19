@@ -1,5 +1,20 @@
 import type { RankingItem } from '@/types';
 
+/**
+ * Evidence coverage under this value means the assessment is not solid enough to
+ * rank. Mirrors `MIN_EVIDENCE_COVERAGE` in backend/app/core/config.py — keep the
+ * two in step until the API returns the threshold in its payload.
+ */
+export const COVERAGE_THRESHOLD = 0.7;
+
+/**
+ * Applications still in the screening stage. Everything else (rejected,
+ * interviewed, offered) is history, not work left to do, so the queue chips and
+ * their counts ignore it. Mirrors `SCREENING_APPLICATION_STATUSES` in
+ * backend/app/services/workspace.py.
+ */
+export const SCREENING_STATUSES = ['NEW', 'IN_REVIEW', 'SHORTLIST'];
+
 export type ApplicantQueue =
   | 'ALL'
   | 'SHORTLIST'
@@ -74,15 +89,24 @@ export function isApplicantSort(value: string | null | undefined): value is Appl
 }
 
 export function inScreening(status?: string) {
-  return ['NEW', 'IN_REVIEW', 'SHORTLIST'].includes(status || '');
+  return SCREENING_STATUSES.includes(status || '');
 }
 
 export function needsVerification(item: RankingItem) {
+  // Never-assessed rows have no score to verify. They belong to the
+  // "not assessed" queue only; counting them here made one application show up
+  // in two queues and made the dashboard figure impossible to reconcile.
+  if (!item.matching_status || item.matching_status === 'NOT_ASSESSED') return false;
   return Boolean(
     item.needs_verification
     || item.matching_status === 'NEEDS_HR_VERIFICATION'
-    || (item.evidence_coverage != null && item.evidence_coverage < 0.7),
+    || (item.evidence_coverage != null && item.evidence_coverage < COVERAGE_THRESHOLD),
   );
+}
+
+/** A row that was never assessed has no rank, whatever the queue says. */
+export function isAssessed(item: RankingItem) {
+  return Boolean(item.matching_status && item.matching_status !== 'NOT_ASSESSED');
 }
 
 export function matchesApplicantQueue(item: RankingItem, queue: ApplicantQueue) {
@@ -244,3 +268,20 @@ export function windowApplicantItems<T>(items: T[], limit: number, step = 50) {
   const safeLimit = Math.max(step, Math.floor(limit / step) * step);
   return { visible: items.slice(0, safeLimit), hasMore: items.length > safeLimit, nextLimit: safeLimit + step, total: items.length };
 }
+
+/**
+ * How long an application has been waiting, in whole days.
+ * Returns null when the timestamp is missing or unparseable, so the UI can stay
+ * silent instead of inventing "0 ngày" for rows it knows nothing about.
+ */
+export function daysWaiting(createdAt: string | null | undefined, now: Date = new Date()) {
+  if (!createdAt) return null;
+  const started = new Date(createdAt).getTime();
+  if (Number.isNaN(started)) return null;
+  const elapsed = now.getTime() - started;
+  if (elapsed < 0) return null;
+  return Math.floor(elapsed / 86_400_000);
+}
+
+/** Waiting long enough to deserve a prompt, but never a reason to reorder ranks. */
+export const WAITING_ATTENTION_DAYS = 7;
