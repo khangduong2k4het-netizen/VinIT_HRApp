@@ -49,6 +49,30 @@ Giống migration `00035`, và **cố ý**:
 - `audit_event_chain_seq` restart về 1 → event kiểm toán đầu tiên của chuỗi mới
   có `chain_sequence=1`, `previous_event_hash=NULL`.
 
+### 3.1. Bẫy: `RESTART WITH 1` một mình KHÔNG đủ
+
+Cột `chain_sequence` có **DEFAULT `nextval(...)`** và trigger
+`set_audit_event_hash()` **cũng gọi `nextval(...)`**. Một lần INSERT tiêu **hai**
+số của sequence:
+
+| Bước | `last_value` | `is_called` |
+|---|---|---|
+| trước restart | 2 | true |
+| sau `RESTART WITH 1` | 1 | false |
+| sau INSERT | 2 | true |
+| `chain_sequence` của dòng mới | **2** | — |
+
+Vậy dòng đầu tiên của chuỗi mới mang `chain_sequence = 2` dù đáng lẽ là 1 — chuỗi
+đứt ngay từ dòng đầu. Đã gặp đúng lỗi này khi chạy thật ngày 2026-11-19.
+
+Cách sửa: **`DROP DEFAULT` trên cột rồi mới `RESTART`**, để trigger là nguồn duy
+nhất cấp số. Kiểm chứng: `RESTART` một mình → 2; `DROP DEFAULT` + `RESTART` → 1.
+Có test ghim (`test_audit_sequence_drop_default_before_restart`).
+
+Số nhảy cóc **không** làm hỏng kiểm tra toàn vẹn (`verify_audit_chain` bỏ qua
+khoảng trống, chỉ so `previous_event_hash` với hash của dòng trước), nhưng nó làm
+báo cáo sai và gây khó hiểu khi truy vết.
+
 ## 4. Nhật ký kiểm toán — điểm khó nhất
 
 `audit_events` có trigger `prevent_audit_event_mutation()` chặn **mọi** DELETE và
@@ -124,6 +148,18 @@ Cột lưu path text trích xuất là `extracted_text_storage_path` — **khôn
 | Test có giá trị thật | đảo thứ tự `positions`/`audit_events` → test phải đỏ | **đỏ đúng test đó**, hoàn nguyên → xanh |
 | Lá chắn 15 phút có tác dụng | đặt `MIN_AGE_SECONDS = 0` → test phải đỏ | **đỏ đúng test đó**, hoàn nguyên → xanh |
 | Đối soát phân biệt file / thư mục | 10 test với Storage giả (list một cấp, tự đi xuống) | **10/10** |
+
+**Lần chạy thật đầu tiên (2026-11-19 13:35 UTC, ADMIN trên VPS):**
+
+| Kiểm | Kết quả |
+|---|---|
+| DB trước khi xoá | 0 dòng trên toàn bộ phạm vi (đã purge bằng migration) |
+| File mồ côi phát hiện | **25** (`cv-originals` 7/7, `cv-extracted-text` 18/18) |
+| Kết quả | *"Đã dọn 25 file mồ côi trên Storage."* |
+| Storage sau khi chạy | **0 object** trong cả 2 bucket (bucket còn nguyên) |
+| DB sau khi chạy | 0 ở mọi bảng nghiệp vụ; 5 tài khoản / 6 role / 2 phòng ban / 2 app_settings / 4 AI config còn nguyên |
+| Nhật ký kiểm toán | 1 dòng `TEST_DATA_PURGE`, metadata đủ 42 bảng |
+| Sai lệch phát hiện | `chain_sequence = 2` thay vì 1 → tìm ra bẫy DEFAULT ở mục 3.1, đã sửa code và sửa lại dòng audit về 1 |
 
 **Chưa chạy được:** e2e trình duyệt (`tests/test-data-purge-mock.e2e.cjs`). Sandbox
 không tải được Chromium (`Failed to download Chrome for Testing`), và **toàn bộ**

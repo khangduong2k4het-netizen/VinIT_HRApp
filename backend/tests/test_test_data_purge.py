@@ -215,6 +215,38 @@ def test_sequence_reset_and_dept_reset_are_included():
     assert "RESTART WITH 1" in joined
 
 
+def test_audit_sequence_drop_default_before_restart():
+    """Một lần INSERT tiêu HAI số sequence: DEFAULT nextval + trigger nextval.
+
+    Nếu không DROP DEFAULT, RESTART WITH 1 vẫn khiến dòng đầu của chuỗi mới mang
+    chain_sequence = 2. Đã kiểm chứng trên Supabase thật; test này ghim lại để
+    không ai "dọn gọn" mất dòng DROP DEFAULT.
+    """
+    db = RecordingDB()
+    purge.execute(
+        db, scopes=["OPERATIONS"], confirmation=CONFIRMATION_PHRASE, actor_user_id="u1"
+    )
+    statements = [s for s, _p in db.sql]
+    drop_default = next(
+        (i for i, s in enumerate(statements) if "chain_sequence DROP DEFAULT" in s), None
+    )
+    assert drop_default is not None, "Thiếu DROP DEFAULT — chuỗi audit sẽ bắt đầu ở 2, không phải 1"
+    restart = next(i for i, s in enumerate(statements) if "RESTART WITH 1" in s)
+    assert drop_default < restart, "Phải bỏ DEFAULT trước khi restart sequence"
+
+
+def test_audit_insert_happens_after_restart_and_drop_default():
+    """Dòng audit ghi việc xoá là dòng ĐẦU của chuỗi mới, nên phải sau khi reset."""
+    db = RecordingDB()
+    purge.execute(
+        db, scopes=["OPERATIONS"], confirmation=CONFIRMATION_PHRASE, actor_user_id="u1"
+    )
+    statements = [s for s, _p in db.sql]
+    restart = next(i for i, s in enumerate(statements) if "RESTART WITH 1" in s)
+    insert = next(i for i, s in enumerate(statements) if "TEST_DATA_PURGE" in s)
+    assert restart < insert
+
+
 def test_storage_paths_collected_before_any_delete():
     """Đọc đường dẫn SAU khi xoá application_documents là mất vĩnh viễn file."""
     db = RecordingDB()

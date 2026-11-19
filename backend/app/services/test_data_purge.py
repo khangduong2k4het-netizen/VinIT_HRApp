@@ -334,6 +334,18 @@ def execute(db, *, scopes: list[str], confirmation: str, actor_user_id: str) -> 
 
     # Đánh số lại để dữ liệu mới không nhảy cóc.
     db.execute(text("UPDATE app_private.departments SET next_sequence = 1"))
+
+    # Vì sao phải DROP DEFAULT rồi SET DEFAULT, không chỉ RESTART:
+    #
+    # Cột `chain_sequence` có DEFAULT nextval(...) VÀ trigger set_audit_event_hash()
+    # cũng gọi nextval(...). Một lần INSERT tiêu HAI số của sequence.
+    # RESTART WITH 1 + is_called=false khiến DEFAULT lấy 1, rồi trigger lấy 2 —
+    # dòng đầu tiên của chuỗi mới mang chain_sequence=2 dù đáng lẽ là 1.
+    # Đã kiểm chứng trên DB thật: RESTART một mình cho ra 2; DROP DEFAULT cho ra 1.
+    #
+    # Với DEFAULT đã bỏ, trigger là nguồn duy nhất cấp số, nên chuỗi mới bắt đầu
+    # đúng ở 1 và liền mạch.
+    db.execute(text("ALTER TABLE app_private.audit_events ALTER COLUMN chain_sequence DROP DEFAULT"))
     db.execute(text("ALTER SEQUENCE app_private.audit_event_chain_seq RESTART WITH 1"))
 
     # Ghi lại việc xoá. Đây là dòng audit ĐẦU TIÊN của chuỗi mới, nên
