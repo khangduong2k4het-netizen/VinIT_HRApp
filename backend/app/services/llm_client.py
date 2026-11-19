@@ -589,7 +589,8 @@ class LLMClient:
     ) -> Dict[str, Any]:
         """Task AIC-01: Extract structured MUST_HAVE/NICE_TO_HAVE criteria from JD"""
         system_prompt = """You are an expert HR Recruitment Assistant specialized in job description decomposition.
-Your task is to analyze the provided English Job Description (JD) and extract explicit, verifiable evaluation criteria.
+Your task is to analyze the provided Job Description (JD) and extract explicit, verifiable evaluation criteria.
+The JD may be written in Vietnamese, English, or a mix of both. Read it in whatever language it is written; do not translate it and do not require it to be English.
 
 RULES:
 1. Divide criteria into two strict categories:
@@ -600,6 +601,8 @@ RULES:
 4. DO NOT invent requirements not mentioned in the JD. Do not split one explicit requirement into overlapping criteria unless the JD clearly requires separately verifiable outcomes; merge overlapping skills into one criterion.
 5. STRICTLY FORBIDDEN: Do not generate criteria related to age, gender, marital status, nationality, appearance, or personality traits.
 6. Return JSON with keys requisition_id, job_title and criteria. Each criterion must have name, description, category, numeric weight (0 to 100), and expected_evidence_keywords (an array of strings).
+7. LANGUAGE OF THE OUTPUT: always use the exact English enum values "MUST_HAVE" and "NICE_TO_HAVE" for category, even when the JD is in Vietnamese. Never translate these two values (do not return "BẮT BUỘC", "Bắt buộc", "Ưu tiên", "MUST-HAVE" or similar). Write name, description and keywords in the JD's own language, so a Vietnamese JD yields Vietnamese criteria text.
+8. Use exactly these JSON key names: name, description, category, weight, expected_evidence_keywords. Do not rename them, do not wrap the list in another object, and always return at least one "MUST_HAVE" criterion with weight above 0.
 """
 
         user_prompt = json.dumps({"requisition_id": requisition_id, "job_title": redact_text(job_title),
