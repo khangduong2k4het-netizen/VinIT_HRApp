@@ -4,9 +4,12 @@
 khoe danh sách tính năng. Mỗi mục dưới đây có: hiện tượng *trước*, thao tác *sau*,
 và **con số đo được** để nói thành câu.
 
-**Trạng thái code:** `d6e3ca3` trên `arena/ea6e2570-vinit-hrapp`, đã deploy VPS.
-**DB:** migration `00033`/`00034` đã áp (`20261119093753`, `20261119093801`).
-**Dữ liệu:** 100% tổng hợp. Không CV/tài khoản thật.
+**Trạng thái code:** `1cd5a78` trên `arena/ea6e2570-vinit-hrapp` (cần deploy lại
+nếu VPS còn commit cũ hơn — xem `git rev-parse --short HEAD`).
+**DB:** migration `00033`/`00034`/`00035` đã áp (`20261119093753`,
+`20261119093801`, purge ngày 2026-11-19).
+**Dữ liệu:** DB **đã purge sạch**, phải nạp lại trước buổi demo — xem mục 0.2.
+Toàn bộ là dữ liệu tổng hợp, không CV/tài khoản thật.
 
 ---
 
@@ -21,39 +24,57 @@ pm2 list | grep hra                                  # cả hai online
 cd /home/ubuntu/hra && git rev-parse --short HEAD     # d6e3ca3
 ```
 
-### 0.2. Chuẩn bị dữ liệu demo — **quan trọng, đừng bỏ**
+### 0.2. Dữ liệu — DB đã được purge ngày 2026-11-19
 
-Truy vấn dưới đây cho biết **hồ sơ nào dùng để demo cái gì**. Chạy trên Supabase
-SQL Editor và ghi ra giấy **mã ứng viên thật** ứng với từng vai (đừng đọc UUID
-trên màn hình chiếu — quá dài, người xem không theo được).
+**Toàn bộ dữ liệu cũ đã xoá** (`doc/PURGE_DU_LIEU_TEST_20261119.md`). Hiện tại:
+
+| Thứ | Trạng thái |
+|---|---|
+| positions / JD / rubric | **0** |
+| applications / documents / profile | **0** |
+| assessment_runs / results / evidence | **0** |
+| ranking / shortlist / audit | **0** |
+| Tài khoản (5), phòng ban (2), job family (2), app_settings (2), AI config (4) | **giữ nguyên** |
+| `departments.next_sequence` | đã reset 1 → vị trí mới bắt đầu `IT-0001` |
+
+**Phải nạp lại dữ liệu trước khi demo.** Làm **đúng thứ tự này** — mỗi bước là
+điều kiện của bước sau:
+
+1. **Tạo vị trí** `IT-0001` — đăng nhập `anhkiet@vinuni.edu.vn` (HIRING_MANAGER),
+   chọn phòng ban **IT Department**, JD lấy từ `doc/BO_DEMO_TUYEN_DUNG/01_JD/`.
+2. **Duyệt rubric** — `hr@vinuni.edu.vn` (HR_LEAD) duyệt criteria của JD mới nhất.
+   Không duyệt thì không nộp được CV và không chấm điểm được.
+3. **Tải CV** — 6 CV trong `doc/BO_DEMO_TUYEN_DUNG/02_CV/` (dùng bộ 30 CV ở
+   `BANG_PHAN_BO_30_CV.md` nếu muốn nhiều hồ sơ).
+4. **Chờ worker xong** — mỗi hồ sơ phải `COMPLETED`:
 
 ```sql
--- Vai A: hồ sơ "nhiều tiêu chí cần xác minh" — dùng cho màn Review (UX-02).
-SELECT p.position_code, a.application_id, count(car.result_id) AS results,
+SELECT status::text, count(*) FROM app_private.operations GROUP BY 1;
+SELECT a.application_id, count(car.result_id) AS results,
        count(car.result_id) FILTER (WHERE car.requires_hr_verification) AS flagged
-FROM app_private.positions p
-JOIN app_private.applications a ON a.position_id = p.position_id
-JOIN app_private.assessment_runs ar ON ar.application_id = a.application_id
-JOIN app_private.criterion_assessment_results car ON car.assessment_id = ar.assessment_id
-GROUP BY 1,2 ORDER BY flagged DESC;
+FROM app_private.applications a
+LEFT JOIN app_private.assessment_runs ar ON ar.application_id = a.application_id
+LEFT JOIN app_private.criterion_assessment_results car ON car.assessment_id = ar.assessment_id
+GROUP BY 1 ORDER BY 2 DESC;
 ```
 
-> **Kết quả trên DB hiện tại (đã kiểm ngày 2026-11-19):** `IT-0004`
-> "Synthetic Backend Engineer" có 6 hồ sơ. Hồ sơ **flagged 12/12** là vai
-> "nặng nhất" — dùng để demo U5 và U1. Hồ sơ **flagged 2/12** dùng để demo
-> "hàng đợi đóng được sau vài lần bấm".
+Từ kết quả trên, ghi ra giấy **hai hồ sơ**: một có `flagged` cao (demo U5/U1) và
+một có `flagged` thấp (demo "hàng đợi đóng được sau vài lần bấm").
 
-**Điều phải biết trước, kẻo demo sai kỳ vọng:**
+> **Đừng nạp thẳng vào DB.** Mục đích buổi demo là chứng minh *hệ thống chạy*.
+> Dữ liệu đi qua API thật thì mới có `evidence_items`, `profile_facts` và
+> `audit_events` do chính hệ thống sinh ra — đó là thứ người xem cần thấy.
 
-| Dữ liệu test hiện có | Hệ quả khi demo |
-|---|---|
-| `evidence_items.page_number` **toàn NULL** | Câu U5 sẽ **không** hiện "trang N". Nói thẳng: *"với CV có số trang, câu này nói rõ trang để mở — bộ dữ liệu test không có số trang."* |
-| `verification_status` **100% `VERIFIED`**, `is_hallucinated` = 0 | Không có câu `MISMATCH_CHECK` / "Máy tìm không thấy trích dẫn". Không dựng cảnh này. |
-| `hr_reviews` = **0** trên mọi hồ sơ | Đây là **trạng thái đầu đẹp nhất**: hàng đợi còn nguyên, chứng minh được "trước khi HR làm gì". |
+**Vẫn cần kiểm sau khi nạp** (điều kiện để demo đủ 7 nhánh câu hành động):
 
-Nếu muốn có trang số + trích dẫn lỗi để demo đủ 7 nhánh, phải nạp một CV mới qua
-luồng upload thật — **không** sửa DB bằng tay (sẽ làm sai lệch chứng cứ).
-Xem mục 7.
+```sql
+SELECT count(*) FILTER (WHERE page_number IS NOT NULL) AS with_page,
+       count(*) FILTER (WHERE verification_status = 'FAILED') AS failed
+FROM app_private.evidence_items;
+```
+
+Nếu `with_page = 0`, câu U5 **không** hiện "trang N" — nói thẳng với người xem
+thay vì để họ tự phát hiện. Xem mục 7.
 
 ### 0.3. Ba tab trình duyệt mở sẵn
 
