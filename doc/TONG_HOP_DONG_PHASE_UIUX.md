@@ -1,6 +1,7 @@
 # Tổng hợp đợt chỉnh UI/UX — có tạm dừng được chưa?
 
-Ngày rà: 2026-11-19. Nhánh `arena/ea6e2570-vinit-hrapp`, HEAD `f0f015b`.
+Ngày rà: 2026-11-19. Nhánh `arena/ea6e2570-vinit-hrapp`, HEAD `ae18992`
+(sau khi làm 3.9/UX-08).
 Rà bằng cách **đọc code và đo lại từng hạng mục**, không dựa vào tài liệu cũ —
 bốn hạng mục tài liệu vẫn ghi "chưa có" nhưng thực tế đã xong từ trước.
 
@@ -15,11 +16,10 @@ dùng thật:
 2. **Một vòng usability trên staging** với 2–3 HR thật, vì mọi nghiệm thu tới giờ
    đều là máy đo (pixel, e2e, pytest), chưa có người dùng thật nào.
 
-Hai việc P2 còn lại (**3.8** sửa tiêu chí inline, **3.9/UX-08** phản hồi async
-nhất quán) **không nên làm trong đợt này** — chúng là đánh bóng, và 3.8 còn có
-thể phải sửa API trước.
+**3.9/UX-08 đã làm xong** trong đợt này (xem mục 6). Chỉ còn **3.8** (sửa tiêu
+chí inline) là P2 thật sự chưa làm — và nên chờ dữ liệu sử dụng trước khi làm.
 
-## 2. Bảng trạng thái 9 hạng mục
+## 2. Bảng trạng thái 9 hạng mục (8 xong, 1 để sau)
 
 | Mục | Nội dung | Trạng thái | Bằng chứng |
 | --- | --- | --- | --- |
@@ -30,8 +30,8 @@ thể phải sửa API trước.
 | 3.5 / UX-05 | Tìm/lọc vị trí | **Xong** (có từ trước) | `?q=` + `?status=` đọc/ghi URL; empty state phân biệt "chưa có vị trí" và "không khớp tìm kiếm". |
 | 3.6 / UX-06 | Validate tại chỗ khi tạo vị trí | **Xong phần UI** | `Còn thiếu: {0}.` ngay trên nút. **"Lưu nháp" là việc backend** (cần `DRAFT` + migration), không làm. |
 | 3.7 / UX-07 | Từ file lỗi tới đúng hồ sơ | **Xong đợt này** | Backend trả `application_id` + `error_code`; `invalidFileReason.ts` dịch cả mã máy lẫn câu exception; `InvalidFileList` link thẳng hồ sơ hoặc nói rõ "không tạo hồ sơ". |
-| 3.8 / UX-04 | Sửa tiêu chí inline | **Chưa — P2, để sau** | Vẫn mở dialog (`editingCriterion` xuất hiện 40 lần). Đúng như tài liệu xếp P2. |
-| 3.9 / UX-08 | Phản hồi async nhất quán | **Chưa — P2, để sau** | Chưa có `useActionFeedback`; hiện mỗi chỗ tự dùng Snackbar/Alert. |
+| 3.8 | Sửa tiêu chí inline | **Chưa — P2 duy nhất còn lại** | Vẫn mở dialog. API **đã có sẵn**, xem mục 6. |
+| 3.9 / UX-08 | Phản hồi async nhất quán | **Xong (đợt này)** | `ActionFeedback` với 2 vùng `aria-live` **luôn tồn tại**; áp cho 5 luồng. Kèm sửa crash `/shortlist` khi API trả object thay vì mảng. |
 | UX-04 | Drawer/split view | **Không làm, có lý do** | Trang chi tiết đã là hai cột. Vấn đề thật là CV trôi khỏi màn hình — đã sửa bằng sticky (−637px → heading 151px). Drawer sẽ nhân đôi đường đi, không giải quyết thêm. |
 
 ## 3. Rủi ro và nợ kỹ thuật đã kiểm
@@ -53,7 +53,7 @@ thể phải sửa API trước.
 | Backend pytest | 292 passed / 174 skipped (integration cần Postgres thật, tự skip ở sandbox) |
 | FE unit (node --test) | 43 / 43 |
 | i18n | 3 / 3 |
-| E2E Playwright (mock) | 14 / 14 |
+| E2E Playwright (mock) | 15 / 15 |
 | tsc / lint / build | sạch |
 | CI | `44486476247`, `44486915413`, `44490889045` — **success cả 3 job** |
 
@@ -64,8 +64,73 @@ thể phải sửa API trước.
    thêm bước 7: mở link hồ sơ ở tab mới để kiểm 3.1.
 3. **Safari/iOS** — chưa ai thử; `position: sticky` và `overflow: clip` là chỗ dễ
    khác biệt giữa trình duyệt nhất trong đợt này.
-4. Chỉ sau đó mới cân nhắc 3.9 (UX-08) rồi 3.8.
+4. Chỉ sau đó mới cân nhắc **3.8** (P2 duy nhất còn lại).
 
-Lý do xếp 3.9 trước 3.8: 3.9 chỉ đụng frontend và làm các thông báo hiện có
-nhất quán; 3.8 có thể phải thêm endpoint "patch một tiêu chí" — cần kiểm API
-trước khi hứa, đúng như tài liệu đã ghi.
+## 6. Mục P2 — chi tiết
+
+Có **ba** mục từng được xếp P2. Trạng thái hiện tại:
+
+| Mục | Trạng thái |
+| --- | --- |
+| 3.9 / UX-08 phản hồi async | **Xong** (`ae18992`) |
+| U6 danh sách tiêu chí thu gọn | **Hoãn có chủ đích** — anh đã quyết ở UX-02, không mở lại |
+| 3.8 sửa tiêu chí inline | **Chưa làm** — mục duy nhất còn lại |
+
+### 6.1. 3.8 — Sửa tiêu chí tại chỗ (chưa làm)
+
+**Hiện trạng.** Sửa một tiêu chí = mở `Dialog` (`editingCriterion`), sửa, lưu,
+đóng. Với 8–12 tiêu chí mỗi vị trí, đó là 8–12 vòng mở/đóng.
+
+**Điều đã kiểm được (để lần sau không phải dò lại):** tài liệu cũ lo "có thể
+phải thêm endpoint patch một tiêu chí" — **không cần**:
+
+- Backend đã có `PATCH /criteria/{version_id}/items/{criterion_id}`
+  (`backend/app/api/criteria.py:566`), chỉ cho phép sửa khi version **chưa
+  duyệt** (`_lock_editable_criteria_version`) — đúng quy tắc hiện tại.
+- Frontend đã nối sẵn `criteriaApi.updateItem` (`src/lib/api.ts:100`).
+
+⇒ Đây **thuần là việc frontend**.
+
+**Cái bẫy phải quyết trước khi code.** Dialog hiện gửi **6 trường**: `name`,
+`description`, `category`, `weight_in_group`, `expected_evidence_keywords`,
+`requirement_spec`. Nếu chỉ inline được `name` + `description` thì HR vẫn phải
+mở dialog cho phần còn lại — **tệ hơn hiện tại** vì có hai kiểu sửa khác nhau.
+Ba lựa chọn:
+
+| Cách | Được | Mất |
+| --- | --- | --- |
+| A. Inline đủ 6 trường | Không còn dialog cho sửa nhẹ | Ô sửa `requirement_spec` (cấu trúc JSON) rất dễ vỡ; công sức L |
+| B. Inline `name`/`description`, dialog cho phần còn lại | Rẻ, an toàn | Hai kiểu sửa — phải nói rõ trên UI cái nào sửa được tại chỗ |
+| C. Giữ nguyên | Không rủi ro | Ma sát còn đó |
+
+**Khuyến nghị: B**, và chỉ làm sau khi có dữ liệu cho câu hỏi *"HR có thật sự
+sửa nhiều tiêu chí liên tiếp không?"* — chính là thứ một vòng usability sẽ trả
+lời. Nếu HR sửa 1–2 tiêu chí mỗi lần thì 3.8 gần như vô giá trị.
+
+**Nghiệm thu nếu làm:** sửa 5 tiêu chí liên tiếp không mở dialog; tổng trọng số
+vẫn validate; trạng thái phê duyệt vẫn reset như cũ; **không** đổi quy tắc hai
+người phê duyệt.
+
+### 6.2. U6 — Danh sách tiêu chí thu gọn (hoãn)
+
+Nhìn được cả 6 tiêu chí trong một màn, bấm để nhảy. Tài liệu ghi rủi ro **Cao**
+vì đụng CV viewer, ghi chú HR, lịch sử, phân quyền — đúng những chỗ vừa ổn định
+xong ở UX-02 và UX-04. **Không mở lại** trừ khi có yêu cầu mới.
+
+### 6.3. 3.9 / UX-08 — đã xong, ghi lại để không làm lại
+
+`src/components/common/ActionFeedback.tsx`:
+
+- Hai vùng `role="status"` (`polite`) và `role="alert"` (`assertive`) **luôn có
+  trong DOM**, rỗng khi không có gì. Đây là điểm quan trọng: **không** dùng
+  `<Snackbar>` của MUI vì nó chỉ mount nội dung khi `open` — vùng thông báo sinh
+  ra cùng lúc với thông báo thì screen reader đăng ký quá muộn và bỏ lỡ câu đầu.
+- Thành công tự tắt (5s); **lỗi không tự tắt**.
+- Đã áp cho 5 luồng: đổi trạng thái hồ sơ, xử lý lại CV, lưu scorecard, nộp
+  scorecard, đánh giá/xếp hạng, chia sẻ shortlist, thu hồi shortlist.
+- Kèm sửa một **crash có sẵn** ở `/shortlist`: API trả object thay vì mảng ⇒
+  `visibleShares.length` là `undefined` ⇒ `.map` nổ ⇒ màn hình trắng "Application
+  error". Nay chỉ nhận mảng, còn lại coi như rỗng và hiện lỗi có nút Thử lại.
+
+**Còn lại của UX-08 (không bắt buộc):** các `Alert` tại chỗ trong form (lỗi
+validate) vẫn giữ nguyên — đó là đúng chỗ, không cần chuyển sang Snackbar.
