@@ -208,6 +208,20 @@ _FIELD_SPLIT = re.compile(r"[,;/()]|\b(?:or|and|hoac|va|in|of|trong|ve)\b", re.I
 _FIELD_SUFFIXES = ("ing", "ers", "er", "ed", "s")
 
 
+_ABBREVIATION = re.compile(r"(?:[A-Za-z]{1,2}\.)+[A-Za-z]{0,4}\.?")
+
+
+def _is_abbreviation_period(text: str, index: int) -> bool:
+    """True for a period inside or ending a dotted abbreviation."""
+    if index + 1 < len(text) and text[index + 1].isalpha():
+        return True  # "B.Eng": the period is followed directly by a letter
+    start = index
+    while start > 0 and (text[start - 1].isalpha() or text[start - 1] == "."):
+        start -= 1
+    word = text[start:index + 1]
+    return word.count(".") >= 2 and _ABBREVIATION.fullmatch(word) is not None
+
+
 def _field_stem(token: str) -> str:
     """Crude stem so "engineer", "engineers" and "engineering" compare equal."""
     for _ in range(2):
@@ -1152,6 +1166,11 @@ class DeterministicMatchingEngine:
             char = text[index]
             if (char == "." and 0 < index < len(text) - 1
                     and text[index - 1].isdigit() and text[index + 1].isdigit()):
+                index += 1
+                continue
+            if char == "." and _is_abbreviation_period(text, index):
+                # "B.Eng.", "B.Sc.", "Ph.D." or "e.g." are one token, not
+                # sentence ends; splitting them left a useless "B." quote.
                 index += 1
                 continue
             if char in ".!?":
