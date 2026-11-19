@@ -1,5 +1,14 @@
 # Chạy migration `00033` + `00034` — hướng dẫn từng bước
 
+> **✅ ĐÃ ÁP XONG ngày 2026-11-19** trên project `myrymlqdbyqmpynesiwk`:
+> version remote `20261119093801` (`hr_criterion_reviews_00034`) và
+> `20261119093753` (`app_settings_00033`). Postflight đạt đủ: 2 bảng tồn tại,
+> `app_settings` có đúng 2 dòng = 7, RLS bật, **0 grant** cho `anon/authenticated`,
+> đủ 6 constraint gồm `hr_criterion_reviews_rejected_needs_reason`, và dữ liệu
+> nền không đổi (6 positions / 7 applications / 74 assessment results).
+> **Không chạy lại.** Phần dưới giữ làm hồ sơ quy trình và để áp cho môi trường
+> khác (production sau này).
+
 Áp cho project Supabase `myrymlqdbyqmpynesiwk` (môi trường test code).
 Người viết đã **đọc migration và đọc cách 00031/00032 đã được áp trước đó**; những
 chỗ dưới đây không phải suy đoán.

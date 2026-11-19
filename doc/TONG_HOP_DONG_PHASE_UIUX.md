@@ -10,9 +10,10 @@ bốn hạng mục tài liệu vẫn ghi "chưa có" nhưng thực tế đã xon
 **Tạm dừng được**, với hai điều kiện phải làm **trước khi** báo xong cho người
 dùng thật:
 
-1. **Chạy migration `00033` + `00034` trên VPS** — code đã tham chiếu
-   `app_private.app_settings` và `hr_criterion_reviews` ở 10 chỗ. Thiếu migration
-   thì tab "Cài đặt HR" và toàn bộ U1 (ghi nhận xét duyệt) **sẽ lỗi 500**.
+1. ~~**Chạy migration `00033` + `00034`**~~ — **✅ XONG 2026-11-19** (version
+   `20261119093753`, `20261119093801`). Còn lại: **deploy code lên VPS**. Lưu ý
+   `scripts/deploy.sh` sẽ `exit 2` vì `supabase/migrations` thay đổi — chạy lại
+   với `--migrations-verified`. Xem `HUONG_DAN_MIGRATION_00033_00034.md`.
 2. **Một vòng usability trên staging** với 2–3 HR thật, vì mọi nghiệm thu tới giờ
    đều là máy đo (pixel, e2e, pytest), chưa có người dùng thật nào.
 
