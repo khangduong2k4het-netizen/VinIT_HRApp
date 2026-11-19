@@ -24,15 +24,17 @@ def test_summarize_applications_separates_review_queues():
          "matching_status": None, "evidence_coverage": None},
         {"application_status": "IN_REVIEW", "processing": False, "needs_review": True, "duplicate": True,
          "matching_status": "MEETS_MANDATORY", "evidence_coverage": 0.5},
-        {"application_status": "SHORTLIST", "processing": False, "needs_review": False, "duplicate": False,
+        {"application_status": "IN_REVIEW", "processing": False, "needs_review": False, "duplicate": False,
          "matching_status": "POSSIBLE_MISMATCH", "evidence_coverage": 0.9},
         {"application_status": "IN_REVIEW", "processing": False, "needs_review": False, "duplicate": False,
+         "matching_status": "MEETS_MANDATORY", "evidence_coverage": 0.9},
+        {"application_status": "SHORTLIST", "processing": False, "needs_review": False, "duplicate": False,
          "matching_status": "MEETS_MANDATORY", "evidence_coverage": 0.9},
     ])
 
     assert counts == {
-        "total": 4,
-        "assessed": 3,
+        "total": 5,
+        "assessed": 4,
         "processing": 1,
         "file_review": 1,
         "not_assessed": 1,
@@ -186,3 +188,19 @@ def test_hm_waits_for_hr_before_criteria_exist():
 
 def test_hm_keeps_own_approval_action():
     assert _hm_workflow(criteria_status="PENDING_HM_APPROVAL")["next_action"]["code"] == "APPROVE_CRITERIA_HM"
+
+
+def test_hr_decided_applications_no_longer_keep_review_open():
+    rows = [
+        {"application_status": "SHORTLIST", "matching_status": "NEEDS_HR_VERIFICATION", "evidence_coverage": 0.82},
+        {"application_status": "REJECTED_SCREENING", "matching_status": "NEEDS_HR_VERIFICATION", "evidence_coverage": 0.0},
+        {"application_status": "REJECTED_SCREENING", "matching_status": "POSSIBLE_MISMATCH", "evidence_coverage": 0.9},
+    ]
+    counts = summarize_applications(rows)
+    assert counts["needs_verification"] == 0
+    assert counts["possible_mismatch"] == 0
+    assert counts["shortlisted"] == 1
+    counts["needs_verification"] += summarize_applications([
+        {"application_status": "IN_REVIEW", "matching_status": "NEEDS_HR_VERIFICATION", "evidence_coverage": 0.5},
+    ])["needs_verification"]
+    assert counts["needs_verification"] == 1
