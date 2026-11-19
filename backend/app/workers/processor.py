@@ -40,6 +40,7 @@ from app.services.semantic_diagnostics import record_semantic_run
 from app.services.ltr import LTRModel, artifact_sha256, extract_ranking_features
 from app.services.semantic_retrieval import merge_candidate_chunks, retrieve_semantic_candidates
 from app.services.redaction import redact_text
+from app.services.talent_pool_scan import ScanError, mark_scan_failed, run_scan_for_operation
 from app.services.identity_matching import extract_phone
 from app.services.ai_config import (
     get_active_runtime, hydrate_runtime_secret, runtime_context, runtime_snapshot,
@@ -203,7 +204,7 @@ class ProcessingWorker:
                 SELECT operation_id, capability, status, ai_config_id, ai_config_snapshot, created_at
                 FROM app_private.operations
                 WHERE status IN ('PENDING', 'PROCESSING')
-                  AND capability IN ('CV_PROCESSING', 'ASSESSMENT', 'RANKING')
+                  AND capability IN ('CV_PROCESSING', 'ASSESSMENT', 'RANKING', 'TALENT_POOL_SCAN')
                   {cursor_filter}
                 ORDER BY created_at, operation_id
                 LIMIT 100 FOR UPDATE SKIP LOCKED
@@ -291,6 +292,8 @@ class ProcessingWorker:
                     self._process_cv_batch(UUID(operation_id), db)
                 elif capability == "ASSESSMENT":
                     self._run_assessments(UUID(operation_id), db)
+                elif capability == "TALENT_POOL_SCAN":
+                    run_scan_for_operation(db, operation_id, self._load_extracted_text)
                 else:
                     self._generate_ranking(UUID(operation_id), db)
 
@@ -330,6 +333,9 @@ class ProcessingWorker:
                             UPDATE app_private.cv_batches SET status = 'FAILED', completed_at = NOW()
                             WHERE operation_id = :operation_id AND status = 'PROCESSING'
                         """), {"operation_id": operation_id})
+                    if capability == "TALENT_POOL_SCAN":
+                        mark_scan_failed(db, operation_id, str(exc) if isinstance(exc, ScanError)
+                                         else "Không thể quét Talent Pool; vui lòng thử lại.")
                     db.execute(text("""
                         UPDATE app_private.operations
                         SET status = 'FAILED', error_code = 'PROCESSING_ERROR',

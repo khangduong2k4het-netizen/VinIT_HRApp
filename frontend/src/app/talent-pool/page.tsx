@@ -10,7 +10,7 @@ import { positionsApi, talentPoolApi } from '@/lib/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import { localizeServerMessage } from '@/i18n/serverMessages';
 import { DECISIONS, MARK_REASONS, OUTCOMES, SKIP_REASONS, poolRef, scoreText,
-  type PoolMark, type ScanDetail, type ScanResult, type ScanSummary } from '@/lib/talentPool';
+  scanIsActive, type PoolMark, type ScanDetail, type ScanResult, type ScanSummary } from '@/lib/talentPool';
 
 function serverError(err: any, locale: 'vi' | 'en', fallback: string): string {
   const detail = err?.response?.data?.detail;
@@ -99,6 +99,20 @@ export default function TalentPoolPage() {
     }).catch(() => setScans([]));
   }, [positionId, loadScan]);
 
+  // The worker scores the pool in the background: poll until the scan leaves PENDING/PROCESSING.
+  const active = scanIsActive(scan?.status);
+  useEffect(() => {
+    if (!active || !scan) return;
+    const scanId = scan.scan_id;
+    const timer = setInterval(() => {
+      talentPoolApi.scanDetail(scanId).then(r => {
+        setScan(current => current?.scan_id === scanId ? r.data : current);
+        if (!scanIsActive(r.data.status)) talentPoolApi.scans(positionId).then(l => setScans(l.data.items)).catch(() => undefined);
+      }).catch(() => undefined);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [active, scan?.scan_id, positionId]);  // eslint-disable-line react-hooks/exhaustive-deps
+
   const runScan = async () => {
     setBusy(true); setError('');
     try {
@@ -121,8 +135,8 @@ export default function TalentPoolPage() {
         <TextField select size="small" label={t('Vị trí đang mở')} value={positionId} onChange={e => setPositionId(e.target.value)} sx={{ minWidth: 320 }}>
           {positions.map(p => <MenuItem key={p.position_id} value={p.position_id}>{p.title} · {p.position_code}</MenuItem>)}
         </TextField>
-        <Button variant="contained" disabled={!positionId || busy} onClick={runScan}>
-          {busy ? t('Đang quét…') : t('Quét Talent Pool')}
+        <Button variant="contained" disabled={!positionId || busy || active} onClick={runScan}>
+          {busy || active ? t('Đang quét…') : t('Quét Talent Pool')}
         </Button>
         {scans.length > 1 && (
           <TextField select size="small" label={t('Lượt quét')} value={scan?.scan_id || ''} onChange={e => loadScan(e.target.value)} sx={{ minWidth: 220 }}>
@@ -134,11 +148,16 @@ export default function TalentPoolPage() {
         {t('Chấm bằng luật trên tiêu chí đã duyệt của vị trí, không gửi CV cho AI. Tiêu chí luật không xác định được để “Chưa rõ”.')}
       </Typography>
       {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
-      {busy && <CircularProgress size={24} sx={{ mt: 2 }} />}
-      {scan && <Box sx={{ mt: 2 }}>
+      {(busy || active) && <CircularProgress size={24} sx={{ mt: 2 }} />}
+      {scan?.status === 'FAILED' && <Alert severity="error" sx={{ mt: 2 }}>
+        {t('Lượt quét thất bại')}{scan.error_message ? `: ${scan.error_message}` : ''}
+      </Alert>}
+      {active && <Alert severity="info" sx={{ mt: 2 }}>{t('Đang quét ở nền; kết quả sẽ hiện khi hoàn tất.')}</Alert>}
+      {scan && scan.status === 'COMPLETED' && <Box sx={{ mt: 2 }}>
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
           <Chip label={t('Đủ điều kiện: {0}', scan.eligible_count)} />
           <Chip label={t('Đã chấm: {0}', scan.scored_count)} />
+          {scan.failed_count > 0 && <Chip color="warning" label={t('Lỗi: {0}', scan.failed_count)} />}
           {Object.entries(scan.skipped_counts || {}).map(([k, v]) => <Chip key={k} variant="outlined" label={`${t(SKIP_REASONS[k] || k)}: ${v}`} />)}
         </Box>
         {scan.results.length === 0

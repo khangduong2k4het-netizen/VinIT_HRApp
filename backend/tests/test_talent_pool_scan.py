@@ -38,6 +38,19 @@ if os.environ.get("TEST_DATABASE_URL"):
     from test_public_intake_talent_pool import _consented_application
 
 
+def _run_worker():
+    from app.workers.processor import ProcessingWorker
+    ProcessingWorker()._process_pending_operations()
+
+
+def _scan_and_run(client, seed):
+    """Queue a scan for pos2 as its HR and let the worker finish it."""
+    queued = client.post(f"/v1/talent-pool/positions/{seed['pos2']}/scan", headers=headers(seed["hr2"]))
+    assert queued.status_code == 202, queued.text
+    _run_worker()
+    return queued.json()
+
+
 def _target_position(seed):
     """pos2 (HR: hr2) gets an approved rubric so it can be scanned."""
     jd, cv = uid(), uid()
@@ -83,13 +96,13 @@ def test_scan_ranks_the_pool_with_evidence_and_no_pii(client, seed, pool):
     # Only HR of the target position (or HR Lead) may scan; HM and HR of another position may not.
     assert client.post(f"/v1/talent-pool/positions/{seed['pos2']}/scan", headers=headers(seed["hm"])).status_code == 403
     assert client.post(f"/v1/talent-pool/positions/{seed['pos2']}/scan", headers=headers(seed["hr"])).status_code == 403
-    created = client.post(f"/v1/talent-pool/positions/{seed['pos2']}/scan", headers=hr2)
-    assert created.status_code == 201, created.text
-    body = created.json()
-    assert body["eligible_count"] == 3 and body["scored_count"] == 2 and body["skipped"] == {"NO_EXTRACTED_TEXT": 1}
+    body = _scan_and_run(client, seed)
 
     scan = client.get(f"/v1/talent-pool/scans/{body['scan_id']}", headers=hr2)
     assert scan.status_code == 200
+    head = scan.json()
+    assert head["status"] == "COMPLETED" and head["completed_at"] and head["failed_count"] == 0
+    assert head["eligible_count"] == 3 and head["scored_count"] == 2 and head["skipped_counts"] == {"NO_EXTRACTED_TEXT": 1}
     results = scan.json()["results"]
     assert [r["application_id"] for r in results][0] == pool["strong"]
     assert {r["application_id"] for r in results} == {pool["strong"], pool["weak"]}
@@ -109,7 +122,7 @@ def test_scan_ranks_the_pool_with_evidence_and_no_pii(client, seed, pool):
 @integration
 def test_withdrawn_candidate_disappears_from_results_and_cannot_be_decided(client, seed, pool):
     hr, hr2 = headers(seed["hr"]), headers(seed["hr2"])
-    scan_id = client.post(f"/v1/talent-pool/positions/{seed['pos2']}/scan", headers=hr2).json()["scan_id"]
+    scan_id = _scan_and_run(client, seed)["scan_id"]
     route = f"/v1/talent-pool/scans/{scan_id}/results/{{}}/decision"
     assert client.post(route.format(pool["strong"]), headers=hr2, json={"decision": "MAYBE"}).status_code == 400
     assert client.post(route.format(pool["strong"]), headers=hr2, json={"decision": "CONTACT"}).status_code == 200
@@ -142,3 +155,77 @@ def test_marks_list_is_scoped_to_the_source_position_hr(client, seed, pool):
     assert {i["application_id"] for i in mine} == {pool["strong"], pool["weak"], pool["no_text"]}
     assert all(i["eligible"] and i["expires_on"] for i in mine)
     assert client.get("/v1/talent-pool/marks", headers=headers(seed["hr2"])).json()["items"] == []
+
+
+def _set_contact(app_id, email=None, phone=None):
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.application_identities SET email = :e, phone = :p WHERE application_id = :a"),
+                     {"e": email, "p": phone, "a": app_id})
+
+
+@integration
+def test_scan_runs_in_the_worker_and_allows_one_active_scan_per_position(client, seed, pool):
+    hr2, route = headers(seed["hr2"]), f"/v1/talent-pool/positions/{seed['pos2']}/scan"
+    queued = client.post(route, headers=hr2)
+    assert queued.status_code == 202
+    scan_id, operation_id = queued.json()["scan_id"], queued.json()["operation_id"]
+    pending = client.get(f"/v1/talent-pool/scans/{scan_id}", headers=hr2).json()
+    assert pending["status"] == "PENDING" and pending["results"] == []
+    assert client.post(route, headers=hr2).status_code == 409  # only one active scan per position
+    _run_worker()
+    done = client.get(f"/v1/talent-pool/scans/{scan_id}", headers=hr2).json()
+    assert done["status"] == "COMPLETED" and len(done["results"]) == 2
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT status FROM app_private.operations WHERE operation_id = :o"),
+                            {"o": operation_id}).scalar_one() == "COMPLETED"
+    assert client.post(route, headers=hr2).status_code == 202  # a finished scan no longer blocks
+
+
+@integration
+def test_failed_scan_records_the_error_and_can_be_retried(client, seed, pool, monkeypatch):
+    hr2, route = headers(seed["hr2"]), f"/v1/talent-pool/positions/{seed['pos2']}/scan"
+    from app.services import talent_pool_scan
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("secret detail must not leak")
+    with monkeypatch.context() as patch:
+        patch.setattr(talent_pool_scan, "run_scan", boom)
+        scan_id = client.post(route, headers=hr2).json()["scan_id"]
+        _run_worker()
+    failed = client.get(f"/v1/talent-pool/scans/{scan_id}", headers=hr2).json()
+    assert failed["status"] == "FAILED" and failed["completed_at"] and failed["results"] == []
+    assert failed["error_message"] and "secret" not in failed["error_message"]
+
+    # The position closing before the worker picks the job up is reported as the failure reason.
+    scan_id = client.post(route, headers=hr2).json()["scan_id"]
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.positions SET status = 'CLOSED', closed_at = NOW() WHERE position_id = :p"), {"p": seed["pos2"]})
+    _run_worker()
+    failed = client.get(f"/v1/talent-pool/scans/{scan_id}", headers=hr2).json()
+    assert failed["status"] == "FAILED" and "đang mở" in failed["error_message"]
+    listed = client.get(f"/v1/talent-pool/positions/{seed['pos2']}/scans", headers=hr2).json()["items"]
+    assert [i["status"] for i in listed] == ["FAILED", "FAILED"]
+
+
+@integration
+def test_scan_skips_candidates_who_already_applied_and_duplicate_emails(client, seed, pool, tmp_path):
+    hr2 = headers(seed["hr2"])
+    # A candidate already in the target position (email in another case, phone in another format).
+    _set_contact(seed["app2"], email="Applied@Example.com", phone="+84 901 234 567")
+    _set_contact(pool["strong"], email=" applied@example.COM ")
+    _set_contact(pool["weak"], phone="0901234567")
+    second = _consented_application(seed)
+    third = _consented_application(seed)
+    for a, mail in ((second, "Dup@Example.com"), (third, "dup@example.com")):
+        assert client.post(f"/v1/talent-pool/applications/{a}/mark", headers=headers(seed["hr"]),
+                           json={"reason_code": "STRONG_FIT"}).status_code == 201
+        _set_contact(a, email=mail)
+    _with_text(second, "Kế toán tổng hợp.", tmp_path)
+    _with_text(third, "Python developer, built Python services for 5 years.", tmp_path)
+
+    scan_id = _scan_and_run(client, seed)["scan_id"]
+    scan = client.get(f"/v1/talent-pool/scans/{scan_id}", headers=hr2).json()
+    assert scan["skipped_counts"] == {"ALREADY_APPLIED": 2, "NO_EXTRACTED_TEXT": 1, "DUPLICATE_EMAIL": 1}
+    # The better of the two duplicate-email applications is the one kept.
+    assert [r["application_id"] for r in scan["results"]] == [third]
+    assert scan["eligible_count"] == 5 and scan["scored_count"] == 1

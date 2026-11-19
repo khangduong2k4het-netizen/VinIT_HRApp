@@ -291,7 +291,7 @@ export const talentPoolApi = {
     apiClient.post(`/talent-pool/applications/${applicationId}/mark`, { reason_code: reasonCode }),
   unmark: (applicationId: string) => apiClient.delete(`/talent-pool/applications/${applicationId}/mark`),
   marks: () => apiClient.get('/talent-pool/marks'),
-  scan: (positionId: string) => apiClient.post(`/talent-pool/positions/${positionId}/scan`, undefined, { timeout: 120000 }),
+  scan: (positionId: string) => apiClient.post(`/talent-pool/positions/${positionId}/scan`),
   scans: (positionId: string) => apiClient.get(`/talent-pool/positions/${positionId}/scans`),
   scanDetail: (scanId: string) => apiClient.get(`/talent-pool/scans/${scanId}`),
   decide: (scanId: string, applicationId: string, decision: 'CONTACT' | 'SKIP' | 'LATER') =>

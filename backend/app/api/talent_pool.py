@@ -12,7 +12,7 @@ from app.core.permissions import check_position_access
 from app.core.security import get_current_user
 from app.db.database import SessionLocal
 from app.services.talent_pool import MARK_REASONS, application_pool_state, eligible_pool, pool_expiry
-from app.services.talent_pool_scan import ScanError, record_decision, run_scan, scan_header, scan_results
+from app.services.talent_pool_scan import ScanError, enqueue_scan, record_decision, scan_header, scan_results
 
 router = APIRouter()
 
@@ -163,10 +163,10 @@ async def list_marks(current_user: dict = Depends(get_current_user)):
         db.close()
 
 
-def _scan_sync(position_id: str, user_id: str) -> dict:
+def _enqueue_sync(position_id: str, user_id: str) -> dict:
     db = SessionLocal()
     try:
-        result = run_scan(db, position_id=position_id, user_id=user_id)
+        result = enqueue_scan(db, position_id=position_id, user_id=user_id)
         db.commit()
         return result
     except ScanError as exc:
@@ -179,11 +179,11 @@ def _scan_sync(position_id: str, user_id: str) -> dict:
         db.close()
 
 
-@router.post("/positions/{position_id}/scan", status_code=201)
+@router.post("/positions/{position_id}/scan", status_code=202)
 async def scan_position(position_id: UUID, current_user: dict = Depends(get_current_user)):
-    """Score the eligible pool against the position's approved rubric (rules only)."""
+    """Queue a rules-only scan of the eligible pool; the worker scores it in the background."""
     await check_position_access(position_id, current_user, required_roles=["HR_RECRUITER"])
-    return await run_in_threadpool(_scan_sync, str(position_id), current_user["user_id"])
+    return await run_in_threadpool(_enqueue_sync, str(position_id), current_user["user_id"])
 
 
 @router.get("/positions/{position_id}/scans")
@@ -191,7 +191,8 @@ async def list_scans(position_id: UUID, current_user: dict = Depends(get_current
     await check_position_access(position_id, current_user, required_roles=["HR_RECRUITER"])
     db = SessionLocal()
     try:
-        rows = db.execute(text("""SELECT scan_id, created_at, eligible_count, scored_count, skipped_counts, method
+        rows = db.execute(text("""SELECT scan_id, created_at, eligible_count, scored_count, skipped_counts, method,
+                   status, failed_count, error_message, completed_at
             FROM app_private.talent_pool_scans WHERE position_id = :p ORDER BY created_at DESC LIMIT 20"""),
                           {"p": str(position_id)}).mappings().all()
         return {"items": [{**dict(r), "scan_id": str(r["scan_id"])} for r in rows]}

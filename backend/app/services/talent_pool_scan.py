@@ -20,9 +20,11 @@ from datetime import datetime
 from typing import Callable, Optional
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.services.deterministic_matching import deterministic_matcher
+from app.services.identity_matching import normalize_email, normalize_phone
 from app.services.matching import matching_engine
 from app.services.redaction import redact_text
 from app.services.talent_pool import eligible_pool, pool_expiry
@@ -147,21 +149,62 @@ def score_cv(cv_text: str, criteria: list[dict], candidate_profile: dict, group_
             "unresolved_count": sum(1 for r in results if r["outcome"] == "UNCLEAR")}
 
 
-def run_scan(db, *, position_id: str, user_id: str,
+def _identities(db, application_ids: list[str]) -> dict[str, tuple[str, str]]:
+    """application_id -> (normalized email, normalized phone); empty strings when absent or malformed."""
+    if not application_ids:
+        return {}
+    rows = db.execute(text("""SELECT application_id, email, phone FROM app_private.application_identities
+        WHERE application_id = ANY(CAST(:ids AS uuid[]))"""), {"ids": application_ids}).all()
+    return {str(r[0]): (normalize_email(r[1]), normalize_phone(r[2])) for r in rows}
+
+
+def _target_contacts(db, position_id: str) -> tuple[set[str], set[str]]:
+    """Emails and phones (normalized) of everyone who already applied to the target position."""
+    rows = db.execute(text("""SELECT i.email, i.phone FROM app_private.application_identities i
+        JOIN app_private.applications a ON a.application_id = i.application_id
+        WHERE a.position_id = :p"""), {"p": position_id}).all()
+    emails = {e for e in (normalize_email(r[0]) for r in rows) if e}
+    phones = {p for p in (normalize_phone(r[1]) for r in rows) if p}
+    return emails, phones
+
+
+def _rank_key(item: dict) -> tuple:
+    result = item["result"]
+    return (result["status"] != "POSSIBLE_MISMATCH", result["score"] if result["score"] is not None else -1.0,
+            result["coverage"], item["consented_at"])
+
+
+def run_scan(db, *, scan_id: str, position_id: str, user_id: str,
              read_text: Callable[[str], str] = load_extracted_text) -> dict:
-    """Score every eligible pool application for the position. Caller commits."""
+    """Score eligible pool applications for the position and complete the scan row. Caller commits.
+
+    Pool applications whose candidate already applied to this position (same email or
+    phone) are left out, and only the best application per email is kept.
+    """
     cv, criteria = approved_rubric(db, position_id)
     group_weights = {"MUST_HAVE": float(cv["mandatory_weight_total"]) / 100,
                      "NICE_TO_HAVE": float(cv["nice_to_have_weight_total"]) / 100}
     pool = [row for row in eligible_pool(db) if str(row["position_id"]) != position_id]
+    eligible_count = len(pool)
     skipped: Counter = Counter()
+
+    applied_emails, applied_phones = _target_contacts(db, position_id)
+    identities = _identities(db, [str(r["application_id"]) for r in pool])
+    if applied_emails or applied_phones:
+        kept = []
+        for row in pool:
+            email, phone = identities.get(str(row["application_id"]), ("", ""))
+            if (email and email in applied_emails) or (phone and phone in applied_phones):
+                skipped["ALREADY_APPLIED"] += 1
+            else:
+                kept.append(row)
+        pool = kept
     if len(pool) > settings.TALENT_POOL_SCAN_MAX:
         skipped["OVER_LIMIT"] = len(pool) - settings.TALENT_POOL_SCAN_MAX
         pool = sorted(pool, key=lambda r: r["consented_at"], reverse=True)[:settings.TALENT_POOL_SCAN_MAX]
-    scan_id = str(db.execute(text("""INSERT INTO app_private.talent_pool_scans(position_id, criteria_version_id, requested_by, eligible_count)
-        VALUES (:p, :c, :u, :n) RETURNING scan_id"""),
-        {"p": position_id, "c": str(cv["criteria_version_id"]), "u": user_id, "n": len(pool)}).scalar_one())
-    scored = 0
+
+    scored: list[dict] = []
+    failed = 0
     for row in pool:
         application_id = str(row["application_id"])
         material = _cv_material(db, application_id)
@@ -172,35 +215,114 @@ def run_scan(db, *, position_id: str, user_id: str,
             cv_text = redact_text(read_text(material["extracted_text_storage_path"]), detect_first_line_name=True)
         except Exception:
             skipped["TEXT_UNAVAILABLE"] += 1
+            failed += 1
             continue
-        result = score_cv(cv_text, criteria, _candidate_profile(db, application_id, material["profile_version_id"]),
-                          group_weights)
+        try:
+            result = score_cv(cv_text, criteria,
+                              _candidate_profile(db, application_id, material["profile_version_id"]), group_weights)
+        except Exception:
+            skipped["SCORING_ERROR"] += 1
+            failed += 1
+            continue
+        scored.append({"application_id": application_id, "consented_at": row["consented_at"], "result": result,
+                       "email": identities.get(application_id, ("", ""))[0]})
+
+    # One row per email: keep the best application, count the rest.
+    best: dict[str, dict] = {}
+    final: list[dict] = []
+    for item in scored:
+        if not item["email"]:
+            final.append(item)
+            continue
+        current = best.get(item["email"])
+        if current is None:
+            best[item["email"]] = item
+            continue
+        skipped["DUPLICATE_EMAIL"] += 1
+        if _rank_key(item) > _rank_key(current):
+            best[item["email"]] = item
+    final.extend(best.values())
+
+    for item in final:
+        result = item["result"]
         db.execute(text("""INSERT INTO app_private.talent_pool_scan_results(scan_id, application_id, matching_score,
                 evidence_coverage, matching_status, unresolved_count, criterion_results)
             VALUES (:s, :a, :score, :cov, :st, :u, CAST(:cr AS jsonb))"""),
-                   {"s": scan_id, "a": application_id, "score": result["score"], "cov": result["coverage"],
+                   {"s": scan_id, "a": item["application_id"], "score": result["score"], "cov": result["coverage"],
                     "st": result["status"], "u": result["unresolved_count"],
                     "cr": json.dumps(result["criterion_results"], ensure_ascii=False)})
-        scored += 1
-    db.execute(text("UPDATE app_private.talent_pool_scans SET scored_count = :n, skipped_counts = CAST(:k AS jsonb) WHERE scan_id = :s"),
-               {"n": scored, "k": json.dumps(dict(skipped)), "s": scan_id})
+    db.execute(text("""UPDATE app_private.talent_pool_scans
+        SET criteria_version_id = :c, eligible_count = :e, scored_count = :n, failed_count = :f,
+            skipped_counts = CAST(:k AS jsonb), status = 'COMPLETED', completed_at = NOW(), error_message = NULL
+        WHERE scan_id = :s"""),
+               {"c": str(cv["criteria_version_id"]), "e": eligible_count, "n": len(final), "f": failed,
+                "k": json.dumps(dict(skipped)), "s": scan_id})
     db.execute(text("""INSERT INTO app_private.audit_events(actor_user_id, action_type, object_type, object_id, position_id, outcome, metadata)
         VALUES (:u, 'SCAN_TALENT_POOL', 'TALENT_POOL_SCAN', :s, :p, 'SUCCESS', CAST(:m AS jsonb))"""),
                {"u": user_id, "s": scan_id, "p": position_id,
-                "m": json.dumps({"eligible_count": len(pool), "scored_count": scored, "skipped": dict(skipped),
-                                 "criteria_version_id": str(cv["criteria_version_id"]), "method": "RULES_ONLY"})})
-    return {"scan_id": scan_id, "eligible_count": len(pool), "scored_count": scored, "skipped": dict(skipped)}
+                "m": json.dumps({"eligible_count": eligible_count, "scored_count": len(final), "failed_count": failed,
+                                 "skipped": dict(skipped), "criteria_version_id": str(cv["criteria_version_id"]),
+                                 "method": "RULES_ONLY"})})
+    return {"scan_id": scan_id, "eligible_count": eligible_count, "scored_count": len(final),
+            "failed_count": failed, "skipped": dict(skipped)}
+
+
+def enqueue_scan(db, *, position_id: str, user_id: str) -> dict:
+    """Validate the rubric and queue a TALENT_POOL_SCAN job. Caller commits."""
+    cv, _ = approved_rubric(db, position_id)
+    busy = ScanError("Vị trí đang có một lượt quét Talent Pool chưa xong", 409)
+    if db.execute(text("""SELECT 1 FROM app_private.talent_pool_scans
+            WHERE position_id = :p AND status IN ('PENDING', 'PROCESSING') LIMIT 1"""), {"p": position_id}).first():
+        raise busy
+    operation_id = str(db.execute(text("""INSERT INTO app_private.operations(position_id, capability, status, requested_by)
+        VALUES (:p, 'TALENT_POOL_SCAN', 'PENDING', :u) RETURNING operation_id"""),
+                                  {"p": position_id, "u": user_id}).scalar_one())
+    try:
+        with db.begin_nested():
+            scan_id = str(db.execute(text("""INSERT INTO app_private.talent_pool_scans(position_id, criteria_version_id,
+                    requested_by, operation_id, status) VALUES (:p, :c, :u, :o, 'PENDING') RETURNING scan_id"""),
+                                     {"p": position_id, "c": str(cv["criteria_version_id"]), "u": user_id,
+                                      "o": operation_id}).scalar_one())
+    except IntegrityError:  # unique index: another request queued a scan in between
+        raise busy from None
+    db.execute(text("""INSERT INTO app_private.audit_events(actor_user_id, action_type, object_type, object_id, position_id, outcome, metadata)
+        VALUES (:u, 'REQUEST_TALENT_POOL_SCAN', 'TALENT_POOL_SCAN', :s, :p, 'QUEUED', CAST(:m AS jsonb))"""),
+               {"u": user_id, "s": scan_id, "p": position_id, "m": json.dumps({"operation_id": operation_id})})
+    return {"scan_id": scan_id, "operation_id": operation_id, "status": "PENDING"}
+
+
+def run_scan_for_operation(db, operation_id: str, read_text: Callable[[str], str] = load_extracted_text) -> Optional[dict]:
+    """Worker entry point: run the scan queued for this operation."""
+    scan = db.execute(text("""SELECT scan_id, position_id, requested_by FROM app_private.talent_pool_scans
+        WHERE operation_id = :o"""), {"o": operation_id}).mappings().first()
+    if scan is None:
+        return None
+    db.execute(text("UPDATE app_private.talent_pool_scans SET status = 'PROCESSING', error_message = NULL WHERE scan_id = :s"),
+               {"s": str(scan["scan_id"])})
+    db.commit()
+    return run_scan(db, scan_id=str(scan["scan_id"]), position_id=str(scan["position_id"]),
+                    user_id=str(scan["requested_by"]), read_text=read_text)
+
+
+def mark_scan_failed(db, operation_id: str, message: str) -> None:
+    db.execute(text("""UPDATE app_private.talent_pool_scans
+        SET status = 'FAILED', error_message = :m, completed_at = NOW()
+        WHERE operation_id = :o AND status IN ('PENDING', 'PROCESSING')"""), {"o": operation_id, "m": message[:500]})
 
 
 def scan_header(db, scan_id: str) -> Optional[dict]:
     row = db.execute(text("""SELECT s.scan_id, s.position_id, s.criteria_version_id, s.requested_by, s.created_at,
-            s.eligible_count, s.scored_count, s.skipped_counts, s.method
+            s.eligible_count, s.scored_count, s.skipped_counts, s.method, s.status, s.failed_count,
+            s.error_message, s.completed_at, s.operation_id
         FROM app_private.talent_pool_scans s WHERE s.scan_id = :s"""), {"s": scan_id}).mappings().first()
     return dict(row) if row else None
 
 
 def scan_results(db, scan_id: str, now: Optional[datetime] = None) -> list[dict]:
     """Ranked results still eligible right now. Results that left the pool are deleted first."""
+    state = db.execute(text("SELECT status FROM app_private.talent_pool_scans WHERE scan_id = :s"), {"s": scan_id}).scalar()
+    if state != "COMPLETED":
+        return []
     still = {str(r["application_id"]): r for r in eligible_pool(db, now)}
     db.execute(text("""DELETE FROM app_private.talent_pool_scan_results
         WHERE scan_id = :s AND NOT (application_id = ANY(CAST(:ids AS uuid[]))) """),
