@@ -352,4 +352,5 @@ Người dùng lặp lại thao tác "chọn hàng đợi → xem ứng viên" n
 - Frontend: unit **23/23** (thêm 3 test, gồm 1 test đọc mã nguồn chặn hard-code `0.7`), i18n **3/3**, `tsc`, `lint`, `next build` đều pass.
 - E2E mock trên production build: **8/8 bộ pass** (drafts, ranking-context, applicants 123, a11y, workflow, shortlist, accounts, intake). Riêng `ranking-context` thêm 3 phần mới (Back/Forward, prev/next từ link lạnh, tuổi hồ sơ) và chạy **3 lần liên tiếp** đều pass; các phần cũ vẫn xanh.
 - Test chống hồi quy quan trọng nhất: `test_queue_counts_ignore_applications_outside_screening` và `test_queue_counts_match_the_ranking_page_dataset` — đã thử revert bản sửa thì **2 test fail đúng như mong đợi**, khôi phục thì xanh.
+- CI: run **44457927230 success** cả 3 job (Frontend checks, Backend unit tests, Backend integration PostgreSQL 17 + pgvector). Commit `b188c2a`.
 - Gate còn lại: **usability test staging** (kịch bản 6 bước + bước 7 "mở link hồ sơ ở tab mới rồi bấm Hồ sơ tiếp theo"). CI xanh không thay thế bước này.
