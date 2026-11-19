@@ -66,20 +66,31 @@ export default function NextActionCard({ workspace, onAction }: NextActionCardPr
   const href = `${action.target.pathname}${action.target.search ? `?${action.target.search}` : ''}`;
 
   return (
-    <Card sx={{ mb: 3, border: '1px solid #F3C2C6', borderLeft: '5px solid #C72127', backgroundColor: '#FFFBFB' }}>
-      <CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
+    <Card
+      sx={{
+        mb: 2.5,
+        borderColor: '#F3C2C6',
+        borderLeft: '4px solid #C72127',
+        background: 'linear-gradient(90deg, #FFFBFB 0%, #FFFFFF 45%)',
+      }}
+    >
+      <CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', py: 2 }}>
         <Box sx={{ minWidth: 260, flex: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.75 }}>
-            <Typography variant="overline" color="secondary.main">{t("Hành động tiếp theo")}</Typography>
-            {action.blocked_reason_code && <Chip size="small" label={t("Đang chờ")} color="warning" variant="outlined" />}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.5 }}>
+            <Typography variant="overline" sx={{ color: '#C72127' }}>{t('Hành động tiếp theo')}</Typography>
+            {action.blocked_reason_code && <Chip size="small" label={t('Đang chờ')} color="warning" variant="outlined" />}
           </Box>
-          <Typography variant="h3" sx={{ fontSize: 18, color: '#0A2B57' }}>{t(label)}</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{t(description)}</Typography>
+          <Typography variant="h3" sx={{ fontSize: 17, color: '#0F172A' }}>{t(label)}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>{t(description)}</Typography>
         </Box>
         {onAction ? (
-          <Button variant="contained" color="secondary" endIcon={<ArrowForwardIcon />} onClick={() => onAction(action)}>{t(label)}</Button>
+          <Button variant="contained" color="secondary" endIcon={<ArrowForwardIcon fontSize="small" />} onClick={() => onAction(action)}>
+            {t(label)}
+          </Button>
         ) : (
-          <Button component={Link} href={href} variant="contained" color="secondary" endIcon={<ArrowForwardIcon />}>{t(label)}</Button>
+          <Button component={Link} href={href} variant="contained" color="secondary" endIcon={<ArrowForwardIcon fontSize="small" />}>
+            {t(label)}
+          </Button>
         )}
       </CardContent>
     </Card>

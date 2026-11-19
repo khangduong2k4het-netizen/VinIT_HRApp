@@ -40,7 +40,7 @@ import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ReplayIcon from '@mui/icons-material/Replay';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { applicationsApi, assessmentsApi, operationsApi } from '@/lib/api';
 import { useOverrideGate } from '@/components/applicants/OverrideReasonDialog';
@@ -74,6 +74,7 @@ interface StatusEvent {
 export default function ApplicantDetailPage() {
   const { t, dateLocale, locale } = useI18n();
   const params = useParams();
+  const router = useRouter();
   const positionId = params.id as string;
   const applicantId = params.applicantId as string;
 
@@ -101,6 +102,25 @@ export default function ApplicantDetailPage() {
   const [cvError, setCvError] = useState<string | null>(null);
   const blobUrl = useRef<string | null>(null);
   const requestId = useRef(0);
+
+  // Ashby-style keyboard review shortcuts: J = next applicant, K = previous applicant.
+  useEffect(() => {
+    if (!navigationContext || statusDialogOpen) return;
+    const idx = navigationContext.applicationIds.indexOf(applicantId);
+    if (idx < 0) return;
+    const prevId = idx > 0 ? navigationContext.applicationIds[idx - 1] : undefined;
+    const nextId = idx < navigationContext.applicationIds.length - 1 ? navigationContext.applicationIds[idx + 1] : undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return;
+      const key = event.key.toLowerCase();
+      if (key === 'j' && nextId) router.push(`/positions/${positionId}/applicants/${nextId}`);
+      if (key === 'k' && prevId) router.push(`/positions/${positionId}/applicants/${prevId}`);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [navigationContext, applicantId, positionId, statusDialogOpen, router]);
 
   const loadData = useCallback(async (initial = false) => {
     const currentRequest = ++requestId.current;
@@ -298,12 +318,16 @@ export default function ApplicantDetailPage() {
             </Typography>
           </Box>
           {previousApplicantId ? (
-            <Button component={Link} href={`/positions/${positionId}/applicants/${previousApplicantId}`} variant="outlined" size="small" startIcon={<NavigateBeforeIcon />}>{t("Hồ sơ trước")}</Button>
+            <Tooltip title={t('Phím tắt: K')}>
+              <Button component={Link} href={`/positions/${positionId}/applicants/${previousApplicantId}`} variant="outlined" size="small" startIcon={<NavigateBeforeIcon />}>{t("Hồ sơ trước")}</Button>
+            </Tooltip>
           ) : (
             <Button variant="outlined" size="small" startIcon={<NavigateBeforeIcon />} disabled>{t("Hồ sơ trước")}</Button>
           )}
           {nextApplicantId ? (
-            <Button component={Link} href={`/positions/${positionId}/applicants/${nextApplicantId}`} variant="contained" color="secondary" size="small" endIcon={<NavigateNextIcon />}>{t("Hồ sơ tiếp theo")}</Button>
+            <Tooltip title={t('Phím tắt: J')}>
+              <Button component={Link} href={`/positions/${positionId}/applicants/${nextApplicantId}`} variant="contained" color="secondary" size="small" endIcon={<NavigateNextIcon />}>{t("Hồ sơ tiếp theo")}</Button>
+            </Tooltip>
           ) : (
             <Button variant="outlined" size="small" endIcon={<NavigateNextIcon />} disabled>{t("Hồ sơ tiếp theo")}</Button>
           )}
