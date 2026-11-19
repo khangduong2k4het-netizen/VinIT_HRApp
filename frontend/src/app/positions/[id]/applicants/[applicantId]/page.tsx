@@ -27,7 +27,6 @@ import {
   Select,
   InputLabel,
   FormControl,
-  Snackbar,
   Accordion,
   AccordionSummary,
   AccordionDetails,
@@ -44,6 +43,7 @@ import Link from 'next/link';
 import { applicationsApi, assessmentsApi, criteriaApi, listAllApplications, operationsApi } from '@/lib/api';
 import StatusBadge from '@/components/common/StatusBadge';
 import StickyActionBar from '@/components/common/StickyActionBar';
+import ActionFeedback from '@/components/common/ActionFeedback';
 import CandidateProfilePanel from '@/components/candidates/CandidateProfilePanel';
 import EvidenceCard from '@/components/candidates/EvidenceCard';
 import CVDocumentViewer from '@/components/candidates/CVDocumentViewer';
@@ -751,10 +751,10 @@ export default function ApplicantDetailPage() {
           </Button>
         </DialogActions>
       </Dialog>
-      <Snackbar open={success} autoHideDuration={4000} onClose={() => setSuccess(false)}
-        message={t("Đã cập nhật trạng thái hồ sơ")} />
-      <Snackbar open={reprocessNotice} autoHideDuration={4000} onClose={() => setReprocessNotice(false)}
-        message={t("Đã đưa CV vào hàng đợi xử lý lại.")} />
+      <ActionFeedback
+        success={success ? 'Đã cập nhật trạng thái hồ sơ' : reprocessNotice ? 'Đã đưa CV vào hàng đợi xử lý lại.' : null}
+        onSuccessClose={() => { setSuccess(false); setReprocessNotice(false); }}
+      />
     </Box>
   );
 }

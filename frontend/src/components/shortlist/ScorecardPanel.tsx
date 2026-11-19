@@ -1,7 +1,10 @@
 'use client';
 
+import * as React from 'react';
+
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Box, Button, CircularProgress, Divider, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
+import ActionFeedback from '@/components/common/ActionFeedback';
 import { useI18n } from '@/i18n/I18nProvider';
 import { scorecardsApi } from '@/lib/api';
 import { scorecardIsComplete } from '@/lib/phase2Workflow';
@@ -87,9 +90,11 @@ export default function ScorecardPanel({ shareId, candidates, selectedApplicatio
     // A pending debounce must not resurrect a draft we are about to drop.
     if (persistTimer.current[id]) { clearTimeout(persistTimer.current[id]); delete persistTimer.current[id]; }
   };
-  const run = async (operation: () => Promise<{ data: Card }>) => {
+  const [saved, setSaved] = React.useState<string | null>(null);
+  const run = async (operation: () => Promise<{ data: Card }>, successMessage?: string) => {
     try {
       setBusy(true); setError('');
+      setSaved(null);
       const result = await operation();
       setCards(current => current.map(c => c.scorecard_id === result.data.scorecard_id ? result.data : c));
       setDirty(current => ({ ...current, [result.data.scorecard_id]: false }));
@@ -98,6 +103,10 @@ export default function ScorecardPanel({ shareId, candidates, selectedApplicatio
       removeDraft(scorecardDraftKey(shareId, result.data.scorecard_id));
       setRestored(current => { const next = { ...current }; delete next[result.data.scorecard_id]; return next; });
       setDraftNotice('');
+      // Previously a successful save was silent: the spinner stopped and nothing
+      // else changed, so HR could not tell whether the scorecard was stored or
+      // the click was lost. Say it, out loud, including for screen readers.
+      if (successMessage) setSaved(successMessage);
     } catch (err: any) { if ([403, 404].includes(err.response?.status)) onAccessLost?.(); else setError(err.response?.data?.detail || t('Không thể cập nhật scorecard.')); }
     finally { setBusy(false); }
   };
@@ -137,10 +146,11 @@ export default function ScorecardPanel({ shareId, candidates, selectedApplicatio
     expected_revision: card.revision, overall_recommendation: card.overall_recommendation,
     strengths: card.strengths, concerns: card.concerns,
     ratings: card.criteria.map(c => ({ criterion_id: c.criterion_id, rating: c.rating, insufficient_evidence: c.insufficient_evidence, comment: c.comment })),
-  }));
+  }), 'Đã lưu nháp scorecard.');
   return <Box sx={{ mb: 3 }}>
     <Typography variant="subtitle1" fontWeight={700}>{t('Scorecard đánh giá')}</Typography>
     {error && <Alert severity="error" sx={{ my: 1 }}>{t(error)}</Alert>}
+    <ActionFeedback success={saved} onSuccessClose={() => setSaved(null)} />
     {draftNotice && <Alert severity="info" sx={{ my: 1 }} onClose={() => setDraftNotice('')}>{t(draftNotice)}</Alert>}
     {storageBlocked && <Alert severity="warning" sx={{ my: 1 }}>{t('Trình duyệt không cho lưu nháp trên máy này. Nháp scorecard chỉ tồn tại đến khi rời trang hoặc tải lại.')}</Alert>}
     {loading && <CircularProgress size={22} />}
@@ -171,7 +181,7 @@ export default function ScorecardPanel({ shareId, candidates, selectedApplicatio
           <TextField fullWidth multiline label={t('Điểm mạnh')} value={card.strengths || ''} disabled={!card.can_edit || busy} onChange={e => update(card.scorecard_id, { strengths: e.target.value })} />
           <TextField fullWidth multiline label={t('Điểm cần xem xét')} value={card.concerns || ''} disabled={!card.can_edit || busy} onChange={e => update(card.scorecard_id, { concerns: e.target.value })} />
           {card.can_edit && <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}><Button disabled={busy} onClick={() => save(card)}>{t('Lưu nháp scorecard')}</Button>
-            {typeof restored[card.scorecard_id] === 'number' && <Button color="inherit" disabled={busy} onClick={() => discardDraft(card)}>{t('Bỏ nháp đã khôi phục')}</Button>}<Button disabled={busy || !!dirty[card.scorecard_id] || !scorecardIsComplete(card.overall_recommendation, card.criteria)} variant="contained" onClick={() => run(() => scorecardsApi.submit(card.scorecard_id, card.revision))}>{t('Nộp bản đã lưu')}</Button></Stack>}
+            {typeof restored[card.scorecard_id] === 'number' && <Button color="inherit" disabled={busy} onClick={() => discardDraft(card)}>{t('Bỏ nháp đã khôi phục')}</Button>}<Button disabled={busy || !!dirty[card.scorecard_id] || !scorecardIsComplete(card.overall_recommendation, card.criteria)} variant="contained" onClick={() => run(() => scorecardsApi.submit(card.scorecard_id, card.revision), 'Đã nộp scorecard.')}>{t('Nộp bản đã lưu')}</Button></Stack>}
           {card.can_edit && <Typography variant="caption">{t('Lưu thay đổi trước khi nộp. Cần đánh giá mọi tiêu chí và chọn khuyến nghị.')}</Typography>}
         </>}
         {card.can_reopen && <><TextField fullWidth helperText={t('Lý do chỉ hiển thị cho HR có quyền.')} label={t('Lý do mở lại')} value={reasons[card.scorecard_id] || ''} onChange={e => setReasons({ ...reasons, [card.scorecard_id]: e.target.value })} /><Button disabled={busy || !reasons[card.scorecard_id]?.trim()} onClick={() => run(() => scorecardsApi.reopen(card.scorecard_id, card.revision, reasons[card.scorecard_id]))}>{t('Mở lại scorecard')}</Button></>}

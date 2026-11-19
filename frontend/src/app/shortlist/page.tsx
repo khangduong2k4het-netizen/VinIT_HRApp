@@ -25,10 +25,10 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  Snackbar,
 } from '@mui/material';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import ActionFeedback from '@/components/common/ActionFeedback';
 import LinkOffIcon from '@mui/icons-material/LinkOff';
 import { useCallback, useEffect, useState } from 'react';
 import { shortlistApi } from '@/lib/api';
@@ -84,7 +84,13 @@ export default function ShortlistPage() {
     try {
       if (initial) setLoading(true);
       const res = await shortlistApi.getSharedWithMe();
-      setShares(res.data || []); setError(null);
+      // `res.data || []` guards null only. A wrapper object (or an error body that
+      // still resolved) sails through and then crashes the whole screen on
+      // `visibleShares.length`…`.map`, leaving HR with "Application error" instead
+      // of a retry. Only an actual array is acceptable here.
+      const payload = res.data;
+      setShares(Array.isArray(payload) ? payload : Array.isArray(payload?.items) ? payload.items : []);
+      setError(null);
     } catch (err: any) {
       setError(err.response?.data?.detail || t("Không thể tải danh sách shortlist"));
     } finally {
@@ -252,7 +258,7 @@ export default function ShortlistPage() {
         <DialogActions><Button onClick={() => setRevokeShare(null)} disabled={revokeLoading}>{t("Hủy")}</Button>
           <Button color="error" variant="contained" onClick={handleRevoke} disabled={revokeLoading}>{revokeLoading ? t("Đang thu hồi…") : t("Thu hồi")}</Button></DialogActions>
       </Dialog>
-      <Snackbar open={!!notice} message={notice ? t(notice) : ""} autoHideDuration={5000} onClose={() => setNotice(null)} />
+      <ActionFeedback success={notice} onSuccessClose={() => setNotice(null)} />
     </Box>
   );
 }

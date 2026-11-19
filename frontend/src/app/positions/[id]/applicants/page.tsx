@@ -32,11 +32,11 @@ import {
   Stack,
   Link as MuiLink,
   TextField,
-  Snackbar,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import ActionFeedback from '@/components/common/ActionFeedback';
 import Menu from '@mui/material/Menu';
 import Collapse from '@mui/material/Collapse';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -1072,7 +1072,7 @@ export default function ApplicantsRankingPage() {
           </Button>
         </DialogActions>
       </Dialog>
-      <Snackbar open={!!notice} autoHideDuration={5000} onClose={() => setNotice(null)} message={notice ? t(notice) : ""} />
+      <ActionFeedback success={notice} onSuccessClose={() => setNotice(null)} />
     </Box>
   );
 }

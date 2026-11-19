@@ -273,6 +273,10 @@ function installMockApi(context, overrides = {}) {
     const json = (body, status = 200) => r.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (p === '/v1/auth/me') return json(me);
     if (p === '/v1/dashboard/summary') return json(dashboardSummary);
+    // The shortlist index calls this on mount. It was never mocked, so the page
+    // got a 500 body and crashed with "Application error" — invisible to every
+    // test that only walked the shortlist detail route.
+    if (p === '/v1/shortlist/shared-with-me') return json([]);
     if (p === '/v1/dashboard/work-queue') return json(workQueue);
     if (p === '/v1/scorecards/reminders') return json([]);
     if (p === '/v1/positions' && r.request().method() === 'GET') return json([POSITION]);

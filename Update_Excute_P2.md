@@ -538,3 +538,16 @@ Quyết định **không** làm drawer/split view như GPT đề xuất: trang c
 - `InvalidFileList` dùng chung cho panel tiến trình và trang vị trí: có `application_id` → link thẳng tới hồ sơ; không có → nói rõ "tệp này không tạo hồ sơ, chỉ cần tải lại đúng định dạng" (trước đây HR đi tìm một hồ sơ không tồn tại).
 
 **Test:** backend **292 passed / 174 skipped**, `ruff --select F` sạch; FE unit **43** (10 U5 + 3 hợp đồng queue + 3 lý do tệp lỗi), i18n 3/3, e2e **14/14** (thêm `ux04-sticky-viewer`), tsc/lint/build sạch.
+
+### 49. 3.9 / UX-08 — phản hồi nhất quán cho thao tác async
+
+**Vấn đề đo được:** toàn app có **35 file dùng `Alert`**, chỉ **3 file dùng `Snackbar`**, và **5 chỗ** có `aria-live`. Nghĩa là phần lớn thông báo thành công không được đọc lên; cùng một loại hành động thì chỗ hiện Snackbar, chỗ chỉ đổi nhãn nút.
+
+- **`ActionFeedback`** (`src/components/common/ActionFeedback.tsx`) — một chỗ duy nhất cho cả thành công và lỗi.
+- **Hai quyết định thiết kế, đều rút ra từ lỗi thật khi làm:**
+  1. **Không dùng `<Snackbar>` của MUI.** MUI chỉ mount nội dung khi `open` là true, nên vùng `aria-live` **sinh ra cùng lúc với thông báo** — screen reader đăng ký quá muộn và bỏ lỡ câu đầu tiên. Ở đây hai vùng `role="status"`/`role="alert"` **luôn có mặt trong DOM, rỗng khi không có gì**; chỉ nội dung bên trong thay đổi. E2E assert đúng điều này (2 vùng tồn tại, `text` rỗng trước khi có việc).
+  2. **Lỗi không tự tắt**, thành công tự tắt sau 5s. Lỗi là việc HR phải xử lý.
+- **Áp cho 5 luồng:** đổi trạng thái hồ sơ + xử lý lại CV (trang hồ sơ), lưu/nộp scorecard (trước đây **im lặng hoàn toàn**), đánh giá/xếp hạng + chia sẻ shortlist (danh sách hồ sơ), chia sẻ/thu hồi (danh sách shortlist).
+- **Phát hiện thêm một lỗi crash có sẵn, không phải do đợt này:** `GET /v1/shortlist/shared-with-me` không được mock nên trang `/shortlist` nhận body lỗi, `visibleShares.length` là `undefined` ≠ 0 nên rơi vào `.map` ⇒ **"Application error"**, HR chỉ thấy màn hình trắng thay vì nút Thử lại. Sửa: chỉ nhận mảng (hoặc `payload.items`), còn lại coi như rỗng và hiện lỗi. Fixture được bổ sung route này để lỗi không tái diễn trong im lặng.
+- **Kiểm ngược:** đổi `data-testid` của vùng thành công ⇒ e2e **đỏ** (`expected persistent success+error regions, got [...alert...]`), hoàn nguyên ⇒ xanh. (Lần phá đầu làm hỏng cú pháp JSX nên build fail — bài học: không ẩn output `npm run build` khi đang phá thử.)
+- **Test:** FE unit 43, i18n 3/3, e2e **15/15** (thêm `ux08-feedback`), backend 292/174, tsc/lint/build sạch.
