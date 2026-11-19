@@ -86,6 +86,22 @@ import {
 } from '@/lib/applicantReview';
 import type { RankingItem, UserSummary } from '@/types';
 import { APPLICATION_STATUSES, isApplicationStatus, type ApplicationStatus } from '@/lib/applicationStatus';
+import {
+  bulkRunProgress,
+  createBulkRun,
+  retryFailed,
+  stopPoint,
+  type BulkRunRow,
+  type BulkRowState,
+} from '@/lib/bulkActionRun';
+
+// Trạng thái của từng dòng trong biên bản lô.
+const BULK_ROW_STATE: Record<BulkRowState, { label: string; bg: string; color: string }> = {
+  pending: { label: 'Chờ xử lý', bg: '#F2F4F7', color: '#344054' },
+  running: { label: 'Đang xử lý…', bg: '#EFF8FF', color: '#175CD3' },
+  done: { label: 'Xong', bg: '#ECFDF3', color: '#067647' },
+  failed: { label: 'Lỗi', bg: '#FDF2F2', color: '#B42318' },
+};
 
 const OUTCOME_META: Record<string, { label: string; color: string }> = {
   STRONG_MATCH: { label: 'Đáp ứng tốt', color: '#067647' },
@@ -154,7 +170,9 @@ export default function ApplicantsRankingPage() {
   const [bulkMode, setBulkMode] = useState<null | 'shortlist' | 'reject'>(null);
   const [bulkReason, setBulkReason] = useState('');
   const [bulkProcessing, setBulkProcessing] = useState(false);
-  const [bulkError, setBulkError] = useState<string | null>(null);
+  // Biên bản của lô đang mở: từng hồ sơ, số bước đã ghi, chỗ dừng và lý do lỗi.
+  const [bulkRun, setBulkRun] = useState<BulkRunRow[] | null>(null);
+  const [bulkSkipped, setBulkSkipped] = useState(0);
   // Large applicant lists mount a bounded window; expanding "more" only affects
   // rendering, never ranks, filters or the set used for shortlist sharing.
   const [visibleLimit, setVisibleLimit] = useState(50);
@@ -502,9 +520,6 @@ export default function ApplicantsRankingPage() {
   // Hồ sơ Mới shortlist được, nhưng phải qua hai bước hợp lệ của ma trận hiện có:
   // NEW → IN_REVIEW → SHORTLIST. Không có bước nhảy tắt và không có endpoint mới.
   const bulkShortlistTargets = selectedItems.filter(item => item.application_status === 'IN_REVIEW' || item.application_status === 'NEW');
-  const bulkTwoStepCount = bulkShortlistTargets.filter(item => item.application_status === 'NEW').length;
-  const bulkShortlistSkipped = selectedItems.length - bulkShortlistTargets.length;
-  const bulkTargets = bulkMode === 'shortlist' ? bulkShortlistTargets : selectedItems;
   // The floating bar is fixed, so the page has to reserve exactly as much room as
   // it actually takes: on a phone it wraps onto several rows, and a hard-coded
   // padding would either hide the last row again or leave a gap. Measured, not
@@ -523,74 +538,100 @@ export default function ApplicantsRankingPage() {
   }, [selectedItems.length]);
 
   const openBulk = (mode: 'shortlist' | 'reject') => {
+    const targets = mode === 'shortlist' ? bulkShortlistTargets : selectedItems;
     setBulkMode(mode);
     setBulkReason('');
-    setBulkError(null);
+    setBulkSkipped(selectedItems.length - targets.length);
+    // Lô được chốt ngay khi mở hộp thoại, kèm số bước hợp lệ của từng hồ sơ, để
+    // danh sách xem trước và biên bản sau khi chạy nói về đúng cùng một tập.
+    setBulkRun(createBulkRun(targets.map(item => ({
+      application_id: item.application_id,
+      candidate_name: item.candidate_name,
+      application_status: item.application_status || 'NEW',
+    })), mode));
   };
   const closeBulk = () => {
     if (bulkProcessing) return;
     setBulkMode(null);
-    setBulkError(null);
+    setBulkRun(null);
+  };
+
+  const updateBulkRow = (applicationId: string, patch: Partial<BulkRunRow>) => {
+    setBulkRun(prev => (prev ? prev.map(row => (row.application_id === applicationId ? { ...row, ...patch } : row)) : prev));
+  };
+
+  // Mỗi bước là một lần gọi endpoint trạng thái hiện có, theo đúng thứ tự của ma
+  // trận chuyển trạng thái. Một hồ sơ lỗi không làm mất kết quả của hồ sơ khác, và
+  // bước đã ghi vẫn được giữ nên lần thử lại chỉ đi tiếp phần còn thiếu.
+  const runBulkRows = async (mode: 'shortlist' | 'reject', rows: BulkRunRow[], reason: string) => {
+    setBulkProcessing(true);
+    const results: BulkRunRow[] = [];
+    for (const row of rows) {
+      updateBulkRow(row.application_id, { state: 'running', error: null });
+      let applied = row.applied;
+      let reached = row.reached_status;
+      let state: BulkRowState = 'done';
+      let error: string | null = null;
+      try {
+        for (const step of row.steps.slice(row.applied)) {
+          await applicationsApi.updateStatus(row.application_id, step as ApplicationStatus, reason || undefined);
+          applied += 1;
+          reached = step;
+          updateBulkRow(row.application_id, { applied, reached_status: step });
+        }
+      } catch (err: any) {
+        state = 'failed';
+        error = localizeServerMessage(err.response?.data?.detail || t('Lỗi không xác định'));
+      }
+      updateBulkRow(row.application_id, { state, applied, reached_status: reached, error });
+      results.push({ ...row, state, applied, reached_status: reached, error });
+    }
+    setBulkProcessing(false);
+    await loadRanking();
+    const failed = results.filter(item => item.state === 'failed');
+    if (failed.length === 0) {
+      // Không còn gì để xem lại: đóng biên bản và để thông báo nói kết quả.
+      setBulkMode(null);
+      setBulkRun(null);
+      setSelectedIds(new Set());
+      const twoStepCount = mode === 'shortlist' ? results.filter(item => item.from_status === 'NEW').length : 0;
+      if (mode === 'shortlist' && twoStepCount > 0) {
+        setNotice(t('Đã shortlist {0} hồ sơ, trong đó {1} hồ sơ Mới ghi nhận hai lần chuyển trạng thái (Mới → Đang xem → Shortlist).', results.length, twoStepCount));
+      } else {
+        setNotice(t('Đã cập nhật {0} hồ sơ sang {1}.', results.length, t(APPLICATION_STATUSES[mode === 'shortlist' ? 'SHORTLIST' : 'REJECTED_SCREENING'].label)));
+      }
+      return;
+    }
+    // Còn lỗi: giữ hộp thoại mở như biên bản của lần chạy, và chỉ giữ lại đúng
+    // những hồ sơ lỗi trong lựa chọn để thanh hành động không mời chạy lại việc đã xong.
+    setSelectedIds(new Set(failed.map(item => item.application_id)));
+    setNotice(t('Đã cập nhật {0}/{1} hồ sơ. {2} hồ sơ lỗi — xem lý do và thử lại ngay trong hộp thoại.', results.length - failed.length, results.length, failed.length));
   };
 
   const handleBulkApply = async () => {
-    if (!bulkMode || bulkProcessing) return;
-    const targets = bulkMode === 'shortlist' ? bulkShortlistTargets : selectedItems;
+    if (!bulkMode || bulkProcessing || !bulkRun) return;
     const reason = bulkReason.trim();
-    if (!targets.length) return;
+    if (!bulkRun.length) return;
     if (bulkMode === 'reject' && !reason) return;
-    const newStatus = bulkMode === 'shortlist' ? 'SHORTLIST' : 'REJECTED_SCREENING';
-    // Hồ sơ Mới cần hai lần chuyển trạng thái; số bước được chốt trước khi gọi để
-    // thông báo cuối cùng nói đúng những gì đã ghi vào lịch sử hồ sơ.
-    const twoStepCount = bulkMode === 'shortlist' ? targets.filter(item => item.application_status === 'NEW').length : 0;
-    setBulkProcessing(true);
-    setBulkError(null);
-    // Mỗi bước một lần gọi endpoint trạng thái hiện có, theo đúng thứ tự của ma
-    // trận chuyển trạng thái. Không gộp thành giao dịch giả: lỗi một hồ sơ không
-    // được làm mất kết quả của những hồ sơ đã lưu.
-    const failures: string[] = [];
-    for (const item of targets) {
-      const steps: ApplicationStatus[] = bulkMode === 'shortlist'
-        ? (item.application_status === 'NEW' ? ['IN_REVIEW', 'SHORTLIST'] : ['SHORTLIST'])
-        : ['REJECTED_SCREENING'];
-      let applied = 0;
-      try {
-        for (const step of steps) {
-          await applicationsApi.updateStatus(item.application_id, step, reason || undefined);
-          applied += 1;
-        }
-      } catch (err: any) {
-        const detail = localizeServerMessage(err.response?.data?.detail || t('Lỗi không xác định'));
-        // Nói rõ hồ sơ đã dừng ở đâu: bước đầu có thể đã lưu, và HR không nên
-        // tưởng hồ sơ chưa bị đụng tới.
-        const stopped = applied > 0 && applied < steps.length
-          ? ` (${t('đã ghi nhận bước Mới → Đang xem, chưa tới Shortlist')})`
-          : '';
-        failures.push(`${item.candidate_name || item.application_id}: ${detail}${stopped}`);
-      }
-    }
-    setBulkProcessing(false);
-    if (failures.length === targets.length) {
-      setBulkError(t('Không cập nhật được hồ sơ nào. {0}', failures.join('; ')));
-      return;
-    }
-    setBulkMode(null);
-    setBulkReason('');
-    setSelectedIds(new Set());
-    await loadRanking();
-    const label = t(APPLICATION_STATUSES[newStatus].label);
-    if (bulkMode === 'shortlist' && twoStepCount > 0) {
-      // Shortlist hàng loạt có cả hồ sơ Mới: nêu số lần chuyển trạng thái đã ghi,
-      // để "một lần bấm" không bị hiểu là "một mục trong lịch sử".
-      setNotice(failures.length
-        ? t('Đã shortlist {0}/{1} hồ sơ; {2} hồ sơ Mới ghi nhận hai lần chuyển trạng thái. {3} hồ sơ lỗi: {4}', targets.length - failures.length, targets.length, twoStepCount, failures.length, failures.join('; '))
-        : t('Đã shortlist {0} hồ sơ, trong đó {1} hồ sơ Mới ghi nhận hai lần chuyển trạng thái (Mới → Đang xem → Shortlist).', targets.length, twoStepCount));
-      return;
-    }
-    setNotice(failures.length
-      ? t('Đã cập nhật {0}/{1} hồ sơ. {2} hồ sơ lỗi: {3}', targets.length - failures.length, targets.length, failures.length, failures.join('; '))
-      : t('Đã cập nhật {0} hồ sơ sang {1}.', targets.length, label));
+    await runBulkRows(bulkMode, bulkRun.filter(row => row.state === 'pending'), reason);
   };
+
+  // Thử lại chỉ phần lỗi: hồ sơ đã xong không bị gọi lại, hồ sơ dừng giữa đường đi
+  // tiếp từ bước còn thiếu thay vì lặp lại bước đã ghi vào lịch sử.
+  const handleBulkRetry = async () => {
+    if (!bulkMode || bulkProcessing || !bulkRun) return;
+    const pending = retryFailed(bulkRun).filter(row => row.state === 'pending');
+    if (!pending.length) return;
+    setBulkRun(prev => (prev ? retryFailed(prev) : prev));
+    await runBulkRows(bulkMode, pending, bulkReason.trim());
+  };
+
+  const bulkRows = bulkRun || [];
+  const bulkProgress = bulkRunProgress(bulkRows);
+  const bulkFinished = bulkRows.length > 0 && bulkProgress.pending === 0 && bulkProgress.running === 0;
+  const bulkCurrentRow = bulkRows.find(row => row.state === 'running') || bulkRows.find(row => row.state === 'pending');
+  const bulkTwoStep = bulkRows.filter(row => row.steps.length > 1).length;
+  const statusLabel = (status: string) => t(APPLICATION_STATUSES[status as ApplicationStatus]?.label || status);
 
   const storeNavigationContext = () => {
     storeApplicantNavigation({
@@ -1324,24 +1365,36 @@ export default function ApplicantsRankingPage() {
       <Dialog open={Boolean(bulkMode)} onClose={closeBulk} maxWidth="sm" fullWidth data-testid="bulk-dialog">
         <DialogTitle>
           {bulkMode === 'shortlist'
-            ? t("Shortlist {0} hồ sơ", bulkShortlistTargets.length)
-            : t("Loại {0} hồ sơ", selectedItems.length)}
+            ? t("Shortlist {0} hồ sơ", bulkRows.length)
+            : t("Loại {0} hồ sơ", bulkRows.length)}
         </DialogTitle>
         <DialogContent dividers>
-          {bulkError && <Alert severity="error" sx={{ mb: 2 }}>{t(bulkError)}</Alert>}
+          {bulkProcessing && (
+            <Box sx={{ mb: 2 }} role="status" aria-live="polite" data-testid="bulk-progress">
+              <Typography variant="body2" fontWeight={700} sx={{ mb: 0.5 }}>
+                {t("Đang xử lý {0}/{1}: {2}", Math.min(bulkProgress.finished + 1, bulkProgress.total), bulkProgress.total, bulkCurrentRow?.candidate_name || t("Chưa trích xuất tên"))}
+              </Typography>
+              <LinearProgress variant="determinate" value={bulkProgress.total ? Math.round((bulkProgress.finished / bulkProgress.total) * 100) : 0} />
+            </Box>
+          )}
+          {!bulkProcessing && bulkFinished && bulkProgress.failed > 0 && (
+            <Alert severity="warning" sx={{ mb: 2 }} data-testid="bulk-failure-summary">
+              {t("{0}/{1} hồ sơ đã cập nhật. {2} hồ sơ lỗi: lý do và chỗ dừng ở từng dòng bên dưới; có thể thử lại riêng phần lỗi.", bulkProgress.done, bulkProgress.total, bulkProgress.failed)}
+            </Alert>
+          )}
           {bulkMode === 'shortlist' ? (
             <>
               <DialogContentText sx={{ mb: 1.5 }}>
                 {t("Các hồ sơ dưới đây chuyển sang trạng thái Shortlist. Trạng thái của từng hồ sơ được ghi nhận riêng như khi bấm trên từng dòng.")}
               </DialogContentText>
-              {bulkTwoStepCount > 0 && (
+              {bulkTwoStep > 0 && (
                 <Alert severity="info" sx={{ mb: 2 }} data-testid="bulk-two-step">
-                  {t("{0} hồ sơ đang ở trạng thái Mới sẽ ghi nhận hai lần chuyển trạng thái: Mới → Đang xem → Shortlist. Mỗi bước là một lần gọi API trạng thái hiện có, nên lịch sử của hồ sơ sẽ có hai mục.", bulkTwoStepCount)}
+                  {t("{0} hồ sơ đang ở trạng thái Mới sẽ ghi nhận hai lần chuyển trạng thái: Mới → Đang xem → Shortlist. Mỗi bước là một lần gọi API trạng thái hiện có, nên lịch sử của hồ sơ sẽ có hai mục.", bulkTwoStep)}
                 </Alert>
               )}
-              {bulkShortlistSkipped > 0 && (
+              {bulkSkipped > 0 && (
                 <Alert severity="warning" sx={{ mb: 2 }} data-testid="bulk-skipped">
-                  {t("Bỏ qua {0} hồ sơ trong lựa chọn vì không shortlist được từ trạng thái hiện tại (hồ sơ đã Shortlist không cần làm lại; hồ sơ ngoài sàng lọc là lịch sử).", bulkShortlistSkipped)}
+                  {t("Bỏ qua {0} hồ sơ trong lựa chọn vì không shortlist được từ trạng thái hiện tại (hồ sơ đã Shortlist không cần làm lại; hồ sơ ngoài sàng lọc là lịch sử).", bulkSkipped)}
                 </Alert>
               )}
             </>
@@ -1350,19 +1403,39 @@ export default function ApplicantsRankingPage() {
               {t("Các hồ sơ dưới đây bị loại ở vòng sàng lọc. Lý do bên dưới được ghi cho từng hồ sơ.")}
             </DialogContentText>
           )}
-          <Box sx={{ mb: 1.5 }} component="ul">
-            {(bulkTargets).map(item => (
-              <li key={item.application_id}>
-                <Typography variant="body2">
-                  {item.candidate_name || t("Chưa trích xuất tên")}
-                  {bulkMode === 'shortlist' && item.application_status === 'NEW' && (
-                    <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                      {t("Mới · 2 bước chuyển trạng thái")}
+          <Box sx={{ mb: 1.5 }} component="ol" data-testid="bulk-rows">
+            {bulkRows.map(row => {
+              const state = BULK_ROW_STATE[row.state];
+              const stop = stopPoint(row);
+              return (
+                <Box component="li" key={row.application_id} sx={{ mb: 1 }} data-testid={`bulk-row-${row.application_id}`}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                    <Typography variant="body2">{row.candidate_name || t("Chưa trích xuất tên")}</Typography>
+                    {row.steps.length > 1 && (
+                      <Typography component="span" variant="caption" color="text.secondary">
+                        {t("Mới · 2 bước chuyển trạng thái")}
+                      </Typography>
+                    )}
+                    <Chip
+                      size="small"
+                      label={t(state.label)}
+                      data-testid={`bulk-row-state-${row.application_id}`}
+                      sx={{ height: 22, fontSize: 11, fontWeight: 700, backgroundColor: state.bg, color: state.color }}
+                    />
+                  </Box>
+                  {row.state === 'failed' && row.error && (
+                    <Typography variant="caption" sx={{ display: 'block', color: '#B42318' }} data-testid={`bulk-row-error-${row.application_id}`}>
+                      {t("Lỗi: {0}", row.error)}
                     </Typography>
                   )}
-                </Typography>
-              </li>
-            ))}
+                  {row.state === 'failed' && stop && (
+                    <Typography variant="caption" sx={{ display: 'block', color: '#B54708' }} data-testid={`bulk-row-stop-${row.application_id}`}>
+                      {t("Đã ghi nhận bước {0}, chưa tới {1}.", statusLabel(stop.reached), statusLabel(stop.target))}
+                    </Typography>
+                  )}
+                </Box>
+              );
+            })}
           </Box>
           <TextField
             fullWidth
@@ -1372,24 +1445,43 @@ export default function ApplicantsRankingPage() {
             required={bulkMode === 'reject'}
             value={bulkReason}
             onChange={event => setBulkReason(event.target.value)}
+            disabled={bulkProcessing}
             inputProps={{ maxLength: 1000 }}
             helperText={bulkMode === 'reject' ? t("Lý do này được ghi cho mọi hồ sơ bị loại trong lần này.") : undefined}
           />
         </DialogContent>
         <DialogActions sx={{ p: 2, flexDirection: { xs: 'column', sm: 'row' }, gap: 1 }}>
-          <Button onClick={closeBulk} disabled={bulkProcessing} sx={{ minHeight: 44, width: { xs: '100%', sm: 'auto' } }}>{t("Hủy")}</Button>
-          <Button
-            variant="contained"
-            color={bulkMode === 'shortlist' ? 'secondary' : 'error'}
-            onClick={handleBulkApply}
-            disabled={bulkProcessing || bulkTargets.length === 0 || (bulkMode === 'reject' && !bulkReason.trim())}
-            data-testid="bulk-confirm"
-            sx={{ minHeight: 44, width: { xs: '100%', sm: 'auto' } }}
-          >
-            {bulkProcessing
-              ? t("Đang cập nhật {0} hồ sơ…", bulkTargets.length)
-              : bulkMode === 'shortlist' ? t("Shortlist") : t("Loại hồ sơ")}
-          </Button>
+          {bulkFinished && bulkProgress.failed > 0 ? (
+            <>
+              <Button onClick={closeBulk} sx={{ minHeight: 44, width: { xs: '100%', sm: 'auto' } }}>{t("Đóng")}</Button>
+              <Button
+                variant="contained"
+                color="error"
+                onClick={handleBulkRetry}
+                disabled={bulkMode === 'reject' && !bulkReason.trim()}
+                data-testid="bulk-retry"
+                sx={{ minHeight: 44, width: { xs: '100%', sm: 'auto' } }}
+              >
+                {t("Thử lại {0} hồ sơ lỗi", bulkProgress.failed)}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button onClick={closeBulk} disabled={bulkProcessing} sx={{ minHeight: 44, width: { xs: '100%', sm: 'auto' } }}>{t("Hủy")}</Button>
+              <Button
+                variant="contained"
+                color={bulkMode === 'shortlist' ? 'secondary' : 'error'}
+                onClick={handleBulkApply}
+                disabled={bulkProcessing || bulkRows.length === 0 || (bulkMode === 'reject' && !bulkReason.trim())}
+                data-testid="bulk-confirm"
+                sx={{ minHeight: 44, width: { xs: '100%', sm: 'auto' } }}
+              >
+                {bulkProcessing
+                  ? t("Đang cập nhật {0} hồ sơ…", bulkProgress.total)
+                  : bulkMode === 'shortlist' ? t("Shortlist") : t("Loại hồ sơ")}
+              </Button>
+            </>
+          )}
         </DialogActions>
       </Dialog>
 

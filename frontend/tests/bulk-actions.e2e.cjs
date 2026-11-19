@@ -20,6 +20,10 @@
  *  5. On a 390px and a 360px phone the floating bar spans the screen, every
  *     action and the confirm button are at least 44px tall and fully on screen,
  *     and the last application clears the bar instead of sitting underneath it.
+ *  6. While the batch runs, the dialog names the record being written. A record
+ *     that fails after its first step reports the reason and where it stopped,
+ *     and "retry the failures" touches exactly that record and only the step it
+ *     never reached — it does not re-run the records that already succeeded.
  */
 const { chromium } = require('playwright-core');
 const assert = require('node:assert/strict');
@@ -122,6 +126,75 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
 
   assert.deepEqual(unexpected, [], `all API calls are accounted for: ${unexpected.join(', ')}`);
 
+  // --- 6. Per-record progress, a real stopping point, and retry of failures only --
+  // One In review record is deliberately slow, so the progress line is observable;
+  // one New record fails on its second step, so it has a real stopping point.
+  let shortlistAttempts = 0;
+  const retryContext = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await retryContext.addInitScript(() => {
+    localStorage.setItem('hra_access_token', 'bulk-retry');
+    localStorage.setItem('hra_locale', 'vi');
+  });
+  const retryUnexpected = await installMockApi(retryContext, {
+    '/v1/applications/app-2/status': async r => {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const body = JSON.parse(r.request().postData() || '{}');
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ application_id: 'app-2', application_status: body.new_status }) });
+    },
+    '/v1/applications/app-11/status': async r => {
+      const body = JSON.parse(r.request().postData() || '{}');
+      if (body.new_status === 'SHORTLIST' && shortlistAttempts === 0) {
+        shortlistAttempts += 1;
+        return r.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'Máy chủ đang bận, vui lòng thử lại.' }) });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ application_id: 'app-11', application_status: body.new_status }) });
+    },
+  });
+  const retryPage = await retryContext.newPage();
+  const retryCalls = [];
+  retryPage.on('request', request => {
+    const path = new URL(request.url()).pathname;
+    const match = path.match(/^\/v1\/applications\/(app-\d+)\/status$/);
+    if (match && request.method() === 'PATCH') retryCalls.push([match[1], JSON.parse(request.postData() || '{}').new_status]);
+  });
+  const retryBox = name => retryPage.getByRole('checkbox', { name: `Chọn hồ sơ ${name}` });
+
+  await retryPage.goto(`${base}/positions/p1/applicants`, { waitUntil: 'networkidle' });
+  await retryPage.waitForSelector('[data-testid="applicant-count"]');
+  await retryBox('Lê Thu Hà').check(); // app-2, IN_REVIEW, slow but succeeds
+  await retryBox('Phan Trọng Nghĩa').check(); // app-11, NEW, fails on the second step
+  await retryPage.getByTestId('bulk-action-bar').waitFor();
+  await retryPage.getByTestId('bulk-shortlist-open').click();
+  await retryPage.getByTestId('bulk-dialog').waitFor();
+  await retryPage.getByTestId('bulk-confirm').click();
+
+  // The progress line names the record being written, not only a count.
+  await retryPage.getByTestId('bulk-progress').waitFor({ timeout: 5000 });
+  assert.match(await retryPage.getByTestId('bulk-progress').innerText(), /Đang xử lý 1\/2: Lê Thu Hà/);
+
+  // The failing New record stopped after In review: reason and stopping point per row.
+  const stop = retryPage.getByTestId('bulk-row-stop-app-11');
+  await stop.waitFor({ timeout: 20000 });
+  assert.match(await stop.innerText(), /Đã ghi nhận bước Đang xem, chưa tới Shortlist/);
+  assert.match(await retryPage.getByTestId('bulk-row-error-app-11').innerText(), /Máy chủ đang bận/);
+  assert.match(await retryPage.getByTestId('bulk-row-state-app-2').innerText(), /Xong/);
+  assert.match(await retryPage.getByTestId('bulk-row-state-app-11').innerText(), /Lỗi/);
+  assert.match(await retryPage.getByTestId('bulk-failure-summary').innerText(), /1\/2 hồ sơ đã cập nhật/);
+  assert.deepEqual(retryCalls, [['app-2', 'SHORTLIST'], ['app-11', 'IN_REVIEW'], ['app-11', 'SHORTLIST']]);
+
+  // Retry runs only the failed record, and only the step it never reached.
+  retryCalls.length = 0;
+  await retryPage.getByTestId('bulk-retry').click();
+  await retryPage.getByTestId('bulk-dialog').waitFor({ state: 'detached', timeout: 20000 });
+  assert.deepEqual(retryCalls, [['app-11', 'SHORTLIST']], 'retry must not repeat the record that already succeeded or the step already written');
+  await retryPage.waitForFunction(
+    () => (document.querySelector('[data-testid="action-feedback-success"]')?.textContent || '').includes('Đã shortlist 1 hồ sơ'),
+    null,
+    { timeout: 15000 },
+  );
+  assert.deepEqual(retryUnexpected, [], `retry context API calls are accounted for: ${retryUnexpected.join(', ')}`);
+  await retryContext.close();
+
   // --- 5. On a phone the floating bar must not hide the list or shrink taps --
   // Measured before the fix at 390x844: the bar shrink-wrapped to 195px wide and
   // 311px tall, and the last visible application sat underneath it. The checks
@@ -191,6 +264,6 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
     await mobile.close();
   }
 
-  console.log('Bulk actions: any screening row selectable, NEW shortlisted through NEW → IN_REVIEW → SHORTLIST with the dialog saying so, reject with one shared reason, one existing endpoint per record; on 390px and 360px the bar spans the screen, targets are 44px, and the last application clears it: OK');
+  console.log('Bulk actions: any screening row selectable, NEW shortlisted through NEW → IN_REVIEW → SHORTLIST with the dialog saying so, reject with one shared reason, one existing endpoint per record; a failed New record reports its reason and stopping point and retry touches only that record and only its missing step; on 390px and 360px the bar spans the screen, targets are 44px, and the last application clears it: OK');
   await browser.close();
 })().catch(err => { console.error(err); process.exit(1); });

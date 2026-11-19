@@ -9,6 +9,46 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-19 — Hành động hàng loạt có biên bản: tiến trình, chỗ dừng, thử lại phần lỗi
+
+**Vấn đề.** Shortlist/loại hàng loạt chạy lần lượt từng hồ sơ rồi mới báo kết quả,
+nên với lô vài chục hồ sơ HR chỉ thấy nút “Đang cập nhật 20 hồ sơ…” không biết đang
+ở hồ sơ nào. Khi một hồ sơ lỗi giữa đường, toàn bộ lỗi bị dồn thành một câu trong
+Snackbar, kèm một câu cứng “đã ghi nhận bước Mới → Đang xem, chưa tới Shortlist”
+hiển thị cho mọi trường hợp — kể cả khi hồ sơ lỗi ngay bước đầu và chưa ghi gì.
+Muốn cứu những hồ sơ lỗi, HR phải chạy lại cả lô: hồ sơ đã xong bị gọi lại, và với
+hồ sơ dừng giữa đường bước đã ghi lại bị lặp trong lịch sử.
+
+**Thay đổi.**
+
+- `frontend/src/lib/bulkActionRun.ts` (mới): lô được chốt thành danh sách hồ sơ kèm
+  **các bước hợp lệ** lấy đúng từ ma trận chuyển trạng thái hiện có (Mới → Đang xem
+  → Shortlist; Đang xem → Shortlist; loại một bước). Mỗi dòng nhớ `applied` (số bước
+  đã ghi) và `reached_status`, nên biết chính xác chỗ dừng và biết lần sau đi tiếp
+  từ đâu. `retryFailed()` chỉ đưa các dòng lỗi về chờ, `remainingSteps()` trả phần
+  còn thiếu; `stopPoint()` trả `null` khi hồ sơ lỗi ngay bước đầu (chưa ghi gì thì
+  không được nói “đã sang Đang xem”).
+- Hộp thoại xác nhận giữ **biên bản tại chỗ**: tiến trình “Đang xử lý 2/5: <tên>”
+  kèm thanh tiến độ, và từng hồ sơ có chip trạng thái (Chờ xử lý / Đang xử lý / Xong
+  / Lỗi). Hồ sơ lỗi hiện lý do từ máy chủ và **chỗ dừng** (“Đã ghi nhận bước Đang
+  xem, chưa tới Shortlist.”).
+- Chỉ khi **tất cả** hồ sơ đều lỗi mới không có gì để thử lại; còn lại nút “Thử lại
+  {n} hồ sơ lỗi” chạy đúng tập lỗi, không gọi lại hồ sơ đã xong và không lặp bước đã
+  ghi. Lựa chọn trên trang được thu về đúng các hồ sơ lỗi, nên thanh hành động không
+  mời chạy lại việc đã hoàn tất. Lô thành công toàn bộ vẫn đóng hộp thoại và báo
+  bằng thông báo như trước.
+
+**Phạm vi giữ nguyên.** Không thêm endpoint, không đổi schema hay ma trận chuyển
+trạng thái: mỗi bước vẫn là một lần gọi `PATCH /applications/{id}/status` hiện có,
+ và lý do chung vẫn được gửi cho từng hồ sơ. Lý do dùng cho thử lại là lý do còn
+ trong hộp thoại, nên loại hàng loạt thử lại vẫn bắt buộc có lý do.
+
+**Kiểm thử.** `frontend/tests/bulk-run.test.cjs` (mới, 5 test) cho bước hợp lệ, lọc
+hồ sơ không có bước, thử lại chỉ phần lỗi và đi tiếp từ bước còn thiếu, chỗ dừng,
+và đếm tiến trình. `bulk-actions.e2e.cjs` bổ sung cảnh lỗi thật: một hồ sơ Đang xem
+chậm (thấy tiến trình), một hồ sơ Mới lỗi ở bước Shortlist (thấy lý do + chỗ dừng),
+rồi thử lại chỉ gọi đúng hồ sơ lỗi và đúng bước còn thiếu.
+
 ## 2026-11-19 — Gom quyền màn hồ sơ về một object `capabilities`
 
 **Vấn đề.** Màn hồ sơ tự quyết định hiện gì từ hai cờ rời `can_update_status` và
