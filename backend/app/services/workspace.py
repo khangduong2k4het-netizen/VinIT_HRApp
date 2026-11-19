@@ -162,11 +162,8 @@ def _iso_datetime(value: Any) -> str | None:
     return None
 
 
-def deadline_days_left(deadline_at: Any, now: datetime | None = None) -> int | None:
-    """Whole days until the intake deadline; negative means it has passed.
-
-    Returns None when there is no deadline (no deadline is not "0 days left").
-    """
+def _deadline_moment(deadline_at: Any) -> datetime | None:
+    """Parse a deadline into an aware datetime, or None when there is not one."""
     if not deadline_at:
         return None
     if isinstance(deadline_at, str):
@@ -178,12 +175,36 @@ def deadline_days_left(deadline_at: Any, now: datetime | None = None) -> int | N
         return None
     if deadline_at.tzinfo is None:
         deadline_at = deadline_at.replace(tzinfo=timezone.utc)
+    return deadline_at
+
+
+def _reference_now(now: datetime | None) -> datetime:
     reference = now or datetime.now(timezone.utc)
-    if reference.tzinfo is None:
-        reference = reference.replace(tzinfo=timezone.utc)
-    # Compare instants, then floor to whole days so "còn 0 ngày" appears only on
-    # the final day rather than during the last 24 hours regardless of clock time.
-    return (deadline_at - reference).days
+    return reference if reference.tzinfo else reference.replace(tzinfo=timezone.utc)
+
+
+def deadline_is_passed(deadline_at: Any, now: datetime | None = None) -> bool:
+    """Whether the intake gate has closed; used where the answer must be exact."""
+    moment = _deadline_moment(deadline_at)
+    return moment is not None and moment <= _reference_now(now)
+
+
+def deadline_days_left(deadline_at: Any, now: datetime | None = None) -> int | None:
+    """Whole days until the intake deadline; negative once it has passed.
+
+    Returns None when there is no deadline (no deadline is not "0 days left").
+    0 means "today": either still open later today, or it closed earlier today.
+    Use ``deadline_is_passed`` when an exact answer matters.
+    """
+    moment = _deadline_moment(deadline_at)
+    if moment is None:
+        return None
+    remaining = moment - _reference_now(now)
+    # timedelta.days floors, so -2 days minus a second would report -3. Count the
+    # elapsed whole days instead and put the sign back.
+    if remaining.total_seconds() >= 0:
+        return remaining.days
+    return -((-remaining).days)
 
 
 def _applicants_target(position_id: str, queue: str | None = None) -> dict[str, str]:
@@ -461,7 +482,9 @@ def build_work_queue_items(
             "due_at": _iso_datetime(deadline_at),
             "days_left": days_left,
         }
-        if days_left < 0:
+        # Closed is decided by the clock, not by the rounded day count: a deadline
+        # that passed this morning is already closed even though it is "today".
+        if deadline_is_passed(deadline_at, now):
             add("POSITION_DEADLINE_PASSED", "HIGH", 1, _position_target(position_id, "overview"), deadline_extra)
         elif days_left <= DEADLINE_SOON_DAYS:
             add("POSITION_DEADLINE_SOON", "MEDIUM", 1, _position_target(position_id, "overview"), deadline_extra)

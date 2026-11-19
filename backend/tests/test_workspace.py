@@ -282,6 +282,7 @@ from app.services.workspace import (  # noqa: E402
     DEADLINE_SOON_DAYS,
     WAITING_ATTENTION_DAYS,
     deadline_days_left,
+    deadline_is_passed,
     summarize_waiting,
 )
 
@@ -342,6 +343,29 @@ def test_deadline_item_waits_until_criteria_are_approved():
     assert [i["type"] for i in items] == ["CRITERIA_PENDING_HM"], "một vị trí, một dòng việc"
 
 
+def test_days_left_never_drifts_by_one_on_past_deadlines():
+    """CI từng bắt lỗi này: timedelta.days làm tròn xuống nên -2 thành -3."""
+    assert deadline_days_left(NOW - timedelta(days=2), NOW) == -2
+    assert deadline_days_left(NOW - timedelta(days=2, seconds=1), NOW) == -2
+    assert deadline_days_left(NOW - timedelta(days=2, hours=23), NOW) == -2
+    assert deadline_days_left(NOW + timedelta(days=2), NOW) == 2
+    assert deadline_days_left(NOW + timedelta(days=2, hours=23), NOW) == 2
+
+
+def test_a_deadline_that_passed_earlier_today_is_already_closed():
+    """0 ngày là "hôm nay": còn mở hay đã đóng phải do giờ quyết định."""
+    earlier_today = NOW - timedelta(hours=3)
+    later_today = NOW + timedelta(hours=3)
+
+    assert deadline_days_left(earlier_today, NOW) == 0
+    assert deadline_days_left(later_today, NOW) == 0
+    assert deadline_is_passed(earlier_today, NOW) is True
+    assert deadline_is_passed(later_today, NOW) is False
+    # Sáng nay đã đóng thì phải là "quá hạn", không phải "sắp hết hạn".
+    assert [i["type"] for i in _deadline_items(_queue(earlier_today))] == ["POSITION_DEADLINE_PASSED"]
+    assert [i["type"] for i in _deadline_items(_queue(later_today))] == ["POSITION_DEADLINE_SOON"]
+
+
 def test_closed_position_gets_no_deadline_item():
     assert _deadline_items(_queue(NOW - timedelta(days=2), status="CLOSED")) == []
 
@@ -399,7 +423,10 @@ def test_open_positions_kpi_hides_positions_whose_deadline_passed():
 
 
 def test_open_positions_kpi_counts_the_deadline_day_itself():
-    assert _kpi([_pos("a", deadline_at=NOW)])["open_positions"] == 1
+    # Đến đúng thời điểm hạn thì cổng đóng (careers_intake.py dùng deadline <= now).
+    assert _kpi([_pos("a", deadline_at=NOW)])["open_positions"] == 0
+    # Còn vài giờ trong ngày hạn thì vẫn đang mở, và vẫn là "sắp hết hạn".
+    assert _kpi([_pos("a", deadline_at=NOW + timedelta(hours=1))])["open_positions"] == 1
     assert _kpi([_pos("a", deadline_at=NOW - timedelta(hours=1))])["open_positions"] == 0
 
 

@@ -12,6 +12,7 @@ from app.services.workspace import (
     build_work_queue_items,
     build_workflow,
     deadline_days_left,
+    deadline_is_passed,
     summarize_applications,
     summarize_waiting,
 )
@@ -123,17 +124,22 @@ def build_dashboard(
 
     total = len(applications)
     # A missing deadline means "still open": no deadline is not the same as expired.
-    deadline_days = [
-        (p.get("status"), deadline_days_left(p.get("application_deadline_at"), now)) for p in positions
+    deadline_state = [
+        (
+            p.get("status"),
+            deadline_days_left(p.get("application_deadline_at"), now),
+            deadline_is_passed(p.get("application_deadline_at"), now),
+        )
+        for p in positions
     ]
     return {
         "open_positions": sum(
-            1 for status, days in deadline_days if status == "OPEN" and (days is None or days >= 0)
+            1 for status, _days, closed in deadline_state if status == "OPEN" and not closed
         ),
         # Reported separately so the card can explain the difference instead of
         # silently dropping positions. Never merged into open_positions.
         "open_positions_deadline_passed": sum(
-            1 for status, days in deadline_days if status == "OPEN" and days is not None and days < 0
+            1 for status, _days, closed in deadline_state if status == "OPEN" and closed
         ),
         "total_applications": total,
         "applications_by_status": statuses,
