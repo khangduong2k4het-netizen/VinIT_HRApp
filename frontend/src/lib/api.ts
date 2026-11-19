@@ -269,6 +269,17 @@ export const rubricApi = {
   apply: (positionId: string, versionId: string) => apiClient.post(`/rubric-library/positions/${positionId}/apply`, { template_version_id: versionId }),
 };
 
+/**
+ * Hàng đợi lưu trữ/xoá dữ liệu theo hồ sơ. Chỉ có bốn thao tác người dùng làm
+ * được — liệt kê, tạo, xác nhận, huỷ; bước thực thi nằm ngoài màn hình này.
+ */
+export const retentionApi = {
+  listCases: (positionId: string) => apiClient.get(`/retention/positions/${positionId}/cases`),
+  generateCases: (positionId: string) => apiClient.post(`/retention/positions/${positionId}/cases/generate`),
+  confirmCase: (caseId: string) => apiClient.post(`/retention/cases/${caseId}/confirm`),
+  cancelCase: (caseId: string) => apiClient.post(`/retention/cases/${caseId}/cancel`),
+};
+
 /** Dọn dữ liệu test. Tách khỏi adminApi để chỗ gọi lộ rõ đây là thao tác phá huỷ. */
 export const testDataApi = {
   getScopes: () => apiClient.get('/admin/test-data/scopes'),

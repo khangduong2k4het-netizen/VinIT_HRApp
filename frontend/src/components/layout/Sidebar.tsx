@@ -10,6 +10,7 @@ import PeopleIcon from '@mui/icons-material/People';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import SettingsIcon from '@mui/icons-material/Settings';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
+import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import ApartmentIcon from '@mui/icons-material/Apartment';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
@@ -27,6 +28,7 @@ const menuGroups = [
       { text: 'Talent Pool (demo)', icon: <PeopleIcon />, href: '/talent-pool-demo', hrOnly: true },
       { text: 'Thư viện rubric', icon: <LibraryBooksIcon />, href: '/rubrics', hrOnly: true },
       { text: 'Shortlist & phản hồi', icon: <PeopleIcon />, href: '/shortlist' },
+      { text: 'Dữ liệu & lưu trữ', icon: <DeleteSweepIcon />, href: '/data-retention', hrOnly: true },
     ],
   },
   {

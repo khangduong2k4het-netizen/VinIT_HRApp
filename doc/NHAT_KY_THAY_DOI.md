@@ -9,6 +9,60 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-19 — Màn “Dữ liệu & lưu trữ”: hàng đợi retention và timeline quyết định theo hồ sơ
+
+**Vấn đề.** Backend đã có `backend/app/api/retention.py` từ trước (liệt kê case, tạo,
+xác nhận, huỷ) nhưng frontend không có màn nào, nên muốn xử lý hàng đợi lưu trữ/xoá
+dữ liệu thì phải gọi API tay. HR cũng không có chỗ xem lại chuỗi quyết định của một
+hồ sơ khi đối chiếu với trường hợp xoá.
+
+**Thay đổi.**
+
+- `frontend/src/lib/api.ts`: thêm `retentionApi` với đúng bốn thao tác người dùng làm
+  được — `listCases`, `generateCases`, `confirmCase`, `cancelCase`. Hai endpoint còn
+  lại của backend (`execute`, `recover`) **không** được đưa lên màn hình: chúng xoá
+  dữ liệu thật và cần quy trình vận hành riêng; thêm nút đó là vượt phạm vi và tăng
+  rủi ro.
+- `frontend/src/lib/retention.ts` (mới): kiểu `RetentionCase`, nhãn trạng thái (Chờ
+  xác nhận / Đã lên lịch xoá / Đã xoá dữ liệu / Đã huỷ), nhãn thực thi, `summarize`,
+  và quan trọng nhất là **quy tắc hiển thị đúng như máy chủ sẽ chấp nhận**:
+  `canConfirmRetentionCase` chỉ bật khi case `PENDING`, đã đến hạn và không có lần
+  thực thi đang chạy (backend trả 422 nếu chưa đến hạn, 409 nếu đã xoá/đang xoá);
+  `canCancelRetentionCase` không bật khi đang thực thi; `hasApplicationTimeline`
+  tắt timeline với hồ sơ đã xoá.
+- `frontend/src/app/data-retention/page.tsx` (mới): chọn vị trí (tự chọn vị trí đã
+  đóng đầu tiên), dòng tổng hợp (tổng · đến hạn · chờ xác nhận · đã lên lịch · đã
+  huỷ), bảng trường hợp với mã ẩn danh, hạn xoá, trạng thái, trạng thái thực thi,
+  thời điểm xác nhận và nút hành động. “Tạo trường hợp lưu trữ” mở hộp thoại giải
+  thích rằng chỉ vị trí đã đóng và quá hạn mới sinh case, bước này chưa xoá gì; kết
+  quả nói rõ tạo được bao nhiêu case (hoặc vì sao không tạo được). Xác nhận/huỷ đều
+  có hộp thoại riêng nói rõ hậu quả, gọi đúng endpoint `POST …/confirm` và
+  `POST …/cancel`, rồi cập nhật đúng dòng đó.
+- **Timeline theo hồ sơ**: mỗi dòng mở được lịch sử quyết định của chính hồ sơ đó
+  bằng endpoint sẵn có `GET /applications/{id}/status-events` (ai đổi, khi nào, từ
+  trạng thái nào sang đâu, lý do, ghi chú). 403 hiện thông báo “chỉ HR phụ trách”,
+  hồ sơ đã xoá thì nút timeline bị tắt kèm giải thích.
+- 403 khi tải danh sách (vị trí ngoài phạm vi) hiện đúng thông báo thay vì bảng
+  rỗng gây hiểu nhầm là “không có case”. Sidebar có mục **Dữ liệu & lưu trữ**
+  (nhóm HR, cạnh Shortlist); quyền thật vẫn do backend quyết định.
+- Toàn bộ chuỗi mới đi qua `t()` và có bản dịch tiếng Anh.
+
+**Phạm vi giữ nguyên.** Không sửa backend, không đổi schema, không thêm endpoint:
+chỉ dùng đúng hợp đồng retention và status-events đang có.
+
+**Kiểm thử.** `frontend/tests/retention-cases.test.cjs` (mới, 6 test) cho tổng hợp
+đếm, nút xác nhận/huỷ đúng điều kiện máy chủ chấp nhận, hồ sơ đã xoá không có
+timeline, nhãn lạ không render `undefined`, và đếm ngày đến hạn với ngày thiếu/sai.
+`frontend/tests/retention-ui.e2e.cjs` (mới) chạy trang thật với API giả: danh sách
+case + tổng hợp, nút Confirm bật/tắt đúng, tạo case báo kết quả và tải lại danh sách,
+xác nhận/huỷ gửi đúng POST và đổi chip của dòng, timeline mở đúng lịch sử quyết định
+và đóng lại được, case đã xoá không có timeline, và vị trí 403 hiện thông báo.
+Hồi quy `a11y-mock` pass sau khi thêm mục sidebar.
+
+**Chưa kiểm.** VM này không có backend/Postgres nên mọi phản hồi retention (kể cả
+403, 409, 422) chỉ mô phỏng bằng mock; chưa thử trên dữ liệu thật ở staging.
+Bước `execute`/`recover` chưa có UI — cố ý, xem phần Phạm vi.
+
 ## 2026-11-19 — Trang tuyển dụng công khai: song ngữ, form tệp dùng được trên điện thoại
 
 **Vấn đề.** `/careers` là bề mặt duy nhất ứng viên thấy, nhưng tiêu đề, nhãn form,
