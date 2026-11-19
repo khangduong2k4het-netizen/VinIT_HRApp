@@ -89,3 +89,23 @@ test('the Talent Pool panel reloads its state when the application status change
   assert.match(panel, /refreshKey\?: string \| null/);
   assert.match(panel, /\[applicationId, refreshKey\]/);
 });
+
+test('narrow /apply clamps the job description and offers a jump to the form', () => {
+  const read = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+  const page = read('src/app/apply/page.tsx');
+  const clamp = read('src/components/public/CollapsibleText.tsx');
+  const en = require('../src/i18n/en.json');
+  // Both long texts go through the clamp, switched on below the two-column breakpoint only.
+  assert.match(page, /breakpoints\.down\('lg'\)/);
+  assert.equal((page.match(/<CollapsibleText enabled=\{narrow\}>/g) || []).length, 2);
+  // A button scrolls to the form, which carries the id it targets.
+  assert.match(page, /getElementById\('apply-form'\)/);
+  assert.match(page, /id="apply-form"/);
+  assert.match(page, /\{narrow && \(\s*<Button/);
+  // The clamp has a fade, an expanded state for assistive tech, and a 40px touch target.
+  assert.match(clamp, /linear-gradient/);
+  assert.match(clamp, /aria-expanded=\{expanded\}/);
+  assert.match(clamp, /minHeight: 40/);
+  assert.match(clamp, /collapsedHeight = 360/);
+  for (const key of ['Xem thêm', 'Thu gọn', 'Nộp hồ sơ ngay']) assert.ok(en[key], `missing English text for ${key}`);
+});

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   Alert, Box, Button, Card, CardContent, Checkbox, Chip, CircularProgress, Container, Divider,
-  FormControlLabel, Grid, IconButton, InputAdornment, Stack, TextField, Typography,
+  FormControlLabel, Grid, IconButton, InputAdornment, Stack, TextField, Typography, useMediaQuery, useTheme,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined';
@@ -19,6 +19,7 @@ import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
 import WorkOutlineIcon from '@mui/icons-material/WorkOutline';
 import { useI18n } from '@/i18n/I18nProvider';
 import LanguageSwitcher from '@/i18n/LanguageSwitcher';
+import CollapsibleText from '@/components/public/CollapsibleText';
 import {
   buildWithdrawalReceiptText, fetchPublicPositionDetail, fetchPublicPositions, filterPublicPositions,
   submitApplication, validateCv, type ApplyFailure, type PublicPosition, type PublicPositionDetail,
@@ -34,6 +35,8 @@ function formatBytes(bytes: number): string {
 // When it changes, bump PUBLIC_INTAKE_NOTICE_VERSION on the backend.
 export default function ApplyPage() {
   const { t } = useI18n();
+  // Below the two-column layout the form sits under the whole job description, so the text is clamped there.
+  const narrow = useMediaQuery(useTheme().breakpoints.down('lg'));
   const [positions, setPositions] = useState<PublicPosition[] | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [search, setSearch] = useState('');
@@ -177,8 +180,8 @@ export default function ApplyPage() {
           <Stack direction="row" spacing={1.5} alignItems="center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/vinuni-logo.png" alt="VinUniversity" height={30} style={{ display: 'block' }} />
-            <Divider orientation="vertical" flexItem sx={{ my: 1.5 }} />
-            <Typography component="span" sx={{ fontWeight: 700, fontSize: 14, color: '#0A2B57' }}>
+            <Divider orientation="vertical" flexItem sx={{ my: 1.5, display: { xs: 'none', sm: 'block' } }} />
+            <Typography component="span" sx={{ fontWeight: 700, fontSize: 14, color: '#0A2B57', display: { xs: 'none', sm: 'inline' } }}>
               {t('Cơ hội nghề nghiệp tại VinUni')}
             </Typography>
           </Stack>
@@ -310,6 +313,17 @@ export default function ApplyPage() {
                       )}
                     </Stack>
 
+                    {narrow && (
+                      <Button
+                        variant="contained"
+                        fullWidth
+                        sx={{ mt: 2, minHeight: 44 }}
+                        onClick={() => document.getElementById('apply-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                      >
+                        {t('Nộp hồ sơ ngay')}
+                      </Button>
+                    )}
+
                     <Divider sx={{ my: 2.5 }} />
 
                     {detailLoading && <CircularProgress size={22} aria-label={t('Đang tải')} />}
@@ -317,9 +331,11 @@ export default function ApplyPage() {
                     {detail?.posting_content && (
                       <Box sx={{ mb: 3 }}>
                         <Typography variant="h3" sx={{ color: '#0A2B57', mb: 1 }}>{t('Thông tin tuyển dụng')}</Typography>
-                        <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', color: '#1E293B', lineHeight: 1.7 }}>
-                          {detail.posting_content}
-                        </Typography>
+                        <CollapsibleText enabled={narrow}>
+                          <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap', color: '#1E293B', lineHeight: 1.7 }}>
+                            {detail.posting_content}
+                          </Typography>
+                        </CollapsibleText>
                       </Box>
                     )}
 
@@ -327,9 +343,11 @@ export default function ApplyPage() {
                       <Box>
                         {detail?.posting_content && <Divider sx={{ my: 2.5 }} />}
                         <Typography variant="h3" sx={{ color: '#0A2B57', mb: 1 }}>{t('Mô tả công việc')}</Typography>
-                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: '#334155', lineHeight: 1.75 }}>
-                          {detail.jd}
-                        </Typography>
+                        <CollapsibleText enabled={narrow}>
+                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: '#334155', lineHeight: 1.75 }}>
+                            {detail.jd}
+                          </Typography>
+                        </CollapsibleText>
                       </Box>
                     )}
                   </CardContent>
@@ -337,7 +355,7 @@ export default function ApplyPage() {
               </Grid>
 
               <Grid item xs={12} lg={4.5} sx={{ position: { lg: 'sticky' }, top: { lg: 80 } }}>
-                <Card component="form" onSubmit={submit} noValidate sx={{ overflow: 'hidden' }}>
+                <Card component="form" id="apply-form" onSubmit={submit} noValidate sx={{ overflow: 'hidden', scrollMarginTop: 76 }}>
                   <Box sx={{ height: 3.5, bgcolor: '#C72127' }} />
                   <CardContent sx={{ p: { xs: 2.5, md: 3 } }}>
                     <Typography variant="h3" sx={{ color: '#0F172A', mb: 0.5 }}>{t('Nộp hồ sơ ứng tuyển')}</Typography>
