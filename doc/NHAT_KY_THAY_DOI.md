@@ -9,6 +9,57 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-19 — Đo tác động của chính các cải tiến UX (thời gian xử lý, hồ sơ quá hạn, mức dùng lô)
+
+**Vấn đề.** Dashboard chỉ có số lượng hàng đợi, nên bốn lượt cải tiến trước đều dừng
+ở “cảm giác tốt hơn”: không có số nào cho biết HR mất bao lâu để đóng một hồ sơ cần
+xác minh, hay còn bao nhiêu hồ sơ chờ quá 7 ngày. Không đo thì không biết việc nào
+thật sự giúp, và cũng không có dữ liệu để chọn việc tiếp theo.
+
+**Thay đổi.**
+
+- `frontend/src/lib/uxMetrics.ts` (mới): bốn event nhẹ — `PROFILE_OPENED`,
+  `PROFILE_CLOSED` (kèm thời lượng), `VERIFICATION_COMPLETED`, `BULK_RUN` (số hồ sơ,
+  số lỗi, thời gian). Ghi vào `localStorage` của chính máy HR, giới hạn 500 event gần
+  nhất, đọc lại có kiểm tra kiểu/bounds nên dữ liệu hỏng không dựng ra số đo giả.
+  **Không gửi lên máy chủ và không ghi tên, CV hay nội dung hồ sơ** — chỉ id hồ sơ,
+  thời điểm, thời lượng; unit test khẳng định việc này.
+- Gắn đo tại đúng ba chỗ người dùng nêu: mở/rời hồ sơ (`applicants/[applicantId]`,
+  một cặp event mỗi lượt xem), hoàn tất hồ sơ (ghi khi `handleFinish` thành công,
+  không ghi khi lỗi), và chạy lô (`runBulkRows`, ghi cả lô lẫn phần lỗi để thấy lô có
+  thật sự thay được việc làm từng hồ sơ). Đo lường không chạm vào luồng nghiệp vụ:
+  mọi lỗi storage đều bị nuốt.
+- Khối **“Tác động của cải tiến UX”** trên dashboard: trung vị thời gian ở trong hồ
+  sơ, thời gian từ lần mở đầu tiên đến lúc hoàn tất (ghép với lần mở *sớm nhất* để
+  mở lại không làm thời gian ngắn đi giả tạo), số hồ sơ đã hoàn tất, mức dùng lô
+  (số hồ sơ · lỗi · thời gian trung bình), và **hồ sơ chờ xác minh quá hạn** lấy từ
+  `work-queue` của máy chủ. Nút “Xoá số đo” chỉ xoá khoá của module này.
+- Hai loại số đo được nói rõ ngay trên màn hình: số cục bộ chỉ tính trên trình duyệt
+  này; số hồ sơ quá hạn và tuổi hồ sơ lâu nhất là số toàn hệ thống từ máy chủ.
+
+**Phạm vi giữ nguyên.** Không sửa backend, không thêm bảng/endpoint, không đổi luồng
+nghiệp vụ hay quyền.
+
+**Kiểm thử.** `frontend/tests/ux-metrics.test.cjs` (mới, 9 test): ghi nối tiếp + giới
+hạn 500 event, bỏ event hỏng/lạ, chỉ lưu id và thời lượng (không có tên/email/CV), trung vị thời gian ở hồ sơ không
+bị lệch bởi một lượt rất dài, thời gian hoàn tất tính từ lần mở đầu tiên và không
+ghép bừa khi thiếu mốc mở, tổng hợp lô (tỉ lệ lỗi 0.167 cho 5/30), chưa có event thì
+mọi số đo là `null` chứ không phải 0, xoá số đo không đụng token phiên, và storage
+bị chặn không làm hỏng luồng gọi.
+`frontend/tests/ux-metrics.e2e.cjs` (mới) chạy dashboard thật với event đã gieo: khối
+hiện 2,5 phút (trung vị), 20 phút (mở → hoàn tất), 1 lô với 12 hồ sơ · 1 lỗi, số quá
+hạn 6 lấy từ máy chủ; nút xoá chỉ xoá khoá của module; mở một hồ sơ thật rồi rời đi
+thì event `PROFILE_OPENED`/`PROFILE_CLOSED` được ghi đúng id và thời lượng, và
+không có tên ứng viên hay email trong storage.
+Hồi quy xanh: `ux03-dashboard`, `bulk-actions`, `finish-application` (ba màn vừa được
+gắn đo) — `bulk-actions` còn khẳng định lô vẫn chạy đúng endpoint cũ sau khi thêm đo.
+
+**Chưa kiểm.** Số đo hoàn toàn cục bộ: chưa có bảng event/endpoint tổng hợp phía máy
+chủ, nên chưa đo được toàn bộ nhóm HR hay nhiều máy — đó là việc tiếp theo nếu cần
+số liệu để bảo vệ quyết định. E2E mới chỉ khẳng định event mở/rời hồ sơ; việc ghi
+`BULK_RUN` và `VERIFICATION_COMPLETED` mới được kiểm ở mức unit test của lib và qua
+hồi quy luồng, chưa có assert riêng trong e2e. Chưa thử trên dữ liệu staging thật.
+
 ## 2026-11-19 — Màn “Dữ liệu & lưu trữ”: hàng đợi retention và timeline quyết định theo hồ sơ
 
 **Vấn đề.** Backend đã có `backend/app/api/retention.py` từ trước (liệt kê case, tạo,

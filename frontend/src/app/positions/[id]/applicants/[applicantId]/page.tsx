@@ -45,6 +45,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { applicationsApi, assessmentsApi, criteriaApi, listAllApplications, operationsApi } from '@/lib/api';
+import { recordUxEvent } from '@/lib/uxMetrics';
 import StatusBadge from '@/components/common/StatusBadge';
 import StickyActionBar from '@/components/common/StickyActionBar';
 import ActionFeedback from '@/components/common/ActionFeedback';
@@ -320,6 +321,18 @@ export default function ApplicantDetailPage() {
   // Recording a review is not a recruiting action: it never touches
   // application_status. The reload afterwards is what makes the queue progress
   // ("đã kiểm 2/4") visible without a manual refresh.
+  // Đo tác động UX: thời gian HR thật sự ở trong hồ sơ, để biết các lượt cải tiến
+  // trước có rút ngắn việc xác minh hay không. Chỉ ghi id hồ sơ + thời lượng vào
+  // localStorage của máy này — không ghi tên, CV hay nội dung đánh giá.
+  useEffect(() => {
+    const openedAt = Date.now();
+    recordUxEvent({ type: 'PROFILE_OPENED', at: openedAt, application_id: applicantId });
+    return () => {
+      const closedAt = Date.now();
+      recordUxEvent({ type: 'PROFILE_CLOSED', at: closedAt, application_id: applicantId, duration_ms: closedAt - openedAt });
+    };
+  }, [applicantId]);
+
   const [reviewSaving, setReviewSaving] = useState<string | null>(null);
   const handleReview = async (resultId: string, decision: 'CONFIRMED' | 'REJECTED', comment?: string) => {
     setReviewSaving(resultId);
@@ -507,6 +520,7 @@ export default function ApplicantDetailPage() {
         await applicationsApi.updateStatus(applicantId, finishStatus, finishReason.trim() || undefined, finishNote.trim() || undefined);
       }
       setFinishOpen(false);
+      recordUxEvent({ type: 'VERIFICATION_COMPLETED', at: Date.now(), application_id: applicantId });
       const target = finishAdvance && nextApplicantId ? keepContext(nextApplicantId) : backHref;
       router.push(withCompletedFlag(target));
     } catch (err: any) {

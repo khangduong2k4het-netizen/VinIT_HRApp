@@ -62,6 +62,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { assessmentsApi, operationsApi, applicationsApi, listAllApplications, shortlistApi, positionsApi, type DuplicateSignal } from '@/lib/api';
+import { recordUxEvent } from '@/lib/uxMetrics';
 import StatusBadge from '@/components/common/StatusBadge';
 import QueueFilterChips from '@/components/applicants/QueueFilterChips';
 import OperationProgressPanel from '@/components/workflow/OperationProgressPanel';
@@ -605,6 +606,7 @@ export default function ApplicantsRankingPage() {
   // trận chuyển trạng thái. Một hồ sơ lỗi không làm mất kết quả của hồ sơ khác, và
   // bước đã ghi vẫn được giữ nên lần thử lại chỉ đi tiếp phần còn thiếu.
   const runBulkRows = async (mode: 'shortlist' | 'reject', rows: BulkRunRow[], reason: string) => {
+    const bulkStartedAt = Date.now();
     setBulkProcessing(true);
     const results: BulkRunRow[] = [];
     for (const row of rows) {
@@ -630,6 +632,16 @@ export default function ApplicantsRankingPage() {
     setBulkProcessing(false);
     await loadRanking();
     const failed = results.filter(item => item.state === 'failed');
+    // Đo mức dùng lô: số hồ sơ mỗi lần chạy, số lỗi và thời gian, để biết lô có
+    // thực sự thay được việc làm từng hồ sơ hay không.
+    recordUxEvent({
+      type: 'BULK_RUN',
+      at: Date.now(),
+      application_id: positionId,
+      duration_ms: Date.now() - bulkStartedAt,
+      records: results.length,
+      failed: failed.length,
+    });
     if (failed.length === 0) {
       // Không còn gì để xem lại: đóng biên bản và để thông báo nói kết quả.
       try { window.localStorage.removeItem(bulkRunStorageKey(positionId)); } catch { /* storage chỉ là tiện ích */ }

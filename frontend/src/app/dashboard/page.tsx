@@ -16,6 +16,7 @@ import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { authApi, dashboardApi } from '@/lib/api';
+import { clearUxEvents, readUxEvents, summarizeUxImpact, type UxEvent } from '@/lib/uxMetrics';
 import { APPLICATION_STATUSES, type ApplicationStatus } from '@/lib/applicationStatus';
 import StatusBadge from '@/components/common/StatusBadge';
 import PageHeader from '@/components/common/PageHeader';
@@ -52,6 +53,12 @@ export default function DashboardPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [reminderRefresh, setReminderRefresh] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // Số đo tác động UX nằm trong localStorage của máy này: đọc sau khi mount để
+  // không lệch hydration, và không trộn với số liệu máy chủ trong cùng một con số.
+  const [uxEvents, setUxEvents] = useState<UxEvent[]>([]);
+  useEffect(() => { setUxEvents(readUxEvents()); }, []);
+  const ux = summarizeUxImpact(uxEvents);
+  const uxMinutes = (value: number | null) => (value == null ? t('Chưa có số đo') : t('{0} phút', value < 1 ? '<1' : String(value)));
 
   const loadData = useCallback(async (initial = false) => {
     try {
@@ -235,6 +242,55 @@ export default function DashboardPage() {
                     </Box>
                   </Box>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 3 }}>{t("Cảnh báo trùng là số hồ sơ có ít nhất một tín hiệu chưa xử lý, không phải số cặp trùng.")}</Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            {/* Đo chính các cải tiến UX: thời gian HR ở trong hồ sơ, từ mở tới hoàn
+                tất, mức dùng lô, và số hồ sơ quá hạn. Hai loại số đo được tách rõ:
+                số cục bộ chỉ nói về trình duyệt này, số quá hạn lấy từ máy chủ. */}
+            <Grid item xs={12}>
+              <Card data-testid="ux-impact" sx={{ border: '1px solid #E9EEF4' }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                    <Box>
+                      <Typography variant="h2" sx={{ fontSize: 18, color: '#0A2B57' }}>{t('Tác động của cải tiến UX')}</Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, maxWidth: 760 }}>
+                        {t('Đo trên trình duyệt này: mở/rời hồ sơ, hoàn tất hồ sơ và các lô hành động. Không ghi tên, CV hay nội dung hồ sơ; số hồ sơ quá hạn lấy từ máy chủ nên là số toàn hệ thống.')}
+                      </Typography>
+                    </Box>
+                    <Button size="small" data-testid="ux-clear" onClick={() => { clearUxEvents(); setUxEvents([]); }} disabled={!uxEvents.length}>{t('Xoá số đo')}</Button>
+                  </Box>
+                  <Grid container spacing={3} sx={{ mt: 0.5 }}>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Typography variant="body2" color="text.secondary">{t('Thời gian xem hồ sơ trung bình')}</Typography>
+                      <Typography variant="h3" data-testid="ux-median-dwell" sx={{ mt: 0.5, fontSize: 24, fontWeight: 700, color: '#0A2B57' }}>{uxMinutes(ux.medianDwellMinutes)}</Typography>
+                      <Typography variant="caption" color="text.secondary">{t('Trung vị {0} lượt mở hồ sơ đã rời.', ux.profileCloses)}</Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Typography variant="body2" color="text.secondary">{t('Thời gian từ mở đến hoàn tất')}</Typography>
+                      <Typography variant="h3" data-testid="ux-completion" sx={{ mt: 0.5, fontSize: 24, fontWeight: 700, color: '#0A2B57' }}>{uxMinutes(ux.averageCompletionMinutes)}</Typography>
+                      <Typography variant="caption" color="text.secondary">{t('{0} hồ sơ đã hoàn tất trên trình duyệt này.', ux.verifiedProfiles)}</Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Typography variant="body2" color="text.secondary">{t('Hồ sơ chờ xác minh quá hạn')}</Typography>
+                      <Typography variant="h3" data-testid="ux-overdue" sx={{ mt: 0.5, fontSize: 24, fontWeight: 700, color: '#B54708' }}>{workQueue?.summary.applications_waiting_over_threshold ?? '—'}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {workQueue?.summary.oldest_waiting_days != null
+                          ? t('Quá {0} ngày · lâu nhất {1} ngày', workQueue.summary.waiting_attention_days ?? 7, workQueue.summary.oldest_waiting_days)
+                          : t('Chưa có dữ liệu tuổi hồ sơ từ máy chủ.')}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={3}>
+                      <Typography variant="body2" color="text.secondary">{t('Lô hành động đã dùng')}</Typography>
+                      <Typography variant="h3" data-testid="ux-bulk" sx={{ mt: 0.5, fontSize: 24, fontWeight: 700, color: '#0A2B57' }}>{ux.bulkRuns}</Typography>
+                      <Typography variant="caption" color="text.secondary">{t('{0} hồ sơ · {1} lỗi · trung bình {2}', ux.bulkRecords, ux.bulkFailedRecords, uxMinutes(ux.bulkAverageMinutes))}</Typography>
+                    </Grid>
+                  </Grid>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
+                    {ux.sampleSince
+                      ? t('Đo từ {0}.', new Date(ux.sampleSince).toLocaleString('vi-VN'))
+                      : t('Chưa có số đo nào: số liệu xuất hiện sau khi bạn mở hồ sơ hoặc chạy một lô.')}
+                  </Typography>
                 </CardContent>
               </Card>
             </Grid>
