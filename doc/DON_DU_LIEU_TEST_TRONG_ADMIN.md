@@ -68,7 +68,34 @@ nếu không bật lại được thì `RAISE EXCEPTION` huỷ cả lô. Có tes
 
 ## 5. Storage — phần dễ hỏng nhất
 
-Thứ tự trong code là: **thu thập đường dẫn → xoá DB → commit → xoá Storage**.
+### 5.1. Dọn tự động, kể cả file mồ côi **cũ**
+
+Vấn đề gốc: xoá dòng trong `application_documents` **không** xoá file trên
+Storage. Nếu chỉ xoá theo đường dẫn đã biết thì mọi file mà DB "quên" sẽ nằm lại
+vĩnh viễn — đúng 25 file mồ côi còn sót sau migration `00035`.
+
+Giải pháp: **đối soát**, không chỉ xoá theo danh sách. Mỗi lần chạy:
+
+1. Liệt kê **đệ quy** toàn bộ file trong `cv-originals` và `cv-extracted-text`.
+2. So với tập đường dẫn mà DB **còn** trỏ tới.
+3. Xoá phần dư.
+
+Nhờ vậy lần purge **kế tiếp** sẽ tự dọn nốt 25 file mồ côi hiện tại — không cần
+xoá tay trong dashboard Supabase nữa.
+
+Ba chốt an toàn của bước đối soát:
+
+| Chốt | Vì sao |
+|---|---|
+| Không chạy khi còn operation `PENDING`/`PROCESSING` | tránh xoá file vừa upload xong nhưng chưa kịp ghi dòng DB |
+| Bỏ qua file tạo trong **15 phút** gần nhất | lá chắn cho upload đang chạy dở (có test ghim) |
+| Không liệt kê được bucket → **không xoá gì** | thà còn rác hơn xoá nhầm; có test ghim |
+
+Bước xem trước hiện luôn số file mồ côi, tách theo từng bucket.
+
+### 5.2. Thứ tự thực thi
+
+**thu thập đường dẫn → xoá DB → commit → xoá theo đường dẫn → đối soát toàn bucket**
 
 Ba quyết định, mỗi cái vì một cách hỏng cụ thể:
 
@@ -95,6 +122,8 @@ Cột lưu path text trích xuất là `extracted_text_storage_path` — **khôn
 | Không có đường vòng qua POST | `POST /v1/admin/test-data/execute` token giả | **401** |
 | Thứ tự FK đúng | 23 unit test, có test ghim 3 cặp từng gây lỗi | **23/23** |
 | Test có giá trị thật | đảo thứ tự `positions`/`audit_events` → test phải đỏ | **đỏ đúng test đó**, hoàn nguyên → xanh |
+| Lá chắn 15 phút có tác dụng | đặt `MIN_AGE_SECONDS = 0` → test phải đỏ | **đỏ đúng test đó**, hoàn nguyên → xanh |
+| Đối soát phân biệt file / thư mục | 10 test với Storage giả (list một cấp, tự đi xuống) | **10/10** |
 
 **Chưa chạy được:** e2e trình duyệt (`tests/test-data-purge-mock.e2e.cjs`). Sandbox
 không tải được Chromium (`Failed to download Chrome for Testing`), và **toàn bộ**

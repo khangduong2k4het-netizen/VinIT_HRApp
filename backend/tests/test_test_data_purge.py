@@ -251,13 +251,57 @@ def test_storage_result_never_raises_into_success_path():
         def __init__(self, *a, **k):
             raise RuntimeError("storage down")
 
-    original = purge.delete_storage_objects
+    import app.services.storage_purge as sp
+
+    original_delete = purge.delete_storage_objects
+    original_sweep = sp.sweep_orphans
     purge.delete_storage_objects = Boom
+    sp.sweep_orphans = lambda db, **k: {"swept": True, "deleted": 0, "buckets": []}
     try:
         result, error = purge.delete_documents_from_storage(
-            [{"bucket": "b", "storage_path": "p"}], []
+            RecordingDB(), [{"bucket": "b", "storage_path": "p"}], []
+        )
+        # Xoá trực tiếp lỗi, nhưng đối soát thành công => không coi là thất bại.
+        assert error is None
+        assert result["error"] is True
+        assert result["sweep"]["swept"] is True
+    finally:
+        purge.delete_storage_objects = original_delete
+        sp.sweep_orphans = original_sweep
+
+
+def test_storage_error_reported_when_both_paths_fail():
+    """Cả xoá trực tiếp lẫn đối soát đều hỏng thì phải báo lỗi, không im lặng."""
+    class Boom:
+        def __init__(self, *a, **k):
+            raise RuntimeError("storage down")
+
+    import app.services.storage_purge as sp
+
+    original_delete = purge.delete_storage_objects
+    original_sweep = sp.sweep_orphans
+    purge.delete_storage_objects = Boom
+    sp.sweep_orphans = lambda db, **k: {"swept": False, "reason": "Không liệt kê được"}
+    try:
+        _result, error = purge.delete_documents_from_storage(
+            RecordingDB(), [{"bucket": "b", "storage_path": "p"}], []
         )
         assert error is not None
-        assert result["error"] is True
     finally:
-        purge.delete_storage_objects = original
+        purge.delete_storage_objects = original_delete
+        sp.sweep_orphans = original_sweep
+
+
+def test_storage_cleanup_called_after_commit_boundary():
+    """Đối soát Storage phải được gọi SAU khi xoá DB, không phải trong lúc."""
+    import app.services.storage_purge as sp
+
+    called = []
+    original = sp.sweep_orphans
+    sp.sweep_orphans = lambda db, **k: (called.append("swept") or {"swept": True, "deleted": 0})
+    db = RecordingDB()
+    try:
+        purge.delete_documents_from_storage(db, [], [])
+        assert called == ["swept"], "Phải đối soát Storage kể cả khi không có path trực tiếp"
+    finally:
+        sp.sweep_orphans = original

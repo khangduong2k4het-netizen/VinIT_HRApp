@@ -193,6 +193,12 @@ def preview(db, scopes: list[str]) -> dict:
             total += n
 
     storage = _storage_manifest(db, chosen)
+    # Đối soát thật với Storage: file nào DB không còn trỏ tới sẽ bị dọn.
+    # Đây là thứ khiến lần purge sau tự dọn được cả file mồ côi cũ.
+    if "CV" in chosen:
+        from app.services.storage_purge import count_orphans
+
+        storage["orphans"] = count_orphans(db)
 
     return {
         "requested_scopes": sorted(requested),
@@ -363,22 +369,41 @@ def execute(db, *, scopes: list[str], confirmation: str, actor_user_id: str) -> 
 
 
 def delete_documents_from_storage(
-    originals: list[dict[str, Any]], extracted_paths: list[str]
+    db, originals: list[dict[str, Any]], extracted_paths: list[str]
 ) -> tuple[dict[str, Any], str | None]:
-    """Xoá file CV khỏi Storage, trả về (kết quả, lỗi).
+    """Dọn Storage sau khi DB đã commit. Trả về (kết quả, lỗi).
 
-    Lỗi được trả về thay vì ném ra: DB đã commit xong, nên một lỗi Storage không
-    được phép biến thao tác đã-thành-công thành thất bại. Nhưng cũng không được
-    im lặng — ADMIN cần biết còn file mồ côi để xoá tay.
+    Hai bước, cố ý:
+
+    1. Xoá theo đường dẫn đã thu thập — nhanh, đúng ngay cả khi Storage tạm
+       không liệt kê được.
+    2. **Đối soát toàn bucket**: liệt kê mọi file, xoá những file DB không còn
+       trỏ tới. Đây là bước dọn được file mồ côi *cũ* (từ những lần xoá trước
+       chưa có tính năng này), và tự lành mỗi khi DB/Storage lệch nhau.
+
+    Lỗi được trả về thay vì ném ra: DB đã commit, nên lỗi Storage không được
+    phép biến thao tác đã-thành-công thành thất bại. Nhưng cũng không im lặng.
     """
-    if not originals and not extracted_paths:
-        return {"skipped": True, "reason": "Không có file nào thuộc phạm vi."}, None
-    try:
-        return delete_storage_objects(originals, extracted_paths), None
-    except Exception as exc:  # noqa: BLE001 - không lộ path/secret ra response
-        return {"skipped": False, "error": True}, str(
-            getattr(exc, "detail", "Không xoá được file trên Storage")
-        )
+    direct: dict[str, Any] = {"skipped": True}
+    direct_error: str | None = None
+    if originals or extracted_paths:
+        try:
+            direct = delete_storage_objects(originals, extracted_paths)
+        except Exception as exc:  # noqa: BLE001 - không lộ path/secret
+            direct = {"skipped": False, "error": True}
+            direct_error = str(getattr(exc, "detail", "Không xoá được file trên Storage"))
+
+    from app.services.storage_purge import sweep_orphans
+
+    sweep = sweep_orphans(db)
+
+    combined = {**direct, "sweep": sweep}
+    # Chỉ coi là lỗi khi CẢ HAI đường đều không dọn được.
+    if direct_error and not sweep.get("swept"):
+        return combined, direct_error
+    if not direct_error and sweep.get("swept") is False and sweep.get("reason"):
+        return combined, str(sweep["reason"])
+    return combined, None
 
 
 def collect_storage_targets(db, scopes: list[str]) -> tuple[list[dict[str, Any]], list[str]]:

@@ -1491,5 +1491,11 @@
   "Đã xoá {0} dòng.": "Deleted {0} rows.",
   "Đã xoá {0} file trên Storage.": "Deleted {0} files in Storage.",
   "Đếm dữ liệu sẽ xoá": "Count the data to be deleted",
-  "Dọn dữ liệu test": "Test data cleanup"
+  "Dọn dữ liệu test": "Test data cleanup",
+  "Có {0} file mồ côi trên Storage (DB không còn trỏ tới — thường do lần xoá trước). Chúng sẽ được dọn cùng lần này.": "There are {0} orphaned files in Storage (the database no longer references them — usually left by an earlier deletion). They will be cleaned up along with this run.",
+  "Giữ lại {0} file vừa tạo trong 15 phút qua — có thể đang được tải lên.": "Kept {0} files created in the last 15 minutes — they may still be uploading.",
+  "Không liệt kê được file trên Storage: {0}. Thao tác xoá vẫn chạy, nhưng sẽ không dọn được file mồ côi.": "Could not list the files in Storage: {0}. The deletion still runs, but orphaned files will not be cleaned up.",
+  "Không đối soát được Storage ({0}) — file CV sẽ không được dọn tự động.": "Storage could not be reconciled ({0}) — CV files will not be cleaned up automatically.",
+  "Storage không có file mồ côi.": "There are no orphaned files in Storage.",
+  "Đã dọn {0} file mồ côi trên Storage.": "Cleaned up {0} orphaned files in Storage."
 }

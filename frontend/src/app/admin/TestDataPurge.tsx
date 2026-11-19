@@ -42,7 +42,18 @@ interface Preview {
   implied_scopes: string[];
   tables: PreviewTable[];
   total_rows: number;
-  storage: { buckets: { bucket: string; documents: number }[]; objects: number; note: string };
+  storage: {
+    buckets: { bucket: string; documents: number }[];
+    objects: number;
+    note: string;
+    orphans?: {
+      supported: boolean;
+      reason?: string;
+      error?: string;
+      total_orphans?: number;
+      buckets?: { bucket: string; objects: number; orphans: number }[];
+    };
+  };
   protected: { table: string; rows: number }[];
 }
 
@@ -51,7 +62,13 @@ interface PurgeResult {
   rows_deleted: Record<string, number>;
   rows_total: number;
   skipped_tables: string[];
-  storage: { skipped?: boolean; error?: boolean; storage_objects_deleted?: number; storage_objects_missing?: number };
+  storage: {
+    skipped?: boolean;
+    error?: boolean;
+    storage_objects_deleted?: number;
+    storage_objects_missing?: number;
+    sweep?: { swept: boolean; deleted?: number; kept_fresh?: number; reason?: string };
+  };
   storage_error: string | null;
 }
 
@@ -237,6 +254,38 @@ export default function TestDataPurge() {
                 </Typography>
               )}
 
+              {(() => {
+                const orphans = preview.storage.orphans;
+                if (!orphans) return null;
+                if (!orphans.supported) {
+                  return (
+                    <Alert severity="info" sx={{ mt: 1.5 }} data-testid="purge-orphans-unsupported">
+                      {t('Không đối soát được Storage ({0}) — file CV sẽ không được dọn tự động.', orphans.reason || '')}
+                    </Alert>
+                  );
+                }
+                if (orphans.error) {
+                  return (
+                    <Alert severity="warning" sx={{ mt: 1.5 }} data-testid="purge-orphans-error">
+                      {t('Không liệt kê được file trên Storage: {0}. Thao tác xoá vẫn chạy, nhưng sẽ không dọn được file mồ côi.', orphans.error)}
+                    </Alert>
+                  );
+                }
+                const total = orphans.total_orphans || 0;
+                return (
+                  <Alert severity={total > 0 ? 'warning' : 'success'} sx={{ mt: 1.5 }} data-testid="purge-orphans">
+                    {total > 0
+                      ? t('Có {0} file mồ côi trên Storage (DB không còn trỏ tới — thường do lần xoá trước). Chúng sẽ được dọn cùng lần này.', String(total))
+                      : t('Storage không có file mồ côi.')}
+                    {(orphans.buckets || []).length > 0 && (
+                      <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                        {(orphans.buckets || []).map(b => `${b.bucket}: ${b.orphans}/${b.objects}`).join(' · ')}
+                      </Typography>
+                    )}
+                  </Alert>
+                );
+              })()}
+
               <Box sx={{ mt: 2, p: 1.5, backgroundColor: '#F5F8FC', borderRadius: 1 }}>
                 <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
                   {t('Những thứ KHÔNG bị xoá:')}
@@ -321,11 +370,11 @@ export default function TestDataPurge() {
                   {t('File còn lại không hiện trong ứng dụng nhưng vẫn chiếm chỗ. Xoá thủ công trong Supabase → Storage.')}
                 </Typography>
               </Alert>
-            ) : result.storage.storage_objects_deleted !== undefined ? (
+            ) : (result.storage.sweep?.swept ?? false) ? (
               <Alert severity="success">
-                {t('Đã xoá {0} file trên Storage.', String(result.storage.storage_objects_deleted))}
-                {(result.storage.storage_objects_missing ?? 0) > 0 &&
-                  ` ${t('{0} file đã không còn trước đó.', String(result.storage.storage_objects_missing))}`}
+                {t('Đã dọn {0} file mồ côi trên Storage.', String(result.storage.sweep?.deleted ?? 0))}
+                {(result.storage.sweep?.kept_fresh ?? 0) > 0 &&
+                  ` ${t('Giữ lại {0} file vừa tạo trong 15 phút qua — có thể đang được tải lên.', String(result.storage.sweep?.kept_fresh ?? 0))}`}
               </Alert>
             ) : (
               <Alert severity="info">{t('Phạm vi này không bao gồm file trên Storage.')}</Alert>

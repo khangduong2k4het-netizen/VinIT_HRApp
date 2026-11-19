@@ -103,6 +103,7 @@ def execute_purge(
         # Storage không nguyên tử với PostgreSQL. Lỗi ở đây không làm thao tác
         # thất bại, nhưng phải báo để ADMIN biết còn file mồ côi.
         storage, storage_error = purge.delete_documents_from_storage(
+            db,
             result.pop("storage_originals", []),
             result.pop("storage_extracted", []),
         )
