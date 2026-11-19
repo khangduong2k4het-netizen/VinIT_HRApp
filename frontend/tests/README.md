@@ -63,6 +63,11 @@ Storage, ClamAV or VPS involvement).
 Run with `HRA_E2E_BASE_URL` pointing at the local server and a Chromium
 executable (see the commands in `doc/PLAN_CAI_TIEN_WORKFLOW_UX_HR_HM.md`).
 
+- `bulk-actions.e2e.cjs` — the ranking list's multi-select and floating
+  action bar: every screening row (including NEW and not-yet-shortlisted ones)
+  is selectable, bulk shortlist only touches In review rows and reports the
+  skipped ones, bulk rejection stays blocked without one shared reason, and the
+  batch uses the existing per-application status endpoint only.
 - `finish-application.e2e.cjs` — the profile's `Đã xử lý xong hồ sơ này`
   action: citation verification cannot be recorded without the reviewer's
   attestation, finishing records the flagged citations, advances to the next

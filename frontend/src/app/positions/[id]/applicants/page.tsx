@@ -147,6 +147,12 @@ export default function ApplicantsRankingPage() {
   const [shareDueAt, setShareDueAt] = useState('');
   const [shareSubmitting, setShareSubmitting] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  // Chọn nhiều dòng để xử lý hàng loạt (shortlist / loại) bằng chính endpoint
+  // trạng thái hiện có; ma trận chuyển trạng thái vẫn quyết định việc gì hợp lệ.
+  const [bulkMode, setBulkMode] = useState<null | 'shortlist' | 'reject'>(null);
+  const [bulkReason, setBulkReason] = useState('');
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
   // Large applicant lists mount a bounded window; expanding "more" only affects
   // rendering, never ranks, filters or the set used for shortlist sharing.
   const [visibleLimit, setVisibleLimit] = useState(50);
@@ -400,8 +406,10 @@ export default function ApplicantsRankingPage() {
   };
 
   const handleSelectAllVisible = () => {
-    const visibleIds = filteredItems.filter(i => i.is_shortlisted).map(i => i.application_id);
-    const allSelected = visibleIds.every(id => selectedIds.has(id));
+    // Every screening row can be selected, shortlisted or not: the batch bar
+    // decides which of them a given action can actually touch.
+    const visibleIds = visibleItems.filter(i => inScreening(i.application_status)).map(i => i.application_id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.has(id));
     setSelectedIds(prev => {
       const next = new Set(prev);
       if (allSelected) visibleIds.forEach(id => next.delete(id));
@@ -421,13 +429,15 @@ export default function ApplicantsRankingPage() {
   };
 
   const handleShareSubmit = async () => {
-    if (!shareRecipient || selectedIds.size === 0) return;
+    if (!shareRecipient || selectedShortlistedIds.length === 0) return;
     try {
       setShareSubmitting(true); setShareError(null);
       await shortlistApi.create({
         position_id: positionId,
         shared_with_user_id: shareRecipient.user_id,
-        application_ids: Array.from(selectedIds),
+        // Sharing stays limited to Shortlist rows: a batch that also contains
+        // unreviewed records must not silently widen what the Hiring Manager sees.
+        application_ids: Array.from(selectedItems.filter(i => i.is_shortlisted).map(i => i.application_id)),
         note: '',
         allow_cv_view: shareAllowCv,
         ...(shareDueAt ? { due_at: new Date(shareDueAt).toISOString() } : {}),
@@ -469,6 +479,62 @@ export default function ApplicantsRankingPage() {
   const filteredItems = filterAndSortApplicantItems(rankingItems, queue, searchQuery, sort);
   const { visible: visibleItems, hasMore, nextLimit } = windowApplicantItems(filteredItems, visibleLimit);
   useEffect(() => { setVisibleLimit(50); }, [queue, sort, searchQuery]);
+
+  // --- Hành động hàng loạt ------------------------------------------------
+  // Chỉ hồ sơ còn trong vòng sàng lọc mới chọn được; hồ sơ đã phỏng vấn/đã loại
+  // là lịch sử, đưa vào lô sẽ làm sai biên bản. Việc gì hợp lệ vẫn do ma trận
+  // chuyển trạng thái quyết định: shortlist trực tiếp chỉ từ Đang xem.
+  const selectableItems = rankingItems.filter(item => inScreening(item.application_status));
+  const selectedItems = selectableItems.filter(item => selectedIds.has(item.application_id));
+  const selectedShortlistedIds = selectedItems.filter(item => item.is_shortlisted).map(item => item.application_id);
+  const bulkShortlistTargets = selectedItems.filter(item => item.application_status === 'IN_REVIEW');
+  const bulkShortlistSkipped = selectedItems.length - bulkShortlistTargets.length;
+  const bulkTargets = bulkMode === 'shortlist' ? bulkShortlistTargets : selectedItems;
+
+  const openBulk = (mode: 'shortlist' | 'reject') => {
+    setBulkMode(mode);
+    setBulkReason('');
+    setBulkError(null);
+  };
+  const closeBulk = () => {
+    if (bulkProcessing) return;
+    setBulkMode(null);
+    setBulkError(null);
+  };
+
+  const handleBulkApply = async () => {
+    if (!bulkMode || bulkProcessing) return;
+    const targets = bulkMode === 'shortlist' ? bulkShortlistTargets : selectedItems;
+    const reason = bulkReason.trim();
+    if (!targets.length) return;
+    if (bulkMode === 'reject' && !reason) return;
+    const newStatus = bulkMode === 'shortlist' ? 'SHORTLIST' : 'REJECTED_SCREENING';
+    setBulkProcessing(true);
+    setBulkError(null);
+    // Mỗi hồ sơ một lần gọi endpoint trạng thái hiện có. Không gộp thành giao dịch
+    // giả: lỗi một hồ sơ không được làm mất kết quả của những hồ sơ đã lưu.
+    const failures: string[] = [];
+    for (const item of targets) {
+      try {
+        await applicationsApi.updateStatus(item.application_id, newStatus, reason || undefined);
+      } catch (err: any) {
+        failures.push(`${item.candidate_name || item.application_id}: ${localizeServerMessage(err.response?.data?.detail || t('Lỗi không xác định'))}`);
+      }
+    }
+    setBulkProcessing(false);
+    if (failures.length === targets.length) {
+      setBulkError(t('Không cập nhật được hồ sơ nào. {0}', failures.join('; ')));
+      return;
+    }
+    setBulkMode(null);
+    setBulkReason('');
+    setSelectedIds(new Set());
+    await loadRanking();
+    const label = t(APPLICATION_STATUSES[newStatus].label);
+    setNotice(failures.length
+      ? t('Đã cập nhật {0}/{1} hồ sơ. {2} hồ sơ lỗi: {3}', targets.length - failures.length, targets.length, failures.length, failures.join('; '))
+      : t('Đã cập nhật {0} hồ sơ sang {1}.', targets.length, label));
+  };
 
   const storeNavigationContext = () => {
     storeApplicantNavigation({
@@ -682,13 +748,73 @@ export default function ApplicantsRankingPage() {
         </Alert>
       )}
 
-      {selectedIds.size > 0 && (
-        <Box sx={{ position: 'sticky', top: { xs: 72, md: 76 }, zIndex: 4, mb: 3, p: 1.5, border: '1px solid #B9CBE2', borderRadius: 2, backgroundColor: '#EFF8FF', display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-          <Typography variant="body2" fontWeight={700}>{t("Đã chọn {0} hồ sơ shortlist", selectedIds.size)}</Typography>
-          <Box sx={{ flex: 1 }} />
+      {/* Thanh hành động nổi: chỉ xuất hiện khi có lựa chọn, để danh sách không
+          mất chiều cao và người duyệt luôn thấy hành động nằm ngay tầm mắt. */}
+      {selectedItems.length > 0 && (
+        <Paper
+          elevation={8}
+          role="region"
+          aria-label={t('Hành động cho hồ sơ đã chọn')}
+          data-testid="bulk-action-bar"
+          sx={{
+            position: 'fixed',
+            bottom: { xs: 12, md: 24 },
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 5,
+            px: 2,
+            py: 1.25,
+            border: '1px solid #B9CBE2',
+            backgroundColor: '#EFF8FF',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            flexWrap: 'wrap',
+            maxWidth: 'calc(100% - 32px)',
+          }}
+        >
+          <Typography variant="body2" fontWeight={700} data-testid="bulk-selection-count">
+            {t("Đã chọn {0} hồ sơ", selectedItems.length)}
+          </Typography>
           <Button size="small" onClick={() => setSelectedIds(new Set())}>{t("Bỏ chọn")}</Button>
-          <Button size="small" variant="contained" color="secondary" startIcon={<ShareIcon />} onClick={handleOpenShare}>{t("Chia sẻ Shortlist")}</Button>
-        </Box>
+          <Box sx={{ flex: 1 }} />
+          <Tooltip title={bulkShortlistTargets.length > 0
+            ? t("Shortlist các hồ sơ đang ở trạng thái Đang xem trong lựa chọn")
+            : t("Chỉ hồ sơ đang ở trạng thái Đang xem mới shortlist trực tiếp được")}>
+            <span>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<BookmarkAddOutlinedIcon />}
+                onClick={() => openBulk('shortlist')}
+                disabled={bulkShortlistTargets.length === 0}
+                data-testid="bulk-shortlist-open"
+              >
+                {t("Shortlist {0} hồ sơ", bulkShortlistTargets.length)}
+              </Button>
+            </span>
+          </Tooltip>
+          <Button
+            size="small"
+            variant="outlined"
+            color="error"
+            onClick={() => openBulk('reject')}
+            data-testid="bulk-reject-open"
+          >
+            {t("Loại {0} hồ sơ", selectedItems.length)}
+          </Button>
+          <Button
+            size="small"
+            variant="contained"
+            color="secondary"
+            startIcon={<ShareIcon />}
+            onClick={handleOpenShare}
+            disabled={selectedShortlistedIds.length === 0}
+            data-testid="bulk-share"
+          >
+            {t("Chia sẻ Shortlist")}
+          </Button>
+        </Paper>
       )}
 
       {/* Nội dung nghiệp vụ giữ nguyên từng chữ; chỉ mặc định thu gọn vì nó
@@ -696,7 +822,7 @@ export default function ApplicantsRankingPage() {
       <Box sx={{ mb: 2 }}>
         <Collapse in={showHowToRead} timeout="auto" unmountOnExit>
           <Alert severity="info" id="how-to-read-applicants" sx={{ mb: 1 }}>
-            {t("Cách đọc danh sách: điểm một phần chỉ tính trên phần trọng số đã có bằng chứng (cột Độ phủ), chưa phải điểm cuối. Ô chọn ở đầu mỗi dòng chỉ dùng để chọn hồ sơ đã Shortlist khi chia sẻ cho Hiring Manager. Mở rộng từng dòng để xem kết quả theo từng tiêu chí.")}
+            {t("Cách đọc danh sách: điểm một phần chỉ tính trên phần trọng số đã có bằng chứng (cột Độ phủ), chưa phải điểm cuối. Ô chọn ở đầu mỗi dòng dùng để shortlist hoặc loại nhiều hồ sơ cùng lúc; hồ sơ đã Shortlist cũng có thể chọn để chia sẻ cho Hiring Manager. Mở rộng từng dòng để xem kết quả theo từng tiêu chí.")}
           </Alert>
         </Collapse>
       </Box>
@@ -723,8 +849,7 @@ export default function ApplicantsRankingPage() {
               <Typography variant="body2" sx={{ mt: 1.5 }}>{t("Điểm: ")}<strong>{item.matching_score == null ? '—' : `${item.matching_score}%`}</strong>{isPartialScore(item) && <Chip size="small" label={t("một phần")} sx={{ height: 20, fontSize: 10, ml: 0.5, backgroundColor: '#FFFAEB', color: '#B54708', fontWeight: 700 }} />}{t("· Độ phủ: ")}<strong>{item.evidence_coverage == null ? '—' : `${Math.round(item.evidence_coverage * 100)}%`}</strong></Typography>
               <Button size="small" onClick={() => toggleExpanded(item.application_id)} endIcon={expandedIds.has(item.application_id) ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />} sx={{ mt: 0.5, px: 0.5 }}>{t("Chi tiết tiêu chí")}</Button>
               {expandedIds.has(item.application_id) && <Box sx={{ mt: 1 }}>{renderCriterionBreakdown(item)}</Box>}
-              {item.is_shortlisted && <FormControlLabel sx={{ display: 'flex', mt: 0.5 }} control={<Checkbox checked={selectedIds.has(item.application_id)} onChange={() => handleToggleSelect(item.application_id)} />} label={t("Chọn để chia sẻ")} />}
-              {!item.is_shortlisted && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>{t("Chuyển hồ sơ sang Shortlist để chọn chia sẻ cho Hiring Manager.")}</Typography>}
+              {inScreening(item.application_status) && <FormControlLabel sx={{ display: 'flex', mt: 0.5 }} control={<Checkbox checked={selectedIds.has(item.application_id)} onChange={() => handleToggleSelect(item.application_id)} inputProps={{ 'aria-label': t("Chọn hồ sơ {0}", item.candidate_name || t("ứng viên")) }} />} label={t("Chọn hồ sơ")} />}
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 1.5 }}>
                 <Button component={Link} href={profileHref(item.application_id)} onClick={storeNavigationContext} variant="outlined" size="small">{t("Xem chi tiết")}</Button>
                 {(item.is_shortlisted || item.application_status === 'IN_REVIEW') && <Button size="small" onClick={() => handleToggleShortlist(item.application_id, !!item.is_shortlisted)}>{item.is_shortlisted ? t("Bỏ shortlist") : t("Thêm vào shortlist")}</Button>}
@@ -739,14 +864,16 @@ export default function ApplicantsRankingPage() {
           <TableHead>
             <TableRow>
               <TableCell padding="checkbox" width="40">
-                <Tooltip title={t("Chọn tất cả hồ sơ Shortlist đang hiển thị để chia sẻ")}>
+                <Tooltip title={t("Chọn tất cả hồ sơ đang hiển thị, kể cả chưa shortlist")}>
                   <span>
                     <Checkbox
-                      inputProps={{ 'aria-label': t("Chọn tất cả hồ sơ shortlist đang hiển thị") }}
-                      checked={filteredItems.filter(i => i.is_shortlisted).length > 0 && filteredItems.filter(i => i.is_shortlisted).every(i => selectedIds.has(i.application_id))}
-                      indeterminate={selectedIds.size > 0 && !filteredItems.filter(i => i.is_shortlisted).every(i => selectedIds.has(i.application_id))}
+                      inputProps={{ 'aria-label': t("Chọn tất cả hồ sơ đang hiển thị") }}
+                      checked={visibleItems.filter(i => inScreening(i.application_status)).length > 0
+                        && visibleItems.filter(i => inScreening(i.application_status)).every(i => selectedIds.has(i.application_id))}
+                      indeterminate={selectedItems.length > 0
+                        && !visibleItems.filter(i => inScreening(i.application_status)).every(i => selectedIds.has(i.application_id))}
                       onChange={handleSelectAllVisible}
-                      disabled={filteredItems.filter(i => i.is_shortlisted).length === 0}
+                      disabled={visibleItems.filter(i => inScreening(i.application_status)).length === 0}
                     />
                   </span>
                 </Tooltip>
@@ -774,12 +901,14 @@ export default function ApplicantsRankingPage() {
                 <React.Fragment key={item.application_id}>
                 <TableRow hover selected={selectedIds.has(item.application_id)}>
                   <TableCell padding="checkbox">
-                    <Tooltip title={item.is_shortlisted ? t("Chọn hồ sơ để chia sẻ shortlist") : t("Chỉ chọn được hồ sơ đã Shortlist để chia sẻ cho Hiring Manager")}>
+                    <Tooltip title={inScreening(item.application_status)
+                      ? t("Chọn hồ sơ {0} để xử lý hàng loạt", item.candidate_name || t("ứng viên"))
+                      : t("Hồ sơ ngoài vòng sàng lọc không chọn được vì đã qua bước này")}>
                       <span>
                         <Checkbox
-                          inputProps={{ 'aria-label': t("Chọn hồ sơ {0} để chia sẻ", item.candidate_name || t("ứng viên")) }}
+                          inputProps={{ 'aria-label': t("Chọn hồ sơ {0}", item.candidate_name || t("ứng viên")) }}
                           checked={selectedIds.has(item.application_id)}
-                          disabled={!item.is_shortlisted}
+                          disabled={!inScreening(item.application_status)}
                           onChange={() => handleToggleSelect(item.application_id)}
                         />
                       </span>
@@ -1023,10 +1152,10 @@ export default function ApplicantsRankingPage() {
           />
           <TextField fullWidth type="datetime-local" margin="normal" label={t('Hạn phản hồi tùy chọn')} InputLabelProps={{ shrink: true }} value={shareDueAt} onChange={e => setShareDueAt(e.target.value)} helperText={t('Để trống: 3 ngày làm việc theo giờ Việt Nam, chưa tính ngày lễ.')} />
           <Box sx={{ mt: 2 }}>
-            <Typography variant="subtitle2" sx={{ mb: 1 }}>{t("              Ứng viên được chia sẻ (")}{selectedIds.size})
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>{t("Ứng viên được chia sẻ ({0})", selectedShortlistedIds.length)}
             </Typography>
             <Box sx={{ maxHeight: 220, overflowY: 'auto', border: '1px solid #F2F4F7', borderRadius: 1, p: 1 }}>
-              {rankingItems.filter(i => selectedIds.has(i.application_id)).map(i => (
+              {rankingItems.filter(i => selectedShortlistedIds.includes(i.application_id)).map(i => (
                 <Box key={i.application_id} sx={{
                   display: 'flex',
                   justifyContent: 'space-between',
@@ -1044,8 +1173,8 @@ export default function ApplicantsRankingPage() {
                   />
                 </Box>
               ))}
-              {selectedIds.size === 0 && (
-                <Typography variant="caption" color="text.secondary">{t("Chưa chọn ứng viên nào. Hãy đánh dấu vào ô chọn ứng viên shortlist.")}</Typography>
+              {selectedShortlistedIds.length === 0 && (
+                <Typography variant="caption" color="text.secondary">{t("Chưa chọn hồ sơ nào đã Shortlist. Hãy chọn hồ sơ Shortlist trong danh sách.")}</Typography>
               )}
             </Box>
             <FormControlLabel
@@ -1066,12 +1195,71 @@ export default function ApplicantsRankingPage() {
             variant="contained"
             color="secondary"
             onClick={handleShareSubmit}
-            disabled={!shareRecipient || selectedIds.size === 0 || shareSubmitting}
+            disabled={!shareRecipient || selectedShortlistedIds.length === 0 || shareSubmitting}
           >
             {shareSubmitting ? t("Đang gửi...") : t("Chia sẻ")}
           </Button>
         </DialogActions>
       </Dialog>
+      {/* Xác nhận hàng loạt: nêu đúng số hồ sơ sẽ đổi, số bị bỏ qua và lý do chung
+          trước khi ghi bất cứ thứ gì. */}
+      <Dialog open={Boolean(bulkMode)} onClose={closeBulk} maxWidth="sm" fullWidth data-testid="bulk-dialog">
+        <DialogTitle>
+          {bulkMode === 'shortlist'
+            ? t("Shortlist {0} hồ sơ", bulkShortlistTargets.length)
+            : t("Loại {0} hồ sơ", selectedItems.length)}
+        </DialogTitle>
+        <DialogContent dividers>
+          {bulkError && <Alert severity="error" sx={{ mb: 2 }}>{t(bulkError)}</Alert>}
+          {bulkMode === 'shortlist' ? (
+            <>
+              <DialogContentText sx={{ mb: 1.5 }}>
+                {t("Các hồ sơ dưới đây chuyển sang trạng thái Shortlist. Trạng thái của từng hồ sơ được ghi nhận riêng như khi bấm trên từng dòng.")}
+              </DialogContentText>
+              {bulkShortlistSkipped > 0 && (
+                <Alert severity="warning" sx={{ mb: 2 }} data-testid="bulk-skipped">
+                  {t("Bỏ qua {0} hồ sơ trong lựa chọn vì chưa ở trạng thái Đang xem (hồ sơ Mới cần chuyển sang Đang xem trước; hồ sơ đã Shortlist không cần làm lại).", bulkShortlistSkipped)}
+                </Alert>
+              )}
+            </>
+          ) : (
+            <DialogContentText sx={{ mb: 1.5 }}>
+              {t("Các hồ sơ dưới đây bị loại ở vòng sàng lọc. Lý do bên dưới được ghi cho từng hồ sơ.")}
+            </DialogContentText>
+          )}
+          <Box sx={{ mb: 1.5 }} component="ul">
+            {(bulkTargets).map(item => (
+              <li key={item.application_id}><Typography variant="body2">{item.candidate_name || t("Chưa trích xuất tên")}</Typography></li>
+            ))}
+          </Box>
+          <TextField
+            fullWidth
+            multiline
+            minRows={2}
+            label={bulkMode === 'shortlist' ? t("Lý do chung (tùy chọn)") : t("Lý do chung (bắt buộc)")}
+            required={bulkMode === 'reject'}
+            value={bulkReason}
+            onChange={event => setBulkReason(event.target.value)}
+            inputProps={{ maxLength: 1000 }}
+            helperText={bulkMode === 'reject' ? t("Lý do này được ghi cho mọi hồ sơ bị loại trong lần này.") : undefined}
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={closeBulk} disabled={bulkProcessing}>{t("Hủy")}</Button>
+          <Button
+            variant="contained"
+            color={bulkMode === 'shortlist' ? 'secondary' : 'error'}
+            onClick={handleBulkApply}
+            disabled={bulkProcessing || bulkTargets.length === 0 || (bulkMode === 'reject' && !bulkReason.trim())}
+            data-testid="bulk-confirm"
+          >
+            {bulkProcessing
+              ? t("Đang cập nhật {0} hồ sơ…", bulkTargets.length)
+              : bulkMode === 'shortlist' ? t("Shortlist") : t("Loại hồ sơ")}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <ActionFeedback success={notice} onSuccessClose={() => setNotice(null)} />
     </Box>
   );
