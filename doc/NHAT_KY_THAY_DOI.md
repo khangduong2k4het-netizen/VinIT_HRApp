@@ -9,6 +9,50 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-19 — Nút “Đã xử lý xong hồ sơ này” cho người chỉ có quyền xác minh
+
+**Vấn đề.** Nút hoàn tất hồ sơ và cả nút xác nhận/xoá từng tiêu chí đều bị khoá
+theo `can_update_status`. Backend lại cho phép xác minh bằng chứng theo
+`can_manage_hr_notes` (`POST /assessments/results/{id}/review`). Người chỉ được
+xác minh bằng chứng vì vậy không có cách nào đưa hồ sơ ra khỏi hàng đợi “Cần xác
+minh” — vòng hoàn tất bị khoá cứng.
+
+**Thay đổi** (chỉ frontend; không thêm endpoint, không đổi state machine, không
+đổi quyền ở backend):
+
+- `frontend/src/app/positions/[id]/applicants/[applicantId]/page.tsx`: nút hoàn
+  tất và nút xác nhận tiêu chí hiện khi người dùng **xác minh được bằng chứng
+  hoặc đổi được trạng thái** (`can_manage_hr_notes || can_update_status`), không
+  còn phụ thuộc riêng `can_update_status`.
+- Hộp thoại hoàn tất: phần chọn trạng thái (dropdown, lý do loại, ghi chú) chỉ
+  hiện khi có quyền đổi trạng thái. Khi không có quyền đó, hộp thoại ghi rõ
+  “Bạn chỉ có quyền xác minh bằng chứng; hồ sơ giữ nguyên trạng thái sau khi
+  hoàn tất.” và `handleFinish` không gọi API đổi trạng thái.
+- Thanh điều hướng hồ sơ trước/tiếp theo và đường quay lại danh sách xếp hạng
+  cũng dùng điều kiện trên, để người chỉ xác minh vẫn đi hết hàng đợi.
+- `frontend/src/i18n/en.json`: thêm bản dịch cho câu giải thích mới.
+
+**Kiểm thử.**
+
+| Lệnh | Kết quả |
+| --- | --- |
+| `npm run type-check` / `npm run lint` / `npm run test:i18n` / `npm run test:unit` | pass |
+| `npm run build` | pass |
+| `npm run test:e2e:verify-only` (mới) | pass |
+| `npm run test:e2e:finish-application`, `ux02-review`, `ux04-sticky-viewer`, `ux08-feedback`, `ranking-compact`, `duplicate-warning` | pass |
+
+E2E mới dùng hồ sơ giả `app-verifier` (`can_update_status: false`,
+`can_manage_hr_notes: true`) và xác nhận: nút hoàn tất hiện; hộp thoại không có
+`finish-status` nhưng có thông báo giải thích; vẫn bắt buộc tick xác nhận đã xem
+bằng chứng; khi xác nhận chỉ gọi `POST .../review` cho từng tiêu chí, **không**
+gửi `PATCH .../status`; sau đó chuyển sang danh sách kèm cờ `completed=1`.
+
+**Chưa kiểm.** Chưa chạy với backend thật. Nhánh quyền chỉ-xác-minh hiện chỉ
+được dựng bằng mock; nếu backend đổi cổng quyền của endpoint review thì frontend
+phải đổi theo cùng. Khi người dùng chỉ có quyền đổi trạng thái (ví dụ ADMIN toàn
+cục, `can_manage_hr_notes` false) nút xác nhận tiêu chí vẫn hiện như trước và
+backend vẫn có thể trả 403 — hành vi cũ, không thuộc phạm vi thay đổi này.
+
 ## 2026-11-19 — Một bộ từ vựng hàng đợi, bỏ thuật ngữ “matching”, ngày theo ngôn ngữ
 
 **Vấn đề.** Dashboard và trang xếp hạng gọi cùng một việc bằng hai tên khác nhau

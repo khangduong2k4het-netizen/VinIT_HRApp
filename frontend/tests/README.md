@@ -63,6 +63,10 @@ Storage, ClamAV or VPS involvement).
 Run with `HRA_E2E_BASE_URL` pointing at the local server and a Chromium
 executable (see the commands in `doc/PLAN_CAI_TIEN_WORKFLOW_UX_HR_HM.md`).
 
+- `verify-only.e2e.cjs` — the finish action for a reviewer who may verify
+  evidence but not change status: the action is available, the status picker is
+  hidden with an explanation, verification is recorded with the attestation, no
+  status PATCH is sent, and the completion flag still carries over.
 - `vocabulary-locale.e2e.cjs` — one work vocabulary for both queue screens:
   the dashboard and the ranking chips use the same three clusters (Cần tôi xử
   lý / Cần tôi quyết / Đã quyết) and the same wording per task, no screen shows

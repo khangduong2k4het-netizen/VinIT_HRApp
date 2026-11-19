@@ -408,9 +408,19 @@ export default function ApplicantDetailPage() {
   const statusLabel = currentStatus ? APPLICATION_STATUSES[currentStatus] : null;
   const selectedLabel = isApplicationStatus(newStatus) ? t(APPLICATION_STATUSES[newStatus].label) : newStatus;
   const isPdf = application.documents?.[0]?.mime_type === 'application/pdf' || /\.pdf$/i.test(application.documents?.[0]?.original_filename || '');
+  // Hai quyền khác nhau: xác minh bằng chứng (can_manage_hr_notes, đúng cổng của
+  // endpoint review) và đổi trạng thái (can_update_status). Người chỉ có quyền
+  // xác minh vẫn phải đi hết vòng hoàn tất hồ sơ; chỉ phần đổi trạng thái bị ẩn.
+  const canVerifyCriteria = Boolean(application.can_manage_hr_notes);
+  const canUpdateStatus = Boolean(application.can_update_status);
+  // Either capability is enough to work the verification loop: HR with only the
+  // status permission keeps the review controls it has always had, and HR with
+  // only the evidence permission (can_manage_hr_notes) is no longer locked out.
+  const canWorkVerification = canVerifyCriteria || canUpdateStatus;
+  const canBrowseProfiles = canWorkVerification;
   const browseIds = urlQueue ?? navigationContext?.applicationIds ?? null;
   const browseTotal = browseIds?.length ?? 0;
-  const navigationIndex = application.can_update_status && !shareContext && browseIds ? browseIds.indexOf(applicantId) : -1;
+  const navigationIndex = canBrowseProfiles && !shareContext && browseIds ? browseIds.indexOf(applicantId) : -1;
   const previousApplicantId = navigationIndex > 0 ? browseIds?.[navigationIndex - 1] : undefined;
   const nextApplicantId = browseIds && navigationIndex >= 0 && navigationIndex < browseIds.length - 1
     ? browseIds[navigationIndex + 1]
@@ -425,7 +435,7 @@ export default function ApplicantDetailPage() {
   if (sortForBack) backSearch.set('sort', sortForBack);
   if (searchForBack.trim()) backSearch.set('q', searchForBack.trim());
   backSearch.set('restore', 'scroll');
-  const backHref = shareContext ? `/shortlist/${encodeURIComponent(shareContext)}` : application.can_update_status
+  const backHref = shareContext ? `/shortlist/${encodeURIComponent(shareContext)}` : canBrowseProfiles
     ? `/positions/${positionId}/applicants?${backSearch.toString()}`
     : '/shortlist';
   // Keep stepping through the same filtered queue instead of dropping the
@@ -438,7 +448,7 @@ export default function ApplicantDetailPage() {
   // review từng tiêu chí bị gắn cờ, rồi PATCH trạng thái theo APPLICATION_TRANSITIONS,
   // rồi điều hướng. Không có endpoint mới và không có bước nhảy trạng thái nào.
   const pendingResults = pendingCriteria.filter(result => Boolean(result.result_id));
-  const canFinish = Boolean(application.can_update_status) && !shareContext;
+  const canFinish = canWorkVerification && !shareContext;
   const withCompletedFlag = (href: string) => {
     const [path, query = ''] = href.split('?');
     const search = new URLSearchParams(query);
@@ -464,7 +474,7 @@ export default function ApplicantDetailPage() {
       for (const result of pendingResults) {
         await assessmentsApi.reviewCriterionResult(result.result_id as string, 'CONFIRMED');
       }
-      if (finishStatus && finishStatus !== application.application_status) {
+      if (canUpdateStatus && finishStatus && finishStatus !== application.application_status) {
         await applicationsApi.updateStatus(applicantId, finishStatus, finishReason.trim() || undefined, finishNote.trim() || undefined);
       }
       setFinishOpen(false);
@@ -489,7 +499,7 @@ export default function ApplicantDetailPage() {
         startIcon={<ArrowBackIcon />}
         sx={{ color: '#0A2B57', mb: 2 }}
       >
-        {application.can_update_status && !shareContext ? t("Quay lại danh sách xếp hạng") : t("Quay lại shortlist")}
+        {canBrowseProfiles && !shareContext ? t("Quay lại danh sách xếp hạng") : t("Quay lại shortlist")}
       </Button>
 
       <StickyActionBar>
@@ -747,7 +757,7 @@ export default function ApplicantDetailPage() {
                   isPdf={isPdf}
                   hasCv={Boolean(cvUrl)}
                   selected={selectedEvidenceId === result.criterion_id}
-                  canReview={Boolean(application.can_update_status) && !shareContext && reviewSaving === null}
+                  canReview={canWorkVerification && !shareContext && reviewSaving === null}
                   onReview={handleReview}
                   onJumpToPage={(page, criterionId) => { setSelectedEvidenceId(criterionId); jumpToPage(page); }}
                 />
@@ -875,24 +885,32 @@ export default function ApplicantDetailPage() {
             </Box>
           )}
 
-          <Typography variant="subtitle2" sx={{ mt: 1, mb: 1 }}>{t('Trạng thái hồ sơ')}</Typography>
-          <FormControl fullWidth size="small" sx={{ mb: 2 }} data-testid="finish-status">
-            <InputLabel id="finish-status-label">{t('Sau khi hoàn tất')}</InputLabel>
-            <Select labelId="finish-status-label" label={t('Sau khi hoàn tất')} value={finishStatus}
-              onChange={event => setFinishStatus(event.target.value)}>
-              <MenuItem value="">{t('Giữ nguyên trạng thái')}</MenuItem>
-              {nextStatuses.map(code => (
-                <MenuItem key={code} value={code}>{t(APPLICATION_STATUSES[code].label)}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          {finishStatus.startsWith('REJECTED') && (
-            <TextField label={t('Lý do loại hồ sơ')} required fullWidth multiline minRows={2} value={finishReason}
-              onChange={event => setFinishReason(event.target.value)} inputProps={{ maxLength: 1000 }} sx={{ mb: 2 }} />
-          )}
-          {finishStatus && finishStatus !== application.application_status && (
-            <TextField label={t('Ghi chú (tùy chọn)')} fullWidth multiline minRows={2} value={finishNote}
-              onChange={event => setFinishNote(event.target.value)} inputProps={{ maxLength: 2000 }} sx={{ mb: 2 }} />
+          {canUpdateStatus ? (
+            <>
+              <Typography variant="subtitle2" sx={{ mt: 1, mb: 1 }}>{t('Trạng thái hồ sơ')}</Typography>
+              <FormControl fullWidth size="small" sx={{ mb: 2 }} data-testid="finish-status">
+                <InputLabel id="finish-status-label">{t('Sau khi hoàn tất')}</InputLabel>
+                <Select labelId="finish-status-label" label={t('Sau khi hoàn tất')} value={finishStatus}
+                  onChange={event => setFinishStatus(event.target.value)}>
+                  <MenuItem value="">{t('Giữ nguyên trạng thái')}</MenuItem>
+                  {nextStatuses.map(code => (
+                    <MenuItem key={code} value={code}>{t(APPLICATION_STATUSES[code].label)}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              {finishStatus.startsWith('REJECTED') && (
+                <TextField label={t('Lý do loại hồ sơ')} required fullWidth multiline minRows={2} value={finishReason}
+                  onChange={event => setFinishReason(event.target.value)} inputProps={{ maxLength: 1000 }} sx={{ mb: 2 }} />
+              )}
+              {finishStatus && finishStatus !== application.application_status && (
+                <TextField label={t('Ghi chú (tùy chọn)')} fullWidth multiline minRows={2} value={finishNote}
+                  onChange={event => setFinishNote(event.target.value)} inputProps={{ maxLength: 2000 }} sx={{ mb: 2 }} />
+              )}
+            </>
+          ) : (
+            <Alert severity="info" sx={{ mt: 1, mb: 2 }} data-testid="finish-no-status-permission">
+              {t('Bạn chỉ có quyền xác minh bằng chứng; hồ sơ giữ nguyên trạng thái sau khi hoàn tất.')}
+            </Alert>
           )}
 
           {nextApplicantId ? (

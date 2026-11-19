@@ -340,6 +340,21 @@ function installMockApi(context, overrides = {}) {
     if (p === '/v1/applications/app-2/cv-file') {
       return r.fulfill({ status: 200, contentType: 'application/pdf', body: '%PDF-1.4\n' });
     }
+    // A reviewer who may verify evidence but may NOT change the application
+    // status: the finish action must still work, with no status picker.
+    if (p === '/v1/applications/app-verifier') {
+      return json({
+        ...detail,
+        application_id: 'app-verifier',
+        candidate_name: 'Đỗ Minh Xác',
+        identity: { ...detail.identity, display_name: 'Đỗ Minh Xác' },
+        // Verifies evidence only: the review endpoint's gate is this flag, while
+        // the finish action must not require the status permission.
+        can_update_status: false,
+        can_manage_hr_notes: true,
+        latest_assessment: { ...detail.latest_assessment, application_id: 'app-verifier' },
+      });
+    }
     // Any other application row from the ranking can be opened too: finishing a
     // profile advances to the next one, and that page must load in the mock.
     const applicationMatch = p.match(/^\/v1\/applications\/(app-\d+)$/);
@@ -364,7 +379,8 @@ function installMockApi(context, overrides = {}) {
       const body = JSON.parse(r.request().postData() || '{}');
       return json({ ...detail, application_id: statusMatch[1], application_status: body.new_status });
     }
-    if (/^\/v1\/applications\/app-\d+\/(status-events|profile|cv-file)$/.test(p)) {
+    if (/^\/v1\/applications\/(app-\d+|app-verifier)\/private-notes$/.test(p)) return json([]);
+    if (/^\/v1\/applications\/(app-\d+|app-verifier)\/(status-events|profile|cv-file)$/.test(p)) {
       if (p.endsWith('/status-events')) return json(statusEvents);
       if (p.endsWith('/profile')) return json(profile);
       return r.fulfill({ status: 200, contentType: 'application/pdf', body: '%PDF-1.4\n' });

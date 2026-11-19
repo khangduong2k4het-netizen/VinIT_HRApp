@@ -1561,5 +1561,6 @@
   "{0} việc": "{0} tasks",
   "{0} hồ sơ đã xác minh xong": "{0} applications verified",
   "Chưa có hồ sơ nào được xác minh xong.": "No application has been fully verified yet.",
-  "Không có việc nào trong nhóm này.": "No tasks in this group."
+  "Không có việc nào trong nhóm này.": "No tasks in this group.",
+  "Bạn chỉ có quyền xác minh bằng chứng; hồ sơ giữ nguyên trạng thái sau khi hoàn tất.": "You can verify evidence but not change status; the application keeps its current status after finishing."
 }
