@@ -520,8 +520,9 @@ export default function ApplicantDetailPage() {
         </Grid>
       </Grid>
 
-      {application.can_view_cv && <CandidateProfilePanel key={applicantId} applicationId={applicantId} canEdit={!!application.can_update_status} onSaved={() => { loadData(); }} />}
-      {application.can_manage_hr_notes && <HRNotesPanel key={applicantId} applicationId={applicantId} />}
+      {/* Sibling keys must differ: both panels used key={applicantId}, which React reports as duplicate keys. */}
+      {application.can_view_cv && <CandidateProfilePanel key={`profile-${applicantId}`} applicationId={applicantId} canEdit={!!application.can_update_status} onSaved={() => { loadData(); }} />}
+      {application.can_manage_hr_notes && <HRNotesPanel key={`notes-${applicantId}`} applicationId={applicantId} />}
       {application.can_update_status && <CrossDuplicatesPanel key={`duplicates-${applicantId}`} applicationId={applicantId}
         versionKey={JSON.stringify(application.identity)} />}
 
