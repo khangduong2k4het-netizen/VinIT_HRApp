@@ -130,7 +130,6 @@ export default function PositionDetailPage() {
   const [selectedJdId, setSelectedJdId] = useState('');
   const [jdDialogOpen, setJdDialogOpen] = useState(false);
   const [jdContent, setJdContent] = useState('');
-  const [jdLanguage, setJdLanguage] = useState<'vi' | 'en'>('vi');
   const [jdExpected, setJdExpected] = useState('');
   const [jdError, setJdError] = useState<string | null>(null);
   const [jdBaseline, setJdBaseline] = useState('');
@@ -177,7 +176,7 @@ export default function PositionDetailPage() {
   const [appCounts, setAppCounts] = useState<{total: number; processing: number; needs_review: number; shortlisted: number} | null>(null);
 
   const latestJd = jdVersions[0];
-  const jdDirty = jdDialogOpen && (jdContent !== jdBaseline || jdLanguage !== (latestJd?.language_code || 'vi'));
+  const jdDirty = jdDialogOpen && jdContent !== jdBaseline;
   useUnsavedChangesGuard(jdDirty, t('Nội dung JD chưa lưu sẽ bị mất. Tiếp tục?'));
   const approvedCriteria = criteriaVersions.find(c => c.status === 'APPROVED' && c.jd_version_id === latestJd?.jd_version_id);
   // Versions are returned newest-first. A newer draft/rejected version must not
@@ -435,7 +434,7 @@ export default function PositionDetailPage() {
     if (!jdContent.trim() || !jdExpected || savingJd) return;
     try {
       setSavingJd(true); setJdError(null);
-      const response = await positionsApi.createJdVersion(positionId, { content_text: jdContent.trim(), language_code: jdLanguage, expected_jd_version_id: jdExpected });
+      const response = await positionsApi.createJdVersion(positionId, { content_text: jdContent.trim(), expected_jd_version_id: jdExpected });
       setJdDialogOpen(false); setSelectedJdId(response.data.jd_version_id);
       await loadData();
     } catch (err: any) { setJdError(err.response?.data?.detail || t("Không thể lưu phiên bản JD.")); }
@@ -1032,7 +1031,7 @@ export default function PositionDetailPage() {
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', mb: 2 }}>
             <Typography variant="h4">{t("Mô tả công việc")}</Typography>
             {isHR && <Button variant="outlined" startIcon={<EditOutlinedIcon />} disabled={!latestJd || isOperationRunning}
-              onClick={() => { if (latestJd) { setJdContent(latestJd.content_text); setJdBaseline(latestJd.content_text); setJdLanguage(latestJd.language_code); setJdExpected(latestJd.jd_version_id); setJdError(null); setJdDialogOpen(true); } }}>{t("Tạo phiên bản JD mới")}</Button>}
+              onClick={() => { if (latestJd) { setJdContent(latestJd.content_text); setJdBaseline(latestJd.content_text); setJdExpected(latestJd.jd_version_id); setJdError(null); setJdDialogOpen(true); } }}>{t("Tạo phiên bản JD mới")}</Button>}
           </Box>
           {jdVersions.length > 0 ? <>
             <FormControl size="small" sx={{ minWidth: 180, mb: 2 }}><InputLabel id="jd-version-label">{t("Phiên bản JD")}</InputLabel>
@@ -1049,9 +1048,7 @@ export default function PositionDetailPage() {
         <DialogContent>
           <Alert severity="info" sx={{ mt: 1, mb: 2 }}>{t("Phiên bản cũ được giữ lại. Sau khi lưu, cần tạo và duyệt tiêu chí mới trước khi xử lý thêm CV.")}</Alert>
           {jdError && <Alert severity="error" sx={{ mb: 2 }}>{t(jdError)}</Alert>}
-          <FormControl size="small" sx={{ minWidth: 180, mb: 2 }}><InputLabel id="jd-language-label">{t("Ngôn ngữ JD")}</InputLabel>
-            <Select labelId="jd-language-label" label={t("Ngôn ngữ JD")} value={jdLanguage} onChange={e => setJdLanguage(e.target.value as 'vi' | 'en')}><MenuItem value="vi">{t("Tiếng Việt")}</MenuItem><MenuItem value="en">English</MenuItem></Select>
-          </FormControl>
+          {/* Không còn ô chọn ngôn ngữ: máy chủ tự dò từ nội dung JD. */}
           <TextField label={t("Nội dung JD")} required fullWidth multiline minRows={12} value={jdContent} onChange={e => setJdContent(e.target.value)} inputProps={{ maxLength: 100000 }} />
         </DialogContent>
         <DialogActions><Button onClick={() => { if (!jdDirty || window.confirm(t('Nội dung JD chưa lưu sẽ bị mất. Tiếp tục?'))) setJdDialogOpen(false); }} disabled={savingJd}>{t("Hủy")}</Button>

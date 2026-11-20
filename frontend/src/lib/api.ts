@@ -76,7 +76,8 @@ export const positionsApi = {
   getDuplicateSignals: (id: string) => apiClient.get<DuplicateSignal[]>(`/positions/${id}/duplicate-signals`),
   update: (id: string, data: any) => apiClient.patch(`/positions/${id}`, data),
   getJdVersions: (id: string) => apiClient.get(`/positions/${id}/jd-versions`),
-  createJdVersion: (id: string, data: { content_text: string; language_code: string; expected_jd_version_id: string }) => apiClient.post(`/positions/${id}/jd-versions`, data),
+  // language_code KHÔNG còn gửi lên: máy chủ tự dò ngôn ngữ từ nội dung JD.
+  createJdVersion: (id: string, data: { content_text: string; expected_jd_version_id: string }) => apiClient.post(`/positions/${id}/jd-versions`, data),
 };
 
 export const departmentsApi = {

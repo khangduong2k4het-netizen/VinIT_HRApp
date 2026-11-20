@@ -80,7 +80,7 @@ const json = (r,b,s=200) => r.fulfill({status:s,contentType:'application/json',b
  assert.equal(await page.getByRole('dialog').count(),0,'no stuck dialog after a cut request');
  assert.equal(state.retried.request_id,state.created.request_id,'retry must reuse the request id');
  assert.equal(state.retried.jd_content,state.created.jd_content,'retry must not resend edited content');
- assert.equal(state.created.jd_language_code,'vi'); assert.match(state.created.jd_content,/JD giả từ link/); assert.equal(state.created.department_id,'dept'); assert.equal(state.created.hiring_manager_user_id,'hm');
+ assert.equal('jd_language_code' in state.created,false,'ngôn ngữ JD không còn do client chọn'); assert.match(state.created.jd_content,/JD giả từ link/); assert.equal(state.created.department_id,'dept'); assert.equal(state.created.hiring_manager_user_id,'hm');
  await browser.close(); if(errors.length) throw Error(errors.join('\n'));
  console.log('Create page, required JD, mocked imports, auto criteria generation, optional create retry and replay-safe navigation: OK; all /v1 intercepted.');
 })().catch(e=>{console.error(e);process.exit(1)});

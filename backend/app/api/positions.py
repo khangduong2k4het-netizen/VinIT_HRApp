@@ -7,6 +7,7 @@ from app.core.permissions import check_position_access, can_update_application_s
 from app.schemas.positions import Position, PositionCreate, PositionUpdate, PositionWithStats, PositionStatus, JDVersionCreate, HiringManagerChange
 from app.db.database import SessionLocal
 from app.services.departments import DepartmentError, next_position_code
+from app.services.language_detect import detect_language_code
 from app.services.workspace import build_workflow
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -174,6 +175,9 @@ async def create_position(
             family_name = db.execute(text("SELECT name FROM app_private.job_families WHERE job_family_id=:id AND is_active FOR SHARE"), {'id': str(position_data.job_family_id)}).scalar_one_or_none()
             if family_name is None:
                 raise HTTPException(status_code=400, detail="Nhóm vị trí không hoạt động")
+        # Ngôn ngữ suy ra từ chính nội dung JD, không hỏi người dùng. Ô chọn
+        # ngôn ngữ cũ đã bỏ vì giá trị của nó không được nơi nào dùng.
+        jd_language = detect_language_code(position_data.jd_content)
         params = position_data.model_dump(exclude={"jd_content", "hiring_manager_user_id", "jd_language_code", "request_id"})
         params.update({
             "position_code": position_code,
@@ -199,7 +203,7 @@ async def create_position(
         db.execute(text("""
             INSERT INTO app_private.jd_versions (position_id, version_number, content_text, language_code, created_by)
             VALUES (:position_id, 1, :content, :language, :user_id)
-        """), {"position_id": position_id, "content": position_data.jd_content, "language": position_data.jd_language_code, "user_id": user_id})
+        """), {"position_id": position_id, "content": position_data.jd_content, "language": jd_language, "user_id": user_id})
         for assigned_user, role in ((user_id, "HR_RECRUITER"), (hm_id, "HIRING_MANAGER")):
             db.execute(text("""
                 INSERT INTO app_private.position_assignments (position_id, user_id, position_role, assigned_by)
@@ -595,7 +599,10 @@ async def create_jd_version(position_id: UUID, request: JDVersionCreate, current
             INSERT INTO app_private.jd_versions (position_id, version_number, content_text, language_code, created_by)
             VALUES (:position, :version, :content, :language, :user_id) RETURNING *
         """), {"position": position, "version": latest["version_number"] + 1, "content": content,
-                "language": request.language_code, "user_id": current_user["user_id"]}).mappings().one()
+                # Dò từ nội dung; `language_code` trong request chỉ còn để client
+                # cũ không bị lỗi 422, giá trị gửi lên bị bỏ qua có chủ ý.
+                "language": detect_language_code(content),
+                "user_id": current_user["user_id"]}).mappings().one()
         db.execute(text("""
             INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, position_id, outcome)
             VALUES (:user_id, 'CREATE_JD_VERSION', 'JD_VERSION', :id, :position, 'SUCCESS')

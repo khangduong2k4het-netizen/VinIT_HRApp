@@ -43,7 +43,6 @@ export default function CreatePositionPage() {
   const navigating = useRef(false);
   const navTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Tiếng Anh là mặc định (nền tảng quốc tế); tiếng Việt vẫn là tuỳ chọn được phép.
-  const [language, setLanguage] = useState('en');
   // Validation appears once a field was visited, not on a pristine form.
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const touch = (field: string) => setTouched(current => current[field] ? current : { ...current, [field]: true });
@@ -51,7 +50,7 @@ export default function CreatePositionPage() {
   const submitting = useRef(false);
   const selectedDepartment = departments.find(d => d.department_id === department);
   const preview = selectedDepartment?.code_format.replace(/\{SEQ(?::(0+))?\}/, (_match, zeros: string | undefined) => String(selectedDepartment.next_sequence).padStart((zeros || '').length || 1, '0')) || '';
-  const dirty = !!(title || department || manager || content || url || file || family || deadline || language !== 'en');
+  const dirty = !!(title || department || manager || content || url || file || family || deadline);
   const missing = [
     !title.trim() ? t('Tên vị trí') : '',
     !department ? t('Đơn vị / Phòng ban') : '',
@@ -157,7 +156,7 @@ export default function CreatePositionPage() {
     if (!pendingRequest.current) {
       pendingRequest.current = { ...(idempotencySupported ? { request_id: globalThis.crypto.randomUUID() } : {}),
         department_id: department, title: title.trim(), hiring_manager_user_id: manager.user_id,
-        ...(family ? { job_family_id: family } : {}), jd_content: content.trim(), jd_language_code: language,
+        ...(family ? { job_family_id: family } : {}), jd_content: content.trim(),
         application_deadline_at: deadline ? new Date(deadline).toISOString() : null };
     }
     submitting.current = true; setBusy(true); setError('');
@@ -198,7 +197,9 @@ export default function CreatePositionPage() {
       </CardContent></Card>
       <Card variant="outlined" sx={{ mb: 2 }}><CardContent><Typography variant="h2" sx={{ fontSize: 20, mb: 2 }}>{t('2. Mô tả công việc (JD)')}</Typography>
         <Typography color="text.secondary" sx={{ mb: 2 }}>{t('Chọn cách nhập, sau đó rà soát và chỉnh sửa nội dung trước khi tạo.')}</Typography>
-        <TextField select label={t('Ngôn ngữ JD')} value={language} onChange={e => setLanguage(e.target.value)} sx={{ mb: 2, minWidth: 160 }} helperText={t('Mặc định là tiếng Anh; chọn Tiếng Việt nếu JD viết bằng tiếng Việt.')}><MenuItem value="en">English</MenuItem><MenuItem value="vi">Tiếng Việt</MenuItem></TextField>
+        {/* Không còn ô chọn ngôn ngữ JD. Ngôn ngữ được suy ra từ nội dung ở
+            máy chủ (app/services/language_detect.py) — ô cũ không ảnh hưởng gì
+            tới kết quả, nên để lại chỉ khiến HR tin nhầm là nó có tác dụng. */}
         <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 2 }}>
           {([['paste','Dán nội dung'],['file','Tải tệp DOCX / TXT'],['url','Nhập từ link']] as const).map(([key,label]) => <Button key={key} type="button" variant={source === key ? 'contained' : 'outlined'} onClick={() => { setSource(key); setError(''); }} aria-pressed={source === key}>{t(label)}</Button>)}
         </Stack>

@@ -138,7 +138,8 @@ const json = (route, body, status = 200) => route.fulfill({ status, contentType:
   // App Router navigates on the client, so only wait for the URL, not a document load.
   await hp.waitForURL('**/positions/position-id?tab=criteria', { waitUntil: 'commit' });
   assert.equal(state.directoryUrl.searchParams.get('role'), 'HIRING_MANAGER'); assert.equal(state.positionBody.hiring_manager_user_id, 'hm-id');
-  assert.equal(state.positionBody.jd_language_code, 'vi');
+  // Không còn gửi jd_language_code: máy chủ tự dò ngôn ngữ từ nội dung JD.
+  assert.equal('jd_language_code' in state.positionBody, false, 'ngôn ngữ JD không còn do client chọn');
   assert.match(state.positionBody.request_id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/, 'create sends a retry-safe request id');
   await hp.goto(base + '/admin/users'); await visible(hp, 'Chỉ quản trị viên mới có quyền truy cập.');
   console.log('HR selects an HM role and cannot access account administration: OK');

@@ -180,14 +180,19 @@ async def test_create_position_saves_first_jd_language_and_deadline_atomically(m
     monkeypatch.setattr(positions, 'SessionLocal', lambda: db)
     monkeypatch.setattr(positions, 'next_position_code', lambda *_: ('REQ-IT-001', 1))
     deadline = datetime(2030, 1, 1, tzinfo=timezone.utc)
-    p = PositionCreate(department_id=uuid4(), title='Demo', jd_content='JD giả', hiring_manager_user_id=uuid4(), jd_language_code='vi', application_deadline_at=deadline)
+    # `jd_language_code` vẫn được gửi (client cũ) nhưng bị BỎ QUA: ngôn ngữ suy
+    # ra từ nội dung. Ở đây nội dung là JD tiếng Việt thật nên kết quả phải 'vi'.
+    jd_text = ('Kỹ sư phần mềm Backend. Yêu cầu 5 năm kinh nghiệm với Python và '
+               'PostgreSQL. Chúng tôi cung cấp bảo hiểm sức khỏe và 15 ngày phép năm.')
+    p = PositionCreate(department_id=uuid4(), title='Demo', jd_content=jd_text, hiring_manager_user_id=uuid4(), jd_language_code='en', application_deadline_at=deadline)
     from fastapi import Response
     result = await positions.create_position(p, Response(), {'user_id': str(uuid4())})
     insert_position = next(x for x in db.calls if 'INSERT INTO app_private.positions' in x[0])
     insert_jd = next(x for x in db.calls if 'INSERT INTO app_private.jd_versions' in x[0])
     assert insert_position[1]['application_deadline_at'] == deadline
+    # Gửi 'en' mà ra 'vi' chứng minh tham số người dùng bị bỏ qua đúng như thiết kế.
     assert insert_jd[1]['language'] == 'vi'
-    assert insert_jd[1]['content'] == 'JD giả'
+    assert insert_jd[1]['content'] == jd_text
     assert db.committed and result['department_name'] == 'IT'
 
 

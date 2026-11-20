@@ -5,28 +5,67 @@ Mục đích: lần sau đọc lại biết **vì sao** làm thế, không chỉ
 
 ---
 
-## 1. "Chọn ngôn ngữ JD có vẻ không còn cần nữa vì hệ thống đã hỗ trợ cả 2 ngôn ngữ?"
+## 1. Bộ chọn ngôn ngữ JD — ĐÃ BỎ
 
-**Giữ lại bộ chọn, mặc định English.** Người dùng từng chốt: *"tiếng Anh là ưu
-tiên tuyệt đối cho JD và CV; tiếng Việt vẫn tuỳ chọn"*, nên không xoá.
+Người dùng chốt: *"nếu không ảnh hưởng thì nên bỏ nó đi"*. Đã bỏ, và thay bằng
+dò ngôn ngữ từ nội dung ở máy chủ (`app/services/language_detect.py`).
 
-Nhưng câu hỏi này đúng một phần, và phần đúng đó mới là chỗ đáng sửa:
+### Vì sao bỏ
 
-- Hệ thống **không** tự dò ngôn ngữ. Prompt sinh tiêu chí dặn LLM tự nhận biết
-  ("nếu JD là tiếng Việt thì đọc như tiếng Việt, đừng dịch trước"), tức là nó
-  đoán từ nội dung.
-- `jd_versions.language_code` được lưu nhưng **không nơi nào đọc lại** khi sinh
-  tiêu chí hay chấm điểm. Nó chỉ hiện lại ở API đọc JD. Nói cách khác, bộ chọn
-  này hiện **không ảnh hưởng gì tới kết quả** — nó chỉ ghi lại ý định của HR.
-- Rủi ro thật: khi HR chọn "Tiếng Việt" cho một JD viết bằng tiếng Anh (hoặc
-  ngược lại), hệ thống không phát hiện và không cảnh báo. Nhãn nói một đằng, nội
-  dung một nẻo, và về sau không ai biết cái nào đúng.
+`jd_versions.language_code` được **ghi** ở hai chỗ nhưng **không nơi nào đọc
+lại** để quyết định gì: `criteria.py`, `llm_client.py`, `processor.py`,
+`jd_import.py` đều không tham chiếu tới nó. Prompt sinh tiêu chí vốn đã dặn LLM
+tự nhận biết ngôn ngữ từ nội dung.
 
-**Đề xuất (chưa làm, chờ quyết):** hoặc (a) bỏ bộ chọn và suy ra ngôn ngữ từ
-nội dung, hoặc (b) giữ bộ chọn nhưng **đối chiếu với nội dung** và cảnh báo khi
-lệch. (a) đơn giản hơn nhưng mất khả năng ghi đè khi LLM đoán sai.
+Nghĩa là ô chọn đó là **một ô điều khiển giả**: trông như đang cấu hình hệ
+thống, thực ra không điều khiển gì. Loại này tệ hơn không có ô nào, vì HR tin
+nhầm là mình đã kiểm soát được kết quả.
 
----
+### "Mất khả năng ghi đè" là gì, và vì sao không mất gì thật
+
+"Ghi đè" nghĩa là: LLM tự đoán ngôn ngữ; nếu đoán sai (JD song ngữ, JD tiếng
+Anh có đoạn tiếng Việt dài), HR bấm chọn lại để ép kết quả.
+
+Nhưng **cơ chế đó chưa từng tồn tại** — giá trị chưa từng được truyền tới prompt
+hay tới bất kỳ chỗ nào ra quyết định. Nên bỏ đi không làm mất một khả năng đang
+có; chỉ bỏ một thứ tưởng là có.
+
+### Rủi ro thật của hướng mới
+
+1. **JD song ngữ, tiếng Việt chiếm đa số** → tiêu chí sinh ra bằng tiếng Việt dù
+   HR muốn tiếng Anh. Không còn cách ép. Cách xử lý: sửa tay tiêu chí, hoặc
+   viết lại JD cho thuần một thứ tiếng. Hiếm nhưng không phải bằng không.
+2. **Mất dấu vết ý định.** Trước đây còn một chỗ ghi lại HR *định* ngôn ngữ là
+   gì; nay không còn. Đổi lại, không còn nhãn sai.
+3. **JD tiếng Việt không dấu** ("Tuyen dung ky su phan mem") → đoán là tiếng Anh.
+   Chấp nhận: JD thật gần như luôn có dấu, và nhãn này chỉ để lưu, không ảnh
+   hưởng nội dung tiêu chí — LLM vẫn đọc nguyên văn JD.
+
+### Cách dò và vì sao không dùng thư viện
+
+Chỉ đếm tỉ lệ chữ cái có dấu tiếng Việt. Ngưỡng 8%, lấy từ đo thật:
+
+| Loại văn bản | Tỉ lệ chữ có dấu |
+|---|---|
+| JD tiếng Việt thật (3 mẫu) | 17% – 29% |
+| JD tiếng Anh có "Đại học Bách khoa Hà Nội" | 2,4% |
+| JD tiếng Anh thuần | 0% |
+
+Ngưỡng cũ thử nghiệm 0,5% từng làm JD tiếng Anh bị gắn nhãn tiếng Việt chỉ vì
+một tên trường — đúng ca dễ sai nhất ở môi trường Việt Nam.
+
+Không dùng thư viện nhận dạng ngôn ngữ: chỉ cần phân biệt Việt với phần còn
+lại, và thêm một phụ thuộc ngoài cho bài toán đếm dấu là cái giá không đáng.
+
+### Thay đổi kỹ thuật
+
+- `jud_language_code` trong `PositionCreate` và `language_code` trong
+  `JDVersionCreate` **vẫn giữ** trong schema để client cũ không bị 422, nhưng
+  **giá trị bị bỏ qua**. Không xoá hẳn vì như vậy là phá vỡ hợp đồng API mà
+  không có lợi ích gì.
+- Giao diện: bỏ ô chọn ở cả màn tạo vị trí và dialog tạo phiên bản JD; không gửi
+  trường này lên nữa.
+- 14 test mới cho hàm dò, gồm ca "JD tiếng Anh có tên trường tiếng Việt".
 
 ## 2. "Tải tệp JD txt lên báo lỗi Máy quét chưa sẵn sàng"
 
