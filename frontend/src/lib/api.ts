@@ -140,7 +140,10 @@ export const applicationsApi = {
   getProfile: (id: string) => apiClient.get(`/applications/${id}/profile`),
   updateProfile: (id: string, data: any) => apiClient.put(`/applications/${id}/profile`, data),
   getPrivateNotes: (id: string) => apiClient.get(`/applications/${id}/private-notes`),
-  addPrivateNote: (id: string, content: string) => apiClient.post(`/applications/${id}/private-notes`, { content }),
+  assign: (id: string, assignedToUserId: string | null) =>
+    apiClient.patch(`/applications/${id}/assignment`, { assigned_to_user_id: assignedToUserId }),
+  addPrivateNote: (id: string, content: string, criterionId?: string) =>
+    apiClient.post(`/applications/${id}/private-notes`, criterionId ? { content, criterion_id: criterionId } : { content }),
   getStatusEvents: (id: string) => apiClient.get(`/applications/${id}/status-events`),
   reprocess: (id: string) => apiClient.post(`/applications/${id}/reprocess`),
   updateStatus: (id: string, newStatus: string, reason?: string, note?: string) =>

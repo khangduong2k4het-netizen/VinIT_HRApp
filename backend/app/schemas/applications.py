@@ -69,6 +69,11 @@ class Application(ApplicationBase, TimestampMixin):
     source_code: str = "DIRECT_UPLOAD"
     application_status: ApplicationStatus
     identity: Optional[ApplicationIdentity] = None
+    # Ai đang giữ hồ sơ. NULL = chưa ai nhận; tên chỉ để hiển thị, quyết định
+    # quyền vẫn nằm ở position_assignments.
+    assigned_to: Optional[UUID] = None
+    assigned_to_name: Optional[str] = None
+    assigned_at: Optional[datetime] = None
 
 
 class ApplicationDocument(BaseSchema, TimestampMixin):
@@ -159,6 +164,12 @@ class ApplicationStatusUpdate(BaseSchema):
     new_status: ApplicationStatus
     reason: Optional[str] = Field(default=None, max_length=1000)
     note: Optional[str] = Field(default=None, max_length=2000)
+
+
+class ApplicationAssignmentUpdate(BaseSchema):
+    """`None` trả hồ sơ về "chưa ai nhận" — không phải lỗi."""
+
+    assigned_to_user_id: Optional[UUID] = None
 
 
 class ApplicationCapabilities(BaseSchema):

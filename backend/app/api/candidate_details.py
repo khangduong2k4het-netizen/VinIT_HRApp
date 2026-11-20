@@ -34,6 +34,9 @@ class ProfileUpdate(BaseModel):
 class PrivateNoteCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     content: str = Field(min_length=1, max_length=5000)
+    # None = ghi chú chung của hồ sơ (hành vi cũ). Có id thì ghi chú thuộc đúng
+    # tiêu chí đó, để nhận xét không bị tách khỏi bằng chứng nó nói tới.
+    criterion_id: UUID | None = None
 
 
 def _position_id(db, application_id: UUID) -> str:
@@ -184,7 +187,7 @@ async def list_private_notes(application_id: UUID, current_user: dict = Depends(
         position = _position_id(db, application_id)
         _require_hr_locked(db, current_user["user_id"], position)
         return [dict(row) for row in db.execute(text("""
-            SELECT n.note_id, n.content, n.created_at, n.created_by, p.display_name AS author_name
+            SELECT n.note_id, n.content, n.criterion_id, n.created_at, n.created_by, p.display_name AS author_name
             FROM app_private.application_private_notes n
             LEFT JOIN app_private.user_profiles p ON p.user_id = n.created_by
             WHERE n.application_id = :id ORDER BY n.created_at DESC, n.note_id DESC LIMIT 500
@@ -202,10 +205,21 @@ async def add_private_note(application_id: UUID, request: PrivateNoteCreate, cur
     try:
         position = _position_id(db, application_id)
         _require_hr_locked(db, current_user["user_id"], position)
+        if request.criterion_id is not None:
+            # Chỉ nhận tiêu chí của chính vị trí này: một id lạ không được biến
+            # ghi chú thành thứ gắn vào rubric của vị trí khác.
+            owned = db.execute(text("""
+                SELECT 1 FROM app_private.criteria_items ci
+                JOIN app_private.criteria_versions cv ON cv.criteria_version_id = ci.criteria_version_id
+                WHERE ci.criterion_id = :criterion AND cv.position_id = :position
+            """), {"criterion": str(request.criterion_id), "position": position}).first()
+            if not owned:
+                raise HTTPException(status_code=400, detail="Tiêu chí không thuộc vị trí của hồ sơ này")
         note = db.execute(text("""
-            INSERT INTO app_private.application_private_notes (application_id, created_by, content)
-            VALUES (:id, :user, :content) RETURNING note_id, created_at
-        """), {"id": str(application_id), "user": current_user["user_id"], "content": content}).mappings().one()
+            INSERT INTO app_private.application_private_notes (application_id, created_by, content, criterion_id)
+            VALUES (:id, :user, :content, :criterion) RETURNING note_id, criterion_id, created_at
+        """), {"id": str(application_id), "user": current_user["user_id"], "content": content,
+                "criterion": str(request.criterion_id) if request.criterion_id else None}).mappings().one()
         db.execute(text("""
             INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, position_id, outcome)
             VALUES (:user, 'ADD_HR_NOTE', 'HR_NOTE', :note, :position, 'SUCCESS')
