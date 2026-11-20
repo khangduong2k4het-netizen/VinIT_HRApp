@@ -40,6 +40,8 @@ interface Preview {
   requested_scopes: string[];
   effective_scopes: string[];
   implied_scopes: string[];
+  /** Vì sao phạm vi bị mở rộng; máy chủ soạn để không phải suy diễn ở UI. */
+  scope_note?: string | null;
   tables: PreviewTable[];
   total_rows: number;
   storage: {
@@ -211,9 +213,13 @@ export default function TestDataPurge() {
           {preview && (
             <Box sx={{ mt: 2 }} aria-live="polite">
               {impliedLabels.length > 0 && (
-                <Alert severity="info" sx={{ mb: 2 }}>
-                  {t('Bạn chọn {0}, nhưng dữ liệu này không tách rời được khỏi {1} — sẽ xoá cả hai.',
-                    String(preview.requested_scopes.length), impliedLabels.join(', '))}
+                <Alert severity="warning" sx={{ mb: 2 }} data-testid="purge-scope-widened">
+                  <Typography fontWeight={700} sx={{ mb: 0.5 }}>
+                    {t('Phạm vi xoá rộng hơn những gì bạn chọn: {0}', impliedLabels.join(', '))}
+                  </Typography>
+                  {/* Máy chủ soạn câu giải thích vì nó biết ràng buộc khoá ngoại;
+                      UI không tự diễn giải lại để hai bên không lệch nhau. */}
+                  {preview.scope_note && <Typography variant="body2">{t(preview.scope_note)}</Typography>}
                 </Alert>
               )}
 

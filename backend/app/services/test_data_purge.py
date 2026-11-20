@@ -114,10 +114,34 @@ DELETE_ORDER: list[tuple[str, str]] = [
 #: JD kéo theo POSITIONS; POSITIONS kéo theo JD (vì positions có FK tới jd_versions
 #: ở chiều ngược lại thông qua assessment_runs/criteria_versions). Nói cách khác
 #: hai nhóm này thực tế không tách rời được — service nói thẳng điều đó ra.
+#:
+#: POSITIONS cũng kéo theo OPERATIONS. Không phải vì "tiện tay": có 11 bảng
+#: tham chiếu ``positions`` mà FK **không** CASCADE, trong đó có
+#: ``audit_events``, ``applications``, ``assessment_runs``, ``cv_batches``,
+#: ``duplicate_signals``, ``ranking_runs``/``ranking_items``,
+#: ``shortlist_shares``/``shortlist_share_items`` và
+#: ``careers_intake_receipts``. Chọn chỉ POSITIONS thì những bảng đó còn dòng và
+#: PostgreSQL chặn ``DELETE FROM positions``. Đã kiểm từng FK trong
+#: ``supabase/migrations``; thiếu ràng buộc này là lỗi thật, không phải phòng xa.
+#:
+#: Vì vậy thực tế không có đường tắt: hễ chạm tới vị trí là phải xoá CV, JD và
+#: vận hành cùng lúc. Trước đây người dùng chọn "Vị trí" rồi nhận một lỗi FK khó
+#: hiểu; nay service tự mở rộng phạm vi và ``preview`` nói rõ nhóm nào bị kéo
+#: theo, để ADMIN thấy trước khi bấm xoá.
 IMPLIED: dict[str, set[str]] = {
-    "JD": {"POSITIONS"},
-    "POSITIONS": {"JD"},
+    "JD": {"POSITIONS", "OPERATIONS", "CV"},
+    "POSITIONS": {"JD", "OPERATIONS", "CV"},
 }
+
+#: Tập đóng nhỏ nhất mà một lượt xoá chạy được. ``CV`` một mình vẫn hợp lệ (dữ
+#: liệu CV không cần vị trí để bị xoá), nên đây chỉ là kiểm tra chéo cho test.
+_REQUIRED_WITH_POSITIONS = frozenset({
+    "applications", "assessment_runs", "careers_intake_receipts", "duplicate_signals",
+    "ranking_items", "ranking_runs", "shortlist_share_items", "shortlist_shares",
+    "audit_events", "cv_batches", "cv_batch_items", "position_create_requests",
+    "position_assignments", "position_access_grants", "position_status_events",
+    "document_processing_runs", "operations",
+})
 
 #: Những bảng *không bao giờ* chạm tới trong tính năng này.
 PROTECTED_TABLES = frozenset({
@@ -204,11 +228,30 @@ def preview(db, scopes: list[str]) -> dict:
         "requested_scopes": sorted(requested),
         "effective_scopes": sorted(chosen),
         "implied_scopes": implied,
+        # Câu giải thích cho người bấm nút: vì sao phạm vi bị mở rộng. Không có
+        # câu này thì ADMIN chọn "Vị trí" và tự hỏi tại sao CV cũng mất.
+        "scope_note": _scope_note(requested, chosen),
         "tables": [{"name": t, "rows": counts.get(t, 0)} for t in tables],
         "total_rows": total,
         "storage": storage,
         "protected": _protected_counts(db),
     }
+
+
+def _scope_note(requested: set[str], chosen: set[str]) -> str | None:
+    """Vì sao phạm vi đã chọn bị mở rộng — hiện ngay trên màn xác nhận."""
+    pulled = sorted(chosen - requested)
+    if not pulled:
+        return None
+    labels = ", ".join(SCOPES[code]["label"] for code in pulled if code in SCOPES)
+    if "CV" in pulled:
+        return (
+            f"Phạm vi được mở rộng sang: {labels}. Bắt buộc vì hồ sơ ứng viên, "
+            "chấm điểm, xếp hạng và shortlist đều tham chiếu tới vị trí — xoá vị "
+            "trí mà giữ chúng sẽ bị khoá ngoại chặn. Nói cách khác: muốn xoá vị "
+            "trí thì phải xoá cả dữ liệu CV đi kèm."
+        )
+    return f"Phạm vi được mở rộng sang: {labels} do ràng buộc khoá ngoại."
 
 
 def _protected_counts(db) -> list[dict[str, Any]]:

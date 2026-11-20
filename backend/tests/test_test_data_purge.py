@@ -72,6 +72,52 @@ def test_jd_and_positions_are_coupled():
     assert "JD" in expand_scopes(["POSITIONS"])
 
 
+def test_positions_alone_drags_operations():
+    """Chọn riêng "Vị trí" phải xoá được, nên phải kéo theo OPERATIONS.
+
+    Có 11 bảng tham chiếu ``positions`` với FK ``NO ACTION`` (audit_events,
+    applications, assessment_runs, cv_batches, duplicate_signals, ranking_runs,
+    ranking_items, shortlist_shares, shortlist_share_items, careers_intake_receipts,
+    position_create_requests). Thiếu ràng buộc này thì ``DELETE FROM positions``
+    bị PostgreSQL chặn và cả lượt xoá thất bại — đã là lỗi thật một lần.
+    """
+    assert "OPERATIONS" in expand_scopes(["POSITIONS"])
+    # Và danh sách bảng phải thật sự chứa các bảng đang giữ khoá ngoại.
+    tables = tables_for(expand_scopes(["POSITIONS"]))
+    for required in ("audit_events", "cv_batches", "audit_events"):
+        assert required in tables, required
+
+
+def test_jd_alone_drags_operations():
+    """JD kéo theo POSITIONS; mà xoá vị trí thì phải xoá cả CV và vận hành."""
+    assert expand_scopes(["JD"]) == {"JD", "POSITIONS", "OPERATIONS", "CV"}
+
+
+def test_no_scope_selection_ever_deletes_positions_without_dependents():
+    """Bất biến: hễ xoá ``positions`` thì mọi bảng giữ FK NO ACTION tới nó cũng có mặt."""
+    # Đọc thẳng từ migration để test này bắt được migration mới thêm bảng.
+    import glob, re
+    from pathlib import Path
+    pointing = set()
+    for path in glob.glob(str(Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "*.sql")):
+        sql = open(path, encoding="utf-8").read()
+        for match in re.finditer(r"CREATE TABLE\s+(?:IF NOT EXISTS\s+)?app_private\.(\w+)\s*\((.*?)\);", sql, re.S):
+            for line in match.group(2).split("\n"):
+                if "REFERENCES app_private.positions" in line and "CASCADE" not in line:
+                    pointing.add(match.group(1))
+    # Chỉ xét những bảng thật sự nằm trong phạm vi purge (bảng ngoài phạm vi không
+    # thể chọn xoá nên không chặn được thao tác của người dùng).
+    in_purge = {table for _scope, table in DELETE_ORDER}
+    considered = pointing & in_purge
+    for scope in SCOPES:
+        chosen = expand_scopes([scope])
+        tables = set(tables_for(chosen))
+        if "positions" not in tables:
+            continue
+        missing = considered - tables
+        assert not missing, f"scope {scope}: thiếu {sorted(missing)} nên xoá positions sẽ bị chặn"
+
+
 def test_cv_alone_does_not_drag_positions():
     """Xoá CV không được kéo theo vị trí — người dùng có thể muốn giữ JD để nộp lại."""
     assert expand_scopes(["CV"]) == {"CV"}

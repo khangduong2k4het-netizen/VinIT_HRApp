@@ -205,7 +205,7 @@
   "Quá 3 ngày": "Over 3 days",
   "Quá 7 ngày": "Over 7 days",
   "Mọi kết quả": "Any outcome",
-  "Thiếu bằng chứng": "Missing evidence",
+  "Thiếu bằng chứng": "Insufficient evidence",
   "Đã đáp ứng": "Met",
   "Tiêu chí “{0}”: {1}.": "Criterion “{0}”: {1}.",
   "Chỉ hồ sơ đang chờ tôi xác minh.": "Only applications awaiting my verification.",
@@ -1259,7 +1259,6 @@
   "Quá hạn": "Overdue",
   "Chưa có assessment snapshot; HR cần chia sẻ lại sau khi đánh giá.": "No assessment snapshot; HR must share again after assessment.",
   "Đánh giá": "Rating",
-  "Thiếu bằng chứng": "Insufficient evidence",
   "Nhận xét tiêu chí": "Criterion comment",
   "Khuyến nghị tổng thể": "Overall recommendation",
   "Điểm mạnh": "Strengths",
@@ -1711,5 +1710,6 @@
   "Vị trí đã mở nhưng {0}. Vui lòng làm mới trang.": "The position opened, but {0}. Please refresh the page.",
   "không tải được tiêu chí": "the criteria could not be loaded",
   "không tải được JD": "the job description could not be loaded",
-  "không tải được quyền của tài khoản": "your account permissions could not be loaded"
+  "không tải được quyền của tài khoản": "your account permissions could not be loaded",
+  "Phạm vi xoá rộng hơn những gì bạn chọn: {0}": "The purge scope is wider than what you selected: {0}"
 }
