@@ -5,8 +5,9 @@ import LanguageSwitcher from '@/i18n/LanguageSwitcher';
 
 import * as React from 'react';
 import { useState } from 'react';
-import { AppBar, Avatar, Box, Divider, IconButton, Menu, MenuItem, Toolbar, Tooltip, Typography } from '@mui/material';
+import { AppBar, Avatar, Badge, Box, Divider, IconButton, Menu, MenuItem, Toolbar, Tooltip, Typography } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
+import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import KeyIcon from '@mui/icons-material/Key';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { useRouter } from 'next/navigation';
@@ -17,9 +18,11 @@ const APPBAR_HEIGHT = 64;
 interface HeaderProps {
   onOpenMenu: () => void;
   profile?: { display_name?: string; email?: string } | null;
+  /** Số việc đang chờ, để việc mới không chỉ hiện khi HR tự mở dashboard. */
+  workCount?: number | null;
 }
 
-export default function Header({ onOpenMenu, profile }: HeaderProps) {
+export default function Header({ onOpenMenu, profile, workCount }: HeaderProps) {
   const { t } = useI18n();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const router = useRouter();
@@ -38,6 +41,20 @@ export default function Header({ onOpenMenu, profile }: HeaderProps) {
         <Box sx={{ flexGrow: 1, minWidth: 0 }}>
           <Typography variant="body2" sx={{ color: '#fff', fontWeight: 700 }}>HR Resource Workspace</Typography>
         </Box>
+        {typeof workCount === 'number' && workCount > 0 && (
+          <Tooltip title={t('{0} việc cần làm', workCount)}>
+            <IconButton
+              color="inherit"
+              data-testid="work-queue-badge"
+              aria-label={t('{0} việc cần làm', workCount)}
+              onClick={() => router.push('/dashboard#work-queue')}
+            >
+              <Badge badgeContent={workCount > 99 ? '99+' : workCount} color="error">
+                <NotificationsActiveIcon />
+              </Badge>
+            </IconButton>
+          </Tooltip>
+        )}
         <LanguageSwitcher light />
         <Tooltip title={t("Tài khoản")}>
           <IconButton onClick={event => setAnchor(event.currentTarget)} aria-label={t("Mở menu tài khoản")} aria-haspopup="menu" aria-expanded={!!anchor}>

@@ -3,7 +3,7 @@
 import { useI18n } from '@/i18n/I18nProvider';
 
 import * as React from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Alert, Box, Button, Card, CardActionArea, CardContent, Chip, Grid, LinearProgress, Skeleton,
@@ -17,6 +17,8 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { authApi, dashboardApi } from '@/lib/api';
 import { clearUxEvents, readUxEvents, summarizeUxImpact, type UxEvent } from '@/lib/uxMetrics';
+import { increasesSince, readWorkQueueSnapshot, snapshotWorkQueue, totalNewWork, writeWorkQueueSnapshot, type WorkQueueIncrease } from '@/lib/workQueueDigest';
+import { workQueueTypeLabel } from '@/lib/workQueueLabels';
 import { APPLICATION_STATUSES, type ApplicationStatus } from '@/lib/applicationStatus';
 import StatusBadge from '@/components/common/StatusBadge';
 import PageHeader from '@/components/common/PageHeader';
@@ -57,6 +59,10 @@ export default function DashboardPage() {
   // không lệch hydration, và không trộn với số liệu máy chủ trong cùng một con số.
   const [uxEvents, setUxEvents] = useState<UxEvent[]>([]);
   useEffect(() => { setUxEvents(readUxEvents()); }, []);
+  // "Có gì mới từ lần trước": so lần tải này với mốc đã chụp lần trước. Chỉ tính
+  // một lần cho mỗi lần mở trang để Strict Mode/đếm lại không xoá mất dấu vết.
+  const [newWorkSinceLastVisit, setNewWorkSinceLastVisit] = useState<WorkQueueIncrease[]>([]);
+  const digestCaptured = useRef(false);
   const ux = summarizeUxImpact(uxEvents);
   const uxMinutes = (value: number | null) => (value == null ? t('Chưa có số đo') : t('{0} phút', value < 1 ? '<1' : String(value)));
 
@@ -95,6 +101,14 @@ export default function DashboardPage() {
   }, [t]);
 
   useEffect(() => { loadData(true); }, [loadData]);
+
+  useEffect(() => {
+    if (!workQueue || digestCaptured.current) return;
+    digestCaptured.current = true;
+    setNewWorkSinceLastVisit(increasesSince(readWorkQueueSnapshot(), workQueue.items));
+    // Chụp lại ngay sau khi so: lần mở dashboard sau sẽ so với chính lần này.
+    writeWorkQueueSnapshot(snapshotWorkQueue(workQueue.items));
+  }, [workQueue]);
 
   const cards = summary ? [
     { label: t("Vị trí đang mở"), value: summary.open_positions, icon: <WorkOutlineIcon />, color: '#134D8B', bg: '#EAF3FC', href: '/positions?status=OPEN', hint: t('Xem vị trí đang mở'), note: (summary.open_positions_deadline_passed ?? 0) > 0 ? t('{0} vị trí đã quá hạn, không nhận hồ sơ', summary.open_positions_deadline_passed) : undefined },
@@ -174,6 +188,20 @@ export default function DashboardPage() {
               </Box>
               {workQueue && <Chip label={t("Cập nhật theo quyền truy cập")} size="small" variant="outlined" />}
             </Box>
+            {/* Việc mới kể từ lần mở trước. Đây là câu trả lời cho "có gì đổi từ
+                hôm qua" mà không cần thêm backend: chính hàng đợi đã đủ dữ liệu. */}
+            {newWorkSinceLastVisit.length > 0 && (
+              <Alert severity="info" data-testid="work-queue-digest" sx={{ mb: 2 }}>
+                <Typography variant="body2" fontWeight={600}>
+                  {t('Có {0} việc mới kể từ lần mở trước.', totalNewWork(newWorkSinceLastVisit))}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {newWorkSinceLastVisit.slice(0, 3).map(item => (
+                    `${t(workQueueTypeLabel({ type: item.type }))}${item.positionTitle ? ` · ${item.positionTitle}` : ''} (+${item.added})`
+                  )).join('  ·  ')}
+                </Typography>
+              </Alert>
+            )}
             {queueError && <Alert severity="warning" sx={{ mb: 2 }} action={<Button color="inherit" onClick={() => loadData()}>{t("Thử lại")}</Button>}>{t(queueError)}</Alert>}
             {/* Việc đã kiểm xong nằm trong cụm "Đã quyết" của danh sách: nếu chỉ
                 hiện "cần xác minh" thì con số nhỏ đi mỗi lần HR làm việc, và không
