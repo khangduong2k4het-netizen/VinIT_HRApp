@@ -60,10 +60,33 @@ class _FakeResult:
         return None
 
 
-def test_confirmation_phrase_is_not_trivially_guessable():
-    """Một chữ "OK" là quá dễ bấm nhầm; chuỗi phải dài và nói rõ việc đang làm."""
-    assert len(CONFIRMATION_PHRASE) >= 10
-    assert "XOA" in CONFIRMATION_PHRASE.upper()
+def test_confirmation_phrase_is_short_by_user_decision():
+    """Người dùng đã chốt đổi chuỗi xác nhận sang "OK" cho gọn khi test.
+
+    Độ dài chuỗi *không* phải hàng rào của tính năng này — ba thứ sau mới là:
+    quyền ADMIN, bắt buộc đếm trước khi bấm (UI khoá nút), và một transaction có
+    rollback. Ghi lại điều đó ở đây để lần sau không ai "sửa" thành chuỗi dài
+    rồi tưởng đã tăng an toàn.
+    """
+    assert CONFIRMATION_PHRASE == "OK"
+
+
+def test_confirmation_accepts_any_case_and_padding():
+    """"ok", "Ok", " OK " đều qua — chuỗi ngắn thì bắt đúng kiểu chữ là vô nghĩa."""
+    for typed in ("ok", "Ok", "oK", "  OK  ", "\tOK\n"):
+        db = RecordingDB()
+        purge.execute(db, scopes=["CV"], confirmation=typed, actor_user_id="u1")
+        assert any("DELETE FROM app_private.applications" in sql for sql, _ in db.sql)
+
+
+def test_confirmation_rejects_lookalikes():
+    """Nhưng "OK!" hay "O K" vẫn phải trượt — khác chuỗi là từ chối."""
+    for typed in ("OK!", "O K", "OKOK", "ĐỒNG Ý", ""):
+        db = RecordingDB()
+        with pytest.raises(PurgeError) as exc:
+            purge.execute(db, scopes=["CV"], confirmation=typed, actor_user_id="u1")
+        assert exc.value.status_code == 422
+        assert not any("DELETE FROM" in sql for sql, _ in db.sql)
 
 
 def test_jd_and_positions_are_coupled():
@@ -188,9 +211,10 @@ def test_tables_for_only_returns_selected_scopes():
 
 
 def test_execute_refuses_without_exact_confirmation():
+    """Chuỗi khác hẳn (không chỉ khác hoa/thường) thì không chạy một câu SQL nào."""
     db = RecordingDB()
     with pytest.raises(PurgeError) as exc:
-        purge.execute(db, scopes=["CV"], confirmation="ok", actor_user_id="u1")
+        purge.execute(db, scopes=["CV"], confirmation="dong y", actor_user_id="u1")
     assert exc.value.status_code == 422
     assert db.sql == [], "Không được chạy SQL nào khi chuỗi xác nhận sai"
 

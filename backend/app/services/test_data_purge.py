@@ -157,8 +157,13 @@ PROTECTED_TABLES = frozenset({
     "app_private.retention_policy_versions",
 })
 
-#: Chuỗi xác nhận ADMIN phải gõ đúng từng ký tự.
-CONFIRMATION_PHRASE = "XOA DU LIEU TEST"
+#: Chuỗi xác nhận ADMIN phải gõ đúng. Ngắn có chủ ý: người dùng đã yêu cầu đổi
+#: từ "XOA DU LIEU TEST" sang "OK" cho đỡ vướng khi test trên VPS.
+#:
+#: Rào chắn thật nằm ở chỗ khác, không phải độ dài chuỗi: phải là ADMIN, phải
+#: bấm "Đếm dữ liệu sẽ xoá" trước (UI khoá nút xoá), phạm vi luôn được mở rộng
+#: tới tập đóng theo khoá ngoại, và toàn bộ chạy trong một transaction có rollback.
+CONFIRMATION_PHRASE = "OK"
 
 
 class PurgeError(Exception):
@@ -298,7 +303,10 @@ def execute(db, *, scopes: list[str], confirmation: str, actor_user_id: str) -> 
     Không tự ``commit``/``rollback``: để API quyết định, nhờ vậy lỗi ở bất kỳ
     bảng nào cũng rollback toàn bộ, kể cả ``audit_events`` đã bị xoá.
     """
-    if confirmation.strip() != CONFIRMATION_PHRASE:
+    # So không phân biệt hoa/thường và bỏ khoảng trắng hai đầu: gõ "ok", "Ok",
+    # " OK " đều được. Chuỗi đã ngắn thì bắt đúng kiểu chữ chỉ gây bực mình mà
+    # không thêm an toàn nào — an toàn đến từ quyền ADMIN và bước đếm trước.
+    if confirmation.strip().upper() != CONFIRMATION_PHRASE:
         raise PurgeError(
             f"Chuỗi xác nhận không đúng. Gõ chính xác: {CONFIRMATION_PHRASE}", 422
         )

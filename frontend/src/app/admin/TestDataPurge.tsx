@@ -18,8 +18,9 @@ import { testDataApi } from '@/lib/api';
  * 1. **Đếm trước khi xoá, bắt buộc.** Nút "Xoá" không bấm được trước khi ADMIN
  *    xem qua bảng số dòng sẽ mất. "Tôi tưởng chỉ xoá CV" là câu không được phép
  *    xảy ra với dữ liệu.
- * 2. **Gõ chuỗi xác nhận, không dùng checkbox.** Checkbox bị bấm theo quán tính;
- *    gõ "XOA DU LIEU TEST" thì phải đọc.
+ * 2. **Gõ chuỗi xác nhận, không dùng checkbox.** Checkbox bấm theo quán tính, còn
+ *    gõ đúng chuỗi thì phải đọc. Chuỗi hiện là "OK" và không phân biệt hoa/thường
+ *    (người dùng chốt đổi từ "XOA DU LIEU TEST" cho đỡ vướng).
  * 3. **Nói rõ cái gì KHÔNG mất.** Câu hỏi đầu tiên của mọi người trước khi bấm
  *    nút xoá là "có mất tài khoản không". Trả lời trước khi họ phải hỏi.
  */
@@ -136,7 +137,9 @@ export default function TestDataPurge() {
     }
   };
 
-  const confirmMatches = typed.trim() === phrase;
+  // So khớp y như backend: bỏ khoảng trắng hai đầu và không phân biệt hoa/thường.
+  // Hai bên phải cùng quy tắc, nếu không sẽ có cảnh gõ đúng mà nút vẫn xám.
+  const confirmMatches = typed.trim().toUpperCase() === phrase.trim().toUpperCase();
   const impliedLabels = (preview?.implied_scopes || [])
     .map(code => scopes.find(s => s.code === code)?.label || code);
 
@@ -350,7 +353,7 @@ export default function TestDataPurge() {
 
           {preview && !confirmMatches && typed.length > 0 && (
             <Typography variant="caption" sx={{ display: 'block', mt: 1, color: '#B42318' }}>
-              {t('Chuỗi chưa khớp — cần gõ đúng từng ký tự, kể cả dấu cách.')}
+              {t('Chuỗi chưa khớp — gõ đúng {0}.', phrase)}
             </Typography>
           )}
         </CardContent>

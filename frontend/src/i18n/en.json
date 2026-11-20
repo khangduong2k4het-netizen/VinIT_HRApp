@@ -1711,5 +1711,6 @@
   "không tải được tiêu chí": "the criteria could not be loaded",
   "không tải được JD": "the job description could not be loaded",
   "không tải được quyền của tài khoản": "your account permissions could not be loaded",
-  "Phạm vi xoá rộng hơn những gì bạn chọn: {0}": "The purge scope is wider than what you selected: {0}"
+  "Phạm vi xoá rộng hơn những gì bạn chọn: {0}": "The purge scope is wider than what you selected: {0}",
+  "Chuỗi chưa khớp — gõ đúng {0}.": "Phrase does not match — type exactly {0}."
 }

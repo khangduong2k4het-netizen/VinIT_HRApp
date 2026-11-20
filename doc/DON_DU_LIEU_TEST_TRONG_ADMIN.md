@@ -13,21 +13,29 @@ migration `00035` đã chạy — nó là công cụ để lặp lại việc đ
 |---|---|---|
 | 1 | Chọn nhóm dữ liệu | Nhóm nào kéo theo nhóm nào được ghi ngay trên checkbox |
 | 2 | **Đếm trước** | Nút xoá không bật trước khi ADMIN xem bảng số dòng sẽ mất |
-| 3 | **Gõ chuỗi xác nhận** | Checkbox bị bấm theo quán tính; gõ `XOA DU LIEU TEST` thì phải đọc |
+| 3 | **Gõ chuỗi xác nhận** | Checkbox bị bấm theo quán tính; gõ `OK` thì phải đọc |
 
 Bốn nhóm:
 
 | Mã | Nhãn | Kéo theo |
 |---|---|---|
 | `CV` | Hồ sơ ứng viên và CV | không |
-| `JD` | JD và rubric | **`POSITIONS`** |
-| `POSITIONS` | Vị trí tuyển dụng | **`JD`** |
+| `JD` | JD và rubric | **`POSITIONS` + `OPERATIONS` + `CV`** |
+| `POSITIONS` | Vị trí tuyển dụng | **`JD` + `OPERATIONS` + `CV`** |
 | `OPERATIONS` | Vận hành và kiểm toán | không |
 
 **JD và vị trí không tách rời.** Cả hai chiều đều có khoá ngoại
 (`criteria_versions → jd_versions` và `jd_versions → positions`), nên xoá một
-bên luôn phải xoá bên kia. Giao diện nói thẳng điều này thay vì để FK báo lỗi
-sau khi bấm.
+bên luôn phải xoá bên kia.
+
+**Xoá vị trí kéo theo cả CV.** Có 11 bảng tham chiếu `positions` với khoá ngoại
+**không** CASCADE: `applications`, `assessment_runs`, `audit_events`,
+`cv_batches`, `duplicate_signals`, `ranking_runs`, `ranking_items`,
+`shortlist_shares`, `shortlist_share_items`, `careers_intake_receipts`,
+`position_create_requests`. Còn một dòng trong số đó là PostgreSQL chặn
+`DELETE FROM positions`. Vì vậy chọn `JD` hoặc `POSITIONS` tự mở rộng sang cả
+bốn nhóm, và màn xác nhận hiện câu giải thích thay vì để FK báo lỗi sau khi bấm.
+Có test đọc thẳng `supabase/migrations` để phát hiện bảng mới thêm sau này.
 
 ## 2. Cái gì KHÔNG bao giờ bị xoá
 
