@@ -1,7 +1,12 @@
 import re
 from pathlib import Path
 
-from app.services.workspace import build_work_queue_items, build_workflow, summarize_applications
+from app.services.workspace import (
+    build_work_queue_items,
+    build_workflow,
+    next_application_id,
+    summarize_applications,
+)
 
 
 def _ranking_queue_codes_from_frontend() -> set[str]:
@@ -519,3 +524,66 @@ def test_dashboard_kpi_payload_stays_small():
 
     assert "applications_waiting_over_threshold" not in data
     assert "open_positions_deadline_passed" in data
+
+
+def _application(application_id, **overrides):
+    row = {
+        "application_id": application_id,
+        "application_status": "IN_REVIEW",
+        "created_at": "2026-11-01T08:00:00+00:00",
+        "processing": False,
+        "needs_review": False,
+        "duplicate": False,
+        "matching_status": "MEETS_MANDATORY",
+        "evidence_coverage": 0.9,
+        "pending_reviews": 0,
+        "reviewed_criteria": 0,
+    }
+    row.update(overrides)
+    return row
+
+
+def test_next_application_id_opens_the_oldest_waiting_application():
+    """Hàng đợi hứa "việc chờ lâu nhất"; link phải mở đúng hồ sơ đó."""
+    rows = [
+        _application("newer", created_at="2026-11-05T08:00:00+00:00", matching_status="NEEDS_HR_VERIFICATION"),
+        _application("oldest", created_at="2026-11-01T08:00:00+00:00", matching_status="NEEDS_HR_VERIFICATION"),
+        _application("middle", created_at="2026-11-03T08:00:00+00:00", matching_status="NEEDS_HR_VERIFICATION"),
+    ]
+
+    assert next_application_id(rows, "NEEDS_VERIFICATION") == "oldest"
+    # Thứ tự hàng trong câu truy vấn không được đổi hồ sơ mà cú bấm mở ra.
+    assert next_application_id(list(reversed(rows)), "NEEDS_VERIFICATION") == "oldest"
+
+
+def test_next_application_id_skips_work_that_is_no_longer_waiting():
+    rows = [
+        _application("rejected", application_status="REJECTED_SCREENING", matching_status="NEEDS_HR_VERIFICATION"),
+        _application("already_checked", matching_status="NEEDS_HR_VERIFICATION", pending_reviews=0, reviewed_criteria=2),
+        _application("waiting", matching_status="NEEDS_HR_VERIFICATION", pending_reviews=2, reviewed_criteria=1),
+        _application("confirmed", matching_status="MEETS_MANDATORY"),
+    ]
+
+    assert next_application_id(rows, "NEEDS_VERIFICATION") == "waiting"
+    # Việc thuộc về vị trí (thiết lập, hạn ứng tuyển) không có hồ sơ để mở.
+    assert next_application_id(rows, "POSITION_SETUP") is None
+    assert next_application_id([], "FILE_REVIEW") is None
+
+
+def test_next_application_id_follows_each_queue_definition():
+    rows = [
+        _application("file", needs_review=True),
+        _application("duplicate", duplicate=True),
+        _application("mismatch", matching_status="POSSIBLE_MISMATCH"),
+        _application("unassessed", matching_status="NOT_ASSESSED"),
+    ]
+
+    assert next_application_id(rows, "FILE_REVIEW") == "file"
+    assert next_application_id(rows, "DUPLICATE_PENDING") == "duplicate"
+    assert next_application_id(rows, "POSSIBLE_MISMATCH") == "mismatch"
+    assert next_application_id(rows, "NOT_ASSESSED") == "unassessed"
+    # Cùng thời điểm tạo thì thứ tự phải xác định, không phụ thuộc thứ tự hàng.
+    assert next_application_id([_application("b", needs_review=True), _application("a", needs_review=True)], "FILE_REVIEW") == "a"
+    # Hồ sơ thiếu mốc thời gian xếp sau, không chen lên đầu.
+    tie = [_application("undated", created_at=None, needs_review=True), _application("dated", needs_review=True)]
+    assert next_application_id(tie, "FILE_REVIEW") == "dated"

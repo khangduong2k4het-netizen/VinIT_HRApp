@@ -61,8 +61,15 @@ import Autocomplete from '@mui/material/Autocomplete';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { assessmentsApi, operationsApi, applicationsApi, listAllApplications, shortlistApi, positionsApi, type DuplicateSignal } from '@/lib/api';
+import { assessmentsApi, authApi, operationsApi, applicationsApi, listAllApplications, shortlistApi, positionsApi, type DuplicateSignal } from '@/lib/api';
 import { recordUxEvent } from '@/lib/uxMetrics';
+import { APPLICANT_OWNERSHIP_LABELS } from '@/lib/applicantOwnershipLabels';
+import {
+  APPLICANT_OWNERSHIP_FILTERS,
+  applicantOwnershipCounts,
+  filterApplicantItemsByOwner,
+  type ApplicantOwnership,
+} from '@/lib/applicantOwnership';
 import StatusBadge from '@/components/common/StatusBadge';
 import QueueFilterChips from '@/components/applicants/QueueFilterChips';
 import OperationProgressPanel from '@/components/workflow/OperationProgressPanel';
@@ -162,6 +169,8 @@ export default function ApplicantsRankingPage() {
   const [shareError, setShareError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [queue, setQueue] = useState<ApplicantQueue>('ALL');
+  const [ownerFilter, setOwnerFilter] = useState<ApplicantOwnership>('ALL');
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [sort, setSort] = useState<ApplicantSort>('RANK');
   const [searchQuery, setSearchQuery] = useState('');
   // Lọc theo bằng chứng: câu hỏi HR hỏi hằng ngày là "hồ sơ nào thiếu bằng chứng
@@ -170,6 +179,13 @@ export default function ApplicantsRankingPage() {
   const [criterionOutcome, setCriterionOutcome] = useState<ApplicantCriterionOutcome>('MISSING');
   const [verificationWaiting, setVerificationWaiting] = useState<'' | 'any' | '3' | '7'>('');
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Id của chính người đang xem, để "Của tôi" so đúng người. Chỉ dùng cho bộ
+  // lọc hiển thị; quyền vẫn do backend quyết định.
+  useEffect(() => {
+    authApi.me()
+      .then(response => setCurrentUserId(response.data?.user_id || null))
+      .catch(() => { /* không có id thì chỉ ảnh hưởng bộ lọc "Của tôi" */ });
+  }, []);
   const [urlInitialized, setUrlInitialized] = useState(false);
 
   // Shortlist share dialog state
@@ -259,6 +275,8 @@ export default function ApplicantsRankingPage() {
           application_status: a.application_status,
           is_shortlisted: a.application_status === 'SHORTLIST',
           created_at: a.created_at,
+          assigned_to: a.assigned_to ?? null,
+          assigned_to_name: a.assigned_to_name ?? null,
         };
       });
 
@@ -288,6 +306,8 @@ export default function ApplicantsRankingPage() {
             application_status: a.application_status,
             is_shortlisted: a.application_status === 'SHORTLIST',
             created_at: a.created_at,
+            assigned_to: a.assigned_to ?? null,
+            assigned_to_name: a.assigned_to_name ?? null,
           });
         }
       });
@@ -549,7 +569,9 @@ export default function ApplicantsRankingPage() {
   const screeningItems = rankingItems.filter(item => inScreening(item.application_status));
   const queueCounts = applicantQueueCounts(screeningItems);
   const filteredItems = filterAndSortApplicantItems(rankingItems, queue, searchQuery, sort, criteriaFilter);
-  const { visible: visibleItems, hasMore, nextLimit } = windowApplicantItems(filteredItems, visibleLimit);
+  const ownerCounts = applicantOwnershipCounts(screeningItems, currentUserId);
+  const ownerFilteredItems = filterApplicantItemsByOwner(filteredItems, ownerFilter, currentUserId);
+  const { visible: visibleItems, hasMore, nextLimit } = windowApplicantItems(ownerFilteredItems, visibleLimit);
   useEffect(() => { setVisibleLimit(50); }, [queue, sort, searchQuery, criterionId, criterionOutcome, verificationWaiting]);
 
   // --- Hành động hàng loạt ------------------------------------------------
@@ -949,6 +971,23 @@ export default function ApplicantsRankingPage() {
         </Alert>
       )}
       <QueueFilterChips value={queue} counts={queueCounts} onChange={setQueue} />
+      {/* Lọc theo người phụ trách, tách khỏi chip hàng đợi vì đây là câu hỏi
+          khác: "việc này của ai", không phải "hồ sơ đang ở bước nào". */}
+      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 2 }} role="group" aria-label={t('Lọc theo người phụ trách')} data-testid="owner-filter">
+        {APPLICANT_OWNERSHIP_FILTERS.map(filter => (
+          <Chip
+            key={filter}
+            size="small"
+            data-testid={`owner-chip-${filter}`}
+            label={`${t(APPLICANT_OWNERSHIP_LABELS[filter])} (${ownerCounts[filter]})`}
+            onClick={() => setOwnerFilter(filter)}
+            aria-pressed={ownerFilter === filter}
+            color={ownerFilter === filter ? 'primary' : 'default'}
+            variant={ownerFilter === filter ? 'filled' : 'outlined'}
+            sx={{ fontWeight: ownerFilter === filter ? 700 : 500 }}
+          />
+        ))}
+      </Box>
       {/* Lọc theo bằng chứng, không chỉ theo tên: "hồ sơ thiếu bằng chứng cho tiêu
           chí X" và "hồ sơ chờ tôi xác minh quá 3 ngày" là hai thao tác HR làm mỗi
           ngày, trước đây phải mở từng hồ sơ để tự dò. */}
@@ -1066,7 +1105,7 @@ export default function ApplicantsRankingPage() {
 
       {hasMore && (
         <Alert severity="info" sx={{ mb: 2 }} action={<Button color="inherit" size="small" onClick={() => setVisibleLimit(nextLimit)}>{t("Hiện thêm 50 hồ sơ")}</Button>}>
-          {t("Đang hiển thị {0}/{1} hồ sơ để trang nhẹ và dễ đọc. Xếp hạng, bộ lọc và lựa chọn chia sẻ vẫn áp dụng cho toàn bộ danh sách.", visibleItems.length, filteredItems.length)}
+          {t("Đang hiển thị {0}/{1} hồ sơ để trang nhẹ và dễ đọc. Xếp hạng, bộ lọc và lựa chọn chia sẻ vẫn áp dụng cho toàn bộ danh sách.", visibleItems.length, ownerFilteredItems.length)}
         </Alert>
       )}
 

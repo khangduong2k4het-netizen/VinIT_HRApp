@@ -44,8 +44,11 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { applicationsApi, assessmentsApi, criteriaApi, listAllApplications, operationsApi } from '@/lib/api';
+import { applicationsApi, assessmentsApi, authApi, criteriaApi, listAllApplications, operationsApi } from '@/lib/api';
 import { recordUxEvent } from '@/lib/uxMetrics';
+import { isTypingTarget, moveCriterionIndex, reviewShortcut } from '@/lib/reviewKeyboard';
+import { criterionReasonCandidates, readRecentReasons, rememberReason } from '@/lib/rejectionReasons';
+import ReasonSuggestions from '@/components/candidates/ReasonSuggestions';
 import StatusBadge from '@/components/common/StatusBadge';
 import StickyActionBar from '@/components/common/StickyActionBar';
 import ActionFeedback from '@/components/common/ActionFeedback';
@@ -66,7 +69,8 @@ import {
   type ApplicantQueue,
   type ApplicantSort,
 } from '@/lib/applicantReview';
-import type { ApplicationWithAssessment, Criterion, CriterionResult, RankingItem } from '@/types';
+import type { ApplicationWithAssessment, Criterion, CriterionResult, PrivateNote, RankingItem } from '@/types';
+import { generalNotes, notesForCriterion, summarizeCriterionNotes } from '@/lib/criterionNotes';
 import { APPLICATION_STATUSES, APPLICATION_TRANSITIONS, isApplicationStatus } from '@/lib/applicationStatus';
 import { readApplicationCapabilities } from '@/lib/applicationCapabilities';
 
@@ -93,6 +97,9 @@ export default function ApplicantDetailPage() {
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [newStatus, setNewStatus] = useState('');
   const [statusReason, setStatusReason] = useState('');
+  // Lý do HR đã dùng cho vị trí này, đọc lại mỗi lần mở hộp thoại: lý do vừa ghi
+  // ở hồ sơ trước phải có mặt ngay ở hồ sơ sau.
+  const [recentReasons, setRecentReasons] = useState<string[]>([]);
   const [statusNote, setStatusNote] = useState('');
   const [statusError, setStatusError] = useState<string | null>(null);
   const [statusSubmitting, setStatusSubmitting] = useState(false);
@@ -103,8 +110,19 @@ export default function ApplicantDetailPage() {
   const [reprocessNotice, setReprocessNotice] = useState(false);
   const [history, setHistory] = useState<StatusEvent[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  // Ghi chú tải một lần cho cả trang: ghi chú chung vào bảng cuối trang, ghi chú
+  // theo tiêu chí vào đúng card của nó. Một nguồn, không hai danh sách lệch nhau.
+  const [notes, setNotes] = useState<PrivateNote[]>([]);
+  const [notesLoading, setNotesLoading] = useState(false);
+  const [notesError, setNotesError] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [claiming, setClaiming] = useState(false);
   const [selectedPage, setSelectedPage] = useState(1);
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
+  // Tiêu chí đang chọn cho bàn phím (j/k). Tách khỏi `selectedEvidenceId` — cái đó
+  // là tiêu chí vừa được bấm xem trong CV, không phải con trỏ làm việc.
+  const [activeCriterionId, setActiveCriterionId] = useState<string | null>(null);
+  const [rejectRequest, setRejectRequest] = useState<{ criterionId: string; token: number } | null>(null);
   const [shareContext, setShareContext] = useState('');
   const [navigationContext, setNavigationContext] = useState<ApplicantNavigationContext | null>(null);
   // Prev/next used to exist only when sessionStorage still held the list, so a
@@ -261,6 +279,34 @@ export default function ApplicantDetailPage() {
     setCvDocx(null); setCvDocxError(null);
   }, [applicantId]);
 
+  useEffect(() => {
+    if (statusDialogOpen || finishOpen) setRecentReasons(readRecentReasons(positionId));
+  }, [statusDialogOpen, finishOpen, positionId]);
+
+  useEffect(() => {
+    authApi.me()
+      .then(response => setCurrentUserId(response.data?.user_id || null))
+      .catch(() => { /* người phụ trách chỉ là hiển thị; không có id vẫn xem được hồ sơ */ });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const mayManageNotes = application ? readApplicationCapabilities(application).manageHrNotes : false;
+    if (!mayManageNotes) { setNotes([]); setNotesLoading(false); return; }
+    setNotesLoading(true);
+    applicationsApi.getPrivateNotes(applicantId)
+      .then(response => { if (!cancelled) { setNotes(response.data || []); setNotesError(null); } })
+      .catch((err: any) => { if (!cancelled) setNotesError(err.response?.data?.detail || t("Không thể tải ghi chú nội bộ.")); })
+      .finally(() => { if (!cancelled) setNotesLoading(false); });
+    return () => { cancelled = true; };
+  }, [applicantId, application, t]);
+
+  const addNote = useCallback(async (content: string, criterionId?: string) => {
+    await applicationsApi.addPrivateNote(applicantId, content, criterionId);
+    const response = await applicationsApi.getPrivateNotes(applicantId);
+    setNotes(response.data || []);
+  }, [applicantId]);
+
   const loadCv = useCallback(async () => {
     if (cvLoading) return;
     setCvRequested(true);
@@ -333,6 +379,15 @@ export default function ApplicantDetailPage() {
     };
   }, [applicantId]);
 
+  // Phím tắt được đăng ký một lần; handler thật sống trong ref vì nó cần dữ liệu
+  // của lần render hiện tại (tiêu chí đang chọn, quyền, hồ sơ kế tiếp).
+  const reviewKeyHandler = useRef<(event: KeyboardEvent) => void>(() => {});
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => reviewKeyHandler.current(event);
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   const [reviewSaving, setReviewSaving] = useState<string | null>(null);
   const handleReview = async (resultId: string, decision: 'CONFIRMED' | 'REJECTED', comment?: string) => {
     setReviewSaving(resultId);
@@ -351,11 +406,26 @@ export default function ApplicantDetailPage() {
     try {
       setStatusSubmitting(true); setStatusError(null);
       await applicationsApi.updateStatus(applicantId, newStatus, statusReason.trim() || undefined, statusNote.trim() || undefined);
+      if (rejected) setRecentReasons(rememberReason(positionId, statusReason));
       setStatusDialogOpen(false); setSuccess(true);
       await loadData();
     } catch (err: any) {
       setStatusError(err.response?.data?.detail || t("Cập nhật trạng thái không thành công"));
     } finally { setStatusSubmitting(false); }
+  };
+
+  const handleAssignment = async () => {
+    if (!currentUserId || claiming) return;
+    const mineAlready = application?.assigned_to === currentUserId;
+    try {
+      setClaiming(true);
+      await applicationsApi.assign(applicantId, mineAlready ? null : currentUserId);
+      await loadData();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || t("Không thể cập nhật người phụ trách."));
+    } finally {
+      setClaiming(false);
+    }
   };
 
   const handleReprocess = async () => {
@@ -430,6 +500,9 @@ export default function ApplicantDetailPage() {
 
   const assessment = application.latest_assessment;
   const criteriaResults = assessment?.criterion_results || [];
+  // Lý do loại có sẵn từ chính hồ sơ này: tiêu chí bắt buộc chưa đạt, kèm đặc tả
+  // để câu gợi ý nói đúng con số ("≥ 3 năm Python") thay vì chỉ tên tiêu chí.
+  const reasonCandidates = criterionReasonCandidates(Object.values(criteriaById), criteriaResults);
   // Mọi quyền của màn hình đọc từ một object backend tính theo từng hành động,
   // nên không nút nào ở đây có thể là ngõ cụt 403.
   const caps = readApplicationCapabilities(application);
@@ -484,6 +557,64 @@ export default function ApplicantDetailPage() {
     ? applicantProfileHref(positionId, targetId, (queueForBack || 'ALL') as ApplicantQueue, (sortForBack || 'RANK') as ApplicantSort, searchForBack)
     : `/positions/${positionId}/applicants/${targetId}`);
 
+  // Vòng xác minh bằng bàn phím: j/k chọn tiêu chí, 1 xác nhận, 2 đánh dấu sai,
+  // Enter mở đúng trang CV của trích dẫn, n sang hồ sơ kế tiếp trong hàng đợi.
+  // Chưa chọn gì thì con trỏ bắt đầu ở tiêu chí đầu tiên còn chờ HR.
+  const explicitActiveIndex = criteriaResults.findIndex(result => result.criterion_id === activeCriterionId);
+  const activeCriterionIndex = explicitActiveIndex >= 0
+    ? explicitActiveIndex
+    : criteriaResults.findIndex(result => result.requires_verification && !(result.hr_reviews && result.hr_reviews.length));
+  const activeResult = activeCriterionIndex >= 0 ? criteriaResults[activeCriterionIndex] : undefined;
+  const activePage = activeResult?.evidence?.[0]?.page_number || activeResult?.page_number || null;
+  const activeAwaitingReview = Boolean(
+    activeResult
+    && activeResult.requires_verification
+    && activeResult.result_id
+    && !(activeResult.hr_reviews && activeResult.hr_reviews.length)
+    && canVerifyCriteria
+    && !shareContext,
+  );
+
+  reviewKeyHandler.current = (event: KeyboardEvent) => {
+    // Hộp thoại đang mở thì phím thuộc về hộp thoại (nhập lý do, xác nhận hoàn tất).
+    if (document.querySelector('[role="dialog"]')) return;
+    const shortcut = reviewShortcut(
+      event,
+      {
+        canConfirm: activeAwaitingReview,
+        canReject: activeAwaitingReview,
+        canOpenPage: Boolean(isPdf && activePage),
+        hasNextApplication: Boolean(nextApplicantId),
+      },
+      isTypingTarget(event.target),
+    );
+    if (!shortcut) return;
+    event.preventDefault();
+    switch (shortcut) {
+      case 'next-criterion':
+      case 'prev-criterion': {
+        const nextIndex = moveCriterionIndex(activeCriterionIndex, criteriaResults.length, shortcut === 'next-criterion' ? 1 : -1);
+        const next = criteriaResults[nextIndex];
+        if (!next) return;
+        setActiveCriterionId(next.criterion_id);
+        document.getElementById(`criterion-${next.criterion_id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return;
+      }
+      case 'confirm':
+        if (activeResult?.result_id) void handleReview(activeResult.result_id, 'CONFIRMED');
+        return;
+      case 'reject':
+        if (activeResult) setRejectRequest({ criterionId: activeResult.criterion_id, token: Date.now() });
+        return;
+      case 'open-page':
+        if (activeResult && activePage) { setSelectedEvidenceId(activeResult.criterion_id); jumpToPage(activePage); }
+        return;
+      case 'next-application':
+        if (nextApplicantId) router.push(keepContext(nextApplicantId));
+        return;
+    }
+  };
+
   // Hoàn tất hồ sơ = lặp lại đúng các API hiện có theo thứ tự nghiệp vụ:
   // review từng tiêu chí bị gắn cờ, rồi PATCH trạng thái theo APPLICATION_TRANSITIONS,
   // rồi điều hướng. Không có endpoint mới và không có bước nhảy trạng thái nào.
@@ -518,6 +649,7 @@ export default function ApplicantDetailPage() {
       }
       if (canUpdateStatus && finishStatus && finishStatus !== application.application_status) {
         await applicationsApi.updateStatus(applicantId, finishStatus, finishReason.trim() || undefined, finishNote.trim() || undefined);
+        if (finishReason.trim()) setRecentReasons(rememberReason(positionId, finishReason));
       }
       setFinishOpen(false);
       recordUxEvent({ type: 'VERIFICATION_COMPLETED', at: Date.now(), application_id: applicantId });
@@ -579,6 +711,14 @@ export default function ApplicantDetailPage() {
           )}
         </Box>
       </StickyActionBar>
+
+      {/* Một dòng nói phím tắt, chỉ cho người thực sự xác minh được hồ sơ. Không
+          có nó thì phím tắt là tính năng ẩn: HR không đoán ra j/k/1/2/n. */}
+      {canWorkVerification && !shareContext && (
+        <Typography variant="caption" color="text.secondary" data-testid="review-shortcuts" sx={{ display: 'block', mb: 1.5 }}>
+          {t('Phím tắt: j/k chọn tiêu chí · 1 xác nhận · 2 đánh dấu sai · Enter mở trang CV · n hồ sơ tiếp theo')}
+        </Typography>
+      )}
 
       {/* Warnings */}
       {(application.file_processing_status === 'NEEDS_HR_REVIEW' || application.has_duplicate_warning) && (
@@ -647,6 +787,26 @@ export default function ApplicantDetailPage() {
               </>
             )}
             {statusLabel && <StatusBadge type={statusLabel.badge} label={t(statusLabel.label)} />}
+            {/* Ai đang giữ hồ sơ: không có dòng này thì hai HR cùng vị trí không
+                biết mình có đang làm trùng việc của nhau hay không. */}
+            <Chip
+              size="small"
+              data-testid="application-owner"
+              variant={application.assigned_to ? 'filled' : 'outlined'}
+              sx={application.assigned_to ? { backgroundColor: '#E8F1FC', color: '#0A2B57', fontWeight: 600 } : undefined}
+              label={application.assigned_to
+                ? t('Phụ trách: {0}', application.assigned_to === currentUserId ? t('Bạn') : (application.assigned_to_name || t('HR khác')))
+                : t('Chưa ai nhận')}
+            />
+            {notes.length > 0 && (
+              <Chip
+                size="small"
+                data-testid="hr-note-count"
+                label={t('{0} ghi chú riêng tư', notes.length)}
+                onClick={() => document.getElementById('hr-notes')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                sx={{ backgroundColor: '#FFFAEB', color: '#B54708', fontWeight: 600 }}
+              />
+            )}
           </Box>
         </Box>
 
@@ -658,6 +818,19 @@ export default function ApplicantDetailPage() {
             disabled={cvDownloading || !caps.viewCv}
             sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
           >{t("Tải CV gốc")}</Button>
+          {caps.updateStatus && currentUserId && (
+            <Button
+              size="small"
+              variant="outlined"
+              data-testid="claim-application"
+              disabled={claiming}
+              onClick={handleAssignment}
+              sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
+            >{claiming
+              ? t('Đang lưu…')
+              : application.assigned_to === currentUserId ? t('Bỏ nhận hồ sơ') : t('Nhận hồ sơ')}
+            </Button>
+          )}
           {canUpdateStatus && nextStatuses.length > 0 && (
             <FormControl size="small" sx={{ minWidth: 220 }}>
               <InputLabel id="application-status-label">{t("Cập nhật trạng thái")}</InputLabel>
@@ -800,9 +973,13 @@ export default function ApplicantDetailPage() {
                   isPdf={isPdf}
                   hasCv={Boolean(cvUrl)}
                   selected={selectedEvidenceId === result.criterion_id}
+                  active={activeResult?.criterion_id === result.criterion_id}
+                  rejectRequest={rejectRequest && rejectRequest.criterionId === result.criterion_id ? rejectRequest : null}
                   canReview={canVerifyCriteria && !shareContext && reviewSaving === null}
                   onReview={handleReview}
                   onJumpToPage={(page, criterionId) => { setSelectedEvidenceId(criterionId); jumpToPage(page); }}
+                  notes={notesForCriterion(notes, result.criterion_id)}
+                  onAddNote={caps.manageHrNotes ? (content => addNote(content, result.criterion_id)) : undefined}
                 />
               ))}
             </Box>
@@ -848,7 +1025,16 @@ export default function ApplicantDetailPage() {
       </Grid>
 
       {caps.viewCv && <CandidateProfilePanel key={applicantId} applicationId={applicantId} canEdit={caps.editProfile} onSaved={() => { loadData(); }} />}
-      {caps.manageHrNotes && <HRNotesPanel key={applicantId} applicationId={applicantId} />}
+      {caps.manageHrNotes && (
+        <HRNotesPanel
+          key={applicantId}
+          notes={generalNotes(notes)}
+          loading={notesLoading}
+          error={notesError}
+          onAdd={content => addNote(content)}
+          criterionNoteCount={summarizeCriterionNotes(notes).criteriaWithNotes}
+        />
+      )}
 
       {caps.viewStatusHistory && (
         <Accordion disableGutters elevation={0} sx={{ mb: 3, border: '1px solid #E4E7EC', borderRadius: '8px !important', '&:before': { display: 'none' } }}>
@@ -880,8 +1066,16 @@ export default function ApplicantDetailPage() {
           <Typography variant="body2" sx={{ mb: 2 }}>{t("            Trạng thái hiện tại:")} <strong>{statusLabel ? t(statusLabel.label) : ""}</strong>{t(". Quyết định và lý do sẽ được lưu vào lịch sử hồ sơ.")}</Typography>
           {statusError && <Alert severity="error" sx={{ mb: 2 }}>{t(statusError)}</Alert>}
           {newStatus.startsWith('REJECTED') && (
-            <TextField label={t("Lý do loại hồ sơ")} required fullWidth multiline minRows={2} value={statusReason}
-              onChange={e => setStatusReason(e.target.value)} inputProps={{ maxLength: 1000 }} sx={{ mb: 2 }} />
+            <>
+              <ReasonSuggestions
+                recent={recentReasons}
+                candidates={reasonCandidates}
+                onPick={reason => setStatusReason(reason)}
+                testId="status-reason-suggestions"
+              />
+              <TextField label={t("Lý do loại hồ sơ")} required fullWidth multiline minRows={2} value={statusReason}
+                onChange={e => setStatusReason(e.target.value)} inputProps={{ maxLength: 1000 }} sx={{ mb: 2 }} />
+            </>
           )}
           <TextField label={t("Ghi chú (tùy chọn)")} fullWidth multiline minRows={2} value={statusNote}
             onChange={e => setStatusNote(e.target.value)} inputProps={{ maxLength: 2000 }} />
@@ -948,8 +1142,16 @@ export default function ApplicantDetailPage() {
                 </Select>
               </FormControl>
               {finishStatus.startsWith('REJECTED') && (
-                <TextField label={t('Lý do loại hồ sơ')} required fullWidth multiline minRows={2} value={finishReason}
-                  onChange={event => setFinishReason(event.target.value)} inputProps={{ maxLength: 1000 }} sx={{ mb: 2 }} />
+                <>
+                  <ReasonSuggestions
+                    recent={recentReasons}
+                    candidates={reasonCandidates}
+                    onPick={reason => setFinishReason(reason)}
+                    testId="finish-reason-suggestions"
+                  />
+                  <TextField label={t('Lý do loại hồ sơ')} required fullWidth multiline minRows={2} value={finishReason}
+                    onChange={event => setFinishReason(event.target.value)} inputProps={{ maxLength: 1000 }} sx={{ mb: 2 }} />
+                </>
               )}
               {finishStatus && finishStatus !== application.application_status && (
                 <TextField label={t('Ghi chú (tùy chọn)')} fullWidth multiline minRows={2} value={finishNote}

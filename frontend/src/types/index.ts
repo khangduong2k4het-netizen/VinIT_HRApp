@@ -71,6 +71,12 @@ export interface WorkQueueItem {
   position_status?: string;
   count: number;
   target: { pathname: string; search?: string };
+  /**
+   * Hồ sơ mà dòng việc này nên mở đầu tiên (hồ sơ chờ lâu nhất trong đúng nhóm
+   * của nó). Có ở việc gắn với hồ sơ; vắng ở việc về vị trí, khi đó UI dùng
+   * `target` như cũ.
+   */
+  next_application_id?: string | null;
   /** Hạn ứng tuyển của vị trí (chỉ có ở việc liên quan tới hạn). */
   due_at?: string;
   /** Số ngày còn lại tới hạn; âm nghĩa là đã quá hạn. */
@@ -252,6 +258,9 @@ export interface RankingItem {
   is_shortlisted?: boolean;
   application_status?: string;
   created_at?: string;
+  /** HR đang giữ hồ sơ; vắng mặt nghĩa là chưa ai nhận. */
+  assigned_to?: string | null;
+  assigned_to_name?: string | null;
 }
 
 export interface UserSummary {
@@ -259,6 +268,16 @@ export interface UserSummary {
   display_name: string;
   position_roles?: string[];
   system_roles?: string[];
+}
+
+export interface PrivateNote {
+  note_id: string;
+  content: string;
+  /** null = ghi chú chung của hồ sơ; có id = ghi chú cho đúng tiêu chí đó. */
+  criterion_id?: string | null;
+  created_at: string;
+  created_by?: string;
+  author_name?: string | null;
 }
 
 export interface EvidenceItem {
@@ -322,6 +341,10 @@ export interface ApplicationWithAssessment {
   can_view_assessment_evidence?: boolean;
   can_update_status?: boolean;
   can_manage_hr_notes?: boolean;
+  /** HR đang phụ trách hồ sơ này; null/undefined = chưa ai nhận. */
+  assigned_to?: string | null;
+  assigned_to_name?: string | null;
+  assigned_at?: string | null;
   /** Every action the profile screen may offer; see lib/applicationCapabilities.ts. */
   capabilities?: {
     view_cv?: boolean;

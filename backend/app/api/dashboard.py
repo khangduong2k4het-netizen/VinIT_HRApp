@@ -13,6 +13,7 @@ from app.services.workspace import (
     build_workflow,
     deadline_days_left,
     deadline_is_passed,
+    next_application_id,
     summarize_applications,
     summarize_waiting,
 )
@@ -341,6 +342,12 @@ def _load_work_queue(user_id: str) -> dict:
             deadline_at=row.get("application_deadline_at"),
             deadline_soon_days=thresholds["deadline_soon_days"],
         )
+        # An application-level item opens its next real application, so the
+        # dashboard button is one click instead of "list → pick a row → open".
+        for item in position_items:
+            next_id = next_application_id(applications_by_position[position_id], item["type"])
+            if next_id:
+                item["next_application_id"] = next_id
         items.extend(position_items)
         criteria_pending_positions += any(item["type"] in ("CRITERIA_PENDING_HR", "CRITERIA_PENDING_HM", "POSITION_SETUP") for item in position_items)
         shares_without_feedback += int(row.get("shares_without_feedback") or 0)

@@ -8,6 +8,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import type { WorkQueueItem } from '@/types';
 import EmptyState from '@/components/common/EmptyState';
 import { deadlineNote, workQueueTypeAction, workQueueTypeLabel } from '@/lib/workQueueLabels';
+import { workQueueListHref, workQueueNextHref } from '@/lib/workQueueEntry';
 import { WORK_CLUSTERS, WORK_CLUSTER_LABELS, workQueueItemCluster } from '@/lib/workVocabulary';
 
 const PRIORITY_LABELS: Record<WorkQueueItem['priority'], string> = {
@@ -15,10 +16,6 @@ const PRIORITY_LABELS: Record<WorkQueueItem['priority'], string> = {
   MEDIUM: 'Ưu tiên trung bình',
   LOW: 'Ưu tiên thấp',
 };
-
-function hrefFor(item: WorkQueueItem) {
-  return `${item.target.pathname}${item.target.search ? `?${item.target.search}` : ''}`;
-}
 
 /**
  * Hàng đợi việc làm được nhóm theo ba cụm nghiệp vụ dùng chung với trang xếp
@@ -34,6 +31,10 @@ export default function WorkQueueList({ items, doneCount = 0 }: { items: WorkQue
 
   const renderItem = (item: WorkQueueItem) => {
     const note = deadlineNote(item, t);
+    // Việc gắn với hồ sơ mở thẳng hồ sơ chờ lâu nhất; danh sách đã lọc vẫn còn
+    // đó làm lựa chọn thứ hai để HR tự chọn hồ sơ khác.
+    const nextHref = workQueueNextHref(item);
+    const listHref = workQueueListHref(item);
     return (
       <Card key={item.item_id} variant="outlined" sx={{ borderColor: '#E4EAF2', '&:hover': { borderColor: '#B9CBE2', boxShadow: '0 3px 12px rgba(10,43,87,.06)' } }}>
         <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', py: 2 }}>
@@ -51,9 +52,29 @@ export default function WorkQueueList({ items, doneCount = 0 }: { items: WorkQue
             )}
           </Box>
           <Typography variant="h3" sx={{ fontSize: 24, color: item.priority === 'HIGH' ? '#B42318' : '#0A2B57', minWidth: 48, textAlign: 'center' }}>{item.count}</Typography>
-          <Button component={Link} href={hrefFor(item)} variant={item.priority === 'HIGH' ? 'contained' : 'outlined'} color={item.priority === 'HIGH' ? 'secondary' : 'primary'} endIcon={<ArrowForwardIcon />}>
-            {t(workQueueTypeAction(item))}
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            {nextHref && (
+              <Button
+                component={Link}
+                href={nextHref}
+                variant={item.priority === 'HIGH' ? 'contained' : 'outlined'}
+                color={item.priority === 'HIGH' ? 'secondary' : 'primary'}
+                endIcon={<ArrowForwardIcon />}
+                data-testid="work-next"
+              >
+                {t('Duyệt hồ sơ tiếp theo')}
+              </Button>
+            )}
+            <Button
+              component={Link}
+              href={listHref}
+              variant={nextHref ? 'text' : (item.priority === 'HIGH' ? 'contained' : 'outlined')}
+              color={nextHref ? 'inherit' : (item.priority === 'HIGH' ? 'secondary' : 'primary')}
+              data-testid="work-list"
+            >
+              {t(workQueueTypeAction(item))}
+            </Button>
+          </Box>
         </CardContent>
       </Card>
     );

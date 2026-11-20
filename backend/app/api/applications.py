@@ -17,6 +17,7 @@ from app.core.exceptions import (
 from app.schemas.applications import (
     Application,
     ApplicationWithAssessment,
+    ApplicationAssignmentUpdate,
     ApplicationStatus,
     ApplicationStatusUpdate,
 )
@@ -307,13 +308,15 @@ async def list_applications(
     db = SessionLocal()
     try:
         rows = db.execute(text("""
-            SELECT a.*, row_to_json(i) AS identity, COALESCE(d.documents, '[]'::jsonb) AS documents,
+            SELECT a.*, au.display_name AS assigned_to_name, row_to_json(i) AS identity,
+                   COALESCE(d.documents, '[]'::jsonb) AS documents,
                    row_to_json(latest) AS latest_assessment,
                    EXISTS (SELECT 1 FROM app_private.duplicate_signals ds
                            WHERE ds.position_id = a.position_id AND ds.review_status = 'PENDING'
                              AND (ds.application_id_1 = a.application_id OR ds.application_id_2 = a.application_id)) AS has_duplicate_warning
             FROM app_private.applications a
             LEFT JOIN app_private.application_identities i ON i.application_id = a.application_id
+            LEFT JOIN app_private.user_profiles au ON au.user_id = a.assigned_to
             LEFT JOIN LATERAL (
                 SELECT jsonb_agg(to_jsonb(ad) ORDER BY ad.created_at DESC) AS documents
                 FROM app_private.application_documents ad WHERE ad.application_id = a.application_id
@@ -355,8 +358,10 @@ async def get_application(application_id: UUID, current_user: dict = Depends(get
     db = SessionLocal()
     try:
         row = db.execute(text("""
-            SELECT a.*, row_to_json(i) AS identity FROM app_private.applications a
+            SELECT a.*, au.display_name AS assigned_to_name, row_to_json(i) AS identity
+            FROM app_private.applications a
             LEFT JOIN app_private.application_identities i ON i.application_id = a.application_id
+            LEFT JOIN app_private.user_profiles au ON au.user_id = a.assigned_to
             WHERE a.application_id = :id
         """), {"id": app_id}).mappings().first()
         if not row:
@@ -547,6 +552,87 @@ def _authorized_cv_document(application_id: UUID, user_id: str) -> dict:
         if not doc:
             raise NotFoundError("CV document")
         return {**dict(doc), "position_id": str(app["position_id"])}
+    finally:
+        db.close()
+
+
+@router.patch("/{application_id}/assignment")
+async def assign_application(
+    application_id: UUID,
+    request: ApplicationAssignmentUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    """Nhận hồ sơ cho chính mình, hoặc giao/bỏ giao nếu là HR Lead.
+
+    Đây là việc *đang làm*, không phải quyền: quyền vẫn do position_assignments
+    quyết định, nên người nhận hồ sơ không tự có thêm quyền xem CV hay đổi trạng
+    thái. Người khác không có HR role trên vị trí thì không được nhận.
+    """
+    app_id = str(application_id)
+    db = SessionLocal()
+    try:
+        row = db.execute(text("SELECT position_id FROM app_private.applications WHERE application_id = :id"),
+                         {"id": app_id}).mappings().first()
+        if not row:
+            raise NotFoundError("Application")
+        position_id = str(row["position_id"])
+        caps = application_capabilities(current_user["user_id"], position_id, app_id, db)
+        if not caps["update_status"]:
+            raise HTTPException(status_code=403, detail="Chỉ HR phụ trách mới có quyền nhận hồ sơ")
+
+        target = str(request.assigned_to_user_id) if request.assigned_to_user_id else None
+        if target and target != current_user["user_id"]:
+            privileged = db.execute(text("""
+                SELECT EXISTS (
+                    SELECT 1 FROM app_private.user_role_assignments
+                    WHERE user_id = :user AND revoked_at IS NULL AND role_code IN ('ADMIN', 'HR_LEAD')
+                ) OR EXISTS (
+                    SELECT 1 FROM app_private.position_assignments
+                    WHERE position_id = :position AND user_id = :user AND revoked_at IS NULL
+                      AND position_role = 'HR_LEAD'
+                )
+            """), {"user": current_user["user_id"], "position": position_id}).scalar()
+            if not privileged:
+                raise HTTPException(status_code=403, detail="Chỉ HR Lead mới có thể giao hồ sơ cho người khác")
+            can_take = db.execute(text("""
+                SELECT EXISTS (
+                    SELECT 1 FROM app_private.position_assignments
+                    WHERE position_id = :position AND user_id = :target AND revoked_at IS NULL
+                      AND position_role IN ('HR_RECRUITER', 'HR_LEAD')
+                ) OR EXISTS (
+                    SELECT 1 FROM app_private.user_role_assignments
+                    WHERE user_id = :target AND revoked_at IS NULL AND role_code IN ('ADMIN', 'HR_LEAD')
+                )
+            """), {"position": position_id, "target": target}).scalar()
+            if not can_take:
+                raise HTTPException(status_code=400, detail="Người được giao không phải HR của vị trí này")
+
+        db.execute(text("""
+            UPDATE app_private.applications
+            SET assigned_to = :target,
+                assigned_at = CASE WHEN :target IS NULL THEN NULL ELSE NOW() END
+            WHERE application_id = :id
+        """), {"target": target, "id": app_id})
+        db.execute(text("""
+            INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, position_id, outcome)
+            VALUES (:user, 'ASSIGN_APPLICATION', 'APPLICATION', :id, :position, 'SUCCESS')
+        """), {"user": current_user["user_id"], "id": app_id, "position": position_id})
+        assigned_at = db.execute(text("SELECT assigned_at FROM app_private.applications WHERE application_id = :id"),
+                                 {"id": app_id}).scalar()
+        name = None
+        if target:
+            name = db.execute(text("SELECT display_name FROM app_private.user_profiles WHERE user_id = :user"),
+                              {"user": target}).scalar_one_or_none()
+        db.commit()
+        return {
+            "application_id": app_id,
+            "assigned_to": target,
+            "assigned_to_name": name,
+            "assigned_at": assigned_at.isoformat() if assigned_at else None,
+        }
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 

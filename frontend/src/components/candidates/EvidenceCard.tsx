@@ -7,7 +7,7 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import ReportProblemOutlinedIcon from '@mui/icons-material/ReportProblemOutlined';
 import { useI18n } from '@/i18n/I18nProvider';
 import { determineCriterionAction } from '@/lib/criterionAction';
-import type { Criterion, CriterionResult } from '@/types';
+import type { Criterion, CriterionResult, PrivateNote } from '@/types';
 
 const outcomeStyles: Record<string, { borderColor: string; label: string; color: string }> = {
   STRONG_MATCH: { borderColor: '#067647', label: 'Đáp ứng tốt', color: '#067647' },
@@ -116,18 +116,36 @@ interface EvidenceCardProps {
   isPdf: boolean;
   hasCv: boolean;
   selected: boolean;
+  /** Tiêu chí đang được chọn bằng bàn phím (j/k) — viền đậm hơn `selected`. */
+  active?: boolean;
+  /** Phím "2": card này tự mở hộp thoại lý do, mỗi yêu cầu một `token`. */
+  rejectRequest?: { token: number } | null;
   /** Which of these the reviewer may record. Hidden when the profile is read-only. */
   canReview?: boolean;
   onReview?: (resultId: string, decision: 'CONFIRMED' | 'REJECTED', comment?: string) => Promise<void>;
   onJumpToPage: (page: number, criterionId: string) => void;
+  /** Ghi chú riêng tư của đúng tiêu chí này (không phải ghi chú chung). */
+  notes?: PrivateNote[];
+  /** Ghi chú mới cho tiêu chí này; vắng mặt khi người xem không có quyền. */
+  onAddNote?: (content: string) => Promise<void>;
 }
 
-export default function EvidenceCard({ result, criterion, isPdf, hasCv, selected, canReview, onReview, onJumpToPage }: EvidenceCardProps) {
+export default function EvidenceCard({ result, criterion, isPdf, hasCv, selected, active, rejectRequest, canReview, onReview, onJumpToPage, notes, onAddNote }: EvidenceCardProps) {
   const { t, dateLocale } = useI18n();
   const [savingReview, setSavingReview] = React.useState(false);
   const [reviewError, setReviewError] = React.useState<string | null>(null);
   const [rejectOpen, setRejectOpen] = React.useState(false);
   const [rejectReason, setRejectReason] = React.useState('');
+  const [noteDraft, setNoteDraft] = React.useState('');
+  const [noteSaving, setNoteSaving] = React.useState(false);
+  const [noteError, setNoteError] = React.useState<string | null>(null);
+  // Phím "2" trên tiêu chí đang chọn: hộp thoại lý do thuộc về card này, nên card
+  // tự mở nó thay vì trang phải giả lập một cú bấm vào nút bên trong.
+  React.useEffect(() => {
+    if (!rejectRequest) return;
+    setRejectReason('');
+    setRejectOpen(true);
+  }, [rejectRequest]);
   const latestReview = result.hr_reviews?.[0];
   const requirement = useCriterionRequirement(criterion);
   const action = determineCriterionAction(result);
@@ -158,12 +176,17 @@ export default function EvidenceCard({ result, criterion, isPdf, hasCv, selected
 
   return (
     <Card
+      id={`criterion-${result.criterion_id}`}
       className={`evidence-card ${result.outcome.toLowerCase().replace('_', '-')}`}
       data-testid="evidence-card"
+      data-active={active ? 'true' : undefined}
       sx={{
         borderLeft: `4px solid ${style.borderColor}`,
         borderRadius: '0 8px 8px 0',
-        boxShadow: selected ? '0 0 0 2px rgba(37,153,220,.35), 0 4px 14px rgba(10,43,87,.10)' : '0 1px 3px rgba(0,0,0,0.05)',
+        boxShadow: active
+          ? '0 0 0 2px rgba(10,43,87,.55), 0 4px 14px rgba(10,43,87,.10)'
+          : selected ? '0 0 0 2px rgba(37,153,220,.35), 0 4px 14px rgba(10,43,87,.10)' : '0 1px 3px rgba(0,0,0,0.05)',
+        scrollMarginTop: 170,
       }}
     >
       <CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>
@@ -331,6 +354,49 @@ export default function EvidenceCard({ result, criterion, isPdf, hasCv, selected
               </Typography>
             )}
             {reviewError && <Alert severity="error" sx={{ mt: 1, py: 0, fontSize: 12 }}>{reviewError}</Alert>}
+          </Box>
+        )}
+
+        {/* Nhận xét gắn với tiêu chí. Một câu như "tiêu chí này nói có chứng chỉ
+            X, tôi thấy không đúng" chỉ có nghĩa khi nằm cạnh chính tiêu chí đó,
+            thay vì trôi xuống ô ghi chú chung ở cuối trang. */}
+        {(onAddNote || (notes && notes.length > 0)) && (
+          <Box sx={{ mt: 2, pt: 1.5, borderTop: '1px dashed #E4E7EC' }} data-testid="criterion-notes">
+            {notes?.map(note => (
+              <Typography key={note.note_id} variant="caption" sx={{ display: 'block', color: '#344054', mb: 0.5 }}>
+                <strong>{note.author_name || t('HR')}</strong>
+                {` · ${new Date(note.created_at).toLocaleString(dateLocale)} · `}
+                {note.content}
+              </Typography>
+            ))}
+            {onAddNote && (
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', mt: notes?.length ? 1 : 0 }}>
+                <TextField
+                  size="small"
+                  fullWidth
+                  placeholder={t('Ghi chú cho tiêu chí này')}
+                  value={noteDraft}
+                  onChange={event => setNoteDraft(event.target.value)}
+                  inputProps={{ maxLength: 5000, 'data-testid': 'criterion-note-input' }}
+                />
+                <Button
+                  size="small"
+                  variant="outlined"
+                  data-testid="criterion-note-save"
+                  disabled={noteSaving || !noteDraft.trim()}
+                  onClick={async () => {
+                    if (!noteDraft.trim() || !onAddNote) return;
+                    setNoteSaving(true); setNoteError(null);
+                    try { await onAddNote(noteDraft.trim()); setNoteDraft(''); }
+                    catch { setNoteError(t('Không lưu được ghi chú. Vui lòng thử lại.')); }
+                    finally { setNoteSaving(false); }
+                  }}
+                >
+                  {noteSaving ? t('Đang lưu...') : t('Lưu ghi chú')}
+                </Button>
+              </Box>
+            )}
+            {noteError && <Alert severity="error" sx={{ mt: 1, py: 0, fontSize: 12 }}>{noteError}</Alert>}
           </Box>
         )}
       </CardContent>

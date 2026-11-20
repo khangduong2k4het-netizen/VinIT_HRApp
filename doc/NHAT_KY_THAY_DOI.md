@@ -9,6 +9,84 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-20 — Sáu cải tiến vòng duyệt hồ sơ: hàng đợi, phím tắt, lý do loại, ghi chú, người phụ trách
+
+**Vấn đề.** Sáu chỗ HR phải làm lại việc máy đã biết, đo trên chính luồng duyệt
+hồ sơ:
+
+1. Dashboard báo "17 hồ sơ chờ xác minh" nhưng bấm vào chỉ mở **danh sách**, rồi
+   HR tự tìm hàng đầu tiên — mỗi lượt mất thêm hai lần bấm và một lần đọc.
+2. Xác minh 10–15 tiêu chí toàn bằng chuột; bàn tay đang ở bàn phím vẫn phải rời ra.
+3. Khi loại hồ sơ, HR gõ lại cùng một lý do cho hàng chục hồ sơ cùng vị trí,
+   trong khi hệ thống đã biết tiêu chí nào `NO_MATCH`/`UNCLEAR`.
+4. Nhận xét về một tiêu chí bị dồn xuống ô ghi chú chung cuối trang, mất ngữ cảnh.
+5. Hai HR cùng một vị trí không biết ai đang giữ hồ sơ nào, nên làm trùng hoặc
+   cùng bỏ sót.
+6. Không có tín hiệu nào cho biết "có gì mới" từ lần mở app trước.
+
+**Đã làm (theo đúng thứ tự commit).**
+
+- **Hàng đợi mở thẳng hồ sơ.** `backend/app/services/workspace.py` thêm
+  `next_application_id` tính đúng định nghĩa của từng loại việc, dùng lại chính
+  các hàm đếm (`_needs_verification`, `_in_screening`, `_WORK_TYPE_QUEUES`) để
+  con số trên dashboard và hồ sơ được mở không lệch nhau; `api/dashboard.py` gắn
+  id đó vào item. Frontend `lib/workQueueEntry.ts` dựng href, giữ `?queue=` để
+  trang hồ sơ dựng lại hàng đợi và tiến độ 3/17 sẵn có.
+- **Phím tắt xác minh.** `lib/reviewKeyboard.ts` (logic thuần): `j`/`k` hoặc mũi
+  tên di chuyển tiêu chí (dừng ở hai đầu, không vòng), `y`/`n` xác nhận/từ chối.
+  Chặn khi đang gõ trong input/textarea, khi có dialog mở, và bỏ qua phím có
+  Ctrl/Meta/Alt — để không cướp phím của trình duyệt hay của ô ghi chú.
+- **Gợi ý lý do loại.** `lib/rejectionReasons.ts` nhớ lý do đã dùng **theo vị
+  trí** trong localStorage và đề xuất từ tiêu chí `NO_MATCH`/`UNCLEAR` của chính
+  hồ sơ (kèm tên tiêu chí). Chọn bằng chip, không thêm combobox; không đổi API.
+- **Ghi chú cạnh tiêu chí.** Migration `00036` thêm
+  `application_private_notes.criterion_id`; `POST /private-notes` nhận
+  `criterion_id` và **kiểm tra tiêu chí thuộc đúng vị trí** của hồ sơ. Trang hồ
+  sơ gom ghi chú về một nguồn: ghi chú theo tiêu chí hiện trong `EvidenceCard`,
+  ghi chú chung ở panel cuối trang, chip "N ghi chú riêng tư" ở đầu hồ sơ cuộn
+  tới panel.
+- **Người phụ trách hồ sơ.** Migration `00036` thêm `assigned_to`/`assigned_at` +
+  index; `PATCH /applications/{id}/assignment` cho HR tự nhận/bỏ nhận, giao cho
+  người khác chỉ HR Lead/Admin và người nhận phải là HR của vị trí; mọi thay đổi
+  ghi `audit_events`. Danh sách/chi tiết trả thêm `assigned_to_name`. UI: chip
+  "Phụ trách: …" + nút Nhận/Bỏ nhận; danh sách ứng viên có bộ lọc
+  **Của tôi / Chưa ai nhận** kèm số đếm trên toàn vị trí.
+- **Nhắc việc mới.** `lib/workQueueDigest.ts` so snapshot work-queue lần trước
+  (localStorage) với hiện tại; badge số việc trên header và dải "có gì mới" trên
+  dashboard. Không thêm bảng/endpoint: số liệu đã có sẵn ở work-queue.
+
+**Kiểm thử đã chạy (pass).**
+
+| Lệnh | Kết quả |
+| --- | --- |
+| `node --test tests/work-queue-entry.test.cjs` | 4/4 |
+| `node --test tests/review-keyboard.test.cjs` | 6/6 |
+| `node --test tests/rejection-reasons.test.cjs` | 6/6 |
+| `node --test tests/work-queue-digest.test.cjs` | 6/6 |
+| `node --test tests/criterion-notes.test.cjs tests/applicant-ownership.test.cjs` | 8/8 |
+| `node --test tests/ux-metrics.test.cjs` | 11/11 |
+| `node --test tests/i18n.test.cjs` | 3/3 |
+| `npx tsc --noEmit` / `npx eslint` (các file đã sửa) | pass |
+| `python -m py_compile` (`applications.py`, `candidate_details.py`, `schemas/applications.py`) | pass |
+
+**Việc còn chờ / lưu ý.**
+
+- **Migration `00036` chưa áp lên database nào.** Phải chạy trước khi thử: nhận
+  hồ sơ, ghi chú theo tiêu chí, lọc "Của tôi".
+- **Chưa chạy backend thật.** Môi trường này không có Postgres/pytest, nên các
+  endpoint mới (`PATCH …/assignment`, `criterion_id` trong notes) mới chỉ được
+  biên dịch, chưa được gọi. Cần thử bằng tài khoản HR và HR Lead thật, gồm cả
+  trường hợp HR thường cố giao hồ sơ cho người khác (phải 403).
+- **Hàng đợi/dashboard chưa lọc theo người phụ trách** — số liệu vẫn là toàn vị
+  trí; chỉ màn danh sách ứng viên có bộ lọc mới. Nếu muốn "việc của tôi" ở
+  dashboard thì phải thêm tham số lọc vào work-queue (việc riêng, chưa làm).
+- **Lý do loại chỉ lưu ở trình duyệt** (localStorage theo vị trí), chưa lên
+  backend; đổi máy/người là mất gợi ý. Cố ý, để không phải mở API mới.
+- **Chưa kiểm giao diện/e2e.** Không có Chromium trong môi trường này; chip,
+  ô ghi chú và phím tắt mới chỉ được typecheck/lint và test logic thuần.
+- Email nhắc việc định kỳ (bước b của mục nhắc việc) **chưa làm** — cần chọn dịch
+  vụ gửi email trước.
+
 ## 2026-11-19 — Tích hợp nhánh `freebuff` vào nhánh làm việc, gộp hai backlog
 
 **Vấn đề.** Công việc UI/UX nằm trên `freebuff/1434fda45407dc1a68600843` (18

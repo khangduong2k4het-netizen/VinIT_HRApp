@@ -5,10 +5,10 @@ import { useI18n } from '@/i18n/I18nProvider';
 import * as React from 'react';
 import { Alert, Box, Button, CircularProgress } from '@mui/material';
 import { useRouter, usePathname } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Sidebar from './Sidebar';
 import Header, { APPBAR_HEIGHT } from './Header';
-import { authApi } from '@/lib/api';
+import { authApi, dashboardApi } from '@/lib/api';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { t } = useI18n();
@@ -22,6 +22,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [authError, setAuthError] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // Số việc đang chờ cho badge trên header. Lấy từ work-queue sẵn có, không thêm
+  // endpoint; trang dashboard tự tải dữ liệu của nó nên không cần badge ở đó.
+  const [workCount, setWorkCount] = useState<number | null>(null);
+  const workQueueFetchedAt = useRef(0);
 
   useEffect(() => {
     if (['/', '/bootstrap', '/change-password', '/careers-demo', '/careers', '/pool-withdraw', '/demo'].includes(pathname)) { setIsLoading(false); setAuthenticated(false); return; }
@@ -49,6 +53,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     // Revalidate on navigation but do not include authenticated (would cause a loop).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, router, attempt]);
+
+  // Đổi trang là lúc hợp lý để cập nhật badge; giãn cách 30 giây để việc đi lại
+  // giữa các màn không nhân thành một loạt truy vấn tổng hợp.
+  useEffect(() => {
+    if (!authenticated) { setWorkCount(null); return; }
+    if (pathname === '/dashboard') return;
+    if (Date.now() - workQueueFetchedAt.current < 30_000) return;
+    workQueueFetchedAt.current = Date.now();
+    dashboardApi.getWorkQueue()
+      .then(response => setWorkCount(response.data?.items?.length ?? 0))
+      .catch(() => { /* badge là phụ trợ; lỗi mạng không được chặn màn hình */ });
+  }, [authenticated, pathname]);
 
   if (['/', '/bootstrap', '/change-password', '/careers-demo', '/careers', '/pool-withdraw', '/demo'].includes(pathname)) return <>{children}</>;
   if (isLoading || (!authenticated && !authError)) return (
@@ -92,7 +108,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {t("Tới nội dung chính")}
       </Box>
       <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} isAdmin={systemRoles.includes('ADMIN')} canAccessRubrics={canAccessRubrics} />
-      <Header onOpenMenu={() => setMobileOpen(true)} profile={profile} />
+      <Header onOpenMenu={() => setMobileOpen(true)} profile={profile} workCount={workCount} />
       {/* tabIndex={-1} lets the skip link move focus here; it stays out of the
           normal tab order so it is not an extra stop. */}
       <Box component="main" id="main-content" tabIndex={-1} sx={{ flexGrow: 1, minWidth: 0, backgroundColor: '#F8FAFC', minHeight: '100vh', '&:focus': { outline: 'none' } }}>

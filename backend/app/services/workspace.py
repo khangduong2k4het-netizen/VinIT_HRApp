@@ -98,13 +98,11 @@ def summarize_applications(applications: Iterable[Mapping[str, Any]]) -> dict[st
         # being pushed into a hiring decision just to clear a to-do list.
         # `pending_reviews` is 0 when the assessment had nothing flagged at all,
         # so this is a no-op for those rows.
-        pending_reviews = _as_int(app.get("pending_reviews"))
-        reviewed_criteria = _as_int(app.get("reviewed_criteria"))
-        needs_verification = (matching_status == "NEEDS_HR_VERIFICATION") or (
-            coverage_value is not None and coverage_value < COVERAGE_THRESHOLD
-        )
-        if needs_verification and pending_reviews == 0 and reviewed_criteria > 0:
-            needs_verification = False
+        needs_verification = _needs_verification(app)
+        if not needs_verification and (
+            _as_int(app.get("pending_reviews")) == 0 and _as_int(app.get("reviewed_criteria")) > 0
+            and (matching_status == "NEEDS_HR_VERIFICATION" or (coverage_value is not None and coverage_value < COVERAGE_THRESHOLD))
+        ):
             counts["verification_complete"] = counts.get("verification_complete", 0) + 1
         counts["assessed"] += 1
         counts["needs_verification"] += needs_verification
@@ -113,6 +111,86 @@ def summarize_applications(applications: Iterable[Mapping[str, Any]]) -> dict[st
         elif matching_status == "MEETS_MANDATORY" and not needs_verification:
             counts["meets_mandatory"] += 1
     return counts
+
+
+# Which application rows belong to which application-level work item. The deep
+# link for such an item opens one real application, so the definition has to be
+# exactly the one the counts use — otherwise the dashboard says "17 waiting" and
+# the link opens a profile that is not in that 17.
+_WORK_TYPE_QUEUES = {
+    "FILE_REVIEW": "file_review",
+    "DUPLICATE_PENDING": "duplicate_pending",
+    "NEEDS_VERIFICATION": "needs_verification",
+    "POSSIBLE_MISMATCH": "possible_mismatch",
+    "NOT_ASSESSED": "not_assessed",
+}
+
+
+def _in_screening(app: Mapping[str, Any]) -> bool:
+    status = app.get("application_status")
+    return not status or status in SCREENING_APPLICATION_STATUSES
+
+
+def _needs_verification(app: Mapping[str, Any]) -> bool:
+    matching_status = app.get("matching_status")
+    if not matching_status or matching_status == "NOT_ASSESSED":
+        return False
+    coverage = app.get("evidence_coverage")
+    try:
+        coverage_value = float(coverage) if coverage is not None else None
+    except (TypeError, ValueError):
+        coverage_value = None
+    needs_verification = matching_status == "NEEDS_HR_VERIFICATION" or (
+        coverage_value is not None and coverage_value < COVERAGE_THRESHOLD
+    )
+    if needs_verification and _as_int(app.get("pending_reviews")) == 0 and _as_int(app.get("reviewed_criteria")) > 0:
+        return False
+    return needs_verification
+
+
+def _matches_work_type(app: Mapping[str, Any], work_type: str) -> bool:
+    if work_type not in _WORK_TYPE_QUEUES or not _in_screening(app):
+        return False
+    queue = _WORK_TYPE_QUEUES[work_type]
+    if queue == "file_review":
+        return _as_bool(app.get("needs_review"))
+    if queue == "duplicate_pending":
+        return _as_bool(app.get("duplicate"))
+    if queue == "needs_verification":
+        return _needs_verification(app)
+    if queue == "possible_mismatch":
+        return app.get("matching_status") == "POSSIBLE_MISMATCH"
+    return not app.get("matching_status") or app.get("matching_status") == "NOT_ASSESSED"
+
+
+def _sort_moment(value: Any) -> tuple[int, float]:
+    """Sort key that puts rows without a timestamp last, not first."""
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            value = None
+    if not isinstance(value, datetime):
+        return (1, 0.0)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return (0, value.timestamp())
+
+
+def next_application_id(applications: Iterable[Mapping[str, Any]], work_type: str) -> str | None:
+    """The application an application-level work item should open first.
+
+    The oldest matching row wins: the dashboard has always meant "what has waited
+    longest", and a stable order means the same click opens the same profile until
+    that profile is actually handled. Returns None for items that are about a
+    position rather than an application, so the caller keeps its list link.
+    """
+    matches = [app for app in applications if _matches_work_type(app, work_type)]
+    if not matches:
+        return None
+    matches.sort(key=lambda app: (_sort_moment(app.get("created_at")), str(app.get("application_id") or "")))
+    application_id = matches[0].get("application_id")
+    return str(application_id) if application_id else None
 
 
 def summarize_waiting(
