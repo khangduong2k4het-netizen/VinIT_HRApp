@@ -13,7 +13,7 @@ function load(relativePath) {
   new Function('module', 'exports', 'require', output)(loaded, loaded.exports, require);
   return loaded.exports;
 }
-const { chartPoints, trendStatement, markerIndex, pct, periodLabel } = load('src/lib/aiQuality.ts');
+const { chartPoints, fillMissingPeriods, localIsoDate, markerIndex, markerKindKey, pct, periodLabel, trendStatement } = load('src/lib/aiQuality.ts');
 
 const point = (rate, low, high, insufficient = false) => ({ rate, ci_low: low, ci_high: high, count: 5, total: 20, insufficient });
 const row = (period, p) => ({ period, qa_random_sample: p });
@@ -47,4 +47,31 @@ test('markers attach to the period that contains their date', () => {
 test('period labels follow the grain', () => {
   assert.equal(periodLabel('2026-03-09', 'week'), '09/03');
   assert.equal(periodLabel('2026-03-01', 'month'), '03/2026');
+});
+
+test('fillMissingPeriods inserts zero-count placeholders for empty weeks and months', () => {
+  const weekly = fillMissingPeriods([
+    { period: '2026-01-05', value: 0.2, low: 0.1, high: 0.3, count: 4, total: 20, insufficient: false },
+    { period: '2026-01-19', value: 0.1, low: 0.05, high: 0.2, count: 2, total: 20, insufficient: false },
+  ], 'week');
+  assert.deepEqual(weekly.map(p => p.period), ['2026-01-05', '2026-01-12', '2026-01-19']);
+  assert.equal(weekly[1].insufficient, true);
+  assert.equal(weekly[1].total, 0);
+
+  const monthly = fillMissingPeriods([
+    { period: '2026-01-01', value: 0.2, low: 0.1, high: 0.3, count: 4, total: 20, insufficient: false },
+    { period: '2026-03-01', value: 0.1, low: 0.05, high: 0.2, count: 2, total: 20, insufficient: false },
+  ], 'month');
+  assert.deepEqual(monthly.map(p => p.period), ['2026-01-01', '2026-02-01', '2026-03-01']);
+  assert.equal(markerIndex(monthly.map(p => p.period), '2026-02-15'), 1);
+});
+
+test('markerKindKey uses source for automatic VERSION markers and kind for manual ones', () => {
+  assert.equal(markerKindKey({ kind: 'VERSION', source: 'MATCHING_POLICY' }), 'MATCHING_POLICY');
+  assert.equal(markerKindKey({ kind: 'VERSION', source: 'RULES' }), 'RULES');
+  assert.equal(markerKindKey({ kind: 'MANUAL', source: 'ADMIN' }), 'MANUAL');
+});
+
+test('localIsoDate formats using local calendar date', () => {
+  assert.equal(localIsoDate(new Date(2026, 10, 5, 0, 15, 0)), '2026-11-05');
 });

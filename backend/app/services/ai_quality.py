@@ -26,6 +26,9 @@ broken down by individual recruiter.
 """
 from __future__ import annotations
 
+import csv
+import hashlib
+import io
 import math
 from datetime import date, timedelta
 from typing import Any, Optional
@@ -33,13 +36,20 @@ from typing import Any, Optional
 from sqlalchemy import text
 
 from app.services.analytics import has_global_scope
+from app.services.redaction import redact_text
+from app.services.retention import application_opaque_id
 
 MIN_SAMPLE_SIZE = 20
 GRAINS = ("week", "month")
 RISK_REASONS = ("SINGLE_MANDATORY_MISS", "BORDERLINE_COVERAGE")
-BREAKDOWN_DIMENSIONS = ("job_family", "department", "override_reason", "flag_category", "matching_policy_version")
+BREAKDOWN_DIMENSIONS = (
+    "job_family", "department", "override_reason", "flag_category",
+    "matching_policy_version", "file_type", "criterion_type",
+)
 MARKER_TITLE_MAX = 200
 MARKER_NOTE_MAX = 1000
+GOLDEN_SET_MAX_ROWS = 2000
+QUOTE_LIMIT = 300
 
 _SCOPE = """
     scope AS (
@@ -289,16 +299,58 @@ def quality_breakdown(db, *, user_id: str, start: date, end: date, dimension: st
         rows = [{"key": r["key"], "count": int(r["count"]), "share": round(int(r["count"]) / total, 4) if total >= MIN_SAMPLE_SIZE else None}
                 for r in data]
 
+    elif dimension == "file_type":
+        data = _rows(db, """
+            SELECT CASE
+                     WHEN d.mime_type = 'application/pdf' THEN 'PDF'
+                     WHEN d.mime_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' THEN 'DOCX'
+                     WHEN d.mime_type LIKE 'image/%' THEN 'IMAGE'
+                     ELSE 'OTHER'
+                   END AS key,
+                   COUNT(*) AS uploaded,
+                   COUNT(*) FILTER (WHERE d.file_processing_status = 'NEEDS_HR_REVIEW') AS needs_review
+            FROM app_private.application_documents d
+            JOIN app_private.applications a ON a.application_id = d.application_id
+            WHERE a.position_id IN (SELECT position_id FROM scope)
+              AND d.document_type = 'CV'
+              AND d.created_at >= :start AND d.created_at < :end_excl
+            GROUP BY 1 ORDER BY uploaded DESC, key""", params)
+        rows = [{"key": r["key"], "completed": int(r["uploaded"]),
+                 "needs_verification": proportion(r["needs_review"], r["uploaded"])} for r in data]
+
+    elif dimension == "criterion_type":
+        data = _rows(db, """
+            SELECT COALESCE(ci.category, 'UNKNOWN') AS key,
+                   COUNT(*) AS results,
+                   COUNT(*) FILTER (WHERE r.outcome = 'UNCLEAR') AS unclear
+            FROM app_private.criterion_assessment_results r
+            JOIN app_private.assessment_runs ar ON ar.assessment_id = r.assessment_id
+            LEFT JOIN app_private.criteria_items ci ON ci.criterion_id = r.criterion_id
+            WHERE ar.position_id IN (SELECT position_id FROM scope) AND ar.status = 'COMPLETED'
+              AND ar.completed_at >= :start AND ar.completed_at < :end_excl
+            GROUP BY 1 ORDER BY 1""", params)
+        rows = [{"key": r["key"], "completed": int(r["results"]),
+                 "needs_verification": proportion(r["unclear"], r["results"])} for r in data]
+
     else:  # matching_policy_version
+        # Pre-aggregate QA per assessment_id so multiple inspections on one assessment
+        # can never double-count completed assessments or skew average coverage.
         data = _rows(db, """
             SELECT COALESCE(ar.matching_policy_version, 'unknown') AS key,
                    COUNT(*) AS completed,
                    AVG(ar.evidence_coverage) AS average_evidence_coverage,
                    COUNT(*) FILTER (WHERE ar.matching_status = 'NEEDS_HR_VERIFICATION') AS needs_verification,
-                   COUNT(*) FILTER (WHERE qi.reasons ? 'RANDOM_SAMPLE' AND qi.status = 'COMPLETED') AS random_completed,
-                   COUNT(*) FILTER (WHERE qi.reasons ? 'RANDOM_SAMPLE' AND qi.verdict = 'ISSUES_FOUND') AS random_issues
+                   COALESCE(SUM(qa.random_completed), 0) AS random_completed,
+                   COALESCE(SUM(qa.random_issues), 0) AS random_issues
             FROM app_private.assessment_runs ar
-            LEFT JOIN app_private.quality_inspections qi ON qi.assessment_id = ar.assessment_id
+            LEFT JOIN (
+                SELECT qi.assessment_id,
+                       COUNT(*) FILTER (WHERE qi.reasons ? 'RANDOM_SAMPLE') AS random_completed,
+                       COUNT(*) FILTER (WHERE qi.reasons ? 'RANDOM_SAMPLE' AND qi.verdict = 'ISSUES_FOUND') AS random_issues
+                FROM app_private.quality_inspections qi
+                WHERE qi.status = 'COMPLETED'
+                GROUP BY qi.assessment_id
+            ) qa ON qa.assessment_id = ar.assessment_id
             WHERE ar.position_id IN (SELECT position_id FROM scope) AND ar.status = 'COMPLETED'
               AND ar.completed_at >= :start AND ar.completed_at < :end_excl
             GROUP BY 1 ORDER BY 1""", params)
@@ -341,3 +393,148 @@ def version_markers(db, *, user_id: str, start: date, end: date) -> list[dict[st
     markers += [{"date": r["occurred_on"].isoformat(), "kind": "MANUAL", "source": "ADMIN",
                  "title": r["title"], "note": r["note"], "marker_id": r["marker_id"]} for r in manual]
     return sorted(markers, key=lambda m: (m["date"], m["kind"], m["title"]))
+
+
+def _assessment_opaque_id(assessment_id: Any) -> Optional[str]:
+    if not assessment_id:
+        return None
+    return hashlib.sha256(f"vinuni-hra:assessment:{str(assessment_id).lower()}".encode("utf-8")).hexdigest()
+
+
+def _safe_quote(quote: Optional[str]) -> Optional[str]:
+    if not quote:
+        return None
+    cleaned = redact_text(str(quote), detect_first_line_name=False).strip()
+    return cleaned[:QUOTE_LIMIT] or None
+
+
+def golden_set_rows(db, *, user_id: str, start: date, end: date,
+                    position_id: Optional[str] = None, department_id: Optional[str] = None,
+                    job_family_id: Optional[str] = None) -> list[dict[str, Any]]:
+    """P3-2 §5: anonymized label set built from QA inspections and clear HR overrides.
+
+    Never includes candidate names, emails, phones, filenames or full CV text.
+    """
+    params = _params(db, user_id, start, end, position_id, department_id, job_family_id)
+    params["limit"] = GOLDEN_SET_MAX_ROWS
+
+    qa_rows = _rows(db, """
+        SELECT qi.inspection_id, qi.assessment_id, ar.application_id, p.position_code,
+               jf.code AS job_family_code, ar.matching_policy_version, ar.matching_status,
+               ar.evidence_coverage, qi.verdict, qi.reasons, qi.completed_at,
+               COALESCE(
+                   (SELECT json_agg(f.category ORDER BY f.category)
+                    FROM app_private.quality_flags f WHERE f.inspection_id = qi.inspection_id),
+                   '[]'::json
+               ) AS flags,
+               COALESCE(
+                   (SELECT json_agg(e.verbatim_quote ORDER BY e.created_at)
+                    FROM app_private.evidence_items e
+                    JOIN app_private.criterion_assessment_results r ON r.result_id = e.criterion_result_id
+                    WHERE r.assessment_id = ar.assessment_id),
+                   '[]'::json
+               ) AS quotes
+        FROM app_private.quality_inspections qi
+        JOIN app_private.assessment_runs ar ON ar.assessment_id = qi.assessment_id
+        JOIN app_private.positions p ON p.position_id = qi.position_id
+        LEFT JOIN app_private.job_families jf ON jf.job_family_id = p.job_family_id
+        WHERE qi.position_id IN (SELECT position_id FROM scope)
+          AND qi.status = 'COMPLETED'
+          AND qi.completed_at >= :start AND qi.completed_at < :end_excl
+          AND (qi.verdict = 'ISSUES_FOUND' OR (qi.verdict = 'CORRECT' AND qi.reasons ? 'RANDOM_SAMPLE'))
+        ORDER BY qi.completed_at DESC
+        LIMIT :limit
+    """, params)
+
+    override_rows = _rows(db, """
+        SELECT e.application_id, p.position_code, jf.code AS job_family_code,
+               e.ai_matching_status, e.new_status, e.override_direction, e.override_reason_code, e.changed_at
+        FROM app_private.application_status_events e
+        JOIN app_private.applications a ON a.application_id = e.application_id
+        JOIN app_private.positions p ON p.position_id = a.position_id
+        LEFT JOIN app_private.job_families jf ON jf.job_family_id = p.job_family_id
+        WHERE a.position_id IN (SELECT position_id FROM scope)
+          AND e.changed_at >= :start AND e.changed_at < :end_excl
+          AND e.override_direction IS NOT NULL
+          AND e.override_reason_code IS NOT NULL
+          AND e.override_reason_code <> 'OTHER'
+        ORDER BY e.changed_at DESC
+        LIMIT :limit
+    """, params)
+
+    items: list[dict[str, Any]] = []
+    for r in qa_rows:
+        reasons = list(r["reasons"] or [])
+        is_random = "RANDOM_SAMPLE" in reasons
+        raw_quotes = list(r["quotes"] or [])
+        quotes = [q for q in (_safe_quote(item) for item in raw_quotes[:5]) if q]
+        items.append({
+            "source": "QA_ISSUES_FOUND" if r["verdict"] == "ISSUES_FOUND" else "QA_RANDOM_CORRECT",
+            "confidence": "HIGH",
+            "label_note": "QA_VERIFIED",
+            "recorded_at": r["completed_at"].isoformat() if r["completed_at"] else None,
+            "application_opaque_id": application_opaque_id(str(r["application_id"])),
+            "assessment_opaque_id": _assessment_opaque_id(r["assessment_id"]),
+            "position_code": r["position_code"],
+            "job_family_code": r["job_family_code"],
+            "matching_policy_version": r["matching_policy_version"],
+            "ai_matching_status": r["matching_status"],
+            "evidence_coverage": _num(r["evidence_coverage"]),
+            "sample_group": "RANDOM_SAMPLE" if is_random else "RISK_GROUP",
+            "qa_verdict": r["verdict"],
+            "qa_flags": list(r["flags"] or []),
+            "override_direction": None,
+            "override_reason_code": None,
+            "hr_status": None,
+            "redacted_evidence_quotes": quotes,
+        })
+
+    for r in override_rows:
+        items.append({
+            "source": "HR_OVERRIDE",
+            "confidence": "MEDIUM",
+            "label_note": "HR_OPINION",
+            "recorded_at": r["changed_at"].isoformat() if r["changed_at"] else None,
+            "application_opaque_id": application_opaque_id(str(r["application_id"])),
+            "assessment_opaque_id": None,
+            "position_code": r["position_code"],
+            "job_family_code": r["job_family_code"],
+            "matching_policy_version": None,
+            "ai_matching_status": r["ai_matching_status"],
+            "evidence_coverage": None,
+            "sample_group": None,
+            "qa_verdict": None,
+            "qa_flags": [],
+            "override_direction": r["override_direction"],
+            "override_reason_code": r["override_reason_code"],
+            "hr_status": r["new_status"],
+            "redacted_evidence_quotes": [],
+        })
+    return items[:GOLDEN_SET_MAX_ROWS]
+
+
+def _csv_cell(value: Any) -> str:
+    text_val = "" if value is None else str(value)
+    if text_val and text_val[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + text_val
+    return text_val
+
+
+def golden_set_csv(rows: list[dict[str, Any]]) -> str:
+    fields = [
+        "source", "confidence", "label_note", "recorded_at", "application_opaque_id", "assessment_opaque_id",
+        "position_code", "job_family_code", "matching_policy_version", "ai_matching_status", "evidence_coverage",
+        "sample_group", "qa_verdict", "qa_flags", "override_direction", "override_reason_code", "hr_status",
+        "redacted_evidence_quotes",
+    ]
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fields)
+    writer.writeheader()
+    for row in rows:
+        flat = {
+            **row,
+            "qa_flags": "; ".join(row.get("qa_flags") or []),
+            "redacted_evidence_quotes": " | ".join(row.get("redacted_evidence_quotes") or []),
+        }
+        writer.writerow({k: _csv_cell(flat.get(k)) for k in fields})
+    return buf.getvalue()

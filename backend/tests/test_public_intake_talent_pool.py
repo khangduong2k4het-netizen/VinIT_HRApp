@@ -121,6 +121,9 @@ def test_portal_refuses_to_start_with_unsafe_settings_outside_development():
     assert Settings(**{**safe, "APP_ENV": "development", "MALWARE_SCAN_MODE": "off",
                        "PUBLIC_INTAKE_IP_SALT": "", "PUBLIC_INTAKE_TRUSTED_PROXY_HOPS": 0})
     assert Settings(_env_file=None, APP_ENV="production", PUBLIC_INTAKE_ENABLED=False)
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, APP_ENV="staging", INTAKE_API_ENABLED=True, MALWARE_SCAN_MODE="off")
+    assert Settings(_env_file=None, APP_ENV="staging", INTAKE_API_ENABLED=True, MALWARE_SCAN_MODE="clamav").INTAKE_API_ENABLED is True
 
 
 # ---------------------------------------------------------- integration tests
@@ -164,14 +167,23 @@ def _count(sql, **p):
 @integration
 def test_portal_is_off_by_default_and_lists_only_published_positions(client, portal, monkeypatch):
     seed = portal
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.positions SET posting_content = 'Competitive salary and health insurance' WHERE position_id = :p"),
+                     {"p": seed["pos"]})
     listed = client.get("/v1/public/positions").json()["positions"]
     assert [p["code"] for p in listed] == [seed["pos"]] and set(listed[0]) == {"code", "title", "unit", "location", "employment_type"}
+    detail = client.get(f"/v1/public/positions/{seed['pos']}")
+    assert detail.status_code == 200
+    body = detail.json()
+    assert body["posting_content"] == "Competitive salary and health insurance" and body["jd"]
     with engine.begin() as conn:
         conn.execute(text("UPDATE app_private.positions SET public_apply_enabled = FALSE"))
     assert client.get("/v1/public/positions").json()["positions"] == []
+    assert client.get(f"/v1/public/positions/{seed['pos']}").status_code == 404
     assert _apply(client, seed).status_code == 404
     monkeypatch.setattr(settings, "PUBLIC_INTAKE_ENABLED", False)
     assert client.get("/v1/public/positions").status_code == 404
+    assert client.get(f"/v1/public/positions/{seed['pos']}").status_code == 404
 
 
 @integration
@@ -433,6 +445,9 @@ def test_hr_publishes_position_and_hiring_manager_cannot(client, seed):
     assert client.put(route, headers=headers(seed["hr2"]), json={"enabled": True}).status_code == 403
     assert client.put(route, headers=headers(seed["hr"]), json={"enabled": True}).json() == {"public_apply_enabled": True}
     assert _count("SELECT COUNT(*) FROM app_private.audit_events WHERE action_type = 'SET_PUBLIC_APPLY'") == 1
+    detail = client.get(f"/v1/positions/{seed['pos']}", headers=headers(seed["hr"])).json()
+    assert detail["public_apply_enabled"] is True          # the position page reads the switch state from here
+    assert detail["public_intake_enabled"] == settings.PUBLIC_INTAKE_ENABLED
 
 
 # ---- Talent Pool eligibility ----
@@ -495,8 +510,18 @@ def test_eligible_pool_excludes_withdrawn_expired_and_pending_deletion(client, s
         finally:
             db.close()
     assert ids() == {good, withdrawn, expired, held}
-    assert client.post(f"/v1/talent-pool/applications/{withdrawn}/withdraw-consent", headers=hr, json={"reference": "ref-1"}).status_code == 200
-    assert client.post(f"/v1/talent-pool/applications/{withdrawn}/withdraw-consent", headers=hr, json={}).status_code == 404
+    # Plain HR Recruiter cannot record written consent withdrawal; HR Lead or Admin can (spec §7).
+    assert client.get(f"/v1/talent-pool/applications/{withdrawn}", headers=hr).json()["can_withdraw_consent"] is False
+    assert client.post(f"/v1/talent-pool/applications/{withdrawn}/withdraw-consent", headers=hr, json={"reference": "ref-1"}).status_code == 403
+    lead = headers(seed["other"])
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO app_private.user_role_assignments(user_id, role_code) VALUES (:u, 'HR_LEAD')"),
+                     {"u": seed["other"]})
+    assert client.get(f"/v1/talent-pool/applications/{withdrawn}", headers=lead).json()["can_withdraw_consent"] is True
+    assert client.post(f"/v1/talent-pool/applications/{withdrawn}/withdraw-consent", headers=lead, json={"reference": "ref-1"}).status_code == 200
+    assert _count("""SELECT evidence->>'withdrawal_reference' FROM app_private.application_data_consents
+        WHERE application_id = :a AND purpose = 'TALENT_POOL'""", a=withdrawn) == "ref-1"
+    assert client.post(f"/v1/talent-pool/applications/{withdrawn}/withdraw-consent", headers=lead, json={}).status_code == 404
     with engine.begin() as conn:
         conn.execute(text("""UPDATE app_private.application_data_consents SET granted_at = NOW() - INTERVAL '61 months'
             WHERE application_id = :a AND purpose = 'TALENT_POOL'"""), {"a": expired})
@@ -527,7 +552,8 @@ def test_candidate_withdraws_with_token_and_duplicates_are_idempotent(client, po
     assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE purpose = 'TALENT_POOL' AND withdrawn_at IS NOT NULL") == 0
     assert client.post("/v1/public/talent-pool/withdraw", json={"token": token}).json() == {"status": "ok"}
     assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE purpose = 'TALENT_POOL' AND withdrawn_at IS NOT NULL") == 1
-    assert _count("SELECT COUNT(*) FROM app_private.audit_events WHERE action_type = 'WITHDRAW_TALENT_POOL_CONSENT_BY_CANDIDATE'") == 1
+    assert _count("""SELECT COUNT(*) FROM app_private.audit_events
+        WHERE action_type = 'WITHDRAW_TALENT_POOL_CONSENT_BY_CANDIDATE' AND position_id = :p""", p=seed["pos"]) == 1
     assert client.post("/v1/public/talent-pool/withdraw", json={"token": "xyz"}).status_code == 422
 
 

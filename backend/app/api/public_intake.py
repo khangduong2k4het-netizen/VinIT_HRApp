@@ -83,6 +83,35 @@ def list_public_positions():
         db.close()
 
 
+@router.get("/positions/{position_code}")
+def get_public_position(position_code: str):
+    """Public posting content and latest JD for one published open position."""
+    _require_enabled()
+    db = SessionLocal()
+    try:
+        row = db.execute(text("""
+            SELECT q.position_code, q.title, q.org_unit, q.work_location, q.employment_type,
+                   p.level, p.work_mode, p.posting_content, p.opened_at,
+                   (SELECT content_text FROM app_private.jd_versions j WHERE j.position_id = q.position_id
+                    ORDER BY version_number DESC LIMIT 1) AS jd_content,
+                   (SELECT language_code FROM app_private.jd_versions j WHERE j.position_id = q.position_id
+                    ORDER BY version_number DESC LIMIT 1) AS jd_language
+            FROM (""" + OPEN_POSITION_SQL + """) q
+            JOIN app_private.positions p ON p.position_id = q.position_id
+            WHERE q.position_code = :code
+        """), {"code": position_code}).mappings().first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Vị trí không còn nhận hồ sơ.")
+        return {
+            "code": row["position_code"], "title": row["title"], "unit": row["org_unit"],
+            "location": row["work_location"], "employment_type": row["employment_type"],
+            "level": row["level"], "work_mode": row["work_mode"], "opened_at": row["opened_at"],
+            "posting_content": row["posting_content"], "jd": row["jd_content"], "jd_language": row["jd_language"],
+        }
+    finally:
+        db.close()
+
+
 def _fake_token() -> str:
     """Answer shaped like a real receipt, so a repeat or bot submission learns nothing."""
     return secrets.token_hex(32)
@@ -310,21 +339,32 @@ class WithdrawInput(BaseModel):
 
 
 @router.post("/talent-pool/withdraw")
-def withdraw_talent_pool(body: WithdrawInput):
+def withdraw_talent_pool(body: WithdrawInput, request: Request):
     """Candidate withdraws the Talent Pool consent with the token shown at submission. Always answers alike.
 
     Stays available when the portal is switched off: withdrawing is a right, not part of intake.
     """
+    bucket = f"withdraw:{_ip_hash(request)}"
     db = SessionLocal()
     try:
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:h, 3304))"), {"h": bucket})
+        recent = db.execute(text("""SELECT COUNT(*) FROM app_private.public_intake_events
+            WHERE ip_hash = :h AND created_at > NOW() - INTERVAL '1 hour'"""), {"h": bucket}).scalar_one()
+        if recent >= settings.PUBLIC_WITHDRAW_MAX_PER_IP_HOUR:
+            raise HTTPException(status_code=429, detail="Bạn đã gửi quá nhiều lần. Vui lòng thử lại sau.")
+        db.execute(text("INSERT INTO app_private.public_intake_events(ip_hash, position_id, outcome) VALUES (:h, NULL, 'WITHDRAW')"),
+                   {"h": bucket})
         row = db.execute(text("""UPDATE app_private.application_data_consents SET withdrawn_at = NOW()
             WHERE withdrawal_token_hash = :h AND purpose = 'TALENT_POOL' AND withdrawn_at IS NULL RETURNING application_id"""),
                          {"h": hash_token(body.token)}).first()
         if row:
+            position_id = db.execute(text("SELECT position_id FROM app_private.applications WHERE application_id = :a"),
+                                     {"a": row[0]}).scalar_one_or_none()
             db.execute(text("UPDATE app_private.talent_pool_marks SET removed_at = NOW() WHERE application_id = :a AND removed_at IS NULL"),
                        {"a": row[0]})
-            db.execute(text("""INSERT INTO app_private.audit_events(action_type, object_type, object_id, outcome)
-                VALUES ('WITHDRAW_TALENT_POOL_CONSENT_BY_CANDIDATE', 'APPLICATION', :a, 'SUCCESS')"""), {"a": row[0]})
+            db.execute(text("""INSERT INTO app_private.audit_events(action_type, object_type, object_id, position_id, outcome)
+                VALUES ('WITHDRAW_TALENT_POOL_CONSENT_BY_CANDIDATE', 'APPLICATION', :a, :p, 'SUCCESS')"""),
+                       {"a": row[0], "p": position_id})
         db.commit()
         return {"status": "ok"}
     except Exception:

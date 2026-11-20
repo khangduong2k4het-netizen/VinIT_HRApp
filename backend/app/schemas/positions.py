@@ -92,6 +92,8 @@ class PositionWithStats(Position):
     shortlisted: int = 0
     criteria_approved: bool = False
     criteria_status: Optional[str] = None  # Latest version, which can be newer than the approved version.
+    public_apply_enabled: bool = False  # This position accepts CVs from the public /apply form.
+    public_intake_enabled: bool = False  # The /apply portal itself is switched on (PUBLIC_INTAKE_ENABLED).
 
 
 class JDVersionCreate(BaseModel):

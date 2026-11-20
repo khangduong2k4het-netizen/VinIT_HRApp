@@ -936,19 +936,23 @@ class DeterministicMatchingEngine:
         except (TypeError, ValueError):
             pass
 
-        explicit_keys: set[str] = set()
-        explicit_values: list[float] = []
+        # Durations are only added up inside one source. The same career length
+        # is routinely restated in the summary, in the work section and in the
+        # extracted profile, so adding across sources counts it two or three
+        # times. Each bucket is deduplicated by sentence on its own.
+        explicit_keys: dict[str, set[str]] = {"profile": set(), "work": set(), "summary": set()}
+        explicit_buckets: dict[str, list[float]] = {"profile": [], "work": [], "summary": []}
 
-        def add_explicit(source_text: str) -> None:
+        def add_explicit(source_text: str, bucket: str) -> None:
             for sentence in self._sentences(source_text):
                 values = self._explicit_years_in(sentence)
                 if not values:
                     continue
                 key = normalize_text(sentence)
-                if key in explicit_keys:
+                if key in explicit_keys[bucket]:
                     continue
-                explicit_keys.add(key)
-                explicit_values.append(max(values))
+                explicit_keys[bucket].add(key)
+                explicit_buckets[bucket].append(max(values))
 
         profile_intervals: list[tuple[int, int]] = []
         # Only work history counts as experience: study periods ("B.Sc.,
@@ -961,7 +965,7 @@ class DeterministicMatchingEngine:
             if isinstance(item, dict) and item.get("start_date"):
                 work_texts.append(f"{item.get('start_date')} - {item.get('end_date') or 'Present'}")
         for value in work_texts:
-            add_explicit(value)
+            add_explicit(value, "profile")
             profile_intervals.extend(self._date_intervals_in(value, date.today().year))
         if profile_intervals:
             candidates.append(self._merged_interval_years(profile_intervals))
@@ -974,11 +978,20 @@ class DeterministicMatchingEngine:
         ]
         chunk_intervals: list[tuple[int, int]] = []
         for chunk in relevant:
-            add_explicit(chunk.text)
+            # A summary line is a restated total, so it never adds to the work history.
+            add_explicit(chunk.text, "work" if chunk.section == "WORK" else "summary")
             chunk_intervals.extend(self._date_intervals_in(chunk.text, date.today().year))
         if chunk_intervals:
             candidates.append(self._merged_interval_years(chunk_intervals))
             reliable_total = True
+        # Distinct roles inside one source add up; restatements in another source do not.
+        option_values: list[tuple[float, list[float]]] = []
+        for bucket in ("profile", "work"):
+            if explicit_buckets[bucket]:
+                option_values.append((sum(explicit_buckets[bucket]), explicit_buckets[bucket]))
+        if explicit_buckets["summary"]:
+            option_values.append((max(explicit_buckets["summary"]), [max(explicit_buckets["summary"])]))
+        explicit_values: list[float] = max(option_values, key=lambda option: option[0])[1] if option_values else []
         if explicit_values:
             candidates.append(round(sum(explicit_values), 2))
 

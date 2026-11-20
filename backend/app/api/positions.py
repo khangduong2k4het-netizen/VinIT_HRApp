@@ -303,7 +303,7 @@ async def get_position(
                             {"id": str(position_id), "user_id": current_user["user_id"]}).mappings().first()
         if not result:
             raise NotFoundError("Position")
-        return dict(result)
+        return {**dict(result), "public_intake_enabled": settings.PUBLIC_INTAKE_ENABLED}
     finally:
         db.close()
 

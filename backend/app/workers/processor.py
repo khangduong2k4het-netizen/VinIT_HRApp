@@ -40,6 +40,7 @@ from app.services.semantic_diagnostics import record_semantic_run
 from app.services.ltr import LTRModel, artifact_sha256, extract_ranking_features
 from app.services.semantic_retrieval import merge_candidate_chunks, retrieve_semantic_candidates
 from app.services.redaction import redact_text
+from app.services.talent_pool_scan import ScanError, mark_scan_failed, run_scan_for_operation
 from app.services.identity_matching import extract_phone
 from app.services.ai_config import (
     get_active_runtime, hydrate_runtime_secret, runtime_context, runtime_snapshot,
@@ -292,7 +293,7 @@ class ProcessingWorker:
                 elif capability == "ASSESSMENT":
                     self._run_assessments(UUID(operation_id), db)
                 elif capability == "TALENT_POOL_SCAN":
-                    self._run_talent_pool_scan(UUID(operation_id), db)
+                    run_scan_for_operation(db, operation_id, self._load_extracted_text)
                 else:
                     self._generate_ranking(UUID(operation_id), db)
 
@@ -333,11 +334,8 @@ class ProcessingWorker:
                             WHERE operation_id = :operation_id AND status = 'PROCESSING'
                         """), {"operation_id": operation_id})
                     if capability == "TALENT_POOL_SCAN":
-                        db.execute(text("""
-                            UPDATE app_private.talent_pool_scans
-                            SET status = 'FAILED', error_message = 'Không thể quét Talent Pool; vui lòng thử lại.', completed_at = NOW()
-                            WHERE operation_id = :operation_id AND status IN ('PENDING', 'PROCESSING')
-                        """), {"operation_id": operation_id})
+                        mark_scan_failed(db, operation_id, str(exc) if isinstance(exc, ScanError)
+                                         else "Không thể quét Talent Pool; vui lòng thử lại.")
                     db.execute(text("""
                         UPDATE app_private.operations
                         SET status = 'FAILED', error_code = 'PROCESSING_ERROR',
@@ -1528,121 +1526,6 @@ class ProcessingWorker:
             },
         ):
             self._generate_ranking(operation_id, db, criteria_version_id=criteria_version_id)
-
-    def _run_talent_pool_scan(self, operation_id: UUID, db):
-        """P3-1 phase 2: score eligible pooled applications against one position's rubric.
-
-        Writes only talent_pool_scan_results; the target position's applicants,
-        assessments and ranking are untouched. Eligibility is re-checked here with
-        the same query the API uses, so a consent withdrawn after the scan was
-        requested is honoured.
-        """
-        from app.services import talent_pool, talent_pool_scan
-
-        scan = db.execute(text("""
-            SELECT scan_id, position_id, criteria_version_id FROM app_private.talent_pool_scans
-            WHERE operation_id = :operation_id
-        """), {"operation_id": str(operation_id)}).mappings().first()
-        if not scan:
-            raise RuntimeError("Không tìm thấy lượt quét Talent Pool")
-        scan_id, position_id, criteria_version_id = str(scan["scan_id"]), str(scan["position_id"]), str(scan["criteria_version_id"])
-        cv = db.execute(text("""
-            SELECT criteria_version_id, mandatory_weight_total, nice_to_have_weight_total
-            FROM app_private.criteria_versions
-            WHERE criteria_version_id = :cv AND status = 'APPROVED'
-              AND jd_version_id = (SELECT jd_version_id FROM app_private.jd_versions WHERE position_id = :p
-                                   ORDER BY version_number DESC LIMIT 1)
-        """), {"cv": criteria_version_id, "p": position_id}).mappings().first()
-        if not cv:
-            raise RuntimeError("Bộ tiêu chí của vị trí đã thay đổi; vui lòng quét lại")
-        criteria_items = []
-        for row in db.execute(text("""
-            SELECT criterion_id, name, description, category, weight_in_group, expected_evidence_keywords, requirement_spec
-            FROM app_private.criteria_items WHERE criteria_version_id = :cv ORDER BY display_order
-        """), {"cv": criteria_version_id}).mappings():
-            item = {**dict(row), "criterion_id": str(row["criterion_id"]), "weight_in_group": float(row["weight_in_group"])}
-            if isinstance(item.get("requirement_spec"), str):
-                try:
-                    item["requirement_spec"] = json.loads(item["requirement_spec"])
-                except (TypeError, ValueError):
-                    item["requirement_spec"] = None
-            criteria_items.append(item)
-        if not criteria_items:
-            raise RuntimeError("Bộ tiêu chí đã duyệt không có tiêu chí nào")
-        group_weights = {"MUST_HAVE": float(cv["mandatory_weight_total"]) / 100,
-                         "NICE_TO_HAVE": float(cv["nice_to_have_weight_total"]) / 100}
-
-        # A recovered attempt starts the scan over.
-        db.execute(text("DELETE FROM app_private.talent_pool_scan_results WHERE scan_id = :s"), {"s": scan_id})
-        db.execute(text("UPDATE app_private.talent_pool_scans SET status = 'PROCESSING' WHERE scan_id = :s"), {"s": scan_id})
-        db.commit()
-
-        candidates = talent_pool.scan_candidates(db, position_id)
-        db.execute(text("UPDATE app_private.talent_pool_scans SET candidate_count = :n WHERE scan_id = :s"),
-                   {"n": len(candidates), "s": scan_id})
-        db.commit()
-        scored, failed = [], 0
-        loop = asyncio.new_event_loop()
-        try:
-            for candidate in candidates:
-                application_id = str(candidate["application_id"])
-                try:
-                    if not candidate["extracted_text_storage_path"] or not candidate["profile_version_id"]:
-                        raise RuntimeError("Thiếu văn bản CV hoặc hồ sơ trích xuất")
-                    cv_text = redact_text(self._load_extracted_text(candidate["extracted_text_storage_path"]),
-                                          detect_first_line_name=True)
-                    facts = db.execute(text("""
-                        SELECT fact_type, fact_value FROM app_private.profile_facts WHERE profile_version_id = :pv
-                    """), {"pv": str(candidate["profile_version_id"])}).mappings().all()
-                    profile = {
-                        "candidate_identifier": application_id, "total_years_experience": 0,
-                        "education": [f["fact_value"] for f in facts if f["fact_type"] == "EDUCATION"],
-                        "work_history": [f["fact_value"] for f in facts if f["fact_type"] == "WORK_EXPERIENCE"],
-                        "skills": [f["fact_value"].get("name") for f in facts if f["fact_type"] == "SKILL"],
-                        "certifications": [f["fact_value"] for f in facts if f["fact_type"] == "CERTIFICATION"],
-                        "languages": [f["fact_value"] for f in facts if f["fact_type"] == "LANGUAGE"],
-                        "projects": [f["fact_value"] for f in facts if f["fact_type"] == "PROJECT"],
-                    }
-                    outcome = talent_pool_scan.score_against_rubric(
-                        loop, cv_text=cv_text, candidate_profile=profile, criteria_items=criteria_items,
-                        group_weights=group_weights, candidate_identifier=application_id,
-                        rubric_version=criteria_version_id)
-                    db.execute(text("""
-                        INSERT INTO app_private.talent_pool_scan_results
-                            (scan_id, application_id, status, matching_status, matching_score, evidence_coverage, criteria)
-                        VALUES (:s, :a, 'SCORED', :ms, :score, :cov, CAST(:criteria AS jsonb))
-                    """), {"s": scan_id, "a": application_id, "ms": outcome["matching_status"], "score": outcome["score"],
-                            "cov": outcome["coverage"],
-                            "criteria": json.dumps(talent_pool_scan.criteria_summary(outcome["results"], criteria_items),
-                                                   ensure_ascii=False)})
-                    db.commit()
-                    scored.append({"application_id": application_id, "matching_status": outcome["matching_status"],
-                                   "matching_score": outcome["score"], "evidence_coverage": outcome["coverage"]})
-                except LostOwnership:
-                    db.rollback()
-                    raise
-                except Exception as exc:
-                    db.rollback()
-                    failed += 1
-                    logger.error("Talent Pool scan failed for application", application_id=application_id,
-                                 error_type=type(exc).__name__)
-                    db.execute(text("""
-                        INSERT INTO app_private.talent_pool_scan_results (scan_id, application_id, status)
-                        VALUES (:s, :a, 'FAILED') ON CONFLICT (scan_id, application_id) DO NOTHING
-                    """), {"s": scan_id, "a": application_id})
-                    db.commit()
-        finally:
-            loop.close()
-        for rank, row in enumerate(sorted(scored, key=talent_pool_scan.rank_key), start=1):
-            db.execute(text("""
-                UPDATE app_private.talent_pool_scan_results SET rank_number = :r WHERE scan_id = :s AND application_id = :a
-            """), {"r": rank, "s": scan_id, "a": row["application_id"]})
-        db.execute(text("""
-            UPDATE app_private.talent_pool_scans
-            SET status = 'COMPLETED', scored_count = :scored, failed_count = :failed, completed_at = NOW()
-            WHERE scan_id = :s
-        """), {"scored": len(scored), "failed": failed, "s": scan_id})
-        db.commit()
 
     def _generate_ranking(self, operation_id: UUID, db, criteria_version_id: Optional[str] = None):
         """Generate a snapshot for one position and one approved rubric version."""
