@@ -1,0 +1,460 @@
+{
+  "note": "Khoá ngoại trong schema app_private, đọc từ pg_constraint trên database thật ngày 2026-11-20. on_delete: c=CASCADE, n=SET NULL, a=NO ACTION, r=RESTRICT.",
+  "foreign_keys": [
+    {
+      "child": "ai_auxiliary_config_drafts",
+      "parent": "user_profiles",
+      "on_delete": "a"
+    },
+    {
+      "child": "ai_configuration_versions",
+      "parent": "ai_policy_versions",
+      "on_delete": "a"
+    },
+    {
+      "child": "ai_runtime_controls",
+      "parent": "user_profiles",
+      "on_delete": "a"
+    },
+    {
+      "child": "application_documents",
+      "parent": "applications",
+      "on_delete": "c"
+    },
+    {
+      "child": "application_identities",
+      "parent": "applications",
+      "on_delete": "c"
+    },
+    {
+      "child": "application_private_notes",
+      "parent": "applications",
+      "on_delete": "c"
+    },
+    {
+      "child": "application_retention_cases",
+      "parent": "positions",
+      "on_delete": "a"
+    },
+    {
+      "child": "application_retention_cases",
+      "parent": "applications",
+      "on_delete": "n"
+    },
+    {
+      "child": "application_status_events",
+      "parent": "applications",
+      "on_delete": "c"
+    },
+    {
+      "child": "applications",
+      "parent": "positions",
+      "on_delete": "a"
+    },
+    {
+      "child": "assessment_runs",
+      "parent": "criteria_versions",
+      "on_delete": "a"
+    },
+    {
+      "child": "assessment_runs",
+      "parent": "operations",
+      "on_delete": "a"
+    },
+    {
+      "child": "assessment_runs",
+      "parent": "ai_configuration_versions",
+      "on_delete": "a"
+    },
+    {
+      "child": "assessment_runs",
+      "parent": "assessment_policy_versions",
+      "on_delete": "a"
+    },
+    {
+      "child": "assessment_runs",
+      "parent": "profile_versions",
+      "on_delete": "a"
+    },
+    {
+      "child": "assessment_runs",
+      "parent": "jd_versions",
+      "on_delete": "a"
+    },
+    {
+      "child": "assessment_runs",
+      "parent": "applications",
+      "on_delete": "a"
+    },
+    {
+      "child": "assessment_runs",
+      "parent": "positions",
+      "on_delete": "a"
+    },
+    {
+      "child": "audit_events",
+      "parent": "positions",
+      "on_delete": "a"
+    },
+    {
+      "child": "bge_route_sets",
+      "parent": "user_profiles",
+      "on_delete": "a"
+    },
+    {
+      "child": "careers_intake_receipts",
+      "parent": "applications",
+      "on_delete": "n"
+    },
+    {
+      "child": "careers_intake_receipts",
+      "parent": "positions",
+      "on_delete": "a"
+    },
+    {
+      "child": "criteria_approval_events",
+      "parent": "criteria_versions",
+      "on_delete": "c"
+    },
+    {
+      "child": "criteria_items",
+      "parent": "criteria_versions",
+      "on_delete": "c"
+    },
+    {
+      "child": "criteria_items",
+      "parent": "rubric_template_items",
+      "on_delete": "a"
+    },
+    {
+      "child": "criteria_versions",
+      "parent": "rubric_template_versions",
+      "on_delete": "a"
+    },
+    {
+      "child": "criteria_versions",
+      "parent": "positions",
+      "on_delete": "c"
+    },
+    {
+      "child": "criteria_versions",
+      "parent": "jd_versions",
+      "on_delete": "a"
+    },
+    {
+      "child": "criterion_assessment_results",
+      "parent": "criteria_items",
+      "on_delete": "a"
+    },
+    {
+      "child": "criterion_assessment_results",
+      "parent": "assessment_runs",
+      "on_delete": "c"
+    },
+    {
+      "child": "cv_batch_items",
+      "parent": "cv_batches",
+      "on_delete": "c"
+    },
+    {
+      "child": "cv_batches",
+      "parent": "positions",
+      "on_delete": "a"
+    },
+    {
+      "child": "cv_batches",
+      "parent": "operations",
+      "on_delete": "a"
+    },
+    {
+      "child": "cv_chunk_embeddings",
+      "parent": "applications",
+      "on_delete": "c"
+    },
+    {
+      "child": "cv_chunk_embeddings",
+      "parent": "application_documents",
+      "on_delete": "c"
+    },
+    {
+      "child": "deletion_jobs",
+      "parent": "application_retention_cases",
+      "on_delete": "n"
+    },
+    {
+      "child": "document_processing_runs",
+      "parent": "application_documents",
+      "on_delete": "c"
+    },
+    {
+      "child": "document_processing_runs",
+      "parent": "operations",
+      "on_delete": "a"
+    },
+    {
+      "child": "duplicate_signals",
+      "parent": "applications",
+      "on_delete": "a"
+    },
+    {
+      "child": "duplicate_signals",
+      "parent": "positions",
+      "on_delete": "a"
+    },
+    {
+      "child": "evidence_items",
+      "parent": "application_documents",
+      "on_delete": "a"
+    },
+    {
+      "child": "evidence_items",
+      "parent": "criterion_assessment_results",
+      "on_delete": "c"
+    },
+    {
+      "child": "gmail_test_messages",
+      "parent": "applications",
+      "on_delete": "n"
+    },
+    {
+      "child": "hr_criterion_reviews",
+      "parent": "criterion_assessment_results",
+      "on_delete": "c"
+    },
+    {
+      "child": "hr_criterion_reviews",
+      "parent": "positions",
+      "on_delete": "c"
+    },
+    {
+      "child": "jd_versions",
+      "parent": "positions",
+      "on_delete": "c"
+    },
+    {
+      "child": "llm_usage_attempts",
+      "parent": "ai_configuration_versions",
+      "on_delete": "a"
+    },
+    {
+      "child": "ltr_managed_selections",
+      "parent": "ltr_model_versions",
+      "on_delete": "a"
+    },
+    {
+      "child": "ltr_managed_selections",
+      "parent": "ai_auxiliary_config_drafts",
+      "on_delete": "a"
+    },
+    {
+      "child": "ltr_managed_selections",
+      "parent": "user_profiles",
+      "on_delete": "a"
+    },
+    {
+      "child": "ltr_model_review_events",
+      "parent": "ltr_model_versions",
+      "on_delete": "c"
+    },
+    {
+      "child": "operation_recovery_events",
+      "parent": "operations",
+      "on_delete": "c"
+    },
+    {
+      "child": "operations",
+      "parent": "ai_configuration_versions",
+      "on_delete": "a"
+    },
+    {
+      "child": "operations",
+      "parent": "positions",
+      "on_delete": "a"
+    },
+    {
+      "child": "position_access_grants",
+      "parent": "user_profiles",
+      "on_delete": "a"
+    },
+    {
+      "child": "position_create_requests",
+      "parent": "positions",
+      "on_delete": "n"
+    },
+    {
+      "child": "position_status_events",
+      "parent": "positions",
+      "on_delete": "c"
+    },
+    {
+      "child": "positions",
+      "parent": "departments",
+      "on_delete": "r"
+    },
+    {
+      "child": "positions",
+      "parent": "job_families",
+      "on_delete": "a"
+    },
+    {
+      "child": "profile_facts",
+      "parent": "profile_versions",
+      "on_delete": "c"
+    },
+    {
+      "child": "profile_versions",
+      "parent": "applications",
+      "on_delete": "c"
+    },
+    {
+      "child": "profile_versions",
+      "parent": "application_documents",
+      "on_delete": "a"
+    },
+    {
+      "child": "ranking_items",
+      "parent": "ranking_runs",
+      "on_delete": "c"
+    },
+    {
+      "child": "ranking_items",
+      "parent": "assessment_runs",
+      "on_delete": "a"
+    },
+    {
+      "child": "ranking_items",
+      "parent": "applications",
+      "on_delete": "a"
+    },
+    {
+      "child": "ranking_items",
+      "parent": "positions",
+      "on_delete": "a"
+    },
+    {
+      "child": "ranking_runs",
+      "parent": "operations",
+      "on_delete": "a"
+    },
+    {
+      "child": "ranking_runs",
+      "parent": "ai_configuration_versions",
+      "on_delete": "a"
+    },
+    {
+      "child": "ranking_runs",
+      "parent": "ltr_managed_selections",
+      "on_delete": "a"
+    },
+    {
+      "child": "ranking_runs",
+      "parent": "criteria_versions",
+      "on_delete": "a"
+    },
+    {
+      "child": "ranking_runs",
+      "parent": "positions",
+      "on_delete": "a"
+    },
+    {
+      "child": "reranker_selections",
+      "parent": "ai_auxiliary_config_drafts",
+      "on_delete": "a"
+    },
+    {
+      "child": "reranker_selections",
+      "parent": "user_profiles",
+      "on_delete": "a"
+    },
+    {
+      "child": "rubric_template_items",
+      "parent": "rubric_template_versions",
+      "on_delete": "c"
+    },
+    {
+      "child": "rubric_template_versions",
+      "parent": "rubric_templates",
+      "on_delete": "c"
+    },
+    {
+      "child": "rubric_templates",
+      "parent": "job_families",
+      "on_delete": "a"
+    },
+    {
+      "child": "scorecard_reopen_events",
+      "parent": "shortlist_scorecards",
+      "on_delete": "c"
+    },
+    {
+      "child": "shortlist_feedback",
+      "parent": "applications",
+      "on_delete": "a"
+    },
+    {
+      "child": "shortlist_feedback",
+      "parent": "shortlist_shares",
+      "on_delete": "c"
+    },
+    {
+      "child": "shortlist_scorecard_criteria",
+      "parent": "criteria_items",
+      "on_delete": "a"
+    },
+    {
+      "child": "shortlist_scorecard_criteria",
+      "parent": "shortlist_scorecards",
+      "on_delete": "c"
+    },
+    {
+      "child": "shortlist_scorecards",
+      "parent": "criteria_versions",
+      "on_delete": "a"
+    },
+    {
+      "child": "shortlist_scorecards",
+      "parent": "shortlist_share_items",
+      "on_delete": "c"
+    },
+    {
+      "child": "shortlist_share_items",
+      "parent": "shortlist_shares",
+      "on_delete": "c"
+    },
+    {
+      "child": "shortlist_share_items",
+      "parent": "ranking_items",
+      "on_delete": "a"
+    },
+    {
+      "child": "shortlist_share_items",
+      "parent": "applications",
+      "on_delete": "a"
+    },
+    {
+      "child": "shortlist_share_items",
+      "parent": "assessment_runs",
+      "on_delete": "a"
+    },
+    {
+      "child": "shortlist_share_items",
+      "parent": "positions",
+      "on_delete": "a"
+    },
+    {
+      "child": "shortlist_shares",
+      "parent": "positions",
+      "on_delete": "a"
+    },
+    {
+      "child": "talent_pool_consents",
+      "parent": "applications",
+      "on_delete": "c"
+    },
+    {
+      "child": "user_profiles",
+      "parent": "auth.users",
+      "on_delete": "c"
+    }
+  ]
+}

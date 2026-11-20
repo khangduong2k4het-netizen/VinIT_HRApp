@@ -22,7 +22,7 @@ Bốn nhóm:
 | `CV` | Hồ sơ ứng viên và CV | không |
 | `JD` | JD và rubric | **`POSITIONS` + `OPERATIONS` + `CV`** |
 | `POSITIONS` | Vị trí tuyển dụng | **`JD` + `OPERATIONS` + `CV`** |
-| `OPERATIONS` | Vận hành và kiểm toán | không |
+| `OPERATIONS` | Vận hành và kiểm toán | **`CV` + `JD` + `POSITIONS`** |
 
 **JD và vị trí không tách rời.** Cả hai chiều đều có khoá ngoại
 (`criteria_versions → jd_versions` và `jd_versions → positions`), nên xoá một
@@ -33,9 +33,20 @@ bên luôn phải xoá bên kia.
 `cv_batches`, `duplicate_signals`, `ranking_runs`, `ranking_items`,
 `shortlist_shares`, `shortlist_share_items`, `careers_intake_receipts`,
 `position_create_requests`. Còn một dòng trong số đó là PostgreSQL chặn
-`DELETE FROM positions`. Vì vậy chọn `JD` hoặc `POSITIONS` tự mở rộng sang cả
-bốn nhóm, và màn xác nhận hiện câu giải thích thay vì để FK báo lỗi sau khi bấm.
-Có test đọc thẳng `supabase/migrations` để phát hiện bảng mới thêm sau này.
+`DELETE FROM positions`.
+
+**Chiều ngược lại cũng vậy.** `assessment_runs.operation_id` và
+`ranking_runs.operation_id` là NO ACTION, mà hai bảng đó còn bắt buộc trỏ tới
+`criteria_versions` / `jd_versions` / `positions` (đều NOT NULL). Nên không thể
+gỡ chúng ra khỏi operation để xoá riêng operation được.
+
+Kết luận: **chỉ `CV` xoá độc lập được.** Ba nhóm còn lại bất kỳ nhóm nào cũng
+mở rộng thành cả bộ bốn. Màn xác nhận hiện câu giải thích đúng theo từng trường
+hợp, thay vì để FK báo lỗi sau khi bấm.
+
+Có hai test ghim điều này: một test đọc thẳng `supabase/migrations` để phát hiện
+bảng mới thêm sau này, một test vét cạn **15 tổ hợp chọn nhóm** trên bộ 91 khoá
+ngoại thật chụp từ `pg_constraint` (`tests/fixtures/app_private_foreign_keys.json`).
 
 ## 2. Cái gì KHÔNG bao giờ bị xoá
 

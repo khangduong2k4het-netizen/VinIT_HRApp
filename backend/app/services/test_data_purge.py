@@ -124,13 +124,22 @@ DELETE_ORDER: list[tuple[str, str]] = [
 #: PostgreSQL chặn ``DELETE FROM positions``. Đã kiểm từng FK trong
 #: ``supabase/migrations``; thiếu ràng buộc này là lỗi thật, không phải phòng xa.
 #:
-#: Vì vậy thực tế không có đường tắt: hễ chạm tới vị trí là phải xoá CV, JD và
-#: vận hành cùng lúc. Trước đây người dùng chọn "Vị trí" rồi nhận một lỗi FK khó
+#: OPERATIONS cũng kéo theo CV, chiều ngược lại. ``assessment_runs.operation_id``
+#: và ``ranking_runs.operation_id`` là khoá ngoại NO ACTION, mà hai bảng đó còn
+#: bắt buộc trỏ tới ``criteria_versions``/``jd_versions``/``positions`` (đều NOT
+#: NULL). Nên không thể "gỡ" chúng khỏi operation rồi xoá riêng operation: muốn
+#: xoá operations thì phải xoá cả assessment_runs/ranking_runs, và để xoá được
+#: hai bảng đó thì phải xoá tiếp CV và JD. Đây là quan hệ một chiều — CV một mình
+#: vẫn xoá được, chỉ OPERATIONS là không đứng riêng được.
+#:
+#: Vì vậy thực tế không có đường tắt: hễ chạm tới vị trí hoặc operation là phải
+#: xoá cả bốn nhóm. Trước đây người dùng chọn một nhóm rồi nhận một lỗi FK khó
 #: hiểu; nay service tự mở rộng phạm vi và ``preview`` nói rõ nhóm nào bị kéo
 #: theo, để ADMIN thấy trước khi bấm xoá.
 IMPLIED: dict[str, set[str]] = {
     "JD": {"POSITIONS", "OPERATIONS", "CV"},
     "POSITIONS": {"JD", "OPERATIONS", "CV"},
+    "OPERATIONS": {"CV", "JD", "POSITIONS"},
 }
 
 #: Tập đóng nhỏ nhất mà một lượt xoá chạy được. ``CV`` một mình vẫn hợp lệ (dữ
@@ -244,17 +253,30 @@ def preview(db, scopes: list[str]) -> dict:
 
 
 def _scope_note(requested: set[str], chosen: set[str]) -> str | None:
-    """Vì sao phạm vi đã chọn bị mở rộng — hiện ngay trên màn xác nhận."""
+    """Vì sao phạm vi đã chọn bị mở rộng — hiện ngay trên màn xác nhận.
+
+    Câu giải thích phải khớp với lý do thật của từng trường hợp, nếu không nó
+    thành lời giải thích sai: chọn "Vận hành" mà đọc được "vì vị trí có khoá
+    ngoại" thì người dùng càng khó hiểu hơn là không giải thích gì.
+    """
     pulled = sorted(chosen - requested)
     if not pulled:
         return None
     labels = ", ".join(SCOPES[code]["label"] for code in pulled if code in SCOPES)
-    if "CV" in pulled:
+
+    if requested & {"POSITIONS", "JD"}:
         return (
             f"Phạm vi được mở rộng sang: {labels}. Bắt buộc vì hồ sơ ứng viên, "
             "chấm điểm, xếp hạng và shortlist đều tham chiếu tới vị trí — xoá vị "
             "trí mà giữ chúng sẽ bị khoá ngoại chặn. Nói cách khác: muốn xoá vị "
             "trí thì phải xoá cả dữ liệu CV đi kèm."
+        )
+    if "OPERATIONS" in requested:
+        return (
+            f"Phạm vi được mở rộng sang: {labels}. Bắt buộc vì mỗi lượt chấm điểm "
+            "và xếp hạng đều thuộc một operation, mà bản thân chúng lại gắn chặt "
+            "với vị trí và bộ tiêu chí. Không thể xoá operation mà giữ lại kết quả "
+            "chấm điểm của nó."
         )
     return f"Phạm vi được mở rộng sang: {labels} do ràng buộc khoá ngoại."
 

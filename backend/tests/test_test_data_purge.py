@@ -141,6 +141,65 @@ def test_no_scope_selection_ever_deletes_positions_without_dependents():
         assert not missing, f"scope {scope}: thiếu {sorted(missing)} nên xoá positions sẽ bị chặn"
 
 
+def test_every_scope_combination_survives_real_foreign_keys():
+    """Vét cạn 15 tổ hợp chọn nhóm trên bộ khoá ngoại THẬT của database.
+
+    Vì sao cần test này: hai lỗi cùng loại đã lọt ra ngoài đều vì test cũ chỉ
+    kiểm tra vài cặp bảng được viết tay. Lỗi thứ nhất — chọn riêng "Vị trí" bị
+    khoá ngoại chặn. Lỗi thứ hai — chọn riêng "Vận hành": assessment_runs và
+    ranking_runs trỏ tới operations bằng NO ACTION, mà chúng lại bắt buộc trỏ
+    tới criteria_versions/jd_versions/positions, nên không gỡ ra được.
+
+    Fixture là ảnh chụp pg_constraint thật (xem trường "note"). Đọc từ file chứ
+    không viết tay trong test để không phải bảo trì hai chỗ.
+    """
+    import itertools, json
+    from pathlib import Path
+
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures" / "app_private_foreign_keys.json").read_text(encoding="utf-8")
+    )
+    protected = {t.split(".", 1)[1] for t in PROTECTED_TABLES if t.startswith("app_private.")}
+
+    def blocking_fks(tables: set[str]) -> list[str]:
+        out = []
+        for fk in fixture["foreign_keys"]:
+            if fk["on_delete"] not in ("a", "r"):   # SET NULL / CASCADE không chặn
+                continue
+            if fk["parent"] in tables and fk["child"] not in tables and fk["child"] not in protected:
+                out.append(f"{fk['child']} → {fk['parent']}")
+        return out
+
+    failures = []
+    for size in range(1, len(SCOPES) + 1):
+        for combo in itertools.combinations(sorted(SCOPES), size):
+            tables = set(tables_for(expand_scopes(list(combo))))
+            blocked = blocking_fks(tables)
+            if blocked:
+                failures.append((combo, sorted(set(blocked))))
+
+    assert not failures, "Tổ hợp chọn nhóm sẽ lỗi khoá ngoại: " + repr(failures)
+
+
+def test_operations_alone_drags_everything():
+    """Nhóm "Vận hành" không đứng riêng được — xem chú thích ở IMPLIED."""
+    assert expand_scopes(["OPERATIONS"]) == {"CV", "JD", "OPERATIONS", "POSITIONS"}
+
+
+def test_cv_is_the_only_scope_that_can_be_purged_alone():
+    """Chỉ CV xoá độc lập được. Ba nhóm kia đều là cả bộ bốn.
+
+    Đây là thông tin người dùng cần thấy trên màn hình: chọn CV là thao tác nhỏ,
+    chọn bất kỳ nhóm nào khác là xoá sạch toàn bộ dữ liệu nghiệp vụ.
+    """
+    for scope in SCOPES:
+        chosen = expand_scopes([scope])
+        if scope == "CV":
+            assert chosen == {"CV"}
+        else:
+            assert chosen == {"CV", "JD", "OPERATIONS", "POSITIONS"}, scope
+
+
 def test_cv_alone_does_not_drag_positions():
     """Xoá CV không được kéo theo vị trí — người dùng có thể muốn giữ JD để nộp lại."""
     assert expand_scopes(["CV"]) == {"CV"}
