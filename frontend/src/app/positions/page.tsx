@@ -79,6 +79,10 @@ export default function PositionsPage() {
   const [jdImporting, setJdImporting] = useState(false);
   const [jdImportError, setJdImportError] = useState<string | null>(null);
   const [jdImportResult, setJdImportResult] = useState<any | null>(null);
+  // Title and level the AI filled in from the posting. A field still holding that value
+  // is labelled as an AI suggestion and is refreshed by the next import; once HR types
+  // something else, an import leaves it alone.
+  const [aiFilled, setAiFilled] = useState<{ title: string; level: string; levelInferred: boolean }>({ title: '', level: '', levelInferred: false });
   const [hmSearchQuery, setHmSearchQuery] = useState('');
   const [hmOptions, setHmOptions] = useState<UserSummary[]>([]);
   const [hmLoading, setHmLoading] = useState(false);
@@ -126,7 +130,7 @@ export default function PositionsPage() {
       await positionsApi.create(payload);
       setCreateDialogOpen(false);
       setFormData({ department_id: '', title: '', jd_content: '', hiring_manager_user_id: '', job_family_id: '', level: '', posting_content: '' });
-      setJdUrl(''); setJdImportResult(null); setJdImportError(null);
+      setJdUrl(''); setJdImportResult(null); setJdImportError(null); setAiFilled({ title: '', level: '', levelInferred: false });
       setHmSelectedName('');
       setHmSearchQuery('');
       setHmOptions([]);
@@ -146,13 +150,20 @@ export default function PositionsPage() {
       setJdImporting(true); setJdImportError(null); setJdImportResult(null);
       const res = await positionsApi.importJd(url);
       const data = res.data;
+      const aiTitle = (data.title || '').trim();
+      const aiLevel = (data.level || '').trim();
+      const replaceable = (current: string, previousAi: string) => !current.trim() || current === previousAi;
+      const keptTitle = !!aiTitle && !replaceable(formData.title, aiFilled.title) && formData.title.trim() !== aiTitle;
+      const keptLevel = !!aiLevel && !replaceable(formData.level, aiFilled.level) && formData.level.trim() !== aiLevel;
       setFormData(prev => ({
         ...prev,
         jd_content: data.jd_content || prev.jd_content,
         posting_content: data.posting_content || prev.posting_content,
-        title: prev.title.trim() ? prev.title : (data.title || ''),
+        title: aiTitle && replaceable(prev.title, aiFilled.title) ? aiTitle : prev.title,
+        level: aiLevel && replaceable(prev.level, aiFilled.level) ? aiLevel : prev.level,
       }));
-      setJdImportResult(data);
+      setAiFilled({ title: aiTitle, level: aiLevel, levelInferred: data.level_basis === 'INFERRED' });
+      setJdImportResult({ ...data, keptTitle, keptLevel });
     } catch (err: any) {
       setJdImportError(err.response?.data?.detail || t("Không lấy được JD từ đường dẫn này"));
     } finally {
@@ -446,6 +457,7 @@ export default function PositionsPage() {
                 value={formData.title}
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                 placeholder="Senior Software Engineer"
+                helperText={formData.title && formData.title === aiFilled.title ? t("AI điền từ tin tuyển dụng, bạn có thể sửa.") : undefined}
               />
             </Grid>
             <Grid item xs={12} sm={7}>
@@ -457,8 +469,14 @@ export default function PositionsPage() {
               </TextField>
             </Grid>
             <Grid item xs={12} sm={5}>
-              <TextField fullWidth label={t("Cấp bậc")} value={formData.level} inputProps={{ maxLength: 100 }}
-                onChange={(e) => setFormData({ ...formData, level: e.target.value })} placeholder="Senior" />
+              <TextField fullWidth label={t("Cấp bậc")} value={formData.level} inputProps={{ maxLength: 100, list: 'position-levels' }}
+                onChange={(e) => setFormData({ ...formData, level: e.target.value })} placeholder="Senior"
+                helperText={formData.level && formData.level === aiFilled.level
+                  ? (aiFilled.levelInferred ? t("Tin không ghi cấp bậc; AI suy ra từ yêu cầu kinh nghiệm. Hãy kiểm tra.") : t("AI điền từ tin tuyển dụng, bạn có thể sửa."))
+                  : undefined} />
+              <datalist id="position-levels">
+                {['Intern', 'Fresher', 'Junior', 'Middle', 'Senior', 'Lead', 'Manager', 'Director'].map(level => <option key={level} value={level} />)}
+              </datalist>
             </Grid>
             <Grid item xs={12}>
               <Autocomplete
@@ -530,6 +548,14 @@ export default function PositionsPage() {
                       {jdImportResult.metadata?.valid_through ? ` · ${t("Hạn nộp")}: ${jdImportResult.metadata.valid_through}` : ''}
                       {jdImportResult.metadata?.employment_type ? ` · ${jdImportResult.metadata.employment_type}` : ''}
                     </Typography>
+                    {(jdImportResult.keptTitle || jdImportResult.keptLevel) && (
+                      <Typography variant="caption" sx={{ display: 'block' }}>
+                        {t("Giữ nguyên nội dung bạn đã nhập. AI gợi ý:")}
+                        {jdImportResult.keptTitle ? ` ${t("Tên vị trí")}: ${jdImportResult.title}` : ''}
+                        {jdImportResult.keptTitle && jdImportResult.keptLevel ? ' ·' : ''}
+                        {jdImportResult.keptLevel ? ` ${t("Cấp bậc")}: ${jdImportResult.level}` : ''}
+                      </Typography>
+                    )}
                     {jdImportResult.language_code === 'vi' && (
                       <Typography variant="caption" sx={{ display: 'block' }}>{t("Tin tuyển dụng viết bằng tiếng Việt; JD được giữ nguyên ngôn ngữ gốc.")}</Typography>
                     )}

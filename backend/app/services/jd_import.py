@@ -207,6 +207,42 @@ def _find_job_posting(value: Any) -> dict | None:
     return None
 
 
+# Seniority levels offered for "Cấp bậc". The AI must pick one of these or leave it
+# empty; anything else is dropped rather than shown as if it came from the posting.
+LEVELS = ("Intern", "Fresher", "Junior", "Middle", "Senior", "Lead", "Manager", "Director")
+_LEVEL_ALIASES = {
+    "intern": "Intern", "internship": "Intern", "trainee": "Intern", "thực tập": "Intern", "thuc tap": "Intern",
+    "fresher": "Fresher", "entry level": "Fresher", "entry-level": "Fresher",
+    "junior": "Junior", "jr": "Junior",
+    "middle": "Middle", "mid": "Middle", "mid-level": "Middle", "intermediate": "Middle",
+    "senior": "Senior", "sr": "Senior", "chuyên viên cao cấp": "Senior",
+    "lead": "Lead", "team lead": "Lead", "tech lead": "Lead", "trưởng nhóm": "Lead",
+    "manager": "Manager", "head": "Manager", "trưởng phòng": "Manager", "quản lý": "Manager",
+    "director": "Director", "giám đốc": "Director",
+}
+
+
+def normalize_level(value: Any) -> str:
+    """Map a model's or page's level wording to one of LEVELS; empty when unknown."""
+    text = re.sub(r"\s+", " ", str(value or "")).strip().strip(".").lower()
+    if not text:
+        return ""
+    for level in LEVELS:
+        if text == level.lower():
+            return level
+    return _LEVEL_ALIASES.get(text, "")
+
+
+def guess_level_from_title(title: str) -> str:
+    """Level only when the job title names it outright (e.g. "Senior Data Engineer")."""
+    lowered = f" {str(title or '').lower()} "
+    # Longest aliases first so "team lead" wins over "lead", "chuyên viên cao cấp" over others.
+    for alias in sorted(_LEVEL_ALIASES, key=len, reverse=True):
+        if re.search(r"(?<![\w])" + re.escape(alias) + r"(?![\w])", lowered):
+            return _LEVEL_ALIASES[alias]
+    return ""
+
+
 def _location(posting: dict) -> str | None:
     places = posting.get("jobLocation")
     places = places if isinstance(places, list) else [places]

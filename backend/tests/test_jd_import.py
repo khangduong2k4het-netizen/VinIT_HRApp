@@ -148,7 +148,7 @@ def test_api_returns_a_reviewable_draft_and_audits_only_metadata(client, seed, m
 
     async def fake_ai(page_text, title_hint, *, source_host):
         calls["host"] = source_host
-        return {"is_job_posting": True, "title": "QA/QC Engineer", "language_code": "en",
+        return {"is_job_posting": True, "title": "QA/QC Engineer", "level": "Senior", "language_code": "en",
                 "jd_content": "Requirements\n- 3+ years in medical device quality", "notes": ["No salary listed"],
                 "posting_content": "Benefits\n- Health insurance"}
 
@@ -165,6 +165,7 @@ def test_api_returns_a_reviewable_draft_and_audits_only_metadata(client, seed, m
     assert data["jd_content"].startswith("Requirements") and data["metadata"]["posting_id"] == "11227"
     assert calls["host"] == "vinuni.talent.vn"
     assert data["posting_content"] == "Benefits\n- Health insurance"  # candidate-facing text, kept apart from the JD
+    assert data["level"] == "Senior"  # prefilled in the form; HR can still change it
     with engine.connect() as conn:
         meta = conn.execute(text("""
             SELECT metadata FROM app_private.audit_events WHERE action_type = 'IMPORT_JD_FROM_URL'
@@ -180,6 +181,7 @@ def test_api_returns_a_reviewable_draft_and_audits_only_metadata(client, seed, m
     monkeypatch.setattr(llm_client, "extract_jd_from_page", broken_ai)
     fallback = client.post(route, headers=headers(seed["hr"]), json=body).json()
     assert fallback["ai_used"] is False and "3+ years in medical device quality" in fallback["jd_content"]
+    assert fallback["level"] == ""  # the page title names no level, so nothing is guessed
     assert fallback["notes"] and fallback["posting_content"] == ""
 
     # Not a job posting according to the AI.
@@ -201,3 +203,47 @@ def test_sectioned_ai_output_is_flattened_to_plain_text():
                                  "Requirements": ["Bachelor in Engineering", "ISO 13485 knowledge"]})
     assert text == "Summary\nQA engineer for 3D medical devices\n\nRequirements\n- Bachelor in Engineering\n- ISO 13485 knowledge"
     assert _jd_sections_to_text(None) == "" and _jd_sections_to_text("plain") == "plain"
+
+
+def test_level_is_one_of_the_standard_levels_or_empty():
+    from app.services.jd_import import guess_level_from_title, normalize_level
+    assert [normalize_level(v) for v in ("senior", "Sr.", "Mid-level", "Trưởng nhóm", "Rockstar", "", None)] == \
+        ["Senior", "Senior", "Middle", "Lead", "", "", ""]
+    assert guess_level_from_title("Senior Data Engineer") == "Senior"
+    assert guess_level_from_title("Thực tập sinh Marketing") == "Intern"
+    assert guess_level_from_title("Engineer (QA/QC and Standardization)") == ""
+    # Academic ranks are not seniority levels.
+    assert guess_level_from_title("Associate Professor of Computer Science") == ""
+
+
+def test_model_output_with_a_made_up_level_is_cleaned(monkeypatch):
+    import asyncio
+    from app.services.llm_client import llm_client
+
+    async def fake_call(**kwargs):
+        return {"is_job_posting": True, "title": "Data Engineer", "level": "Ninja", "jd_content": "Requirements",
+                "posting_content": "", "language_code": "en", "notes": []}
+
+    monkeypatch.setattr(llm_client, "_call_llm", fake_call)
+    out = asyncio.run(llm_client.extract_jd_from_page("x" * 300, "Data Engineer", source_host="example.org"))
+    assert out["level"] == ""
+
+
+def test_level_basis_marks_inferred_levels(monkeypatch):
+    import asyncio
+    from app.services.llm_client import llm_client
+    replies = iter([
+        {"level": "Middle", "level_basis": "INFERRED"},
+        {"level": "senior", "level_basis": "stated"},
+        {"level": "Middle"},  # basis missing: treated as inferred so HR is asked to check
+        {"level": "", "level_basis": "STATED"},
+    ])
+
+    async def fake_call(**kwargs):
+        return {"is_job_posting": True, "title": "Data Engineer", "jd_content": "Requirements",
+                "posting_content": "", "language_code": "en", "notes": [], **next(replies)}
+
+    monkeypatch.setattr(llm_client, "_call_llm", fake_call)
+    run = lambda: asyncio.run(llm_client.extract_jd_from_page("x" * 300, "", source_host="example.org"))
+    assert [(o["level"], o["level_basis"]) for o in (run(), run(), run(), run())] == \
+        [("Middle", "INFERRED"), ("Senior", "STATED"), ("Middle", "INFERRED"), ("", "")]

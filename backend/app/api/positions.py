@@ -149,6 +149,7 @@ async def import_jd_from_url(request: JDImportRequest, current_user: dict = Depe
             raise HTTPException(status_code=400, detail=exc.message)
         source, chars = job.source, len(job.text)
         title, jd_content, language, posting_content = job.title, job.text, "en", ""
+        level, level_basis = "", ""
         try:
             draft = await llm_client.extract_jd_from_page(job.text, job.title, source_host=host)
             if not draft["is_job_posting"]:
@@ -157,14 +158,21 @@ async def import_jd_from_url(request: JDImportRequest, current_user: dict = Depe
             if draft["jd_content"].strip():
                 jd_content, ai_used = draft["jd_content"].strip(), True
             title = draft["title"].strip() or title
+            level, level_basis = draft.get("level") or "", draft.get("level_basis") or ""
             posting_content = (draft.get("posting_content") or "").strip()
             language = draft["language_code"]
             notes = [n for n in draft["notes"] if isinstance(n, str) and n.strip()][:5]
         except LLMError:
             notes = ["AI không khả dụng nên JD là nguyên văn bản lấy từ trang. Vui lòng tự rà soát và rút gọn."]
+        # The AI left the level empty or was unavailable: take it only from a title that names it.
+        if not level:
+            level = jd_import.guess_level_from_title(title)
+            level_basis = "STATED" if level else ""
         outcome = "SUCCESS"
         return {"source_url": request.url.strip(), "final_url": job.final_url, "extraction": job.source,
-                "ai_used": ai_used, "title": title[:200], "jd_content": jd_content, "language_code": language,
+                "ai_used": ai_used, "title": title[:200], "level": level, "level_basis": level_basis,
+                "jd_content": jd_content,
+                "language_code": language,
                 "posting_content": posting_content,
                 "metadata": job.metadata, "notes": notes}
     finally:
