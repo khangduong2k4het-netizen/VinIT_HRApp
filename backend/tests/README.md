@@ -35,7 +35,12 @@ for f in supabase/migrations/00001_initial_schema.sql \
          supabase/migrations/00015_local_auth.sql \
          supabase/migrations/00016_hr_override_tracking.sql \
          supabase/migrations/00017_quality_and_cross_duplicates.sql \
-         supabase/migrations/00018_ocr_images_and_retention_automation.sql; do
+         supabase/migrations/00018_ocr_images_and_retention_automation.sql \
+         supabase/migrations/00019_ai_quality_markers.sql \
+         supabase/migrations/00020_public_intake_and_talent_pool.sql \
+         supabase/migrations/00021_talent_pool_withdrawal_token.sql \
+         supabase/migrations/00022_retention_five_years.sql \
+         supabase/migrations/00023_talent_pool_scans.sql; do
   psql 'postgresql://postgres@127.0.0.1:55432/hra_phase1_test' -v ON_ERROR_STOP=1 -f "$f"
 done
 ```
@@ -53,5 +58,7 @@ TEST_DATABASE_URL='postgresql://postgres@127.0.0.1:55432/hra_phase1_test' \
 Có thể dùng Unix socket qua tham số `host=/đường/dẫn/socket`; host phải được chỉ rõ. Không đặt `PGSERVICE`, `PGSERVICEFILE` hoặc `PGOPTIONS` khi chạy test.
 
 Không đặt `TEST_DATABASE_URL` sẽ chỉ chạy unit test và bỏ qua integration test. Test không chứng minh việc triển khai Supabase Auth/Storage, OCR scan, mô hình AI thật, Docker hoặc chất lượng matching trên CV thật; các phần đó cần kiểm thử riêng trong môi trường được phê duyệt.
+
+P3-3 có test scanner thật khi đặt `HRA_TEST_CLAMD_PORT` và browser E2E opt-in `HRA_TEST_PUBLIC_BROWSER=1`. Harness browser tự mở server dùng một lần, vẫn sử dụng DB test mà fixture sẽ truncate. Xem [hướng dẫn P3-3](../../doc/phase3/P3-3_PUBLIC_INTAKE.md) để tạo PostgreSQL/ClamAV riêng, áp đủ migration và chạy an toàn.
 
 Integration test gồm bootstrap Admin một lần và tranh lock, tạo/sửa/khóa tài khoản, Auth giả lập và đổi mật khẩu tạm, các trạng thái lỗi/đối soát Auth–DB, chọn HM khác HR, dual approval, RBAC/ghi chú HR, ma trận role/position cho application/dashboard và các bề mặt Admin semantic/LTR/worker, version JD/profile, AI/allowlist, crash worker, phục hồi lô và metrics. Từ Batch 5, integration test còn bao phủ retention/deletion từng hồ sơ, audit hash chain/append-only, lỗi storage không purge DB và case đã hủy được tạo lại. Đây là test trên PostgreSQL cục bộ với dữ liệu tổng hợp; không dùng CV thật.

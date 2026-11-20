@@ -75,6 +75,23 @@ def test_clamd_protocol_and_verdicts():
         scan_with_clamd(b"x", "127.0.0.1", 1, 1)
 
 
+@pytest.mark.parametrize("reply", [b"stream: NOT OK\0", b"stream: OK", b"OK\0", b"stream: OK\0extra"])
+def test_clamd_rejects_malformed_or_incomplete_clean_verdicts(reply):
+    port, _ = _fake_clamd(reply)
+    with pytest.raises(ScanUnavailable):
+        scan_with_clamd(b"safe synthetic content", "127.0.0.1", port, 2)
+
+
+@pytest.mark.skipif(not os.environ.get("HRA_TEST_CLAMD_PORT"), reason="Set HRA_TEST_CLAMD_PORT for a real local clamd")
+def test_real_clamd_accepts_clean_content_and_rejects_eicar():
+    port = int(os.environ["HRA_TEST_CLAMD_PORT"])
+    scan_with_clamd(b"Synthetic recruitment test document", "127.0.0.1", port, 10)
+    # Standard harmless antivirus test string; never a real malware sample.
+    eicar = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+    with pytest.raises(ScanRejected):
+        scan_with_clamd(eicar, "127.0.0.1", port, 10)
+
+
 def test_scanning_is_mandatory_in_production(monkeypatch):
     monkeypatch.setattr(settings, "MALWARE_SCAN_MODE", "off")
     monkeypatch.setattr(settings, "APP_ENV", "production")
@@ -128,13 +145,15 @@ def portal(seed, monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "LOCAL_STORAGE_PATH", str(tmp_path))
     monkeypatch.setattr(settings, "MALWARE_SCAN_MODE", "off")
     monkeypatch.setattr(settings, "APP_ENV", "development")
+    monkeypatch.setattr(settings, "PUBLIC_INTAKE_NOTICE_VERSION", "v4")
     return seed
 
 
-def _apply(client, seed, *, pool=True, processing=True, content=PDF, name="cv.pdf", honeypot=""):
+def _apply(client, seed, *, pool=True, processing=True, content=PDF, name="cv.pdf", honeypot="", notice="v4"):
     return client.post(f"/v1/public/positions/{seed['pos']}/apply",
                        files={"file": (name, content, "application/pdf")},
-                       data={"consent_processing": str(processing).lower(), "consent_talent_pool": str(pool).lower(), "website": honeypot})
+                       data={"consent_processing": str(processing).lower(), "consent_talent_pool": str(pool).lower(),
+                             "website": honeypot, "notice_version": notice})
 
 
 def _count(sql, **p):
@@ -174,15 +193,50 @@ def test_apply_creates_application_with_consents_and_audit(client, portal, tmp_p
     assert consents == {"THIS_POSITION", "TALENT_POOL"} and doc.file_processing_status == "RECEIVED" and len(doc.content_sha256) == 64
     assert set(audit) == {"talent_pool_consent", "size_bytes"} and queued == 1
     assert any(files for _, _, files in os.walk(tmp_path))
-    # Notice v2: one mandatory consent covers this position, AI use, 5-year storage and reuse,
-    # so the reuse consent is recorded even when an old client still sends consent_talent_pool=false.
+    # Notice v4: the single required checkbox covers processing and reuse.
     again = _apply(client, seed, pool=False, content=PDF + b"\n%second")
     assert again.status_code == 202 and len(again.json()["withdrawal_token"]) == 64
     assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE purpose = 'TALENT_POOL'") == 2
-    assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE notice_version = 'v2'") == 4
+    assert _count("SELECT COUNT(*) FROM app_private.application_data_consents WHERE notice_version = 'v4'") == 4
     # Without the mandatory consent nothing is created.
     assert _apply(client, seed, processing=False, content=PDF + b"\n%third").status_code == 400
     assert _count("SELECT COUNT(*) FROM app_private.applications WHERE source_code = 'PORTAL'") == 2
+
+
+@integration
+def test_missing_or_stale_notice_cannot_grant_current_consent(client, portal, monkeypatch):
+    from app.api import public_intake
+    calls = []
+    monkeypatch.setattr(public_intake, "scan_upload", lambda content: calls.append(content))
+    for notice in ("", "v1", "v2", "v3"):
+        assert _apply(client, portal, notice=notice).status_code == 409
+    assert calls == []
+    assert _count("SELECT COUNT(*) FROM app_private.applications WHERE source_code = 'PORTAL'") == 0
+    assert _count("SELECT COUNT(*) FROM app_private.application_data_consents") == 0
+
+
+@integration
+def test_combined_consent_allows_hr_to_mark_eligible_application(client, portal):
+    assert _apply(client, portal, pool=False).status_code == 202
+    with engine.begin() as conn:
+        app_id = str(conn.execute(text("SELECT application_id FROM app_private.applications WHERE source_code = 'PORTAL'")).scalar_one())
+        conn.execute(text("UPDATE app_private.applications SET application_status = 'SHORTLIST' WHERE application_id = :a"), {"a": app_id})
+    response = client.post(f"/v1/talent-pool/applications/{app_id}/mark", headers=headers(portal["hr"]),
+                           json={"reason_code": "STRONG_FIT"})
+    assert response.status_code == 201
+    assert _count("SELECT COUNT(*) FROM app_private.talent_pool_marks") == 1
+
+
+@integration
+@pytest.mark.skipif(not os.environ.get("HRA_TEST_CLAMD_PORT"), reason="Set HRA_TEST_CLAMD_PORT for a real local clamd")
+def test_portal_uses_real_clamd_and_refuses_when_it_is_unavailable(client, portal, monkeypatch):
+    monkeypatch.setattr(settings, "MALWARE_SCAN_MODE", "clamav")
+    monkeypatch.setattr(settings, "CLAMD_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "CLAMD_PORT", int(os.environ["HRA_TEST_CLAMD_PORT"]))
+    assert _apply(client, portal).status_code == 202
+    monkeypatch.setattr(settings, "CLAMD_PORT", 1)
+    assert _apply(client, portal, content=PDF + b"\n%scanner-down").status_code == 503
+    assert _count("SELECT COUNT(*) FROM app_private.applications WHERE source_code = 'PORTAL'") == 1
 
 
 @integration
@@ -296,7 +350,7 @@ def test_worker_assesses_a_portal_cv(client, portal, monkeypatch):
     docx_mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     res = client.post(f"/v1/public/positions/{seed['pos']}/apply",
                       files={"file": ("candidate.docx", content.getvalue(), docx_mime)},
-                      data={"consent_processing": "true", "consent_talent_pool": "false", "website": ""})
+                      data={"consent_processing": "true", "consent_talent_pool": "false", "website": "", "notice_version": "v4"})
     assert res.status_code == 202
     worker._process_pending_operations()
     with engine.connect() as conn:
@@ -466,7 +520,7 @@ def test_candidate_withdraws_with_token_and_duplicates_are_idempotent(client, po
     again = _apply(client, seed)  # identical file: no new application, no token
     assert again.status_code == 202 and again.json()["withdrawal_token"] != token  # only a throwaway token
     assert _count("SELECT COUNT(*) FROM app_private.applications WHERE source_code = 'PORTAL'") == 1
-    # Consent is mandatory (notice v2): every receipt carries a withdrawal token.
+    # The v4 checkbox grants reuse regardless of the obsolete optional field.
     assert len(_apply(client, seed, pool=False, content=PDF + b"\n%other").json()["withdrawal_token"]) == 64
     wrong = client.post("/v1/public/talent-pool/withdraw", json={"token": "0" * 64})
     assert wrong.status_code == 200 and wrong.json() == {"status": "ok"}  # same answer for unknown tokens

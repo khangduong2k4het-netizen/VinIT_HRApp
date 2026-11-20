@@ -7,16 +7,14 @@ import { useI18n } from '@/i18n/I18nProvider';
 import LanguageSwitcher from '@/i18n/LanguageSwitcher';
 import { fetchPublicPositions, submitApplication, validateCv, type ApplyFailure, type PublicPosition } from '@/lib/publicApply';
 
-// Wording shown next to the tick boxes. HR / Legal must approve it before launch;
-// when it changes, bump PUBLIC_INTAKE_NOTICE_VERSION on the backend so the stored
-// consent records which version the candidate saw.
+// Wording version is CONSENT_NOTICE_VERSION in lib/publicApply.ts. When it
+// changes, update that constant and backend PUBLIC_INTAKE_NOTICE_VERSION together.
 export default function ApplyPage() {
   const { t } = useI18n();
   const [positions, setPositions] = useState<PublicPosition[] | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState<PublicPosition | null>(null);
   const [file, setFile] = useState<File | null>(null);
-  // One mandatory consent (notice v2): use of the CV incl. AI, 5-year storage, reuse for other positions.
   const [consentProcessing, setConsentProcessing] = useState(false);
   const [honeypot, setHoneypot] = useState('');
   const [fieldError, setFieldError] = useState<'MISSING' | 'TYPE' | 'SIZE' | 'CONSENT' | null>(null);
@@ -40,18 +38,20 @@ export default function ApplyPage() {
     if (!consentProcessing) { setFieldError('CONSENT'); return; }
     setFieldError(null);
     setBusy(true);
-    const result = await submitApplication(selected.code, file as File, true, honeypot);
+    const result = await submitApplication(selected.code, file as File, consentProcessing, honeypot);
     setBusy(false);
     if (result.ok) { setWithdrawalToken(result.withdrawalToken ?? null); setDone(true); } else setFailure(result.failure);
   };
 
   const fieldMessage = fieldError === 'MISSING' ? t('Vui lòng chọn tệp CV.')
     : fieldError === 'TYPE' ? t('Chỉ hỗ trợ tệp PDF, DOCX, JPG hoặc PNG.')
-    : fieldError === 'SIZE' ? t('Tệp vượt quá 10 MB.')
+    : fieldError === 'SIZE' ? t('Tệp phải có nội dung và không vượt quá 10 MB.')
     : fieldError === 'CONSENT' ? t('Cần đồng ý cho phép sử dụng thông tin hồ sơ để ứng tuyển.') : '';
   const failureMessage = failure === 'RATE_LIMIT' ? t('Bạn đã gửi quá nhiều lần. Vui lòng thử lại sau.')
     : failure === 'UNAVAILABLE' ? t('Hệ thống tạm thời chưa nhận hồ sơ. Vui lòng thử lại sau.')
     : failure === 'POSITION_CLOSED' ? t('Vị trí không còn nhận hồ sơ.')
+    : failure === 'NOTICE_CHANGED' ? t('Nội dung đồng ý đã thay đổi. Vui lòng tải lại trang trước khi nộp hồ sơ.')
+    : failure === 'CONSENT' ? t('Cần đồng ý cho phép sử dụng thông tin hồ sơ để ứng tuyển.')
     : failure === 'FILE' ? t('Không thể nhận tệp này. Vui lòng kiểm tra định dạng (PDF, DOCX, JPG, PNG) và thử lại.')
     : failure === 'NETWORK' ? t('Không thể kết nối. Vui lòng thử lại.') : '';
 
@@ -85,24 +85,24 @@ export default function ApplyPage() {
         ) : selected ? (
           <Card component="form" onSubmit={submit} noValidate>
             <CardContent>
-              <Button size="small" onClick={() => { setSelected(null); setFailure(null); setFieldError(null); }}>{t('← Quay lại danh sách')}</Button>
+              <Button size="small" disabled={busy} onClick={() => { setSelected(null); setFile(null); setConsentProcessing(false); setFailure(null); setFieldError(null); }}>{t('← Quay lại danh sách')}</Button>
               <Typography variant="h5" sx={{ fontWeight: 700, mt: 1 }}>{selected.title}</Typography>
               <Typography color="text.secondary" sx={{ mb: 2 }}>{[selected.unit, selected.location].filter(Boolean).join(' · ')}</Typography>
               <Stack spacing={2}>
                 <Box>
                   <Button variant="outlined" component="label">
                     {file ? file.name : t('Chọn tệp CV')}
-                    <input type="file" hidden accept=".pdf,.docx,.jpg,.jpeg,.png"
+                    <input type="file" hidden disabled={busy} accept=".pdf,.docx,.jpg,.jpeg,.png"
                       onChange={e => { setFile(e.target.files?.[0] || null); setFieldError(null); }} />
                   </Button>
                   <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>{t('PDF, DOCX, JPG hoặc PNG, tối đa 10 MB.')}</Typography>
                 </Box>
                 <FormControlLabel
                   required
-                  control={<Checkbox checked={consentProcessing} onChange={e => { setConsentProcessing(e.target.checked); setFieldError(null); }} />}
-                  label={t('Tôi đồng ý cho VinUniversity sử dụng thông tin trong hồ sơ này, bao gồm xử lý bằng công cụ AI, để xem xét ứng tuyển vào vị trí trên và các vị trí phù hợp khác. Hồ sơ được lưu tối đa 5 năm. Đây là điều kiện bắt buộc để nộp hồ sơ.')} />
+                  control={<Checkbox disabled={busy} checked={consentProcessing} onChange={e => { setConsentProcessing(e.target.checked); setFieldError(null); }} />}
+                  label={t('Tôi đồng ý cho VinUniversity xử lý hồ sơ, bao gồm hỗ trợ đánh giá bằng AI, để ứng tuyển vị trí này và tham gia Talent Pool cho các vị trí phù hợp khác. Hồ sơ được lưu tối đa 5 năm kể từ khi vị trí tuyển dụng đóng; quyền dùng lại trong Talent Pool có hiệu lực 5 năm từ ngày đồng ý.')} />
                 <Typography variant="caption" color="text.secondary">
-                  {t('Sau khi nộp, bạn nhận một mã để rút lại đồng ý dùng hồ sơ cho các vị trí khác; bạn cũng có thể liên hệ bộ phận Nhân sự. Hồ sơ không được dùng cho mục đích khác ngoài tuyển dụng.')}
+                  {t('Bạn cần đồng ý để nộp hồ sơ. Sau khi nộp, bạn nhận mã để rút lại đồng ý dùng hồ sơ cho vị trí khác; mã chỉ hiển thị một lần.')}
                 </Typography>
                 {/* Honeypot: invisible to people and assistive technology; bots fill it in. */}
                 <Box aria-hidden="true" sx={{ position: 'absolute', left: '-10000px', width: 1, height: 1, overflow: 'hidden' }}>

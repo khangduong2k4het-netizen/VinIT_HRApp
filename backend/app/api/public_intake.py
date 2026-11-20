@@ -11,7 +11,7 @@ import os
 import secrets
 from uuid import uuid4
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
@@ -275,10 +275,11 @@ async def read_checked_upload(file: UploadFile) -> tuple[str, bytes, str, int]:
 
 
 @router.post("/positions/{position_code}/apply", status_code=status.HTTP_202_ACCEPTED)
-async def apply(position_code: str, request: Request, file: UploadFile = File(...),
-                consent_processing: bool = Form(False), consent_talent_pool: bool = Form(False),
-                website: str = Form("")):
+async def apply(position_code: str, request: Request, response: Response, file: UploadFile = File(...),
+                consent_processing: bool = Form(False),
+                website: str = Form(""), notice_version: str = Form("", max_length=100)):
     _require_enabled()
+    response.headers["Cache-Control"] = "no-store"
     ip_hash = _ip_hash(request)
     pos = await run_in_threadpool(_admit, position_code, ip_hash)
     if website.strip():
@@ -288,10 +289,12 @@ async def apply(position_code: str, request: Request, file: UploadFile = File(..
         raise HTTPException(status_code=404, detail="Vị trí không còn nhận hồ sơ.")
     if not consent_processing:
         raise HTTPException(status_code=400, detail="Cần đồng ý cho phép sử dụng thông tin hồ sơ để ứng tuyển.")
-    # One mandatory consent (notice v2): processing for this position, AI-assisted
-    # assessment, keeping the CV for 5 years and reuse for other suitable positions.
-    # The separate optional Talent Pool box is gone; the old form field is ignored.
-    # The candidate can still withdraw the reuse part with the token shown once.
+    # Record only the wording the candidate actually saw. A stale page must not
+    # silently grant a new version of consent after a backend deployment.
+    if notice_version != settings.PUBLIC_INTAKE_NOTICE_VERSION:
+        raise HTTPException(status_code=409, detail="Nội dung đồng ý đã thay đổi. Vui lòng tải lại trang trước khi nộp hồ sơ.")
+    # Notice v4 is one explicit consent covering both this position and reuse.
+    # A v3 page cannot grant it: its notice version was rejected above.
     consent_talent_pool = True
 
     filename, content, mime, size = await read_checked_upload(file)

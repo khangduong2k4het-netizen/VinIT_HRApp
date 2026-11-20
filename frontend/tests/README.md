@@ -2,6 +2,8 @@
 
 `npm run test:i18n` chạy unit test không cần browser: dictionary, interpolation, chuyển ngôn ngữ của thông báo đang hiển thị và kiểm tra key UI có bản dịch Anh.
 
+P3-3: `npm run test:unit` bao gồm helper public apply (consent một ô cho xử lý và reuse, notice version, receipt và lỗi dịch vụ). Browser thật chạy qua harness `backend/tests/test_public_intake_browser.py`, nối Next proxy/API/PostgreSQL/worker và tùy chọn ClamAV thật; xem [P3-3_PUBLIC_INTAKE.md](../../doc/phase3/P3-3_PUBLIC_INTAKE.md). Không chạy script browser trực tiếp lên backend đang dùng dữ liệu thật.
+
 `npm run test:e2e:accounts` kiểm tra bootstrap, quản trị tài khoản, đổi mật khẩu tạm, HR chọn HM, phân quyền và mobile bằng Chromium. Script intercept **toàn bộ** `/v1` và dùng response giả, không gọi Auth/backend thật; vẫn chỉ chạy với Next server cục bộ dùng một lần. Ví dụ sau khi chạy Next cục bộ trên port 3000 và cài Chromium:
 
 ```bash
