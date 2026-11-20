@@ -268,6 +268,8 @@ export const rubricApi = {
   publish: (id: string, revision: number) => apiClient.post(`/rubric-library/versions/${id}/publish`, { expected_revision: revision }),
   clone: (id: string) => apiClient.post(`/rubric-library/versions/${id}/clone`),
   apply: (positionId: string, versionId: string) => apiClient.post(`/rubric-library/positions/${positionId}/apply`, { template_version_id: versionId }),
+  // Sinh NHÁP rubric từ JD của một vị trí. Không lưu gì trên máy chủ.
+  suggestFromPosition: (positionId: string) => apiClient.post('/rubric-library/suggest-from-position', { position_id: positionId }),
 };
 
 /**

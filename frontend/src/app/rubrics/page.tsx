@@ -1,9 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Box, Button, Card, CardContent, CircularProgress, Divider, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { Accordion, AccordionDetails as AccordionContent, AccordionSummary, Alert, Box, Button, Card, CardContent, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Divider, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useI18n } from '@/i18n/I18nProvider';
-import { rubricApi } from '@/lib/api';
+import { positionsApi, rubricApi } from '@/lib/api';
 import { optionalRequirementSpec, rubricKeywords } from '@/lib/phase2Workflow';
 import backendProposal from '@/data/rubric-proposal-it-backend.json';
 
@@ -33,7 +34,13 @@ export default function RubricsPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [dirty, setDirty] = useState(false);
+  // Sinh rubric từ JD của một vị trí: mở hộp chọn vị trí, rồi nạp bản nháp.
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestPositions, setSuggestPositions] = useState<Array<{ position_id: string; title: string; job_family_id: string | null }>>([]);
+  const [suggestPosition, setSuggestPosition] = useState('');
+  const [suggesting, setSuggesting] = useState(false);
   const canEdit = creating || (!!selected && selected.status === 'DRAFT' && !!capabilities && (capabilities.can_publish || (capabilities.can_create && selected.created_by === capabilities.user_id)));
 
   const load = useCallback(async () => {
@@ -52,8 +59,45 @@ export default function RubricsPage() {
     finally { setBusy(false); }
   };
   const create = () => {
+    setNotice('');
     if (dirty && !window.confirm(t('Bỏ các thay đổi chưa lưu?'))) return;
     setSelected(null); setCreating(true); setFamily(families[0]?.job_family_id || ''); setTitle(''); setLevel(''); setMandatory('70'); setNice('30'); setItems([]); setSpecs([]); setKeywords([]); setError(''); setDirty(false);
+  };
+  const openSuggest = async () => {
+    if (dirty && !window.confirm(t('Bỏ các thay đổi chưa lưu?'))) return;
+    setSuggestOpen(true); setSuggestPosition(''); setError(''); setSuggesting(false);
+    try {
+      const res = await positionsApi.listAll();
+      // Chỉ vị trí đã có nhóm mới sinh được rubric — rubric không nhóm thì
+      // không tái sử dụng được, mất ý nghĩa của thư viện.
+      setSuggestPositions(res.filter((item: any) => item.job_family_id));
+    } catch (err: any) {
+      setError(err.response?.data?.detail || t('Không thể tải danh sách vị trí.'));
+      setSuggestOpen(false);
+    }
+  };
+  const runSuggest = async () => {
+    if (!suggestPosition) return;
+    try {
+      setSuggesting(true); setError('');
+      const res = await rubricApi.suggestFromPosition(suggestPosition);
+      const data = res.data;
+      setSelected(null); setCreating(true);
+      setFamily(data.job_family_id); setTitle(data.title); setLevel('');
+      setMandatory('70'); setNice('30');
+      setItems((data.items as Item[]).map(item => ({ ...item, weight_in_group: item.weight_in_group ?? (item as any).weight })));
+      setSpecs((data.items as Item[]).map(item => item.requirement_spec ? JSON.stringify(item.requirement_spec, null, 2) : ''));
+      setKeywords((data.items as Item[]).map(item => item.expected_evidence_keywords.join(', ')));
+      setDirty(true); setSuggestOpen(false);
+      // Nói rõ bản nháp đến từ đâu và chưa được lưu — nếu không, HR dễ tưởng
+      // vừa tạo xong một rubric trong thư viện.
+      setNotice(data.rejected_items
+        ? t('Đã sinh nháp từ JD (bỏ {0} tiêu chí không hợp lệ). CHƯA lưu — rà soát rồi bấm lưu.', String(data.rejected_items))
+        : t('Đã sinh nháp từ JD. CHƯA lưu — rà soát rồi bấm lưu.'));
+    } catch (err: any) {
+      setError(err.response?.data?.detail || t('Không thể sinh rubric từ JD.'));
+      setSuggestOpen(false);
+    } finally { setSuggesting(false); }
   };
   const useProposal = () => {
     if (dirty && !window.confirm(t('Bỏ các thay đổi chưa lưu?'))) return;
@@ -88,13 +132,70 @@ export default function RubricsPage() {
   return <Box>
     <Typography variant="h1" sx={{ fontSize: 28, color: '#0A2B57', mb: 1 }}>{t('Thư viện rubric')}</Typography>
     <Typography color="text.secondary" sx={{ mb: 2 }}>{t('HR tạo bản nháp; HR Lead xuất bản. Đề xuất chưa phải chuẩn nghiệp vụ.')}</Typography>
-    {error && <Alert severity="error" sx={{ mb: 2 }}>{t(error)}</Alert>}
+    {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{t(error)}</Alert>}
+    {notice && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setNotice('')} data-testid="rubric-notice">{notice}</Alert>}
+
+    {/* Hướng dẫn ngay trên trang: người mới mở /rubrics lần đầu không biết
+        "rubric" là gì và ba nút khác nhau ở đâu. Giải thích tại chỗ tốt hơn
+        một tài liệu mà không ai tìm thấy. */}
+    <Accordion sx={{ mb: 2 }} data-testid="rubric-help">
+      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+        <Typography fontWeight={600}>{t('Rubric là gì? Bắt đầu từ đâu?')}</Typography>
+      </AccordionSummary>
+      <AccordionContent>
+        <Stack spacing={1.5}>
+          <Typography variant="body2">
+            <b>{t('Rubric là bộ tiêu chí để chấm ứng viên cho một nhóm công việc.')}</b>{' '}
+            {t('Không có rubric thì hệ thống không biết "giỏi" nghĩa là gì, và điểm số không so sánh được giữa các ứng viên.')}
+          </Typography>
+          <Typography variant="body2">
+            {t('Rubric khoá thước đo lại TRƯỚC KHI xem CV — đó là toàn bộ giá trị của nó. Quyết định thước đo trước khi biết ai là người được đo.')}
+          </Typography>
+          <Divider />
+          <Typography variant="body2" fontWeight={600}>{t('Ba vòng đời khác nhau, đừng nhầm:')}</Typography>
+          <Typography variant="body2" component="div">
+            <ol style={{ margin: 0, paddingLeft: 20 }}>
+              <li>{t('Rubric mẫu (trang này) — dùng lại cho nhiều vị trí cùng nhóm')}</li>
+              <li>{t('Bộ tiêu chí của một vị trí — sinh ra từ rubric mẫu, thuộc riêng vị trí đó')}</li>
+              <li>{t('Kết quả chấm — điểm của từng ứng viên theo bộ tiêu chí đó')}</li>
+            </ol>
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {t('Sửa rubric mẫu KHÔNG làm đổi bộ tiêu chí của vị trí đã dùng nó. Đó là lý do phải "áp dụng" rubric vào vị trí.')}
+          </Typography>
+          <Divider />
+          <Typography variant="body2" fontWeight={600}>{t('Ba nút ở cột trái:')}</Typography>
+          <Typography variant="body2" component="div">
+            <ul style={{ margin: 0, paddingLeft: 20 }}>
+              <li><b>{t('Tạo rubric nháp')}</b> — {t('biểu mẫu trống, tự gõ 100%. Không dùng AI.')}</li>
+              <li><b>{t('Sinh từ JD của một vị trí')}</b> — {t('AI đọc JD và đề xuất tiêu chí. Cần vị trí đã có Nhóm vị trí. KHÔNG tự lưu.')}</li>
+              <li><b>{t('Dùng bộ mẫu ví dụ')}</b> — {t('tiêu chí viết sẵn trong mã nguồn, để xem một rubric đầy đủ trông thế nào. Không phải AI.')}</li>
+            </ul>
+          </Typography>
+          <Divider />
+          <Typography variant="body2" fontWeight={600}>{t('Quy trình khi đăng một job mới:')}</Typography>
+          <Typography variant="body2" component="div">
+            <ol style={{ margin: 0, paddingLeft: 20 }}>
+              <li>{t('Tạo vị trí — nhớ chọn Nhóm vị trí')}</li>
+              <li>{t('Vào vị trí → tab Tiêu chí')}</li>
+              <li>{t('Chọn: dùng tiêu chí AI tự sinh, hoặc áp rubric đã xuất bản (chuẩn nhất khi tuyển nhiều vị trí cùng nhóm)')}</li>
+              <li>{t('Duyệt tiêu chí — chưa duyệt thì không chấm điểm được')}</li>
+              <li>{t('Tải CV, chấm điểm, xếp hạng')}</li>
+            </ol>
+          </Typography>
+          <Alert severity="info" sx={{ mt: 1 }}>
+            {t('Chỉ HR Lead xuất bản được rubric. HR thường tạo nháp để HR Lead duyệt — đây là cố ý, vì xuất bản nghĩa là "bộ tiêu chí này dùng chung được".')}
+          </Alert>
+        </Stack>
+      </AccordionContent>
+    </Accordion>
     {loading ? <CircularProgress /> : capabilities && <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems="start">
       <Card variant="outlined" sx={{ width: { xs: '100%', lg: 360 }, flexShrink: 0 }}><CardContent>
         {capabilities.can_create && <Stack spacing={1}>
           <Button variant="contained" onClick={create} disabled={busy}>{t('Tạo rubric nháp')}</Button>
-          <Button variant="outlined" onClick={useProposal} disabled={busy}>{t('Dùng đề xuất Backend Python')}</Button>
-          <Typography variant="caption">{t('Đề xuất chỉ điền biểu mẫu; HR cần rà soát và lưu bản nháp. Chưa xuất bản.')}</Typography>
+          <Button variant="outlined" onClick={openSuggest} disabled={busy}>{t('Sinh từ JD của một vị trí')}</Button>
+          <Button onClick={useProposal} disabled={busy} sx={{ justifyContent: 'flex-start', textAlign: 'left' }}>{t('Dùng bộ mẫu ví dụ (Backend Python)')}</Button>
+          <Typography variant="caption">{t('Bộ mẫu ví dụ là tiêu chí viết sẵn trong mã nguồn, KHÔNG phải AI sinh ra. Nút "Sinh từ JD" mới gọi AI. Cả hai đều chỉ điền biểu mẫu — HR phải rà soát rồi bấm lưu.')}</Typography>
         </Stack>}
         {versions.length === 0 && <Typography sx={{ mt: 2 }}>{t('Chưa có rubric nào.')}</Typography>}
         {versions.map(v => <Button key={v.template_version_id} fullWidth sx={{ mt: 1, justifyContent: 'flex-start', textAlign: 'left' }} variant={selected?.template_version_id === v.template_version_id ? 'outlined' : 'text'} disabled={busy} onClick={() => select(v.template_version_id)}>{v.title} · v{v.version_number} · {statusLabel(v.status, t)} · {families.find(f => f.job_family_id === v.job_family_id) ? familyLabel(families.find(f => f.job_family_id === v.job_family_id)!.code, v.family_name || '', t) : v.family_name}</Button>)}
@@ -119,5 +220,27 @@ export default function RubricsPage() {
         {dirty && <Typography variant="caption">{t('Có thay đổi chưa lưu.')}</Typography>}
       </Stack></CardContent></Card>}
     </Stack>}
+
+    <Dialog open={suggestOpen} onClose={() => !suggesting && setSuggestOpen(false)} fullWidth maxWidth="sm">
+      <DialogTitle>{t('Sinh rubric nháp từ JD của một vị trí')}</DialogTitle>
+      <DialogContent>
+        <Typography sx={{ mb: 2 }}>
+          {t('Chọn một vị trí đã có mô tả công việc. AI sẽ đọc JD đó và đề xuất bộ tiêu chí. Bản nháp KHÔNG được lưu cho tới khi anh bấm lưu.')}
+        </Typography>
+        {!suggesting && !suggestPositions.length && <Alert severity="info">
+          {t('Chưa có vị trí nào được gán Nhóm vị trí. Gán nhóm cho vị trí trước — rubric không nhóm thì không tái sử dụng được.')}
+        </Alert>}
+        {suggestPositions.length > 0 && <TextField select fullWidth label={t('Vị trí')} value={suggestPosition} disabled={suggesting} onChange={e => setSuggestPosition(e.target.value)}>
+          {suggestPositions.map(item => <MenuItem key={item.position_id} value={item.position_id}>{item.title}</MenuItem>)}
+        </TextField>}
+        {suggesting && <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 2 }}>
+          <CircularProgress size={20} /><Typography variant="body2">{t('AI đang đọc JD và đề xuất tiêu chí...')}</Typography>
+        </Stack>}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setSuggestOpen(false)} disabled={suggesting}>{t('Hủy')}</Button>
+        <Button variant="contained" onClick={runSuggest} disabled={suggesting || !suggestPosition}>{t('Sinh nháp')}</Button>
+      </DialogActions>
+    </Dialog>
   </Box>;
 }
