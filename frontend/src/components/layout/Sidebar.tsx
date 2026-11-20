@@ -19,6 +19,7 @@ import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import AutoGraphOutlinedIcon from '@mui/icons-material/AutoGraphOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
+import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import { usePathname, useRouter } from 'next/navigation';
@@ -37,6 +38,7 @@ const menuGroups = [
       { text: 'Shortlist & phản hồi', icon: <PeopleOutlineIcon fontSize="small" />, href: '/shortlist' },
       { text: 'Thư viện rubric', icon: <LibraryBooksOutlinedIcon fontSize="small" />, href: '/rubric-library', hrOnly: true },
       { text: 'Talent Pool', icon: <GroupsOutlinedIcon fontSize="small" />, href: '/talent-pool', hrOnly: true },
+      { text: 'Mẫu thư ứng viên', icon: <MailOutlineIcon fontSize="small" />, href: '/email-templates', hrOnly: true },
     ],
   },
   {

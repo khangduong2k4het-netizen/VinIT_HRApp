@@ -209,6 +209,13 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: Optional[str] = None
     SMTP_FROM: Optional[str] = None
     SMTP_STARTTLS: bool = True
+    # F3.05 candidate emails. "record" (default) keeps the human-reviewed message in the
+    # history without emailing anyone; "smtp" sends it through the SMTP settings above.
+    CANDIDATE_EMAIL_SEND_MODE: Literal["record", "smtp"] = "record"
+    # Shared recruiting mailbox used as From (e.g. tuyendung@vinuni.edu.vn); empty = SMTP_FROM,
+    # then the HR user's own address. Replies always go to the HR user who sent it.
+    CANDIDATE_EMAIL_FROM: Optional[str] = None
+    CANDIDATE_EMAIL_MAX_PER_HOUR: int = 100
 
     # F2.09 candidate comparison and custom export (Excel/PDF). Contact
     # details (email/phone) are never exported.

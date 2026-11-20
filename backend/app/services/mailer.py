@@ -2,7 +2,9 @@
 
 Disabled unless ``SMTP_HOST`` and ``SMTP_FROM`` are configured. Callers must
 never put candidate data (names, contacts, CV text) in a message: retention
-emails only carry position codes, dates, counts and one-time codes.
+emails only carry position codes, dates, counts and one-time codes. The one
+exception is api/candidate_emails.py (F3.05), where HR reviews and sends a letter
+to the candidate themselves.
 """
 from __future__ import annotations
 
@@ -21,11 +23,14 @@ def email_enabled() -> bool:
     return bool(settings.SMTP_HOST and settings.SMTP_FROM)
 
 
-def send_email(to_address: str, subject: str, body: str) -> None:
+def send_email(to_address: str, subject: str, body: str, *, from_address: str | None = None,
+               reply_to: str | None = None) -> None:
     if not email_enabled():
         raise MailError("EMAIL_NOT_CONFIGURED")
     message = EmailMessage()
-    message["From"] = settings.SMTP_FROM
+    message["From"] = from_address or settings.SMTP_FROM
+    if reply_to:
+        message["Reply-To"] = reply_to
     message["To"] = to_address
     message["Subject"] = subject
     message.set_content(body)

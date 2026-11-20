@@ -51,6 +51,7 @@ import EvidenceCard from '@/components/candidates/EvidenceCard';
 import CVDocumentViewer from '@/components/candidates/CVDocumentViewer';
 import HRNotesPanel from '@/components/candidates/HRNotesPanel';
 import CrossDuplicatesPanel from '@/components/candidates/CrossDuplicatesPanel';
+import CandidateEmailPanel, { type EmailRequest } from '@/components/candidates/CandidateEmailPanel';
 import {
   filterAndSortApplicantItems,
   mergeRankingWithApplications,
@@ -88,6 +89,8 @@ export default function ApplicantDetailPage() {
   const [statusNote, setStatusNote] = useState('');
   const [statusError, setStatusError] = useState<string | null>(null);
   const [statusSubmitting, setStatusSubmitting] = useState(false);
+  // After moving to interview or rejection, offer the matching letter (HR still reviews and sends it).
+  const [emailRequest, setEmailRequest] = useState<EmailRequest>(null);
   const [success, setSuccess] = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
   const [reprocessError, setReprocessError] = useState<string | null>(null);
@@ -214,6 +217,8 @@ export default function ApplicantDetailPage() {
       const note = [statusNote.trim(), decision.overrideNote].filter(Boolean).join('\n') || undefined;
       await applicationsApi.updateStatus(applicantId, newStatus, statusReason.trim() || undefined, note, decision.overrideReasonCode);
       setStatusDialogOpen(false); setSuccess(true);
+      if (newStatus === 'INTERVIEW') setEmailRequest({ applicationId: applicantId, template: 'INTERVIEW_INVITE', trigger: 'STATUS_CHANGE', nonce: Date.now() });
+      else if (rejected) setEmailRequest({ applicationId: applicantId, template: 'REJECTION', trigger: 'STATUS_CHANGE', nonce: Date.now() });
       await loadData();
     } catch (err: any) {
       setStatusError(err.response?.data?.detail || t("Cập nhật trạng thái không thành công"));
@@ -546,6 +551,7 @@ export default function ApplicantDetailPage() {
 
       {/* Sibling keys must differ: both panels used key={applicantId}, which React reports as duplicate keys. */}
       {application.can_view_cv && <CandidateProfilePanel key={`profile-${applicantId}`} applicationId={applicantId} canEdit={!!application.can_update_status} onSaved={() => { loadData(); }} />}
+      {application.can_update_status && <CandidateEmailPanel key={`emails-${applicantId}`} applicationId={applicantId} request={emailRequest} />}
       {application.can_manage_hr_notes && <HRNotesPanel key={`notes-${applicantId}`} applicationId={applicantId} />}
       {application.can_update_status && <CrossDuplicatesPanel key={`duplicates-${applicantId}`} applicationId={applicantId}
         versionKey={JSON.stringify(application.identity)} />}

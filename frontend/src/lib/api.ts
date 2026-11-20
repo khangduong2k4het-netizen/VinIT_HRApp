@@ -288,6 +288,25 @@ export const adminApi = {
 // F1.10 / S-19 — retention queue and explicit, audited deletion.
 // F2.07 — exception hold, reminders and a one-time code before purge.
 // P3-1 Talent Pool: marking (phase 1) and scanning against a new position (phase 2). No CV content or contact data.
+// F3.05 candidate emails: HR reviews every letter; "send" only records it until SMTP mode is on.
+export type EmailTemplateCode = 'ACK_RECEIVED' | 'REQUEST_INFO' | 'INTERVIEW_INVITE' | 'REJECTION' | 'POOL_INVITE';
+export const candidateEmailsApi = {
+  templates: () => apiClient.get('/candidate-emails/templates'),
+  updateTemplate: (code: EmailTemplateCode, data: { subject_template: string; body_template: string }) =>
+    apiClient.put(`/candidate-emails/templates/${code}`, data),
+  forApplication: (applicationId: string) => apiClient.get(`/candidate-emails/applications/${applicationId}`),
+  compose: (applicationId: string, templateCode: EmailTemplateCode) =>
+    apiClient.post(`/candidate-emails/applications/${applicationId}/compose`, { template_code: templateCode }),
+  create: (applicationId: string, data: {
+    template_code: EmailTemplateCode | null; trigger_source: 'MANUAL' | 'STATUS_CHANGE';
+    to_address: string; subject: string; body: string; send: boolean; confirmed?: boolean;
+  }) => apiClient.post(`/candidate-emails/applications/${applicationId}/emails`, data),
+  updateDraft: (emailId: string, data: { to_address: string; subject: string; body: string }) =>
+    apiClient.put(`/candidate-emails/emails/${emailId}`, data),
+  sendDraft: (emailId: string, confirmed = false) => apiClient.post(`/candidate-emails/emails/${emailId}/send`, { confirmed }),
+  cancelDraft: (emailId: string) => apiClient.post(`/candidate-emails/emails/${emailId}/cancel`),
+};
+
 export const talentPoolApi = {
   state: (applicationId: string) => apiClient.get(`/talent-pool/applications/${applicationId}`),
   mark: (applicationId: string, reasonCode: string) =>
