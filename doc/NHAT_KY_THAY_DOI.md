@@ -9,6 +9,39 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-19 — Tích hợp nhánh `freebuff` vào nhánh làm việc, gộp hai backlog
+
+**Vấn đề.** Công việc UI/UX nằm trên `freebuff/1434fda45407dc1a68600843` (18
+commit, rẽ từ `6aa867f`), còn các bản sửa tiêu chí nằm trên
+`arena/ea6e2570-vinit-hrapp`. Hai nhánh chưa từng gặp nhau, và cả hai đều sửa
+`frontend/src/i18n/en.json` — file dùng chung, nên không thể deploy riêng lẻ.
+
+**Đã làm.** Nhánh `freebuff` đã tự merge `arena` vào trước (`4ff30da`), nên lần
+này chỉ cần fast-forward, **không phát sinh xung đột**. Đã kiểm:
+
+- `en.json`: giữ đủ 1694 key của freebuff **và** 18 key của phần sinh tiêu chí;
+  không key nào bị mất. Tổng 1712 key.
+- Bộ dữ liệu demo **vẫn là bản tiếng Anh** (`CV_01_daniel_whitfield.docx`…) —
+  yêu cầu bắt buộc, không bị ghi đè.
+- Không file nào trong phần sinh tiêu chí bị freebuff sửa: `criteriaGeneration.ts`,
+  `CreatePositionProgressDialog.tsx`, `positions/new`, `deterministic_matching.py`,
+  `api/criteria.py` đều giữ nguyên.
+- Hai effect đọc `?tab=` trong trang vị trí vẫn không nhân đôi (một khi mount, một
+  trong `handleAction`).
+
+**Kiểm thử trên code đã hợp nhất.** Backend **432 passed**, 174 skipped. Frontend:
+`tsc` sạch, unit **84 passed**, i18n 3/3, `next build` thành công, eslint sạch.
+Con số unit 84 khớp chính xác phép cộng 49 + 27 + 8.
+
+**Dọn dẹp.** Gộp `doc/HANG_CHO_VIEC.md` vào cuối `doc/VIEC_CHO_LAM.md` (phần B) và
+xoá file cũ: hai backlog tên gần giống nhau là nguồn gây nhầm. Ghi chú bàn giao
+nằm ngay dưới phần hướng dẫn dùng file.
+
+**Chưa kiểm.** Không có Chromium trong môi trường này nên **toàn bộ e2e mới chưa
+chạy được** — chỉ unit/contract test và build. Cần chạy các e2e đó trên máy có
+trình duyệt trước khi tin vào các luồng hành động hàng loạt, retention và đo
+lường UX.
+
 ## 2026-11-19 — Đo tác động của chính các cải tiến UX (thời gian xử lý, hồ sơ quá hạn, mức dùng lô)
 
 **Vấn đề.** Dashboard chỉ có số lượng hàng đợi, nên bốn lượt cải tiến trước đều dừng
