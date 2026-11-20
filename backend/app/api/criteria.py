@@ -14,13 +14,16 @@ from app.schemas.criteria import (
     CriterionCreate,
     CriterionUpdate,
     ApprovalAction,
-    CriteriaApprovalRequest
+    CriteriaApprovalRequest,
+    RequirementSpec
 )
 from app.schemas.common import OperationResponse
 from app.db.supabase import get_supabase_client
 from app.db.database import SessionLocal
 from sqlalchemy import text
+from pydantic import ValidationError
 import json
+import re
 from decimal import Decimal, ROUND_HALF_UP
 from app.services.llm_client import llm_client, LLMError
 from app.services.deterministic_matching import deterministic_matcher
@@ -40,6 +43,23 @@ def _load_criteria(db, version_id):
     return result
 
 
+def _sanitize_criteria_response(version: dict) -> dict:
+    """Drop ``requirement_spec`` values the response schema would reject.
+
+    Rows written before the schema/spec fix may already hold a spec such as
+    ``{"kind": "LANGUAGE"}`` with no language or threshold. Serializing such a
+    row fails inside FastAPI and returns a bare 500 with no ``detail``, hiding
+    the real cause from the UI. The spec is optional, so dropping it keeps the
+    endpoint usable; the matcher re-infers a spec later.
+    """
+    if not isinstance(version, dict):
+        return version
+    for criterion in version.get("criteria") or []:
+        if isinstance(criterion, dict) and "requirement_spec" in criterion:
+            criterion["requirement_spec"] = _schema_safe_spec(criterion["requirement_spec"])
+    return version
+
+
 def _stored_requirement_spec(item: dict) -> dict:
     """Materialize the engine's inferred draft in the stored JSONB shape."""
     spec = deterministic_matcher.build_requirement_spec(item)
@@ -54,6 +74,94 @@ def _stored_requirement_spec(item: dict) -> dict:
         "required_cefr": spec.required_cefr,
         "required_language_rank": spec.required_language_rank,
     }
+
+
+def _schema_safe_spec(spec) -> Optional[dict]:
+    """Return ``spec`` only when the response schema will accept it.
+
+    The response model validates ``requirement_spec``; a spec the schema
+    rejects makes FastAPI fail to serialize the whole response. The client then
+    gets a bare HTTP 500 with no ``detail`` — which the UI can only report as a
+    generic failure, even though the criteria were saved. Validation is optional
+    data: drop it rather than lose the response.
+    """
+    if not isinstance(spec, dict):
+        return None
+    try:
+        RequirementSpec.model_validate(spec)
+        return spec
+    except ValidationError:
+        logger.warning("requirement_spec omitted from response: failed schema validation",
+                       kind=spec.get("kind"))
+        return None
+
+
+#: Nhãn nhóm mà model có thể trả về thay vì mã chuẩn. Model bản địa hoá theo
+#: ngôn ngữ JD (JD tiếng Việt hay sinh "BẮT BUỘC"), hoặc viết hoa/thường khác.
+_CATEGORY_ALIASES = {
+    "must_have": "MUST_HAVE", "must have": "MUST_HAVE", "musthave": "MUST_HAVE",
+    "mandatory": "MUST_HAVE", "required": "MUST_HAVE",
+    "bắt buộc": "MUST_HAVE", "bat buoc": "MUST_HAVE", "yêu cầu bắt buộc": "MUST_HAVE",
+    "nice_to_have": "NICE_TO_HAVE", "nice to have": "NICE_TO_HAVE", "nicetohave": "NICE_TO_HAVE",
+    "preferred": "NICE_TO_HAVE", "optional": "NICE_TO_HAVE",
+    "ưu tiên": "NICE_TO_HAVE", "uu tien": "NICE_TO_HAVE", "mong muốn": "NICE_TO_HAVE",
+}
+
+
+def _coerce_text(value) -> str:
+    """Ép một trường văn bản về ``str`` đã cắt khoảng trắng, chịu được None."""
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _coerce_category(value) -> Optional[str]:
+    """Chuẩn hoá nhãn nhóm; trả ``None`` nếu không nhận ra.
+
+    Khoá tra cứu bỏ khoảng trắng thừa và không phân biệt hoa thường, để
+    " MUST_HAVE", "must-have" và "Bắt buộc" đều về đúng nhóm.
+    """
+    if not isinstance(value, str):
+        return None
+    key = re.sub(r"[\s\-_]+", " ", value.strip()).lower()
+    if key.replace(" ", "_") in ("must_have", "nice_to_have"):
+        return key.replace(" ", "_").upper()
+    return _CATEGORY_ALIASES.get(key)
+
+
+def _coerce_weight(value) -> Optional[float]:
+    """Ép trọng số về ``float``, hiểu được các kiểu model hay trả.
+
+    Chấp nhận ``60``, ``"60"``, ``"60%"``, ``"0.6"``.  Trả ``None`` khi không
+    đọc được, để nơi gọi quyết định từ chối.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        cleaned = value.strip().replace(",", ".")
+        # "60%" -> 60; nhưng "0.6" phải giữ là 0.6 chứ không nhân 100.
+        if cleaned.endswith("%"):
+            cleaned = cleaned[:-1].strip()
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
+    return None
+
+
+def _coerce_keywords(value) -> list[str]:
+    """Chuẩn hoá danh sách từ khoá về ``list[str]``.
+
+    Model đôi khi trả một chuỗi ``"Python, SQL"`` thay vì mảng. Tách theo dấu
+    phẩy thay vì từ chối, vì từ khoá chỉ là gợi ý bằng chứng, không phải điểm.
+    """
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    if isinstance(value, list):
+        return [str(part).strip() for part in value if str(part).strip()]
+    return []
 
 
 def _normalize_weights_in_group(items: list[dict]) -> list[dict]:
@@ -152,7 +260,7 @@ async def list_criteria_versions(position_id: UUID, current_user: dict = Depends
     db = SessionLocal()
     try:
         ids = db.execute(text("SELECT criteria_version_id FROM app_private.criteria_versions WHERE position_id = :id ORDER BY version_number DESC"), {"id": str(position_id)}).scalars().all()
-        return [_load_criteria(db, item) for item in ids]
+        return [_sanitize_criteria_response(_load_criteria(db, item)) for item in ids]
     finally:
         db.close()
 
@@ -163,7 +271,7 @@ async def get_criteria_version(criteria_version_id: UUID, current_user: dict = D
     try:
         result = _load_criteria(db, criteria_version_id)
         await check_position_access(result["position_id"], current_user)
-        return result
+        return _sanitize_criteria_response(result)
     finally:
         db.close()
 
@@ -202,11 +310,20 @@ async def generate_criteria_from_jd(position_id: UUID, current_user: dict = Depe
             raise ValueError("Empty or oversized rubric")
         items = []
         for criterion in raw:
-            name, description = criterion["name"].strip(), criterion["description"].strip()
-            category, weight = criterion["category"], float(criterion["weight"])
-            keywords = criterion.get("expected_evidence_keywords", [])
-            if not name or len(name) > 200 or not description or len(description) > 4000 or category not in ("MUST_HAVE", "NICE_TO_HAVE") or not 0 <= weight <= 100 or not isinstance(keywords, list):
-                raise ValueError("Invalid criterion")
+            if not isinstance(criterion, dict):
+                raise ValueError("Criterion is not an object")
+            name = _coerce_text(criterion.get("name"))
+            # Description is required by the rubric, but a model that omits it
+            # while giving a usable name should not sink the whole batch: the
+            # name is what HR approves and what matching scores against.
+            description = _coerce_text(criterion.get("description")) or name
+            category = _coerce_category(criterion.get("category"))
+            weight = _coerce_weight(criterion.get("weight", criterion.get("weight_in_group")))
+            keywords = _coerce_keywords(criterion.get("expected_evidence_keywords"))
+            if not name or len(name) > 200 or not description or len(description) > 4000 or category is None or weight is None or not 0 <= weight <= 100:
+                raise ValueError(
+                    f"Invalid criterion: name={name[:40]!r} category={category!r} weight={weight!r}"
+                )
             draft_item = {"name": name, "description": description, "category": category,
                           "weight": weight, "keywords": keywords}
             draft_item["requirement_spec"] = _stored_requirement_spec({
@@ -220,7 +337,16 @@ async def generate_criteria_from_jd(position_id: UUID, current_user: dict = Depe
                for category in {c["category"] for c in items}):
             raise ValueError("A criterion group has no weight")
         items = _normalize_weights_in_group(items)
-    except (KeyError, TypeError, ValueError, AttributeError):
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        # Log the concrete reason: without it, a 502 here is undiagnosable from
+        # the outside. The message sent to the client stays generic on purpose,
+        # but the shape of the model output must be visible in the logs.
+        logger.error(
+            "AI criteria output rejected by local validation",
+            reason=f"{type(exc).__name__}: {exc}",
+            criteria_count=len(raw) if isinstance(raw, list) else None,
+            first_criterion_keys=sorted(raw[0].keys()) if (isinstance(raw, list) and raw and isinstance(raw[0], dict)) else None,
+        )
         raise HTTPException(status_code=502, detail="AI trả về bộ tiêu chí không hợp lệ. Vui lòng thử lại.")
     db = SessionLocal()
     try:
@@ -247,7 +373,7 @@ async def generate_criteria_from_jd(position_id: UUID, current_user: dict = Depe
         """), {"user_id": current_user["user_id"], "id": version_id, "position": str(position_id)})
         result = _load_criteria(db, version_id)
         db.commit()
-        return result
+        return _sanitize_criteria_response(result)
     except Exception:
         db.rollback()
         raise

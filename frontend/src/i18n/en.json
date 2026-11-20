@@ -1694,5 +1694,22 @@
   "Dịch vụ kiểm tra hoặc lưu trữ chưa sẵn sàng. Giữ nguyên form và thử lại sau; không gửi hồ sơ thật.": "The check or storage service is not ready yet. Keep the form and try again later; do not submit a real application.",
   "Thông tin hoặc tệp chưa hợp lệ. Hãy kiểm tra các trường trong form.": "Some information or the file is not valid. Check the fields in the form.",
   "Bạn không có quyền xác minh bằng chứng trên hồ sơ này. Các tiêu chí còn lại vẫn chờ HR xác minh.": "You cannot verify evidence on this application. The remaining criteria stay in the HR verification queue.",
-  "Không thể gửi hồ sơ thử nghiệm. Giữ nguyên form và liên hệ HR nếu lỗi tiếp diễn.": "The test application could not be submitted. Keep the form and contact HR if the error continues."
+  "Không thể gửi hồ sơ thử nghiệm. Giữ nguyên form và liên hệ HR nếu lỗi tiếp diễn.": "The test application could not be submitted. Keep the form and contact HR if the error continues.",
+  "Đang tạo vị trí tuyển dụng...": "Creating the position...",
+  "Đang tạo tiêu chí tự động cho vị trí tuyển dụng này...": "Automatically generating evaluation criteria for this position...",
+  "Đã tạo xong tiêu chí. Đang mở vị trí...": "Criteria ready. Opening the position...",
+  "Bước này có thể mất vài chục giây. Vui lòng không đóng trang.": "This step can take up to a minute. Please keep this page open.",
+  "Đã tạo vị trí nhưng chưa tạo được tiêu chí.": "The position was created, but the criteria could not be generated.",
+  "Vị trí đã được lưu. Bạn có thể thử tạo tiêu chí lại, hoặc mở vị trí và tạo sau.": "The position has been saved. You can retry generating criteria, or open the position and generate them later.",
+  "Thử tạo tiêu chí lại": "Retry criteria generation",
+  "Mở vị trí": "Open position",
+  "Không sinh được tiêu chí. Vị trí vẫn được lưu, không cần tạo lại.": "Could not generate criteria. The position is still saved — there is no need to create it again.",
+  "Mặc định là tiếng Anh; chọn Tiếng Việt nếu JD viết bằng tiếng Việt.": "English is the default; choose Vietnamese if the job description is written in Vietnamese.",
+  "Chưa xác nhận được tiêu chí đã tạo hay chưa (lỗi kết nối). Mở vị trí để xem kết quả; không cần tạo lại vị trí.": "Could not confirm whether the criteria were created (connection problem). Open the position to check the result; there is no need to create the position again.",
+  "Yêu cầu tạo tiêu chí bị ngắt trước khi có kết quả và hệ thống chưa lưu tiêu chí nào. Vị trí đã được lưu, không cần tạo lại.": "The criteria request was interrupted before a result arrived, and no criteria were saved. The position itself is saved — there is no need to create it again.",
+  "Không thể kết nối máy chủ. Vui lòng thử lại.": "Could not reach the server. Please try again.",
+  "Vị trí đã mở nhưng {0}. Vui lòng làm mới trang.": "The position opened, but {0}. Please refresh the page.",
+  "không tải được tiêu chí": "the criteria could not be loaded",
+  "không tải được JD": "the job description could not be loaded",
+  "không tải được quyền của tài khoản": "your account permissions could not be loaded"
 }

@@ -2,7 +2,11 @@ const { chromium } = require('playwright-core');
 const assert = require('node:assert/strict');
 const base = process.env.HRA_E2E_BASE_URL;
 if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostname)) throw new Error('Use a local disposable Next server.');
-const state = { created: null, fileType: null, urls: [], attempts: 0 };
+const state = { created: null, fileType: null, urls: [], attempts: 0, generateCalls: 0, generateFail: 0,
+  // 'opaque' = request bị proxy cắt: trả 504 HTML KHÔNG có detail, nhưng tiêu chí đã lưu.
+  mode: process.env.HRA_E2E_GENERATE_MODE || 'ok', versionsAfterGenerate: 0,
+  // 'error500' = đọc tiêu chí nổ (đúng lỗi "Không thể tải thông tin vị trí" trên VPS)
+  listMode: process.env.HRA_E2E_LIST_MODE || 'empty' };
 const json = (r,b,s=200) => r.fulfill({status:s,contentType:'application/json',body:JSON.stringify(b)});
 (async () => {
  const browser = await chromium.launch({executablePath:process.env.HRA_E2E_CHROMIUM_EXECUTABLE, args:process.env.HRA_E2E_CHROMIUM_ARGS ? JSON.parse(process.env.HRA_E2E_CHROMIUM_ARGS) : [],headless:true});
@@ -21,9 +25,17 @@ const json = (r,b,s=200) => r.fulfill({status:s,contentType:'application/json',b
     state.retried=q.postDataJSON(); return json(r,{position_id:'position'},200); }
   if(p === '/v1/positions' && method==='GET') return json(r,[]);
   if(p === '/v1/dashboard/summary') return json(r,{open_positions:0,total_applications:0,applications_by_status:{SHORTLIST:0},files_needing_hr_review:0});
+  if(p === '/v1/criteria/generate/position' && method==='POST') { state.generateCalls+=1;
+    if(state.generateCalls<=state.generateFail) return json(r,{detail:'AI trả về bộ tiêu chí không hợp lệ. Vui lòng thử lại.'},502);
+    if(state.mode==='opaque') { state.versionsAfterGenerate=1;
+      return r.fulfill({status:504,contentType:'text/html',body:'<html><body>504 Gateway Time-out</body></html>'}); }
+    state.versionsAfterGenerate=1;
+    return json(r,{criteria_version_id:'cv',version_number:1,status:'DRAFT'},202); }
   if(p === '/v1/positions/position') return json(r,{position_id:'position',position_code:'REQ-IT-001',title:'Backend giả',status:'OPEN'});
   if(p === '/v1/positions/position/jd-versions') return json(r,[{jd_version_id:'jd',version_number:1,content_text:'JD giả từ link: dữ liệu Python',language_code:'vi'}]);
-  if(p === '/v1/criteria/position/position/versions') return json(r,[]);
+  if(p === '/v1/criteria/position/position/versions') {
+    if(state.listMode==='error500') return r.fulfill({status:500,contentType:'text/plain',body:'Internal Server Error'});
+    return json(r, state.versionsAfterGenerate ? [{criteria_version_id:'cv',version_number:1,status:'DRAFT',criteria:[]}] : []); }
   if(p === '/v1/positions/position/workspace') return json(r,{},404);
   if(p === '/v1/dashboard/position/position') return json(r,{total_applications:0,applications_processing:0,files_needing_hr_review:0,applications_by_status:{SHORTLIST:0}});
   if(p === '/v1/operations/position/position/active') return json(r,null);
@@ -59,10 +71,16 @@ const json = (r,b,s=200) => r.fulfill({status:s,contentType:'application/json',b
  await page.getByText(/Kết quả tạo chưa rõ/).waitFor();
  assert.equal(await page.getByRole('textbox',{name:/Tên vị trí/}).isDisabled(),true,'form locked while reconciling');
  assert.match(state.created.request_id,/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,'client sends a v4 request id');
- await page.getByRole('button',{name:'Thử lại cùng yêu cầu'}).click(); await page.waitForURL('**/positions/position?tab=criteria');
+ await page.getByRole('button',{name:'Thử lại cùng yêu cầu'}).click();
+ // Tạo xong là sinh tiêu chí luôn, có hộp thoại chặn màn hình báo đang chạy.
+ await page.waitForURL('**/positions/position?tab=criteria');
+ assert.equal(state.generateCalls,1,'criteria generation is triggered automatically after create');
+ // Ca đã gặp: request sinh tiêu chí bị cắt ở proxy (504 HTML, không có detail)
+ // nhưng backend vẫn lưu xong. Trang phải hỏi lại và đi tiếp, KHÔNG báo lỗi.
+ assert.equal(await page.getByRole('dialog').count(),0,'no stuck dialog after a cut request');
  assert.equal(state.retried.request_id,state.created.request_id,'retry must reuse the request id');
  assert.equal(state.retried.jd_content,state.created.jd_content,'retry must not resend edited content');
  assert.equal(state.created.jd_language_code,'vi'); assert.match(state.created.jd_content,/JD giả từ link/); assert.equal(state.created.department_id,'dept'); assert.equal(state.created.hiring_manager_user_id,'hm');
  await browser.close(); if(errors.length) throw Error(errors.join('\n'));
- console.log('Create page, required JD, mocked imports, optional create retry and replay-safe navigation: OK; all /v1 intercepted.');
+ console.log('Create page, required JD, mocked imports, auto criteria generation, optional create retry and replay-safe navigation: OK; all /v1 intercepted.');
 })().catch(e=>{console.error(e);process.exit(1)});

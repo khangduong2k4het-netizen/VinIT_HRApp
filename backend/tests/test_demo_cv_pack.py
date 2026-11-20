@@ -20,12 +20,12 @@ ALLOCATION = REPO_ROOT / "doc" / "BO_DEMO_TUYEN_DUNG" / "BANG_PHAN_BO_30_CV.md"
 #: kỹ năng cốt lõi của một số hồ sơ phải được ghim. Đổi mấy dòng này là đổi
 #: kết quả mong đợi trong `KICH_BAN_DEMO.md` — đừng sửa test, sửa kịch bản.
 PINNED_SKILLS = {
-    2: ("Flask",),            # có Flask nhưng thiếu pipeline
-    6: ("Java",),             # thiên Java, không phải Python
-    11: ("Power BI",),        # phân tích dữ liệu, không có Python/API
-    17: ("Bootstrap",),       # web cơ bản, chưa có React
-    23: ("test case",),       # kiểm thử thủ công, chưa tự động hoá
-    29: ("ticket",),          # hỗ trợ hệ thống, chưa Docker/CI
+    2: ("Flask",),            # has Flask but no pipeline evidence
+    6: ("Java",),             # Java-leaning, not Python
+    11: ("Power BI",),        # data analysis, no Python/API
+    17: ("Bootstrap",),       # basic web, no React
+    23: ("test case design",),  # manual testing, not automated
+    29: ("ticketing",),       # IT support, no Docker/CI
 }
 
 
@@ -131,3 +131,43 @@ def test_readme_states_the_real_format_counts():
     suffixes = [p.suffix for p in CV_DIR.iterdir() if p.is_file()]
     text = readme.read_text(encoding="utf-8")
     assert f"({suffixes.count('.docx')} DOCX, {suffixes.count('.pdf')} PDF)" in text
+
+
+# ---------------------------------------------------------------------------
+# Ngôn ngữ: tiếng Anh là chuẩn cho JD/CV.
+# ---------------------------------------------------------------------------
+
+def test_demo_pack_is_in_english():
+    """Tiếng Việt được hỗ trợ nhưng là tuỳ chọn, không phải dữ liệu demo.
+
+    Nền tảng hướng tới người dùng quốc tế. Nếu bộ demo dùng tiếng Việt, người
+    xem sẽ hiểu sai rằng tiếng Việt là mặc định, và các lỗi đặc thù tiếng Việt
+    sẽ lẫn vào kịch bản trình bày.
+    """
+    import unicodedata
+
+    def has_vietnamese_marks(text: str) -> bool:
+        # Dấu đặc trưng tiếng Việt không xuất hiện trong tên tiếng Anh thông thường.
+        decomposed = unicodedata.normalize("NFD", text)
+        marks = {ch for ch in decomposed if unicodedata.combining(ch)}
+        # ơ/ư dùng dấu móc riêng, không tách được bằng NFD.
+        return bool(marks) or "ơ" in text or "ư" in text or "đ" in text
+
+    for candidate in CANDIDATES:
+        text = " ".join([candidate.full_name, candidate.headline, candidate.summary,
+                         *candidate.skills, *candidate.certifications, *candidate.languages])
+        assert not has_vietnamese_marks(text), candidate.full_name
+
+
+def test_jd_files_are_in_english():
+    jd_dir = REPO_ROOT / "doc" / "BO_DEMO_TUYEN_DUNG" / "01_JD"
+    if not jd_dir.exists():
+        pytest.skip("Bộ JD demo chưa có")
+    files = sorted(jd_dir.glob("*.txt"))
+    assert len(files) == 5
+    for path in files:
+        text = path.read_text(encoding="utf-8").lower()
+        assert "job description" in text or "jd" in text, path.name
+        # Không còn tiêu đề/nhãn tiếng Việt trong JD mẫu.
+        for word in ("mục tiêu", "công việc chính", "yêu cầu bắt buộc", "thử nghiệm"):
+            assert word not in text, f"{path.name}: {word}"

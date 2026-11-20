@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Alert, Autocomplete, Box, Button, Card, CardContent, CircularProgress, Grid, MenuItem, Stack, TextField, Typography } from '@mui/material';
-import apiClient, { departmentsApi, positionsApi, rubricApi, usersApi } from '@/lib/api';
+import apiClient, { criteriaApi, departmentsApi, positionsApi, rubricApi, usersApi } from '@/lib/api';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
+import CreatePositionProgressDialog, { type CreateProgressStep } from '@/components/positions/CreatePositionProgressDialog';
+import { interpretGenerationFailure } from '@/lib/criteriaGeneration';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { Department, UserSummary } from '@/types';
 
@@ -22,7 +24,6 @@ export default function CreatePositionPage() {
   const [title, setTitle] = useState('');
   const [source, setSource] = useState<Source>('paste');
   const [content, setContent] = useState('');
-  const [language, setLanguage] = useState('vi');
   const [deadline, setDeadline] = useState('');
   const [url, setUrl] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -34,6 +35,15 @@ export default function CreatePositionPage() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [created, setCreated] = useState(false);
   const [uncertain, setUncertain] = useState(false);
+  // Tiến trình sau khi tạo: hộp thoại chặn màn hình, rồi tự sinh tiêu chí.
+  const [progressStep, setProgressStep] = useState<CreateProgressStep | null>(null);
+  const [progressError, setProgressError] = useState('');
+  // Giữ id vị trí đã tạo để (a) không gửi lại request tạo, (b) mở đúng vị trí.
+  const createdPositionId = useRef<string | null>(null);
+  const navigating = useRef(false);
+  const navTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Tiếng Anh là mặc định (nền tảng quốc tế); tiếng Việt vẫn là tuỳ chọn được phép.
+  const [language, setLanguage] = useState('en');
   // Validation appears once a field was visited, not on a pristine form.
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const touch = (field: string) => setTouched(current => current[field] ? current : { ...current, [field]: true });
@@ -41,7 +51,7 @@ export default function CreatePositionPage() {
   const submitting = useRef(false);
   const selectedDepartment = departments.find(d => d.department_id === department);
   const preview = selectedDepartment?.code_format.replace(/\{SEQ(?::(0+))?\}/, (_match, zeros: string | undefined) => String(selectedDepartment.next_sequence).padStart((zeros || '').length || 1, '0')) || '';
-  const dirty = !!(title || department || manager || content || url || file || family || deadline || language !== 'vi');
+  const dirty = !!(title || department || manager || content || url || file || family || deadline || language !== 'en');
   const missing = [
     !title.trim() ? t('Tên vị trí') : '',
     !department ? t('Đơn vị / Phòng ban') : '',
@@ -63,7 +73,8 @@ export default function CreatePositionPage() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [t]);
-  useUnsavedChangesGuard(dirty && !created, t('Nội dung chưa lưu sẽ bị mất. Tiếp tục?'), { fallbackHref: '/positions' });
+  useEffect(() => () => { if (navTimer.current) clearTimeout(navTimer.current); }, []);
+  useUnsavedChangesGuard(dirty && !created && !createdPositionId.current, t('Nội dung chưa lưu sẽ bị mất. Tiếp tục?'), { fallbackHref: '/positions' });
 
   const importJd = async () => {
     if (content.trim() && !window.confirm(t('Nội dung JD hiện tại sẽ được thay bằng nội dung mới. Tiếp tục?'))) return;
@@ -80,9 +91,69 @@ export default function CreatePositionPage() {
     } catch (err: any) { setError(err.response?.data?.detail || t('Không thể lấy JD. Vui lòng thử lại hoặc dán nội dung.')); }
     finally { setImporting(false); }
   };
+  /** Mở trang chi tiết đúng tab tiêu chí, để HR thấy ngay kết quả vừa sinh. */
+  // Chú ý: cảnh báo chỉ tắt khi vị trí đã tồn tại. Trong lúc đang gửi yêu cầu
+  // tạo (`progressStep === 'creating'`) thì vẫn còn, vì đóng tab lúc đó có thể
+  // mất nội dung mà chưa biết vị trí đã được tạo hay chưa.
+  const openPosition = (positionId: string) => {
+    // Vị trí đã được lưu nên nội dung form không còn là "việc chưa lưu": tắt
+    // cảnh báo rời trang trước khi điều hướng, và chặn bấm hai lần sinh hai
+    // lần chuyển trang.
+    if (navigating.current) return;
+    navigating.current = true;
+    createdPositionId.current = null;
+    setCreated(true);
+    setProgressStep(null);
+    router.push(`/positions/${positionId}?tab=criteria`);
+  };
+
+  /** Hỏi server xem vị trí đã có bản tiêu chí nào chưa; ``null`` nếu không hỏi được. */
+  const criteriaExist = async (positionId: string): Promise<boolean | null> => {
+    try {
+      const res = await criteriaApi.listVersions(positionId);
+      return Array.isArray(res.data) && res.data.length > 0;
+    } catch { return null; }
+  };
+
+  /** Mở vị trí sau khi tiêu chí đã sẵn sàng trong DB. */
+  const finishCriteria = (positionId: string) => {
+    setProgressStep('done'); setProgressError('');
+    // Ngắn để người dùng kịp thấy bước hoàn tất trước khi trang đổi. Giữ id
+    // để dọn timer nếu trang bị gỡ trong 0,7 giây đó.
+    navTimer.current = setTimeout(() => openPosition(positionId), 700);
+  };
+
+  /** Gọi sinh tiêu chí; trả về ``true`` khi tiêu chí đã có trên server. */
+  const runCriteriaGeneration = async (positionId: string) => {
+    setProgressStep('generating'); setProgressError('');
+    try {
+      await criteriaApi.generateDraft(positionId);
+      finishCriteria(positionId);
+      return true;
+    } catch (err: any) {
+      // Vị trí ĐÃ được tạo, nên không bao giờ được khuyên tạo lại. Câu "chưa
+      // tạo được tiêu chí" chỉ được nói khi đã KIỂM CHỨNG là chưa có.
+      // Response không có `detail` thường là request bị cắt ở proxy chứ không
+      // phải backend từ chối — lúc đó phải hỏi lại server.
+      const exists = await criteriaExist(positionId);
+      const outcome = interpretGenerationFailure(err, exists);
+      if (outcome.action === 'verified') { finishCriteria(positionId); return true; }
+      if (outcome.action === 'unknown') {
+        setProgressError(t('Chưa xác nhận được tiêu chí đã tạo hay chưa (lỗi kết nối). Mở vị trí để xem kết quả; không cần tạo lại vị trí.'));
+        return false;
+      }
+      setProgressError(outcome.detail
+        || t('Yêu cầu tạo tiêu chí bị ngắt trước khi có kết quả và hệ thống chưa lưu tiêu chí nào. Vị trí đã được lưu, không cần tạo lại.'));
+      return false;
+    }
+  };
+
   const submit = async (event?: React.FormEvent) => {
     event?.preventDefault();
     if (submitting.current || importing || !department || !manager || !title.trim() || !content.trim()) return;
+    // Nếu vị trí đã tạo ở lần bấm trước (ví dụ sinh tiêu chí lỗi rồi bấm lại),
+    // không tạo thêm vị trí nữa — chỉ thử sinh lại tiêu chí.
+    if (createdPositionId.current) { await runCriteriaGeneration(createdPositionId.current); return; }
     if (!pendingRequest.current) {
       pendingRequest.current = { ...(idempotencySupported ? { request_id: globalThis.crypto.randomUUID() } : {}),
         department_id: department, title: title.trim(), hiring_manager_user_id: manager.user_id,
@@ -90,12 +161,17 @@ export default function CreatePositionPage() {
         application_deadline_at: deadline ? new Date(deadline).toISOString() : null };
     }
     submitting.current = true; setBusy(true); setError('');
+    setProgressStep('creating'); setProgressError('');
     try {
       const res = await positionsApi.create(pendingRequest.current);
-      setCreated(true); setUncertain(false); pendingRequest.current = null;
-      router.push(`/positions/${res.data.position_id}?tab=criteria`);
+      setUncertain(false); pendingRequest.current = null;
+      createdPositionId.current = res.data.position_id;
+      // Sinh tiêu chí ngay, không bắt HR qua thêm bước thủ công.
+      // Lỗi ở bước này không ném ra: vị trí đã tạo xong rồi.
+      await runCriteriaGeneration(res.data.position_id);
     } catch (err: any) {
       const status = err.response?.status;
+      setProgressStep(null);
       if (!status || status >= 500 || uncertain) {
         setUncertain(true);
         setError(t('Kết quả tạo chưa rõ. Có thể thử lại cùng yêu cầu an toàn hoặc kiểm tra danh sách; không sửa nội dung khi đang đối soát.'));
@@ -122,13 +198,13 @@ export default function CreatePositionPage() {
       </CardContent></Card>
       <Card variant="outlined" sx={{ mb: 2 }}><CardContent><Typography variant="h2" sx={{ fontSize: 20, mb: 2 }}>{t('2. Mô tả công việc (JD)')}</Typography>
         <Typography color="text.secondary" sx={{ mb: 2 }}>{t('Chọn cách nhập, sau đó rà soát và chỉnh sửa nội dung trước khi tạo.')}</Typography>
+        <TextField select label={t('Ngôn ngữ JD')} value={language} onChange={e => setLanguage(e.target.value)} sx={{ mb: 2, minWidth: 160 }} helperText={t('Mặc định là tiếng Anh; chọn Tiếng Việt nếu JD viết bằng tiếng Việt.')}><MenuItem value="en">English</MenuItem><MenuItem value="vi">Tiếng Việt</MenuItem></TextField>
         <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 2 }}>
           {([['paste','Dán nội dung'],['file','Tải tệp DOCX / TXT'],['url','Nhập từ link']] as const).map(([key,label]) => <Button key={key} type="button" variant={source === key ? 'contained' : 'outlined'} onClick={() => { setSource(key); setError(''); }} aria-pressed={source === key}>{t(label)}</Button>)}
         </Stack>
         {source === 'file' && <Stack spacing={1} sx={{ mb: 2 }}><Typography variant="body2">{t('Chỉ hỗ trợ DOCX hoặc TXT UTF-8, tối đa 2 MB; không hỗ trợ DOC cũ.')}</Typography><input aria-label={t('Chọn tệp JD')} type="file" accept=".docx,.txt" onChange={e => setFile(e.target.files?.[0] || null)} /><Button type="button" variant="outlined" disabled={importing || !file} onClick={importJd}>{importing ? t('Đang đọc...') : t('Đọc tệp')}</Button></Stack>}
         {source === 'url' && <Stack spacing={1} sx={{ mb: 2 }}><TextField fullWidth label={t('Link JD')} value={url} onChange={e => setUrl(e.target.value)} helperText={t('Hỗ trợ link việc làm careerportalvinuni.talent.vn.')} /><Button type="button" variant="outlined" disabled={importing || !url.trim()} onClick={importJd}>{importing ? t('Đang đọc...') : t('Lấy nội dung JD')}</Button></Stack>}
         {warning && <Alert severity="info" sx={{ mb: 2 }}>{t(warning)}</Alert>}
-        <TextField select label={t('Ngôn ngữ JD')} value={language} onChange={e => setLanguage(e.target.value)} sx={{ mb: 2, minWidth: 160 }}><MenuItem value="vi">Tiếng Việt</MenuItem><MenuItem value="en">English</MenuItem></TextField>
         <TextField required fullWidth multiline minRows={12} label={t('Nội dung JD')} value={content} onChange={e => setContent(e.target.value)} onBlur={() => touch('content')} inputProps={{ maxLength: 100000 }} error={!!contentError} helperText={contentError || t('Bắt buộc: kiểm tra nội dung và yêu cầu công việc trước khi tạo.')} />
       </CardContent></Card>
       </Box>
@@ -137,5 +213,12 @@ export default function CreatePositionPage() {
       </Typography>}
       <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mb: 4 }}><Button type="button" onClick={leave} disabled={busy}>{t('Hủy')}</Button><Button type="submit" variant="contained" color="secondary" disabled={busy || importing || uncertain || loadFailed || !department || !manager || !title.trim() || !content.trim()}>{busy ? t('Đang tạo...') : t('Tạo vị trí và tiếp tục')}</Button></Stack>
     </Box>}
+    <CreatePositionProgressDialog
+      open={progressStep !== null}
+      step={progressStep ?? 'creating'}
+      error={progressError}
+      onRetryGenerate={() => { if (createdPositionId.current) void runCriteriaGeneration(createdPositionId.current); }}
+      onEnterPosition={() => { if (createdPositionId.current) openPosition(createdPositionId.current); }}
+    />
   </Box>;
 }

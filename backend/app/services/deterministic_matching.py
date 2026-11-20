@@ -647,13 +647,23 @@ class DeterministicMatchingEngine:
         has_degree = required_degree is not None or any(
             marker in normalized for marker in ("degree", "bachelor", "master", "phd", "cu nhan", "thac si", "tien si")
         )
-        has_language = any(
+        # A *mention* of language is not a language requirement. "Excellent
+        # communication skills" or "proficiency in presenting" are ordinary soft
+        # skills: marking them LANGUAGE produced a spec with kind=LANGUAGE and no
+        # language/threshold at all, which the response schema rejects. That
+        # failed serialization turned a successful generation into an opaque
+        # HTTP 500 with no `detail`, so HR saw a generic "criteria could not be
+        # created" even though the position and rubrics were saved.
+        # Only claim LANGUAGE when a concrete language or threshold exists.
+        has_language_threshold = bool(
+            required_languages or ielts or toeic or cefr or qualitative_rank is not None
+        )
+        has_language = has_language_threshold or any(
             marker in normalized
-            for marker in ("language", "ielts", "toeic", "cefr", "fluent", "proficiency",
-                           "communication", "tieng", "ngoai ngu", "giao tiep")
-        ) or bool(required_languages and qualitative_rank is not None)
+            for marker in ("ielts", "toeic", "cefr", "tieng anh", "ngoai ngu")
+        )
 
-        if has_language:
+        if has_language and has_language_threshold:
             kind = "LANGUAGE"
         elif has_certification:
             kind = "CERTIFICATION"

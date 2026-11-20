@@ -1,23 +1,26 @@
-JD THỬ NGHIỆM — KỸ SƯ DEVOPS VÀ CLOUD
+DEMO JD — DEVOPS & CLOUD ENGINEER
 
-Tài liệu tổng hợp cho buổi demo HRA. Đây không phải tin tuyển dụng thật.
+Synthetic document for the HRA demo. This is not a real job advertisement; do not use real personal information.
 
-Mục tiêu
-Hỗ trợ triển khai và vận hành dịch vụ IT ổn định, có thể quan sát và tái lập trong môi trường cloud.
+Purpose
+Run the platform reliably on Linux and in the cloud, and remove manual steps from build, deployment and recovery.
 
-Công việc chính
-- Xây dựng pipeline CI/CD, đóng gói ứng dụng bằng Docker.
-- Quản lý cấu hình và hỗ trợ triển khai dịch vụ Linux/cloud.
-- Theo dõi logs, metrics, xử lý sự cố và lập tài liệu vận hành.
-- Phối hợp với nhóm phát triển để cải thiện tính ổn định.
+Key responsibilities
+- Maintain build and deployment pipelines for containerised services.
+- Operate Linux hosts and Kubernetes workloads, and monitor them.
+- Write runbooks and improve detection of recurring failures.
+- Work with application teams to fix deployment and configuration faults.
 
-Yêu cầu bắt buộc
-- Có trải nghiệm Linux, Git và một ngôn ngữ script.
-- Hiểu container, pipeline CI/CD và kiến thức mạng cơ bản.
-- Biết đọc logs, kiểm tra sự cố và phối hợp nhóm.
+Mandatory requirements
+- Solid Linux and networking fundamentals.
+- Experience with Docker and containerised deployment.
+- Experience with a CI/CD pipeline.
+- Scripting ability, in Bash or Python.
 
-Ưu tiên
-- AWS hoặc cloud tương đương, Terraform, Kubernetes, Python.
+Preferred requirements
+- Experience with a cloud provider such as AWS.
+- Infrastructure as code with Terraform.
+- Kubernetes operations and monitoring.
 
-Điều kiện thử nghiệm
-Thông tin vị trí, tổ chức và hồ sơ trong bộ này là giả. HR chọn đơn vị và HM thử nghiệm, đặt trạng thái OPEN và hạn nộp trong tương lai. Mã vị trí do hệ thống tạo.
+Notes for the demo
+- Criteria are extracted from this document; HR reviews and approves the rubric before any CV can be submitted.

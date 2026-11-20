@@ -1,8 +1,13 @@
-# BẢNG ĐIỀU PHỐI 30 CV DEMO — 5 JD IT
+# BẢNG ĐIỀU PHỐI 30 CV DEMO — 5 JD IT (TIẾNG ANH)
 
 Bảng này là **kế hoạch thao tác**, không phải dữ liệu đã nhập hay consent đã tồn tại. Mỗi CV có họ tên/email @example.test riêng; vào form hãy nhập đúng tên/email in trong CV.
 
 Bộ CV do `backend/scripts/demo_pack/generate.py` sinh ra từ `cv_data.py`: mỗi hồ sơ là một người hư cấu nhưng viết như CV thật (chức danh, kinh nghiệm theo công ty kèm số liệu, học vấn, chứng chỉ). **Tên tệp cố ý lộn xộn** — viết hoa, dấu cách, hậu tố `-final`, `_v2`, ` (1)` — vì ngoài đời HR nhận đúng kiểu đó; hệ thống lấy tên ứng viên từ **nội dung CV**, không lấy từ tên tệp, và giữ `original_filename` làm tham chiếu. Muốn sinh lại toàn bộ: chạy script trên, không sửa tay từng tệp.
+
+**Ngôn ngữ: toàn bộ JD và CV là tiếng Anh.** Nền tảng hướng tới người dùng quốc tế,
+nên tiếng Anh là chuẩn cho JD/CV; tiếng Việt vẫn chạy được nhưng là tuỳ chọn. Đừng
+dùng dữ liệu tiếng Việt cho buổi demo chính — nó không đại diện cho cách hệ thống
+được dùng thật.
 
 Hồ sơ kỹ năng của từng người **giữ nguyên** so với bản cũ để kịch bản (ai đủ/thiếu bằng chứng cho vị trí nào) không đổi. Chỉ 03 dùng Gmail ở kịch bản chính, toàn bộ CV còn lại đề xuất nộp Careers. Không suy ra consent từ file CV, Gmail hay bảng này: phải tích ô lựa chọn riêng trên form khi cột ghi Có.
 
@@ -10,36 +15,36 @@ Nguồn là vị trí ứng tuyển; tham khảo là gợi ý để HR tự đ�
 
 | # | Ứng viên | Tệp | Nộp nguồn | Opt-in đề xuất | Tham khảo cho HR |
 |---|---|---|---|---|---|
-| 01 | Nguyễn Văn An | `CV_01_nguyen_van_an.docx` | Backend Python | Có | Tích hợp dữ liệu: Python, SQL, pipeline |
-| 02 | Trần Đình Bình | `CV_02_tran_dinh_binh.pdf` | Backend Python | Không | Backend Python: Flask, SQL; ít bằng chứng pipeline |
-| 03 | Lê Thị Kim Chi | `CV-03-le_thi_kim_chi-final.docx` | Backend Python — Gmail | Không tự cấp | Backend Python: FastAPI, PostgreSQL |
-| 04 | Phạm Tiến Dũng | `CV_04_pham_tien_dung_v2.docx` | Backend Python | Có | Tích hợp dữ liệu: Python, SQL, kiểm tra chất lượng |
-| 05 | Vũ Thị Hạnh | `vu_thi_hanh_CV_2024.pdf` | Backend Python | Có | QA Automation: API, pytest |
-| 06 | Đỗ Minh Khánh | `CV 06 do_minh_khanh (1).docx` | Backend Python | Có | Backend Python: có nền API nhưng thiếu bằng chứng Python |
-| 07 | Hoàng Thị Linh | `CV_07_hoang_thi_linh.docx` | Tích hợp dữ liệu | Có | Backend Python: API, Python và SQL |
-| 08 | Ngô Quang Minh | `CV_08_ngo_quang_minh.pdf` | Tích hợp dữ liệu | Có | QA Automation: kiểm tra dữ liệu, SQL, Python |
-| 09 | Trịnh Thị Nga | `CV-09-trinh_thi_nga-final.docx` | Tích hợp dữ liệu | Có | DevOps: Docker, lịch chạy, quan sát tác vụ |
-| 10 | Bùi Hồng Phúc | `CV_10_bui_hong_phuc_v2.docx` | Tích hợp dữ liệu | Có | Backend Python: FastAPI và thiết kế REST |
-| 11 | Đặng Kim Quyên | `dang_kim_quyen_CV_2024.pdf` | Tích hợp dữ liệu | Không | Tích hợp dữ liệu: SQL nhưng thiếu Python/API |
-| 12 | Lý Thanh Sơn | `CV 12 ly_thanh_son (1).docx` | Tích hợp dữ liệu | Không | Backend Python: Python và API; kiểm thử framework còn ít |
-| 13 | Nguyễn Phương Thảo | `CV_13_nguyen_phuong_thao.docx` | Frontend React | Có | QA Automation: kiểm thử giao diện và test case |
-| 14 | Trần Anh Tuấn | `CV_14_tran_anh_tuan.pdf` | Frontend React | Có | QA Automation: Playwright và kiểm thử UI |
-| 15 | Đinh Thị Vân | `CV-15-dinh_thi_van-final.docx` | Frontend React | Có | QA Automation: tư duy kiểm thử UI; chưa có automation API |
-| 16 | Phan Hải Yến | `CV_16_phan_hai_yen_v2.docx` | Frontend React | Có | Backend Python: hiểu API nhưng chưa có bằng chứng Python |
-| 17 | Đoàn Gia Bảo | `doan_gia_bao_CV_2024.pdf` | Frontend React | Không | Frontend: HTML/CSS nhưng thiếu bằng chứng React |
-| 18 | Mai Đức Cường | `CV 18 mai_duc_cuong (1).docx` | Frontend React | Không | Frontend: React; tự động hóa kiểm thử còn ít |
-| 19 | Nguyễn Tiến Duy | `CV_19_nguyen_tien_duy.docx` | QA Automation | Có | Backend Python: Python, API và SQL |
-| 20 | Trương Thanh Giang | `CV_20_truong_thanh_giang.pdf` | QA Automation | Có | Tích hợp dữ liệu: SQL, Python và chất lượng dữ liệu |
-| 21 | Phạm Minh Hải | `CV-21-pham_minh_hai-final.docx` | QA Automation | Có | Frontend React: TypeScript và React |
-| 22 | Bùi Anh Kiệt | `CV_22_bui_anh_kiet_v2.docx` | QA Automation | Có | DevOps: Linux, Docker và CI |
-| 23 | Nguyễn Thị Lâm | `nguyen_thi_lam_CV_2024.pdf` | QA Automation | Không | QA Automation: test case nhưng thiếu bằng chứng tự động hóa |
-| 24 | Đinh Quang Nam | `CV 24 dinh_quang_nam (1).docx` | QA Automation | Không | QA Automation: API/SQL; kinh nghiệm automation hạn chế |
-| 25 | Nguyễn Thị Oanh | `CV_25_nguyen_thi_oanh.docx` | DevOps và Cloud | Có | Backend Python: Python và môi trường API |
-| 26 | Trần Xuân Phong | `CV_26_tran_xuan_phong.pdf` | DevOps và Cloud | Có | Tích hợp dữ liệu: Python, tác vụ và quan sát lỗi |
-| 27 | Lê Hải Quang | `CV-27-le_hai_quang-final.docx` | DevOps và Cloud | Có | QA Automation: pytest và CI |
-| 28 | Nguyễn Thu Trang | `CV_28_nguyen_thu_trang_v2.docx` | DevOps và Cloud | Có | DevOps: container và vận hành; script chủ yếu Bash |
-| 29 | Phan Quốc Uy | `phan_quoc_uy_CV_2024.pdf` | DevOps và Cloud | Không | DevOps: vận hành cơ bản nhưng thiếu Docker/CI |
-| 30 | Trần Thảo Vy | `CV 30 tran_thao_vy (1).docx` | DevOps và Cloud | Không | DevOps: nền tảng Linux/Docker; cloud chưa rõ |
+| 01 | Daniel Whitfield | `CV_01_daniel_whitfield.docx` | Backend Python | Có | Tích hợp dữ liệu: Python, SQL, pipeline |
+| 02 | Marcus Bell | `CV_02_marcus_bell.pdf` | Backend Python | Không | Backend Python: Flask, SQL; ít bằng chứng pipeline |
+| 03 | Priya Raghavan | `CV-03-priya_raghavan-final.docx` | Backend Python — Gmail | Không tự cấp | Backend Python: FastAPI, PostgreSQL |
+| 04 | Thomas Reilly | `CV_04_thomas_reilly_v2.docx` | Backend Python | Có | Tích hợp dữ liệu: Python, SQL, kiểm tra chất lượng |
+| 05 | Sofia Almeida | `sofia_almeida_CV_2024.pdf` | Backend Python | Có | QA Automation: API, pytest |
+| 06 | Andrei Popescu | `CV 06 andrei_popescu (1).docx` | Backend Python | Có | Backend Python: có nền API nhưng thiếu bằng chứng Python |
+| 07 | Hannah Fischer | `CV_07_hannah_fischer.docx` | Tích hợp dữ liệu | Có | Backend Python: API, Python và SQL |
+| 08 | Owen Hartley | `CV_08_owen_hartley.pdf` | Tích hợp dữ liệu | Có | QA Automation: kiểm tra dữ liệu, SQL, Python |
+| 09 | Ingrid Solberg | `CV-09-ingrid_solberg-final.docx` | Tích hợp dữ liệu | Có | DevOps: Docker, lịch chạy, quan sát tác vụ |
+| 10 | Rafael Duarte | `CV_10_rafael_duarte_v2.docx` | Tích hợp dữ liệu | Có | Backend Python: FastAPI và thiết kế REST |
+| 11 | Claire Bennett | `claire_bennett_CV_2024.pdf` | Tích hợp dữ liệu | Không | Tích hợp dữ liệu: SQL nhưng thiếu Python/API |
+| 12 | Victor Nunes | `CV 12 victor_nunes (1).docx` | Tích hợp dữ liệu | Không | Backend Python: Python và API; kiểm thử framework còn ít |
+| 13 | Emily Zhang | `CV_13_emily_zhang.docx` | Frontend React | Có | QA Automation: kiểm thử giao diện và test case |
+| 14 | Jack Morrow | `CV_14_jack_morrow.pdf` | Frontend React | Có | QA Automation: Playwright và kiểm thử UI |
+| 15 | Nadia Karim | `CV-15-nadia_karim-final.docx` | Frontend React | Có | QA Automation: tư duy kiểm thử UI; chưa có automation API |
+| 16 | Liam Foster | `CV_16_liam_foster_v2.docx` | Frontend React | Có | Backend Python: hiểu API nhưng chưa có bằng chứng Python |
+| 17 | Grace Okonkwo | `grace_okonkwo_CV_2024.pdf` | Frontend React | Không | Frontend: HTML/CSS nhưng thiếu bằng chứng React |
+| 18 | Peter Novak | `CV 18 peter_novak (1).docx` | Frontend React | Không | Frontend: React; tự động hóa kiểm thử còn ít |
+| 19 | Ayesha Siddiqui | `CV_19_ayesha_siddiqui.docx` | QA Automation | Có | Backend Python: Python, API và SQL |
+| 20 | Grace Whitmore | `CV_20_grace_whitmore.pdf` | QA Automation | Có | Tích hợp dữ liệu: SQL, Python và chất lượng dữ liệu |
+| 21 | Omar Haddad | `CV-21-omar_haddad-final.docx` | QA Automation | Có | Frontend React: TypeScript và React |
+| 22 | Sven Lindqvist | `CV_22_sven_lindqvist_v2.docx` | QA Automation | Có | DevOps: Linux, Docker và CI |
+| 23 | Laura Simmons | `laura_simmons_CV_2024.pdf` | QA Automation | Không | QA Automation: test case nhưng thiếu bằng chứng tự động hóa |
+| 24 | Kevin Duong | `CV 24 kevin_duong (1).docx` | QA Automation | Không | QA Automation: API/SQL; kinh nghiệm automation hạn chế |
+| 25 | Mei Ling Tan | `CV_25_mei_ling_tan.docx` | DevOps và Cloud | Có | Backend Python: Python và môi trường API |
+| 26 | Diego Alvarez | `CV_26_diego_alvarez.pdf` | DevOps và Cloud | Có | Tích hợp dữ liệu: Python, tác vụ và quan sát lỗi |
+| 27 | Rory McAllister | `CV-27-rory_mcallister-final.docx` | DevOps và Cloud | Có | QA Automation: pytest và CI |
+| 28 | Aisha Rahman | `CV_28_aisha_rahman_v2.docx` | DevOps và Cloud | Có | DevOps: container và vận hành; script chủ yếu Bash |
+| 29 | Billy Chen | `billy_chen_CV_2024.pdf` | DevOps và Cloud | Không | DevOps: vận hành cơ bản nhưng thiếu Docker/CI |
+| 30 | Nora Lindberg | `CV 30 nora_lindberg (1).docx` | DevOps và Cloud | Không | DevOps: nền tảng Linux/Docker; cloud chưa rõ |
 
 ## Kịch bản tải đủ 30 hồ sơ
 

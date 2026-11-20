@@ -1,26 +1,27 @@
-JD THỬ NGHIỆM — CHUYÊN VIÊN BACKEND PYTHON
+DEMO JD — BACKEND PYTHON ENGINEER
 
-Tài liệu tổng hợp cho buổi demo HRA. Đây không phải tin tuyển dụng thật; không sử dụng thông tin cá nhân thực tế.
+Synthetic document for the HRA demo. This is not a real job advertisement; do not use real personal information.
 
-Mục tiêu
-Xây dựng API và dịch vụ backend cho hệ thống quản lý dữ liệu, phối hợp với HR và các nhóm kỹ thuật để cung cấp luồng xử lý ổn định, có kiểm thử và bảo vệ dữ liệu.
+Purpose
+Build APIs and backend services for the data management platform, working with HR and the engineering teams to deliver a stable, tested and secure processing pipeline.
 
-Công việc chính
-- Xây dựng và bảo trì API REST bằng Python và FastAPI.
-- Thiết kế truy vấn PostgreSQL, xử lý giao dịch và kiểm soát dữ liệu đầu vào.
-- Viết unit test, integration test và đọc log để tìm nguyên nhân lỗi.
-- Phối hợp review mã, tài liệu hóa API và trao đổi yêu cầu với nhóm sản phẩm.
-- Tuân thủ nguyên tắc phân quyền, giảm thiểu dữ liệu nhạy cảm và quản lý bí mật.
+Key responsibilities
+- Build and maintain REST APIs in Python with FastAPI.
+- Design PostgreSQL queries, handle transactions and validate incoming data.
+- Write unit and integration tests, and read logs to find root causes.
+- Take part in code review, document APIs and clarify requirements with the product side.
+- Follow the principles of least privilege, data minimisation and secret management.
 
-Yêu cầu bắt buộc
-- Có trải nghiệm phát triển ứng dụng bằng Python.
-- Hiểu API HTTP/REST và có trải nghiệm với một framework web Python.
-- Có trải nghiệm SQL và cơ sở dữ liệu quan hệ.
-- Biết viết kiểm thử và phối hợp làm việc trong nhóm.
+Mandatory requirements
+- Hands-on experience building applications in Python.
+- Understanding of HTTP/REST APIs and experience with a Python web framework.
+- Experience with SQL and relational databases.
+- Able to write tests and collaborate in a team.
 
-Ưu tiên
-- FastAPI, PostgreSQL, Docker hoặc triển khai qua CI.
-- Đã xử lý hàng đợi tác vụ hoặc tích hợp dịch vụ bên ngoài.
+Preferred requirements
+- Experience with containerised deployment using Docker.
+- Familiarity with automated testing in a CI pipeline.
+- Experience working with data quality checks or batch processing.
 
-Điều kiện thử nghiệm
-Mọi thông tin vị trí, tổ chức và hồ sơ trong gói này là giả. HR chọn phòng ban và HM thử nghiệm phù hợp, đặt trạng thái OPEN và hạn nộp sau thời điểm demo. Mã vị trí do hệ thống tạo; không tự nhập mã từ ví dụ.
+Notes for the demo
+- Criteria are extracted from this document; HR reviews and approves the rubric before any CV can be submitted.
