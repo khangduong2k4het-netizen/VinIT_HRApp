@@ -295,6 +295,9 @@ def respond(user_prompt: str) -> dict[str, Any]:
 def _jd_from_page(payload: dict[str, Any]) -> dict[str, Any]:
     """Keep the page text as the JD draft; a real model would tidy it up."""
     text = str(payload.get("untrusted_job_page") or "").strip()
-    return {"is_job_posting": len(text) >= 200, "title": str(payload.get("title_hint") or "")[:200],
+    from app.services.jd_import import guess_level_from_title
+    title = str(payload.get("title_hint") or "")[:200]
+    level = guess_level_from_title(title)
+    return {"is_job_posting": len(text) >= 200, "title": title, "level": level, "level_basis": "STATED" if level else "",
             "jd_content": text, "language_code": "en",
             "notes": [f"{MOCK_MARK} AI giả lập giữ nguyên văn bản trang, chưa sắp xếp lại."]}

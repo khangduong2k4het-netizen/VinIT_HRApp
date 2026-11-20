@@ -1,186 +1,296 @@
-"""P3-1 phase 2: scanning the Talent Pool for a new position."""
-import io
+"""P3-1 phase 2: scanning the Talent Pool against a new position (rules only)."""
+from __future__ import annotations
+
 import os
 
 import pytest
-from sqlalchemy import text
 
-from app.core.config import settings
-from app.services.talent_pool_scan import criteria_summary, rank_key
+from app.services.talent_pool_scan import score_cv, usable_candidate_name
 
-
-# ---------------------------------------------------------------- unit tests
-
-def test_rank_key_orders_like_the_position_ranking():
-    rows = [
-        {"application_id": "c", "matching_status": "NEEDS_HR_VERIFICATION", "matching_score": 95, "evidence_coverage": 0.9},
-        {"application_id": "a", "matching_status": "MEETS_MANDATORY", "matching_score": 70, "evidence_coverage": 1.0},
-        {"application_id": "b", "matching_status": "MEETS_MANDATORY", "matching_score": 90, "evidence_coverage": 0.8},
-        {"application_id": "d", "matching_status": "POSSIBLE_MISMATCH", "matching_score": None, "evidence_coverage": 0},
-    ]
-    assert [r["application_id"] for r in sorted(rows, key=rank_key)] == ["b", "a", "c", "d"]
+CRITERIA = [
+    {"criterion_id": "c-py", "name": "Python", "description": "Python experience", "category": "MUST_HAVE",
+     "weight_in_group": 100.0, "expected_evidence_keywords": ["Python"], "requirement_spec": None},
+]
+WEIGHTS = {"MUST_HAVE": 0.7, "NICE_TO_HAVE": 0.3}
 
 
-def test_criteria_summary_keeps_only_verified_quotes_and_truncates():
-    items = [{"criterion_id": "1", "name": "Python", "category": "MUST_HAVE"},
-             {"criterion_id": "2", "name": "SQL", "category": "NICE_TO_HAVE"}]
-    results = [
-        {"criterion_id": "1", "outcome": "MATCH", "evidence_verified": True, "evidence": {"verbatim_quote": "x" * 500}},
-        {"criterion_id": "2", "outcome": "UNCLEAR", "evidence_verified": False, "evidence": {"verbatim_quote": "invented"}},
-    ]
-    summary = criteria_summary(results, items)
-    assert summary[0]["name"] == "Python" and len(summary[0]["quote"]) == 300
-    assert summary[1]["quote"] is None and summary[1]["outcome"] == "UNCLEAR"
+def test_rules_only_scoring_keeps_verified_quotes():
+    strong = score_cv("Kinh nghiệm\nPython developer, built Django services in Python for 3 years.", CRITERIA,
+                      {"candidate_identifier": "x"}, WEIGHTS)
+    assert strong["criterion_results"][0]["name"] == "Python"
+    assert strong["criterion_results"][0]["outcome"] != "UNCLEAR"
+    assert "Python" in (strong["criterion_results"][0]["quote"] or "")
+    weak = score_cv("Kế toán tổng hợp, lập báo cáo thuế.", CRITERIA, {"candidate_identifier": "y"}, WEIGHTS)
+    # Not decided by the rules: stays UNCLEAR and is counted for HR, never sent to an LLM.
+    assert (strong["score"] or 0) >= (weak["score"] or 0)
+    assert weak["unresolved_count"] + sum(1 for r in weak["criterion_results"] if r["outcome"] != "UNCLEAR") == 1
 
-
-# ---------------------------------------------------------- integration tests
 
 integration = pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"),
                                  reason="Set TEST_DATABASE_URL to a disposable local migrated *_test database")
 
 if os.environ.get("TEST_DATABASE_URL"):
+    from sqlalchemy import text
+
+    from app.core.config import settings
     from app.db.database import engine
-    from test_phase1_integration import client, headers, seed, uid  # noqa: F401 (pytest fixtures)
-    from test_public_intake_talent_pool import portal  # noqa: F401 (pytest fixture)
-
-QUOTE = "Developed Python systems for five years"
+    from test_phase1_integration import client, headers, seed, uid  # noqa: F401
+    from test_public_intake_talent_pool import _consented_application
 
 
-def _docx(lines):
-    from docx import Document
-    document = Document()
-    for line in lines:
-        document.add_paragraph(line)
-    buffer = io.BytesIO()
-    document.save(buffer)
-    return buffer.getvalue()
+def _run_worker():
+    from app.workers.processor import ProcessingWorker
+    ProcessingWorker()._process_pending_operations()
 
 
-def _stub_ai(monkeypatch, calls):
-    from app.workers.processor import llm_client
-
-    async def extract(**kwargs):
-        return {"education": [], "work_history": [], "skills": ["Python"], "certifications": []}
-
-    async def match(**kwargs):
-        calls.append([c["criterion_id"] for c in kwargs["rubric"]])
-        return {"findings": [{"criterion_id": c["criterion_id"], "outcome": "STRONG_MATCH", "confidence": .9,
-                              "confidence_band": "HIGH", "evidence": {"verbatim_quote": QUOTE}} for c in kwargs["rubric"]]}
-    monkeypatch.setattr(llm_client, "extract_candidate_profile", extract)
-    monkeypatch.setattr(llm_client, "match_criterion_evidence", match)
+def _scan_and_run(client, seed):
+    """Queue a scan for pos2 as its HR and let the worker finish it."""
+    queued = client.post(f"/v1/talent-pool/positions/{seed['pos2']}/scan", headers=headers(seed["hr2"]))
+    assert queued.status_code == 202, queued.text
+    _run_worker()
+    return queued.json()
 
 
-def _pooled_portal_application(client, seed, email="pool.candidate@example.org"):
-    """A portal CV on seed['pos'], processed by the worker, then marked into the pool by its HR."""
-    from app.workers.processor import worker
-    content = _docx(["Pool Candidate", f"Email {email}", QUOTE + ". Built reliable automated testing systems."])
-    res = client.post(f"/v1/public/positions/{seed['pos']}/apply",
-                      files={"file": ("pool.docx", content,
-                                      "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
-                      data={"consent_processing": "true", "consent_talent_pool": "true", "notice_version": "v4", "website": ""})
-    assert res.status_code == 202, res.text
-    worker._process_pending_operations()
+def _target_position(seed):
+    """pos2 (HR: hr2) gets an approved rubric so it can be scanned."""
+    jd, cv = uid(), uid()
     with engine.begin() as conn:
-        app_id = str(conn.execute(text("SELECT application_id FROM app_private.applications WHERE source_code = 'PORTAL'")).scalar_one())
-        conn.execute(text("UPDATE app_private.applications SET application_status = 'SHORTLIST' WHERE application_id = :a"), {"a": app_id})
-        conn.execute(text("UPDATE app_private.application_identities SET email = :e WHERE application_id = :a"), {"e": email, "a": app_id})
-    marked = client.post(f"/v1/talent-pool/applications/{app_id}/mark", headers=headers(seed["hr"]),
-                         json={"reason_code": "NEAR_MISS"})
-    assert marked.status_code == 201, marked.text
-    return app_id
+        conn.execute(text("INSERT INTO app_private.jd_versions(jd_version_id,position_id,version_number,content_text,created_by) VALUES (:id,:p,1,'JD',:u)"),
+                     {"id": jd, "p": seed["pos2"], "u": seed["hr2"]})
+        conn.execute(text("INSERT INTO app_private.criteria_versions(criteria_version_id,position_id,jd_version_id,version_number,status) VALUES (:id,:p,:jd,1,'APPROVED')"),
+                     {"id": cv, "p": seed["pos2"], "jd": jd})
+        conn.execute(text("""INSERT INTO app_private.criteria_items(criterion_id,criteria_version_id,name,description,category,weight_in_group,display_order,expected_evidence_keywords)
+            VALUES (:id,:cv,'Python','Python experience','MUST_HAVE',100,1,'["Python"]'::jsonb)"""), {"id": uid(), "cv": cv})
 
 
-def _approve_target_criteria(seed):
-    """Give seed['pos2'] (owned by hr2) a JD and an approved rubric."""
-    jd, cv, item = uid(), uid(), uid()
+def _with_text(app_id, body, tmp_path):
+    path = f"{app_id}/cv.txt"
+    full = tmp_path / settings.SUPABASE_STORAGE_BUCKET_EXTRACTED / path
+    full.parent.mkdir(parents=True, exist_ok=True)
+    full.write_text(body, encoding="utf-8")
     with engine.begin() as conn:
-        conn.execute(text("""INSERT INTO app_private.jd_versions(jd_version_id, position_id, version_number, content_text, created_by)
-            VALUES (:jd, :p, 1, 'Python backend engineer', :u)"""), {"jd": jd, "p": seed["pos2"], "u": seed["hr2"]})
-        conn.execute(text("""INSERT INTO app_private.criteria_versions(criteria_version_id, position_id, jd_version_id, version_number, status)
-            VALUES (:cv, :p, :jd, 1, 'APPROVED')"""), {"cv": cv, "p": seed["pos2"], "jd": jd})
-        conn.execute(text("""INSERT INTO app_private.criteria_items(criterion_id, criteria_version_id, name, description, category,
-                weight_in_group, display_order) VALUES (:i, :cv, 'Python systems', 'Builds Python systems', 'MUST_HAVE', 100, 1)"""),
-                     {"i": item, "cv": cv})
-    return cv, item
+        doc = conn.execute(text("SELECT document_id FROM app_private.application_documents WHERE application_id = :a"),
+                           {"a": app_id}).scalar_one()
+        conn.execute(text("""INSERT INTO app_private.document_processing_runs(document_id, extraction_type, status, extracted_text_storage_path)
+            VALUES (:d, 'INITIAL_EXTRACTION', 'COMPLETED', :p)"""), {"d": doc, "p": path})
+
+
+@pytest.fixture
+def pool(client, seed, monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "STORAGE_BACKEND", "local")
+    monkeypatch.setattr(settings, "LOCAL_STORAGE_PATH", str(tmp_path))
+    _target_position(seed)
+    hr = headers(seed["hr"])
+    strong, weak, no_text, unmarked = (_consented_application(seed) for _ in range(4))
+    for a in (strong, weak, no_text):
+        assert client.post(f"/v1/talent-pool/applications/{a}/mark", headers=hr, json={"reason_code": "STRONG_FIT"}).status_code == 201
+    _with_text(strong, "Kinh nghiệm\nPython developer at Acme, built Python services for 4 years.", tmp_path)
+    _with_text(weak, "Kế toán tổng hợp, lập báo cáo thuế.", tmp_path)
+    _with_text(unmarked, "Python developer.", tmp_path)
+    return {"strong": strong, "weak": weak, "no_text": no_text, "unmarked": unmarked}
 
 
 @integration
-def test_scan_scores_the_pool_for_a_new_position_without_touching_its_applicants(client, portal, monkeypatch):
-    from app.workers.processor import worker
-    seed = portal
-    monkeypatch.setattr(settings, "PUBLIC_INTAKE_MAX_PER_IP_HOUR", 100)
-    calls = []
-    _stub_ai(monkeypatch, calls)
-    pooled = _pooled_portal_application(client, seed)
+def test_scan_ranks_the_pool_with_evidence_and_no_pii(client, seed, pool):
+    hr2 = headers(seed["hr2"])
+    # Only HR of the target position (or HR Lead) may scan; HM and HR of another position may not.
+    assert client.post(f"/v1/talent-pool/positions/{seed['pos2']}/scan", headers=headers(seed["hm"])).status_code == 403
+    assert client.post(f"/v1/talent-pool/positions/{seed['pos2']}/scan", headers=headers(seed["hr"])).status_code == 403
+    body = _scan_and_run(client, seed)
 
-    # Pool list: HR sees the candidate and source position, never contact details; HM is refused.
-    listed = client.get("/v1/talent-pool", headers=headers(seed["hr2"])).json()["items"]
-    assert [i["application_id"] for i in listed] == [pooled] and "email" not in listed[0]
-    assert client.get("/v1/talent-pool", headers=headers(seed["hm"])).status_code == 403
-
-    scan_route = f"/v1/talent-pool/positions/{seed['pos2']}/scans"
-    assert client.post(scan_route, headers=headers(seed["hr2"])).status_code == 409  # no approved criteria yet
-    _approve_target_criteria(seed)
-    assert client.post(scan_route, headers=headers(seed["hm"])).status_code == 403
-    assert client.post(scan_route, headers=headers(seed["hr"])).status_code == 403   # HR of another position
-    started = client.post(scan_route, headers=headers(seed["hr2"]))
-    assert started.status_code == 202, started.text
-    assert started.json()["candidate_count"] == 1 and started.json()["status"] == "PENDING"
-    assert client.post(scan_route, headers=headers(seed["hr2"])).status_code == 409  # one scan at a time
-
-    worker._process_pending_operations()
-    latest = client.get(f"{scan_route}/latest", headers=headers(seed["hr2"])).json()
-    assert latest["scan"]["status"] == "COMPLETED" and latest["scan"]["scored_count"] == 1, latest
-    result = latest["results"][0]
-    assert result["application_id"] == pooled and result["rank_number"] == 1 and result["status"] == "SCORED"
-    assert result["matching_status"] == "MEETS_MANDATORY" and result["email"] == "pool.candidate@example.org"
-    assert result["criteria"][0]["quote"] == QUOTE and result["reason_code"] == "NEAR_MISS"
+    scan = client.get(f"/v1/talent-pool/scans/{body['scan_id']}", headers=hr2)
+    assert scan.status_code == 200
+    head = scan.json()
+    assert head["status"] == "COMPLETED" and head["completed_at"] and head["failed_count"] == 0
+    assert head["eligible_count"] == 3 and head["scored_count"] == 2 and head["skipped_counts"] == {"NO_EXTRACTED_TEXT": 1}
+    results = scan.json()["results"]
+    assert [r["application_id"] for r in results][0] == pool["strong"]
+    assert {r["application_id"] for r in results} == {pool["strong"], pool["weak"]}
+    top = results[0]
+    assert top["rank"] == 1 and top["source_position_id"] == seed["pos"] and top["pool_expires_on"]
+    assert "Python" in (top["criterion_results"][0]["quote"] or "")
+    assert "Pool" not in scan.text  # display names never appear
+    assert client.get(f"/v1/talent-pool/scans/{body['scan_id']}", headers=headers(seed["hr"])).status_code == 403
     with engine.connect() as conn:
-        target_apps = conn.execute(text("SELECT COUNT(*) FROM app_private.applications WHERE position_id = :p"),
-                                   {"p": seed["pos2"]}).scalar_one()
-        target_runs = conn.execute(text("SELECT COUNT(*) FROM app_private.assessment_runs WHERE position_id = :p"),
-                                   {"p": seed["pos2"]}).scalar_one()
-        audit = conn.execute(text("""SELECT array_agg(action_type ORDER BY created_at) FROM app_private.audit_events
-            WHERE action_type IN ('START_TALENT_POOL_SCAN', 'VIEW_TALENT_POOL_RESULTS')""")).scalar_one()
-    assert target_apps == 1 and target_runs == 0  # only seed's own app2; nothing added or assessed there
-    assert audit == ["START_TALENT_POOL_SCAN", "VIEW_TALENT_POOL_RESULTS"]
-
-    # Consent withdrawn after the scan: the result disappears from the list.
-    assert client.post(f"/v1/talent-pool/applications/{pooled}/withdraw-consent", headers=headers(seed["hr"]),
-                       json={}).status_code == 200
-    after = client.get(f"{scan_route}/latest", headers=headers(seed["hr2"])).json()
-    assert after["results"] == [] and after["hidden_count"] == 1
+        audit = conn.execute(text("""SELECT metadata::text FROM app_private.audit_events
+            WHERE action_type = 'SCAN_TALENT_POOL' ORDER BY created_at DESC LIMIT 1""")).scalar_one()
+    assert "Pool" not in audit and '"scored_count": 2' in audit
+    listed = client.get(f"/v1/talent-pool/positions/{seed['pos2']}/scans", headers=hr2).json()["items"]
+    assert listed[0]["scan_id"] == body["scan_id"]
 
 
 @integration
-def test_scan_skips_people_who_already_applied_to_the_position(client, portal, monkeypatch):
-    seed = portal
-    monkeypatch.setattr(settings, "PUBLIC_INTAKE_MAX_PER_IP_HOUR", 100)
-    _stub_ai(monkeypatch, [])
-    _pooled_portal_application(client, seed, email="Same.Person@Example.org")
-    _approve_target_criteria(seed)
+def test_withdrawn_candidate_disappears_from_results_and_cannot_be_decided(client, seed, pool):
+    hr, hr2 = headers(seed["hr"]), headers(seed["hr2"])
+    lead = headers(seed["other"])
     with engine.begin() as conn:
-        conn.execute(text("UPDATE app_private.application_identities SET email = 'same.person@example.org' WHERE application_id = :a"),
-                     {"a": seed["app2"]})
-    started = client.post(f"/v1/talent-pool/positions/{seed['pos2']}/scans", headers=headers(seed["hr2"]))
-    assert started.status_code == 202 and started.json()["candidate_count"] == 0
+        conn.execute(text("INSERT INTO app_private.user_role_assignments(user_id, role_code) VALUES (:u, 'HR_LEAD')"),
+                     {"u": seed["other"]})
+    _set_contact(pool["strong"], email="strong.pool@example.com", phone="+84 912 345 678")
+    scan_id = _scan_and_run(client, seed)["scan_id"]
+    route = f"/v1/talent-pool/scans/{scan_id}/results/{{}}/decision"
+    contact_route = f"/v1/talent-pool/scans/{scan_id}/results/{{}}/contact"
+    assert client.post(route.format(pool["strong"]), headers=hr2, json={"decision": "MAYBE"}).status_code == 400
+    # Contact info stays hidden until HR explicitly chooses CONTACT.
+    assert client.post(contact_route.format(pool["strong"]), headers=hr2).status_code == 409
+    assert client.post(route.format(pool["strong"]), headers=hr2, json={"decision": "CONTACT"}).status_code == 200
+    revealed = client.post(contact_route.format(pool["strong"]), headers=hr2)
+    assert revealed.status_code == 200, revealed.text
+    info = revealed.json()
+    assert info["email"] == "strong.pool@example.com" and info["phone"] == "+84 912 345 678"
+    assert info["email_subject"] and info["email_body"]
+    with engine.connect() as conn:
+        reveal_audit = conn.execute(text("""SELECT metadata::text FROM app_private.audit_events
+            WHERE action_type = 'REVEAL_TALENT_POOL_CONTACT'""")).scalar_one()
+    assert "strong.pool@example.com" not in reveal_audit and "912" not in reveal_audit
+    # Plain recruiter cannot withdraw; HR Lead can.
+    assert client.post(f"/v1/talent-pool/applications/{pool['weak']}/withdraw-consent", headers=hr, json={}).status_code == 403
+    assert client.post(f"/v1/talent-pool/applications/{pool['weak']}/withdraw-consent", headers=lead, json={}).status_code == 200
+    assert client.post(route.format(pool["weak"]), headers=hr2, json={"decision": "LATER"}).status_code == 409
+    assert client.post(contact_route.format(pool["weak"]), headers=hr2).status_code == 409
+    results = client.get(f"/v1/talent-pool/scans/{scan_id}", headers=hr2).json()["results"]
+    assert [(r["application_id"], r["hr_decision"]) for r in results] == [(pool["strong"], "CONTACT")]
+    with engine.connect() as conn:
+        left = conn.execute(text("SELECT COUNT(*) FROM app_private.talent_pool_scan_results WHERE scan_id = :s"),
+                            {"s": scan_id}).scalar_one()
+    assert left == 1
+
+
+@pytest.mark.parametrize("display_name,cv_filename,expected", [
+    ("Tran_Thu_Ha_CV", "Tran_Thu_Ha_CV.docx", None),      # the file name is not a name
+    ("cv1", "cv1.docx", None),
+    ("Nguyen Van An.pdf", "other.pdf", None),             # still carries an extension
+    ("Nguyen Van An", "Nguyen Van An.pdf", None),         # same as the file name stem
+    ("Nguyen_Van_An", "scan.pdf", None),                  # underscores mean a file name
+    ("", "cv.docx", None),
+    (None, None, None),
+    ("Nguyen Van An", "cv.pdf", "Nguyen Van An"),         # a real name different from the file
+    ("  Tran Thu Ha ", None, "Tran Thu Ha"),
+])
+def test_only_a_real_name_is_used_for_the_greeting(display_name, cv_filename, expected):
+    assert usable_candidate_name(display_name, cv_filename) == expected
 
 
 @integration
-def test_failed_scan_is_reported_and_a_new_one_can_start(client, portal, monkeypatch):
-    from app.workers.processor import worker
-    seed = portal
-    monkeypatch.setattr(settings, "PUBLIC_INTAKE_MAX_PER_IP_HOUR", 100)
-    _stub_ai(monkeypatch, [])
-    _pooled_portal_application(client, seed)
-    cv, _ = _approve_target_criteria(seed)
-    scan_route = f"/v1/talent-pool/positions/{seed['pos2']}/scans"
-    assert client.post(scan_route, headers=headers(seed["hr2"])).status_code == 202
-    with engine.begin() as conn:  # the rubric changes before the worker runs
-        conn.execute(text("UPDATE app_private.criteria_versions SET status = 'REJECTED' WHERE criteria_version_id = :c"), {"c": cv})
-    worker._process_pending_operations()
-    failed = client.get(f"{scan_route}/latest", headers=headers(seed["hr2"])).json()["scan"]
-    assert failed["status"] == "FAILED" and failed["error_message"]
+def test_contact_email_greets_by_name_only_when_the_name_is_real(client, seed, pool):
+    hr2 = headers(seed["hr2"])
+    _set_contact(pool["strong"], email="strong.pool@example.com", phone="0912345678")
+    scan_id = _scan_and_run(client, seed)["scan_id"]
+    client.post(f"/v1/talent-pool/scans/{scan_id}/results/{pool['strong']}/decision", headers=hr2, json={"decision": "CONTACT"})
+    route = f"/v1/talent-pool/scans/{scan_id}/results/{pool['strong']}/contact"
     with engine.begin() as conn:
-        conn.execute(text("UPDATE app_private.criteria_versions SET status = 'APPROVED' WHERE criteria_version_id = :c"), {"c": cv})
-    assert client.post(scan_route, headers=headers(seed["hr2"])).status_code == 202
+        conn.execute(text("UPDATE app_private.application_identities SET display_name = :n WHERE application_id = :a"),
+                     {"n": "Tran_Thu_Ha_CV", "a": pool["strong"]})
+        conn.execute(text("UPDATE app_private.application_documents SET original_filename = 'Tran_Thu_Ha_CV.docx' WHERE application_id = :a"),
+                     {"a": pool["strong"]})
+    generic = client.post(route, headers=hr2).json()
+    assert generic["display_name"] is None
+    assert generic["email_body"].startswith("Chào Anh/Chị,") and "Tran_Thu_Ha" not in generic["email_body"]
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.application_identities SET display_name = 'Tran Thu Ha' WHERE application_id = :a"),
+                     {"a": pool["strong"]})
+    named = client.post(route, headers=hr2).json()
+    assert named["display_name"] == "Tran Thu Ha"
+    assert named["email_body"].startswith("Chào Tran Thu Ha,")
+
+
+@integration
+def test_scan_needs_an_open_position_with_approved_criteria(client, seed, pool):
+    hr = headers(seed["hr"])
+    # seed['pos'] has approved criteria (set by _assessed_application) but is closed here.
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.positions SET status = 'CLOSED', closed_at = NOW() WHERE position_id = :p"), {"p": seed["pos"]})
+    assert client.post(f"/v1/talent-pool/positions/{seed['pos']}/scan", headers=hr).status_code == 409
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.criteria_versions SET status = 'DRAFT' WHERE position_id = :p"), {"p": seed["pos2"]})
+    assert client.post(f"/v1/talent-pool/positions/{seed['pos2']}/scan", headers=headers(seed["hr2"])).status_code == 409
+
+
+@integration
+def test_marks_list_is_scoped_to_the_source_position_hr(client, seed, pool):
+    mine = client.get("/v1/talent-pool/marks", headers=headers(seed["hr"])).json()["items"]
+    assert {i["application_id"] for i in mine} == {pool["strong"], pool["weak"], pool["no_text"]}
+    assert all(i["eligible"] and i["expires_on"] for i in mine)
+    assert client.get("/v1/talent-pool/marks", headers=headers(seed["hr2"])).json()["items"] == []
+
+
+def _set_contact(app_id, email=None, phone=None):
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.application_identities SET email = :e, phone = :p WHERE application_id = :a"),
+                     {"e": email, "p": phone, "a": app_id})
+
+
+@integration
+def test_scan_runs_in_the_worker_and_allows_one_active_scan_per_position(client, seed, pool):
+    hr2, route = headers(seed["hr2"]), f"/v1/talent-pool/positions/{seed['pos2']}/scan"
+    queued = client.post(route, headers=hr2)
+    assert queued.status_code == 202
+    scan_id, operation_id = queued.json()["scan_id"], queued.json()["operation_id"]
+    pending = client.get(f"/v1/talent-pool/scans/{scan_id}", headers=hr2).json()
+    assert pending["status"] == "PENDING" and pending["results"] == []
+    # Polling an incomplete scan must not spam VIEW_TALENT_POOL_SCAN audit rows.
+    with engine.connect() as conn:
+        views_before = conn.execute(text("""SELECT COUNT(*) FROM app_private.audit_events
+            WHERE action_type = 'VIEW_TALENT_POOL_SCAN' AND object_id = :s"""), {"s": scan_id}).scalar_one()
+    assert views_before == 0
+    assert client.post(route, headers=hr2).status_code == 409  # only one active scan per position
+    _run_worker()
+    done = client.get(f"/v1/talent-pool/scans/{scan_id}", headers=hr2).json()
+    assert done["status"] == "COMPLETED" and len(done["results"]) == 2
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT status FROM app_private.operations WHERE operation_id = :o"),
+                            {"o": operation_id}).scalar_one() == "COMPLETED"
+        views_after = conn.execute(text("""SELECT COUNT(*) FROM app_private.audit_events
+            WHERE action_type = 'VIEW_TALENT_POOL_SCAN' AND object_id = :s"""), {"s": scan_id}).scalar_one()
+    assert views_after == 1
+    assert client.post(route, headers=hr2).status_code == 202  # a finished scan no longer blocks
+
+
+@integration
+def test_failed_scan_records_the_error_and_can_be_retried(client, seed, pool, monkeypatch):
+    hr2, route = headers(seed["hr2"]), f"/v1/talent-pool/positions/{seed['pos2']}/scan"
+    from app.services import talent_pool_scan
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("secret detail must not leak")
+    with monkeypatch.context() as patch:
+        patch.setattr(talent_pool_scan, "run_scan", boom)
+        scan_id = client.post(route, headers=hr2).json()["scan_id"]
+        _run_worker()
+    failed = client.get(f"/v1/talent-pool/scans/{scan_id}", headers=hr2).json()
+    assert failed["status"] == "FAILED" and failed["completed_at"] and failed["results"] == []
+    assert failed["error_message"] and "secret" not in failed["error_message"]
+
+    # The position closing before the worker picks the job up is reported as the failure reason.
+    scan_id = client.post(route, headers=hr2).json()["scan_id"]
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.positions SET status = 'CLOSED', closed_at = NOW() WHERE position_id = :p"), {"p": seed["pos2"]})
+    _run_worker()
+    failed = client.get(f"/v1/talent-pool/scans/{scan_id}", headers=hr2).json()
+    assert failed["status"] == "FAILED" and "đang mở" in failed["error_message"]
+    listed = client.get(f"/v1/talent-pool/positions/{seed['pos2']}/scans", headers=hr2).json()["items"]
+    assert [i["status"] for i in listed] == ["FAILED", "FAILED"]
+
+
+@integration
+def test_scan_skips_candidates_who_already_applied_and_duplicate_emails(client, seed, pool, tmp_path):
+    hr2 = headers(seed["hr2"])
+    # A candidate already in the target position (email in another case, phone in another format).
+    _set_contact(seed["app2"], email="Applied@Example.com", phone="+84 901 234 567")
+    _set_contact(pool["strong"], email=" applied@example.COM ")
+    _set_contact(pool["weak"], phone="0901234567")
+    second = _consented_application(seed)
+    third = _consented_application(seed)
+    for a, mail in ((second, "Dup@Example.com"), (third, "dup@example.com")):
+        assert client.post(f"/v1/talent-pool/applications/{a}/mark", headers=headers(seed["hr"]),
+                           json={"reason_code": "STRONG_FIT"}).status_code == 201
+        _set_contact(a, email=mail)
+    _with_text(second, "Kế toán tổng hợp.", tmp_path)
+    _with_text(third, "Python developer, built Python services for 5 years.", tmp_path)
+
+    scan_id = _scan_and_run(client, seed)["scan_id"]
+    scan = client.get(f"/v1/talent-pool/scans/{scan_id}", headers=hr2).json()
+    assert scan["skipped_counts"] == {"ALREADY_APPLIED": 2, "NO_EXTRACTED_TEXT": 1, "DUPLICATE_EMAIL": 1}
+    # The better of the two duplicate-email applications is the one kept.
+    assert [r["application_id"] for r in scan["results"]] == [third]
+    assert scan["eligible_count"] == 5 and scan["scored_count"] == 1

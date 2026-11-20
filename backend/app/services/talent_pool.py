@@ -37,7 +37,7 @@ def ineligibility_reason(*, status: str, consent_present: bool, consent_withdraw
         return "CONSENT_WITHDRAWN"
     if consented_at is None or pool_expiry(consented_at) <= now:
         return "RETENTION_EXPIRED"
-    if open_retention_status in ("SCHEDULED_FOR_DELETION", "ON_HOLD", "DELETED"):
+    if open_retention_status in ("SCHEDULED_FOR_DELETION", "ON_HOLD"):
         return "DELETION_PENDING"
     if status not in MARKABLE_STATUSES:
         return "STATUS_NOT_ELIGIBLE"
@@ -89,63 +89,3 @@ def application_pool_state(db, application_id: str, now: Optional[datetime] = No
     return {"position_id": str(r["position_id"]), "eligible": reason is None, "reason": reason,
             "expires_on": (pool_expiry(r["consented_at"]).date().isoformat()
                            if r["consented_at"] is not None else None)}
-
-
-SCAN_CANDIDATES_SQL = """
-    WITH pool AS (""" + ELIGIBLE_POOL_SQL + """),
-    target AS (
-        SELECT lower(btrim(i.email)) AS email, regexp_replace(coalesce(i.phone, ''), '[^0-9]', '', 'g') AS phone
-        FROM app_private.applications a
-        JOIN app_private.application_identities i ON i.application_id = a.application_id
-        WHERE a.position_id = :target
-    ),
-    candidates AS (
-        SELECT pool.application_id, pool.position_id, pool.consented_at,
-               lower(btrim(i.email)) AS email, regexp_replace(coalesce(i.phone, ''), '[^0-9]', '', 'g') AS phone
-        FROM pool
-        LEFT JOIN app_private.application_identities i ON i.application_id = pool.application_id
-        WHERE pool.position_id <> :target
-    ),
-    fresh AS (
-        SELECT c.* FROM candidates c
-        WHERE NOT EXISTS (SELECT 1 FROM target t WHERE (c.email <> '' AND t.email = c.email)
-                                                   OR (length(c.phone) >= 9 AND t.phone = c.phone))
-    ),
-    -- One row per person: the most recent consent wins when the same email is pooled twice.
-    deduped AS (
-        SELECT DISTINCT ON (coalesce(nullif(email, ''), application_id::text)) *
-        FROM fresh ORDER BY coalesce(nullif(email, ''), application_id::text), consented_at DESC
-    )
-    SELECT d.application_id, d.position_id AS source_position_id, processing.extracted_text_storage_path,
-           profile.profile_version_id
-    FROM deduped d
-    LEFT JOIN LATERAL (
-        SELECT r.extracted_text_storage_path FROM app_private.application_documents doc
-        JOIN app_private.document_processing_runs r ON r.document_id = doc.document_id AND r.status = 'COMPLETED'
-        WHERE doc.application_id = d.application_id AND doc.document_type = 'CV'
-        ORDER BY r.created_at DESC LIMIT 1
-    ) processing ON TRUE
-    LEFT JOIN LATERAL (
-        SELECT profile_version_id FROM app_private.profile_versions
-        WHERE application_id = d.application_id AND status = 'COMPLETED'
-        ORDER BY version_number DESC LIMIT 1
-    ) profile ON TRUE
-    ORDER BY d.consented_at DESC
-    LIMIT :limit
-"""
-
-
-def scan_candidates(db, target_position_id: str, now: Optional[datetime] = None) -> list:
-    """Eligible pooled applications to score for a position.
-
-    Excludes applications of the target position itself and people who already
-    applied to it (same email or phone), and keeps one application per email.
-    """
-    rows = db.execute(text(SCAN_CANDIDATES_SQL), {
-        "now": now or datetime.now(timezone.utc), "months": settings.TALENT_POOL_RETENTION_MONTHS,
-        "target": target_position_id, "limit": settings.TALENT_POOL_SCAN_MAX_CANDIDATES})
-    return [dict(r._mapping) for r in rows]
-
-
-def eligible_application_ids(db, now: Optional[datetime] = None) -> set:
-    return {str(row["application_id"]) for row in eligible_pool(db, now)}

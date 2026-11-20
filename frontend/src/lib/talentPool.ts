@@ -1,39 +1,83 @@
-// P3-1 Talent Pool: labels shared by the applicant panel, the pool list and the scan page.
+// P3-1 Talent Pool: types and pure helpers (no React, so they can be unit tested).
 
-export const POOL_REASONS: Record<string, string> = {
-  STRONG_FIT: 'Phù hợp tốt, chưa có vị trí',
-  NEAR_MISS: 'Sát vòng cuối',
+export type PoolMark = {
+  application_id: string; reason_code: string; marked_at: string; position_id: string;
+  position_title: string; position_code: string; application_status: string; eligible: boolean; expires_on: string | null;
+};
+export type CriterionResult = { criterion_id: string; name: string | null; category: string | null; outcome: string; quote: string | null };
+export type ScanResult = {
+  rank: number; application_id: string; matching_score: number | null; evidence_coverage: number; matching_status: string;
+  unresolved_count: number; criterion_results: CriterionResult[]; hr_decision: 'CONTACT' | 'SKIP' | 'LATER' | null;
+  source_position_id: string; source_position_title: string; source_position_code: string; mark_reason: string | null;
+  pool_expires_on: string;
+};
+export type ScanStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+export type ScanSummary = {
+  scan_id: string; created_at: string; eligible_count: number; scored_count: number; skipped_counts: Record<string, number>;
+  status: ScanStatus; failed_count: number; error_message: string | null; completed_at: string | null;
+};
+export type ScanDetail = ScanSummary & { position_id: string; results: ScanResult[] };
+export type PoolContact = {
+  application_id: string;
+  display_name: string | null;
+  email: string | null;
+  phone: string | null;
+  target_position_title: string;
+  target_position_code: string;
+  source_position_title: string;
+  source_position_code: string;
+  email_subject: string;
+  email_body: string;
+};
+
+export const MARK_REASONS: Record<string, string> = {
+  STRONG_FIT: 'Phù hợp tốt',
+  NEAR_MISS: 'Suýt đạt',
   OTHER_ROLE_FIT: 'Hợp vị trí khác',
 };
-
-export const MATCHING_STATUS_LABELS: Record<string, { label: string; color: 'success' | 'warning' | 'error' | 'default' }> = {
-  MEETS_MANDATORY: { label: 'Đáp ứng bắt buộc', color: 'success' },
-  NEEDS_HR_VERIFICATION: { label: 'Cần HR xác minh', color: 'warning' },
-  POSSIBLE_MISMATCH: { label: 'Có dấu hiệu chưa đáp ứng', color: 'error' },
-  NOT_ASSESSED: { label: 'Chưa đánh giá', color: 'default' },
+export const DECISIONS: Record<string, string> = { CONTACT: 'Liên hệ', LATER: 'Để sau', SKIP: 'Bỏ qua' };
+export const OUTCOMES: Record<string, string> = {
+  STRONG_MATCH: 'Đáp ứng tốt', MATCH: 'Đáp ứng', NO_MATCH: 'Chưa đáp ứng', UNCLEAR: 'Chưa rõ',
+};
+export const SKIP_REASONS: Record<string, string> = {
+  NO_EXTRACTED_TEXT: 'Chưa có văn bản CV', TEXT_UNAVAILABLE: 'Không đọc được văn bản CV', OVER_LIMIT: 'Vượt giới hạn một lượt quét',
+  ALREADY_APPLIED: 'Ứng viên đã ứng tuyển vị trí này', DUPLICATE_EMAIL: 'Trùng email, giữ hồ sơ tốt nhất',
+  DUPLICATE_PHONE: 'Trùng số điện thoại, giữ hồ sơ tốt nhất', SCORING_ERROR: 'Lỗi khi chấm CV',
 };
 
-export const SCAN_STATUS_LABELS: Record<string, string> = {
-  PENDING: 'Đang chờ xử lý',
-  PROCESSING: 'Đang quét',
-  COMPLETED: 'Đã quét xong',
-  FAILED: 'Quét thất bại',
-};
+/** Short, non-identifying label for a pool application (no names are ever shown). */
+export function poolRef(applicationId: string): string {
+  return `#${applicationId.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+}
 
-export type PoolState = {
-  marked: boolean; can_mark: boolean; reason: string | null; reason_text: string | null; expires_on: string | null;
-};
+export function scoreText(score: number | null): string {
+  return score == null ? '—' : `${Math.round(score * 10) / 10}%`;
+}
 
-export type ScanCriterion = { criterion_id: string; name: string | null; category: string | null; outcome: string | null; quote: string | null };
+/** A scan the worker has not finished: the page keeps polling while this is true. */
+export const scanIsActive = (status?: ScanStatus | null): boolean => status === 'PENDING' || status === 'PROCESSING';
 
-export type ScanResult = {
-  application_id: string; status: 'SCORED' | 'FAILED'; rank_number: number | null;
-  matching_status: string | null; matching_score: number | null; evidence_coverage: number | null;
-  criteria: ScanCriterion[]; candidate_name: string | null; email: string | null; phone: string | null;
-  reason_code: string | null; source_position_code: string; source_position_title: string; source_application_status: string;
-};
+/** Build a mailto: URL for opening the HR-reviewed outreach draft in Outlook / default email client. */
+export function buildMailtoHref(email: string, subject: string, body: string): string {
+  return `mailto:${encodeURIComponent(email.trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
 
-export type Scan = {
-  scan_id: string; status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED'; candidate_count: number;
-  scored_count: number; failed_count: number; error_message: string | null; created_at: string; completed_at: string | null;
-};
+/** Filter pool marks by search query (ref, position title/code), reason code, and eligibility flag. */
+export function filterPoolMarks(
+  marks: PoolMark[],
+  opts: { query?: string; reason?: string; eligibility?: 'ALL' | 'ELIGIBLE' | 'INELIGIBLE' },
+): PoolMark[] {
+  const q = (opts.query || '').trim().toLowerCase();
+  const reason = opts.reason || '';
+  const eligibility = opts.eligibility || 'ALL';
+  return marks.filter(m => {
+    if (reason && m.reason_code !== reason) return false;
+    if (eligibility === 'ELIGIBLE' && !m.eligible) return false;
+    if (eligibility === 'INELIGIBLE' && m.eligible) return false;
+    if (q) {
+      const hay = `${poolRef(m.application_id)} ${m.position_title} ${m.position_code}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}

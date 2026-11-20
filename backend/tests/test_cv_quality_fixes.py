@@ -44,6 +44,35 @@ def test_separate_start_and_end_fields_are_joined():
     assert matcher._years_assessment(profile, [], None)["years"] == pytest.approx(4.58, abs=0.01)
 
 
+def test_same_career_length_restated_in_three_places_counts_once():
+    # Summary, work section and extracted profile all say "6 years": it used to add up to 18.
+    text = (
+        "Summary\nSenior engineer with 6 years of backend experience.\n\n"
+        "WORK EXPERIENCE\nBackend engineer at Example Corp for 6 years.\n"
+    )
+    chunks = matcher.chunk_document(text)
+    profile = {"work_history": [{"job_title": "Backend engineer", "description": "6 years of backend work"}]}
+    result = matcher._years_assessment(profile, chunks, None)
+    assert result["years"] == 6
+    assert result["explicit_duration_total"] == 6
+
+
+def test_separate_roles_in_one_source_still_add_up():
+    text = "WORK EXPERIENCE\nEngineer at A for 3 years.\n\nDeveloper at B for 4 years.\n"
+    result = matcher._years_assessment({}, matcher.chunk_document(text), None)
+    assert result["years"] == 7
+    assert result["explicit_duration_count"] == 2
+
+
+def test_summary_total_does_not_add_to_work_roles():
+    text = (
+        "Summary\nEngineer with 7 years of experience.\n\n"
+        "WORK EXPERIENCE\nEngineer at A for 3 years.\n\nDeveloper at B for 4 years.\n"
+    )
+    result = matcher._years_assessment({}, matcher.chunk_document(text), None)
+    assert result["years"] == 7
+
+
 # --------------------------------------------------------------- phone number
 @pytest.mark.parametrize("text,expected", [
     ("Phone: 0912 345 678", "0912345678"),

@@ -31,6 +31,19 @@ export function counts(p: Proportion): string {
   return `${p.count}/${p.total}`;
 }
 
+/** Format a Date as YYYY-MM-DD in the browser's local timezone (avoids UTC day-shift before 07:00 VN). */
+export function localIsoDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Pick the display key for a change marker chip (backend sends kind='VERSION' + source='RULES'|'PROMPT'|'MATCHING_POLICY'). */
+export function markerKindKey(m: Pick<Marker, 'kind' | 'source'>): string {
+  return m.kind === 'VERSION' && m.source ? m.source : m.kind;
+}
+
 export type ChartPoint = { period: string; value: number | null; low: number | null; high: number | null; count: number; total: number; insufficient: boolean };
 
 export function chartPoints(series: TrendRow[], pick: (row: TrendRow) => Proportion): ChartPoint[] {
@@ -40,13 +53,43 @@ export function chartPoints(series: TrendRow[], pick: (row: TrendRow) => Proport
   });
 }
 
+function nextPeriod(period: string, grain: 'week' | 'month'): string {
+  const [y, m, d] = period.split('-').map(Number);
+  if (grain === 'month') {
+    const dt = new Date(Date.UTC(y, m, 1));
+    return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  }
+  const dt = new Date(Date.UTC(y, m - 1, d + 7));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+}
+
+/** Insert zero-count placeholders for empty weeks/months so the chart X-axis stays evenly spaced
+ * and change markers land on the right period. Capped at 120 periods to guard against malformed inputs. */
+export function fillMissingPeriods(points: ChartPoint[], grain: 'week' | 'month'): ChartPoint[] {
+  if (points.length <= 1) return points;
+  const byPeriod = new Map(points.map(p => [p.period, p]));
+  const first = points[0].period;
+  const last = points[points.length - 1].period;
+  const filled: ChartPoint[] = [];
+  let cursor = first;
+  for (let steps = 0; cursor <= last && steps < 120; steps += 1) {
+    filled.push(byPeriod.get(cursor) || {
+      period: cursor, value: null, low: null, high: null, count: 0, total: 0, insufficient: true,
+    });
+    const next = nextPeriod(cursor, grain);
+    if (next <= cursor) break;
+    cursor = next;
+  }
+  return filled.length >= points.length ? filled : points;
+}
+
 /** Whether the latest and earliest reliable points differ beyond their intervals. Never claims a trend otherwise. */
 export function trendStatement(points: ChartPoint[]): 'BETTER' | 'WORSE' | 'NO_CLEAR_CHANGE' | 'NOT_ENOUGH_DATA' {
   const reliable = points.filter(p => !p.insufficient && p.value != null && p.low != null && p.high != null);
   if (reliable.length < 2) return 'NOT_ENOUGH_DATA';
   const first = reliable[0];
   const last = reliable[reliable.length - 1];
-  if ((last.low as number) > (first.high as number)) return 'WORSE';   // a higher rate is worse for override and error rates
+  if ((last.low as number) > (first.high as number)) return 'WORSE';   // a higher rate is worse for error rates (or higher disagreement for overrides)
   if ((last.high as number) < (first.low as number)) return 'BETTER';
   return 'NO_CLEAR_CHANGE';
 }

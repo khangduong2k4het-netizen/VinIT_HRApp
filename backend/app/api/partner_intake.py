@@ -11,9 +11,8 @@ and automatic assessment). Consent is stored with channel PARTNER_SITE and the
 notice version the site reports, plus the site's own reference.
 """
 import hashlib
-import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
@@ -41,14 +40,19 @@ def require_client(x_intake_key: str | None = Header(default=None)) -> dict:
     db = SessionLocal()
     try:
         row = db.execute(text("""
-            UPDATE app_private.intake_clients SET last_used_at = NOW()
-            WHERE key_hash = :h AND revoked_at IS NULL RETURNING client_id, name
+            SELECT client_id, name, last_used_at FROM app_private.intake_clients
+            WHERE key_hash = :h AND revoked_at IS NULL
         """), {"h": key_hash(x_intake_key)}).mappings().first()
-        db.commit()
+        if not row:
+            raise HTTPException(status_code=401, detail="Thiếu hoặc sai khóa API")
+        last_used = row["last_used_at"]
+        # Debounce last_used_at updates so frequent GET /positions calls do not contend on a row lock.
+        if last_used is None or last_used < datetime.now(timezone.utc) - timedelta(minutes=5):
+            db.execute(text("UPDATE app_private.intake_clients SET last_used_at = NOW() WHERE client_id = :id"),
+                       {"id": row["client_id"]})
+            db.commit()
     finally:
         db.close()
-    if not row:
-        raise HTTPException(status_code=401, detail="Thiếu hoặc sai khóa API")
     return {"client_id": str(row["client_id"]), "name": row["name"]}
 
 

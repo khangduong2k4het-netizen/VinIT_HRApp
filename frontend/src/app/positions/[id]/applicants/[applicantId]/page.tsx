@@ -2,6 +2,7 @@
 
 import { useI18n } from '@/i18n/I18nProvider';
 import { localizeServerMessage } from '@/i18n/serverMessages';
+import TalentPoolPanel from '@/components/talent-pool/TalentPoolPanel';
 
 import * as React from 'react';
 import {
@@ -39,7 +40,7 @@ import NavigateBeforeIcon from '@mui/icons-material/NavigateBefore';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ReplayIcon from '@mui/icons-material/Replay';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { applicationsApi, assessmentsApi, operationsApi } from '@/lib/api';
 import { useOverrideGate } from '@/components/applicants/OverrideReasonDialog';
@@ -50,7 +51,7 @@ import EvidenceCard from '@/components/candidates/EvidenceCard';
 import CVDocumentViewer from '@/components/candidates/CVDocumentViewer';
 import HRNotesPanel from '@/components/candidates/HRNotesPanel';
 import CrossDuplicatesPanel from '@/components/candidates/CrossDuplicatesPanel';
-import TalentPoolPanel from '@/components/candidates/TalentPoolPanel';
+import CandidateEmailPanel, { type EmailRequest } from '@/components/candidates/CandidateEmailPanel';
 import {
   filterAndSortApplicantItems,
   mergeRankingWithApplications,
@@ -74,6 +75,7 @@ interface StatusEvent {
 export default function ApplicantDetailPage() {
   const { t, dateLocale, locale } = useI18n();
   const params = useParams();
+  const router = useRouter();
   const positionId = params.id as string;
   const applicantId = params.applicantId as string;
 
@@ -87,6 +89,8 @@ export default function ApplicantDetailPage() {
   const [statusNote, setStatusNote] = useState('');
   const [statusError, setStatusError] = useState<string | null>(null);
   const [statusSubmitting, setStatusSubmitting] = useState(false);
+  // After moving to interview or rejection, offer the matching letter (HR still reviews and sends it).
+  const [emailRequest, setEmailRequest] = useState<EmailRequest>(null);
   const [success, setSuccess] = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
   const [reprocessError, setReprocessError] = useState<string | null>(null);
@@ -101,6 +105,25 @@ export default function ApplicantDetailPage() {
   const [cvError, setCvError] = useState<string | null>(null);
   const blobUrl = useRef<string | null>(null);
   const requestId = useRef(0);
+
+  // Ashby-style keyboard review shortcuts: J = next applicant, K = previous applicant.
+  useEffect(() => {
+    if (!navigationContext || statusDialogOpen) return;
+    const idx = navigationContext.applicationIds.indexOf(applicantId);
+    if (idx < 0) return;
+    const prevId = idx > 0 ? navigationContext.applicationIds[idx - 1] : undefined;
+    const nextId = idx < navigationContext.applicationIds.length - 1 ? navigationContext.applicationIds[idx + 1] : undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return;
+      const key = event.key.toLowerCase();
+      if (key === 'j' && nextId) router.push(`/positions/${positionId}/applicants/${nextId}`);
+      if (key === 'k' && prevId) router.push(`/positions/${positionId}/applicants/${prevId}`);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [navigationContext, applicantId, positionId, statusDialogOpen, router]);
 
   const loadData = useCallback(async (initial = false) => {
     const currentRequest = ++requestId.current;
@@ -194,6 +217,8 @@ export default function ApplicantDetailPage() {
       const note = [statusNote.trim(), decision.overrideNote].filter(Boolean).join('\n') || undefined;
       await applicationsApi.updateStatus(applicantId, newStatus, statusReason.trim() || undefined, note, decision.overrideReasonCode);
       setStatusDialogOpen(false); setSuccess(true);
+      if (newStatus === 'INTERVIEW') setEmailRequest({ applicationId: applicantId, template: 'INTERVIEW_INVITE', trigger: 'STATUS_CHANGE', nonce: Date.now() });
+      else if (rejected) setEmailRequest({ applicationId: applicantId, template: 'REJECTION', trigger: 'STATUS_CHANGE', nonce: Date.now() });
       await loadData();
     } catch (err: any) {
       setStatusError(err.response?.data?.detail || t("Cập nhật trạng thái không thành công"));
@@ -298,17 +323,23 @@ export default function ApplicantDetailPage() {
             </Typography>
           </Box>
           {previousApplicantId ? (
-            <Button component={Link} href={`/positions/${positionId}/applicants/${previousApplicantId}`} variant="outlined" size="small" startIcon={<NavigateBeforeIcon />}>{t("Hồ sơ trước")}</Button>
+            <Tooltip title={t('Phím tắt: K')}>
+              <Button component={Link} href={`/positions/${positionId}/applicants/${previousApplicantId}`} variant="outlined" size="small" startIcon={<NavigateBeforeIcon />}>{t("Hồ sơ trước")}</Button>
+            </Tooltip>
           ) : (
             <Button variant="outlined" size="small" startIcon={<NavigateBeforeIcon />} disabled>{t("Hồ sơ trước")}</Button>
           )}
           {nextApplicantId ? (
-            <Button component={Link} href={`/positions/${positionId}/applicants/${nextApplicantId}`} variant="contained" color="secondary" size="small" endIcon={<NavigateNextIcon />}>{t("Hồ sơ tiếp theo")}</Button>
+            <Tooltip title={t('Phím tắt: J')}>
+              <Button component={Link} href={`/positions/${positionId}/applicants/${nextApplicantId}`} variant="contained" color="secondary" size="small" endIcon={<NavigateNextIcon />}>{t("Hồ sơ tiếp theo")}</Button>
+            </Tooltip>
           ) : (
             <Button variant="outlined" size="small" endIcon={<NavigateNextIcon />} disabled>{t("Hồ sơ tiếp theo")}</Button>
           )}
         </Box>
       </StickyActionBar>
+
+      {application.can_update_status && <TalentPoolPanel applicationId={applicantId} refreshKey={application.application_status} />}
 
       {/* Warnings */}
       {(application.file_processing_status === 'NEEDS_HR_REVIEW' || application.has_duplicate_warning) && (
@@ -520,11 +551,10 @@ export default function ApplicantDetailPage() {
 
       {/* Sibling keys must differ: both panels used key={applicantId}, which React reports as duplicate keys. */}
       {application.can_view_cv && <CandidateProfilePanel key={`profile-${applicantId}`} applicationId={applicantId} canEdit={!!application.can_update_status} onSaved={() => { loadData(); }} />}
+      {application.can_update_status && <CandidateEmailPanel key={`emails-${applicantId}`} applicationId={applicantId} request={emailRequest} />}
       {application.can_manage_hr_notes && <HRNotesPanel key={`notes-${applicantId}`} applicationId={applicantId} />}
       {application.can_update_status && <CrossDuplicatesPanel key={`duplicates-${applicantId}`} applicationId={applicantId}
         versionKey={JSON.stringify(application.identity)} />}
-      {application.can_update_status && <TalentPoolPanel key={`pool-${applicantId}`} applicationId={applicantId}
-        versionKey={application.application_status} />}
 
       {application.can_update_status && (
         <Accordion disableGutters elevation={0} sx={{ mb: 3, border: '1px solid #E4E7EC', borderRadius: '8px !important', '&:before': { display: 'none' } }}>

@@ -143,3 +143,38 @@ def test_hr_edits_posting_content_and_hiring_manager_cannot(client, seed):
     # An empty value clears it.
     assert client.patch(route, headers=headers(seed["hr"]), json={"posting_content": "   "}).json()["posting_content"] is None
     assert client.patch(route, headers=headers(seed["hr"]), json={"posting_content": "x" * 20001}).status_code == 422
+
+
+def test_partner_cv_dedupe_is_per_position_and_content(client, site):
+    s = site
+    assert _submit(client, s).status_code == 202
+    assert _submit(client, s).json() == {"status": "duplicate"}
+    # A different file is a new application; the same bytes on the public portal path are caught too.
+    assert _submit(client, s, content=PDF + b"%different").status_code == 202
+    assert _one("SELECT COUNT(*) FROM app_private.applications WHERE source_code = 'PARTNER_SITE'") == 2
+    assert _one("SELECT COUNT(*) FROM app_private.application_data_consents WHERE purpose = 'TALENT_POOL' AND channel = 'PARTNER_SITE'") == 2
+
+
+def test_partner_rejects_a_file_that_is_not_a_cv(client, site):
+    s = site
+    assert _submit(client, s, content=b"not a pdf at all").status_code == 400
+    assert _one("SELECT COUNT(*) FROM app_private.applications WHERE source_code = 'PARTNER_SITE'") == 0
+
+
+def test_worker_queues_held_partner_cvs_as_one_job(client, site):
+    """Partner-site CVs arriving while a job runs on the position are held, then queued together."""
+    from app.services.portal_dispatch import dispatch_held_portal_cvs
+    s = site
+    assert _submit(client, s, content=PDF + b"\n%first").status_code == 202
+    assert _submit(client, s, content=PDF + b"\n%held-1").status_code == 202
+    assert _submit(client, s, content=PDF + b"\n%held-2").status_code == 202
+    held_sql = """SELECT COUNT(*) FROM app_private.application_documents d JOIN app_private.applications a USING (application_id)
+        WHERE a.position_id = :p AND a.source_code = 'PARTNER_SITE' AND d.file_processing_status = 'NEEDS_HR_REVIEW'"""
+    assert _one(held_sql, p=s["pos"]) == 2
+    assert dispatch_held_portal_cvs() == 0
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.operations SET status = 'COMPLETED' WHERE position_id = :p"), {"p": s["pos"]})
+    assert dispatch_held_portal_cvs() == 2
+    assert _one(held_sql, p=s["pos"]) == 0
+    assert _one("""SELECT COUNT(*) FROM app_private.operations
+        WHERE position_id = :p AND capability = 'CV_PROCESSING' AND status = 'PENDING'""", p=s["pos"]) == 1

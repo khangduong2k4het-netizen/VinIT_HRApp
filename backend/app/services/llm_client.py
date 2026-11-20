@@ -140,7 +140,7 @@ class LLMError(Exception):
     pass
 
 
-JD_IMPORT_PROMPT_VERSION = "jd-import-v2"
+JD_IMPORT_PROMPT_VERSION = "jd-import-v4"
 
 
 def _jd_sections_to_text(value: Any) -> str:
@@ -164,6 +164,8 @@ def _jd_sections_to_text(value: Any) -> str:
 class JDImportSchema(BaseModel):
     is_job_posting: bool
     title: str = Field(default="", max_length=300)
+    level: str = Field(default="", max_length=100)
+    level_basis: Literal["STATED", "INFERRED", ""] = ""
     jd_content: str = Field(default="", max_length=60000)
     posting_content: str = Field(default="", max_length=20000)
     language_code: Literal["en", "vi"] = "en"
@@ -569,7 +571,14 @@ RULES:
 6. language_code is the language of the posting: "en" or "vi".
 7. notes: up to 5 short notes for the recruiter, e.g. requirements that are vague or missing (such as no minimum years of experience).
 8. posting_content: the candidate-facing parts that rule 2 drops from jd_content - a short introduction of the organisation/team, benefits, deadline and how to apply - copied closely from the page as plain text with "- " bullets. Leave out contact details of people (names, personal emails, phone numbers). Empty string if the page has none.
-Return JSON with keys: is_job_posting (boolean), title (string), jd_content (ONE plain-text string, not an object or list), posting_content (ONE plain-text string), language_code, notes (array of strings)."""
+9. title: the job title only, as the posting names it (no organisation, location, job code or "Hiring"/"Tuyển dụng" prefix).
+10. level: exactly one of Intern, Fresher, Junior, Middle, Senior, Lead, Manager, Director.
+   - If the posting or its title states the seniority, use it and set level_basis="STATED".
+   - Otherwise infer it from the minimum experience and scope the posting requires, and set level_basis="INFERRED":
+     internship -> Intern; no experience required -> Fresher; 1-2 years -> Junior; 3-4 years -> Middle;
+     5 or more years -> Senior; leads a small team -> Lead; manages a department or unit -> Manager; heads a division -> Director.
+   - If neither is possible (e.g. an academic rank such as lecturer or professor, or no experience requirement at all), use "" for both.
+Return JSON with keys: is_job_posting (boolean), title (string), level (string), level_basis (string), jd_content (ONE plain-text string, not an object or list), posting_content (ONE plain-text string), language_code, notes (array of strings)."""
         user_prompt = json.dumps({"title_hint": redact_text(title_hint or ""),
                                   "untrusted_job_page": redact_text(page_text)}, ensure_ascii=False)
         metadata: dict[str, Any] = {}
@@ -593,6 +602,11 @@ Return JSON with keys: is_job_posting (boolean), title (string), jd_content (ONE
                 result["language_code"] = "vi" if str(result.get("language_code", "")).lower().startswith("vi") else "en"
             if result.get("title") is None:
                 result["title"] = ""
+            # Only a standard level; free text the model made up is dropped.
+            from app.services.jd_import import normalize_level
+            result["level"] = normalize_level(result.get("level"))
+            basis = str(result.get("level_basis") or "").upper()
+            result["level_basis"] = (basis if basis in ("STATED", "INFERRED") else "INFERRED") if result["level"] else ""
             result["jd_content"] = _jd_sections_to_text(result.get("jd_content"))
             result["posting_content"] = _jd_sections_to_text(result.get("posting_content"))[:20000]
         try:

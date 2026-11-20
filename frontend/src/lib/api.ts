@@ -58,18 +58,6 @@ export const crossDuplicatesApi = {
   review: (id: string, decision: 'CONFIRMED' | 'DISMISSED') => apiClient.post(`/cross-duplicates/signals/${id}/review`, { decision }),
 };
 
-// P3-1 Talent Pool: marking, the pool list and scans for a new position.
-export const talentPoolApi = {
-  state: (applicationId: string) => apiClient.get(`/talent-pool/applications/${applicationId}`),
-  mark: (applicationId: string, reasonCode: string) =>
-    apiClient.post(`/talent-pool/applications/${applicationId}/mark`, { reason_code: reasonCode }),
-  unmark: (applicationId: string) => apiClient.delete(`/talent-pool/applications/${applicationId}/mark`),
-  withdrawConsent: (applicationId: string, reference?: string) =>
-    apiClient.post(`/talent-pool/applications/${applicationId}/withdraw-consent`, { reference: reference || null }),
-  list: () => apiClient.get('/talent-pool'),
-  startScan: (positionId: string) => apiClient.post(`/talent-pool/positions/${positionId}/scans`),
-  latestScan: (positionId: string) => apiClient.get(`/talent-pool/positions/${positionId}/scans/latest`),
-};
 
 // F2.09: side-by-side comparison and custom export (never contains email/phone).
 export const candidateReportsApi = {
@@ -299,6 +287,43 @@ export const adminApi = {
 
 // F1.10 / S-19 — retention queue and explicit, audited deletion.
 // F2.07 — exception hold, reminders and a one-time code before purge.
+// P3-1 Talent Pool: marking (phase 1) and scanning against a new position (phase 2). No CV content or contact data.
+// F3.05 candidate emails: HR reviews every letter; "send" only records it until SMTP mode is on.
+export type EmailTemplateCode = 'ACK_RECEIVED' | 'REQUEST_INFO' | 'INTERVIEW_INVITE' | 'REJECTION' | 'POOL_INVITE';
+export const candidateEmailsApi = {
+  templates: () => apiClient.get('/candidate-emails/templates'),
+  updateTemplate: (code: EmailTemplateCode, data: { subject_template: string; body_template: string }) =>
+    apiClient.put(`/candidate-emails/templates/${code}`, data),
+  forApplication: (applicationId: string) => apiClient.get(`/candidate-emails/applications/${applicationId}`),
+  compose: (applicationId: string, templateCode: EmailTemplateCode) =>
+    apiClient.post(`/candidate-emails/applications/${applicationId}/compose`, { template_code: templateCode }),
+  create: (applicationId: string, data: {
+    template_code: EmailTemplateCode | null; trigger_source: 'MANUAL' | 'STATUS_CHANGE';
+    to_address: string; subject: string; body: string; send: boolean; confirmed?: boolean;
+  }) => apiClient.post(`/candidate-emails/applications/${applicationId}/emails`, data),
+  updateDraft: (emailId: string, data: { to_address: string; subject: string; body: string }) =>
+    apiClient.put(`/candidate-emails/emails/${emailId}`, data),
+  sendDraft: (emailId: string, confirmed = false) => apiClient.post(`/candidate-emails/emails/${emailId}/send`, { confirmed }),
+  cancelDraft: (emailId: string) => apiClient.post(`/candidate-emails/emails/${emailId}/cancel`),
+};
+
+export const talentPoolApi = {
+  state: (applicationId: string) => apiClient.get(`/talent-pool/applications/${applicationId}`),
+  mark: (applicationId: string, reasonCode: string) =>
+    apiClient.post(`/talent-pool/applications/${applicationId}/mark`, { reason_code: reasonCode }),
+  unmark: (applicationId: string) => apiClient.delete(`/talent-pool/applications/${applicationId}/mark`),
+  withdrawConsent: (applicationId: string, reference?: string) =>
+    apiClient.post(`/talent-pool/applications/${applicationId}/withdraw-consent`, { reference: reference || null }),
+  marks: (params?: { limit?: number; offset?: number }) => apiClient.get('/talent-pool/marks', { params }),
+  scan: (positionId: string) => apiClient.post(`/talent-pool/positions/${positionId}/scan`),
+  scans: (positionId: string) => apiClient.get(`/talent-pool/positions/${positionId}/scans`),
+  scanDetail: (scanId: string) => apiClient.get(`/talent-pool/scans/${scanId}`),
+  decide: (scanId: string, applicationId: string, decision: 'CONTACT' | 'SKIP' | 'LATER') =>
+    apiClient.post(`/talent-pool/scans/${scanId}/results/${applicationId}/decision`, { decision }),
+  revealContact: (scanId: string, applicationId: string) =>
+    apiClient.post(`/talent-pool/scans/${scanId}/results/${applicationId}/contact`),
+};
+
 export const retentionApi = {
   queue: (status?: 'PENDING' | 'SCHEDULED_FOR_DELETION' | 'ON_HOLD' | 'DELETED' | 'CANCELLED') =>
     apiClient.get('/retention/queue', { params: { status } }),
@@ -328,12 +353,14 @@ export const analyticsApi = {
   operations: (params: { date_from?: string; date_to?: string; position_id?: string; department_id?: string }) =>
     apiClient.get('/analytics/operations', { params }),
   // P3-2 — AI quality trends (aggregates only; never broken down by recruiter).
-  qualityTrends: (params: { date_from?: string; date_to?: string; grain?: string }) =>
+  qualityTrends: (params: { date_from?: string; date_to?: string; grain?: string; position_id?: string; department_id?: string; job_family_id?: string }) =>
     apiClient.get('/analytics/quality/trends', { params }),
-  qualityBreakdown: (params: { dimension: string; date_from?: string; date_to?: string }) =>
+  qualityBreakdown: (params: { dimension: string; date_from?: string; date_to?: string; position_id?: string; department_id?: string; job_family_id?: string }) =>
     apiClient.get('/analytics/quality/breakdown', { params }),
   qualityMarkers: (params: { date_from?: string; date_to?: string }) =>
     apiClient.get('/analytics/quality/markers', { params }),
   createQualityMarker: (data: { occurred_on: string; title: string; note?: string }) =>
     apiClient.post('/analytics/quality/markers', data),
+  exportGoldenSet: (params: { date_from?: string; date_to?: string; format?: 'json' | 'csv'; position_id?: string; department_id?: string; job_family_id?: string }) =>
+    apiClient.get('/analytics/quality/golden-set/export', { params, responseType: 'blob' }),
 };

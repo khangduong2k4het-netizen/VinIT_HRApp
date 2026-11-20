@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     PUBLIC_INTAKE_ENABLED: bool = False
     PUBLIC_INTAKE_IP_SALT: str = ""
     PUBLIC_INTAKE_MAX_PER_IP_HOUR: int = 5
+    PUBLIC_WITHDRAW_MAX_PER_IP_HOUR: int = 20
     # Number of reverse proxies that APPEND the client address to X-Forwarded-For
     # before the request reaches the API (nginx with $proxy_add_x_forwarded_for = 1).
     # The Next.js /v1 proxy forwards the header unchanged and does NOT count as a hop.
@@ -60,11 +61,11 @@ class Settings(BaseSettings):
     # P3-1 Talent Pool: how long a CV may be reused, counted from when the candidate
     # ticked the Talent Pool consent (application_data_consents.granted_at).
     TALENT_POOL_RETENTION_MONTHS: int = 60
-    # P3-1 phase 2: most pooled applications one scan may score (each one can call the LLM).
-    TALENT_POOL_SCAN_MAX_CANDIDATES: int = 200
+    # P3-1 phase 2: most pool applications one scan scores (rules only, no LLM).
+    TALENT_POOL_SCAN_MAX: int = 300
     # F3.03: server-to-server API for a separate candidate website (/v1/intake, header X-Intake-Key).
-    # Keys are created with scripts/intake_clients.py; without a valid key every call is 401.
-    INTAKE_API_ENABLED: bool = True
+    # Off by default; keys are created with scripts/intake_clients.py; without a valid key every call is 401.
+    INTAKE_API_ENABLED: bool = False
     INTAKE_MAX_PER_CLIENT_HOUR: int = 1000
 
     # File upload limits
@@ -131,7 +132,8 @@ class Settings(BaseSettings):
     # v1.6: years/degree rules only MATCH when the criterion's field is evidenced.
     # v1.7: B.Eng./B.Sc./Kỹ sư recognised as bachelor-level degrees.
     # v1.8: dotted abbreviations (B.Eng., Ph.D.) no longer split evidence quotes.
-    DETERMINISTIC_RULES_VERSION: str = "deterministic-rules-v1.8"
+    # v1.9: the same career length restated in the summary, work section and profile is counted once.
+    DETERMINISTIC_RULES_VERSION: str = "deterministic-rules-v1.9"
     MANDATORY_CRITERIA_WEIGHT_DEFAULT: float = 0.7
     NICE_TO_HAVE_WEIGHT_DEFAULT: float = 0.3
     MIN_EVIDENCE_COVERAGE: float = 0.7
@@ -179,9 +181,9 @@ class Settings(BaseSettings):
     LANGFUSE_SAMPLE_RATE: float = 1.0
     LANGFUSE_CAPTURE_CONTENT: bool = False
 
-    # Retention: 5 years after the position closes. Applying requires the
-    # candidate's data-use consent. The approved row in
-    # app_private.retention_policy_versions takes precedence (migration 00022).
+    # Retention fallback only: the approved row in
+    # app_private.retention_policy_versions decides (migration 00023: 12 months
+    # after closing, or up to 5 years from an active Talent Pool consent).
     RETENTION_MONTHS: int = 60
     # F2.07 — reminder milestones before the due date (days) and the window in
     # which cases appear in the console before they are due.
@@ -207,6 +209,13 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: Optional[str] = None
     SMTP_FROM: Optional[str] = None
     SMTP_STARTTLS: bool = True
+    # F3.05 candidate emails. "record" (default) keeps the human-reviewed message in the
+    # history without emailing anyone; "smtp" sends it through the SMTP settings above.
+    CANDIDATE_EMAIL_SEND_MODE: Literal["record", "smtp"] = "record"
+    # Shared recruiting mailbox used as From (e.g. tuyendung@vinuni.edu.vn); empty = SMTP_FROM,
+    # then the HR user's own address. Replies always go to the HR user who sent it.
+    CANDIDATE_EMAIL_FROM: Optional[str] = None
+    CANDIDATE_EMAIL_MAX_PER_HOUR: int = 100
 
     # F2.09 candidate comparison and custom export (Excel/PDF). Contact
     # details (email/phone) are never exported.
@@ -261,6 +270,9 @@ class Settings(BaseSettings):
             if self.PUBLIC_INTAKE_TRUSTED_PROXY_HOPS < 1:
                 raise ValueError("PUBLIC_INTAKE_ENABLED requires PUBLIC_INTAKE_TRUSTED_PROXY_HOPS >= 1 (nginx in front of "
                                  "the Next.js proxy); with 0 every candidate shares the proxy's rate-limit bucket")
+        if self.INTAKE_API_ENABLED and self.APP_ENV not in ("development", "testing"):
+            if self.MALWARE_SCAN_MODE != "clamav":
+                raise ValueError("INTAKE_API_ENABLED requires MALWARE_SCAN_MODE=clamav outside development/testing")
         return self
 
 
