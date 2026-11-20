@@ -68,16 +68,48 @@ test('chỉ lưu id hồ sơ và thời lượng, không lưu tên hay nội dun
   assert.doesNotMatch(storage.getItem(UX_METRICS_STORAGE_KEY), /Nguyễn A|bí mật/);
 });
 
-test('trung vị thời gian ở trong hồ sơ, không bị lệch bởi một lượt rất dài', () => {
+test('trung vị thời gian ở trong hồ sơ, không bị lệch bởi một lượt dài nhưng còn trong ngưỡng', () => {
   const events = [
     { type: 'PROFILE_CLOSED', at: T0, application_id: 'a', duration_ms: 60_000 },
     { type: 'PROFILE_CLOSED', at: T0, application_id: 'b', duration_ms: 120_000 },
     { type: 'PROFILE_CLOSED', at: T0, application_id: 'c', duration_ms: 240_000 },
-    { type: 'PROFILE_CLOSED', at: T0, application_id: 'd', duration_ms: 3_600_000 },
+    { type: 'PROFILE_CLOSED', at: T0, application_id: 'd', duration_ms: 600_000 },
   ];
   const summary = summarizeUxImpact(events);
   assert.equal(summary.profileCloses, 4);
+  assert.equal(summary.ignoredDwellCount, 0);
   assert.equal(summary.medianDwellMinutes, 3); // (2 + 4) / 2 phút
+});
+
+test('tab để quên qua đêm bị loại khỏi trung vị thay vì kéo trung vị lên', () => {
+  const events = [
+    { type: 'PROFILE_CLOSED', at: T0, application_id: 'a', duration_ms: 60_000 },
+    { type: 'PROFILE_CLOSED', at: T0, application_id: 'b', duration_ms: 120_000 },
+    { type: 'PROFILE_CLOSED', at: T0, application_id: 'c', duration_ms: 180_000 },
+    // Mở hồ sơ rồi để tab qua đêm: 9 tiếng, không phải thời gian xem thật.
+    { type: 'PROFILE_CLOSED', at: T0, application_id: 'd', duration_ms: 9 * 3_600_000 },
+  ];
+  const summary = summarizeUxImpact(events);
+  assert.equal(summary.profileCloses, 4, 'lượt bị loại vẫn là một lượt đã rời hồ sơ');
+  assert.equal(summary.ignoredDwellCount, 1);
+  // Nếu tính cả lượt qua đêm thì trung vị thành 2,5 phút và một lần quên đã làm
+  // sai số đo; chỉ ba lượt hợp lý còn lại cho trung vị 2 phút.
+  assert.equal(summary.medianDwellMinutes, 2);
+});
+
+test('đúng ngưỡng vẫn được tính, và mọi lượt đều quá dài thì trung vị là null', () => {
+  const atCap = summarizeUxImpact([
+    { type: 'PROFILE_CLOSED', at: T0, application_id: 'a', duration_ms: 30 * 60_000 },
+  ]);
+  assert.equal(atCap.ignoredDwellCount, 0);
+  assert.equal(atCap.medianDwellMinutes, 30);
+  const allTooLong = summarizeUxImpact([
+    { type: 'PROFILE_CLOSED', at: T0, application_id: 'a', duration_ms: 8 * 3_600_000 },
+    { type: 'PROFILE_CLOSED', at: T0, application_id: 'b', duration_ms: 12 * 3_600_000 },
+  ]);
+  assert.equal(allTooLong.profileCloses, 2);
+  assert.equal(allTooLong.ignoredDwellCount, 2);
+  assert.equal(allTooLong.medianDwellMinutes, null, 'không có lượt nào để tính thì không bịa ra số');
 });
 
 test('thời gian hoàn tất tính từ lần mở hồ sơ đầu tiên, không phải lần mở lại', () => {
@@ -110,6 +142,7 @@ test('lô hành động: tổng hồ sơ, lỗi, tỉ lệ lỗi và thời gian
 test('chưa có event thì mọi số đo là null, không phải 0', () => {
   const summary = summarizeUxImpact([]);
   assert.equal(summary.medianDwellMinutes, null);
+  assert.equal(summary.ignoredDwellCount, 0);
   assert.equal(summary.averageCompletionMinutes, null);
   assert.equal(summary.bulkFailureRate, null);
   assert.equal(summary.bulkAverageMinutes, null);

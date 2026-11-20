@@ -26,6 +26,15 @@ export interface UxEvent {
 
 export const UX_METRICS_STORAGE_KEY = 'hra-ux-events';
 export const UX_METRICS_MAX_EVENTS = 500;
+/**
+ * Một lượt "ở trong hồ sơ" dài hơn ngưỡng này gần như chắc chắn là tab bị bỏ
+ * quên (mở qua đêm, khoá máy) chứ không phải thời gian đọc thật; 30 phút là mốc
+ * hết phiên quen thuộc của web analytics. Lượt như vậy bị loại khỏi trung vị
+ * thay vì bị cắt xuống đúng ngưỡng: cắt sẽ tạo ra một điểm dữ liệu không ai
+ * thực sự trải qua và vẫn kéo trung vị lên cao. Event gốc vẫn được giữ nguyên
+ * để có thể đếm lại số lượt bị loại.
+ */
+export const UX_METRICS_MAX_DWELL_MS = 30 * 60_000;
 
 const EVENT_TYPES: UxEventType[] = ['PROFILE_OPENED', 'PROFILE_CLOSED', 'VERIFICATION_COMPLETED', 'BULK_RUN'];
 
@@ -102,8 +111,10 @@ export function clearUxEvents(storage: StorageLike | null = browserStorage()): v
 export interface UxImpactSummary {
   profileOpens: number;
   profileCloses: number;
-  /** Trung vị thời gian ở trong một hồ sơ, tính bằng phút. */
+  /** Trung vị thời gian ở trong một hồ sơ, tính bằng phút; bỏ qua các lượt quá dài. */
   medianDwellMinutes: number | null;
+  /** Số lượt rời hồ sơ bị loại khỏi trung vị vì dài hơn `UX_METRICS_MAX_DWELL_MS`. */
+  ignoredDwellCount: number;
   verifiedProfiles: number;
   /** Trung bình từ lần mở hồ sơ đầu tiên tới lúc hoàn tất, tính bằng phút. */
   averageCompletionMinutes: number | null;
@@ -133,7 +144,11 @@ export function summarizeUxImpact(events: UxEvent[]): UxImpactSummary {
   const bulkRuns = events.filter(event => event.type === 'BULK_RUN');
 
   const dwell = closes.map(event => event.duration_ms as number);
-  const medianDwellMinutes = median(dwell);
+  // Tab để quên qua đêm không phải thời gian xem hồ sơ. Một lượt như vậy đủ để
+  // kéo trung vị sai hẳn, nên nó không được tham gia tính trung vị.
+  const plausibleDwell = dwell.filter(value => value <= UX_METRICS_MAX_DWELL_MS);
+  const ignoredDwellCount = dwell.length - plausibleDwell.length;
+  const medianDwellMinutes = median(plausibleDwell);
 
   // Hoàn tất được ghép với lần mở hồ sơ SỚM NHẤT trước nó; mở lại hồ sơ nhiều lần
   // không được làm thời gian xử lý ngắn đi một cách giả tạo.
@@ -153,6 +168,7 @@ export function summarizeUxImpact(events: UxEvent[]): UxImpactSummary {
     profileOpens: opens.length,
     profileCloses: closes.length,
     medianDwellMinutes: medianDwellMinutes == null ? null : toMinutes(medianDwellMinutes),
+    ignoredDwellCount,
     verifiedProfiles: new Set(completions.map(event => event.application_id)).size,
     averageCompletionMinutes: completionDurations.length
       ? toMinutes(completionDurations.reduce((total, value) => total + value, 0) / completionDurations.length)

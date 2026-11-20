@@ -5,8 +5,8 @@
  * checked. This test drives the real dashboard with a seeded local event log and
  * checks that:
  *  1. The impact block turns the log into median time in a profile, open-to-finish
- *     time and bulk usage, and shows the server's overdue figure as a separate,
- *     whole-system number.
+ *     time and bulk usage. The server's overdue figure is shown once, in the work
+ *     queue above, and is not repeated in the impact block.
  *  2. Clearing the measurements empties only this module's key.
  *  3. Opening a profile really records an open/leave pair with only the
  *     application id and a duration — no candidate name, no CV content.
@@ -73,8 +73,11 @@ const now = Date.now();
   await block.waitFor();
   assert.match(await page.getByTestId('ux-median-dwell').innerText(), /^2\.5 phút$/, 'median time in a profile');
   assert.match(await page.getByTestId('ux-completion').innerText(), /^20 phút$/, 'time from first open to finishing');
-  assert.match(await page.getByTestId('ux-overdue').innerText(), /^6$/, 'the overdue figure comes from the server');
-  await block.getByText('Quá 7 ngày · lâu nhất 23 ngày').waitFor();
+  // The overdue figure belongs to the work queue above; the impact block must not
+  // repeat it as a second, competing copy of the same server number.
+  await page.getByText('6 hồ sơ chờ quá 7 ngày · lâu nhất 23 ngày').waitFor();
+  assert.equal(await block.getByTestId('ux-overdue').count(), 0, 'the impact block no longer repeats the overdue figure');
+  assert.doesNotMatch(await block.innerText(), /lâu nhất|Quá 7 ngày/);
   assert.match(await page.getByTestId('ux-bulk').innerText(), /^1$/, 'one bulk run');
   await block.getByText('12 hồ sơ · 1 lỗi · trung bình 4 phút').waitFor();
 
@@ -108,6 +111,6 @@ const now = Date.now();
 
   assert.deepEqual(pageErrors, [], `no client-side exceptions: ${pageErrors.join(' | ')}`);
   assert.deepEqual(unexpected, [], `all API calls are accounted for: ${unexpected.join(', ')}`);
-  console.log('UX impact: seeded events show median profile time, open-to-finish time and bulk usage beside the server’s overdue count, clearing stays local to this module, and opening a profile records only an application id plus duration: OK');
+  console.log('UX impact: seeded events show median profile time, open-to-finish time and bulk usage without repeating the work queue’s overdue count, clearing stays local to this module, and opening a profile records only an application id plus duration: OK');
   await browser.close();
 })().catch(err => { console.error(err); process.exit(1); });
