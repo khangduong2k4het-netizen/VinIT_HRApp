@@ -31,6 +31,7 @@ const JOB = {
   application_deadline_at: '2026-12-31T17:00:00Z',
   description: 'Xây dựng dịch vụ Python chạy production.',
   can_apply_test: true,
+  accepting_applications: true,
 };
 
 async function installCareersApi(context) {
@@ -69,16 +70,16 @@ async function installCareersApi(context) {
 
   await page.goto(`${base}/careers`, { waitUntil: 'networkidle' });
   await page.getByRole('heading', { name: 'Vị trí đang tuyển dụng' }).waitFor();
-  assert.equal(await page.getByRole('button', { name: 'Ứng tuyển thử nghiệm' }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'Xem chi tiết' }).count(), 1);
   assert.match(await page.locator('body').innerText(), /Chỉ kiểm thử với CV và thông tin tổng hợp/);
 
   await page.getByRole('button', { name: 'English' }).click();
   await page.getByRole('heading', { name: 'Open positions' }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.lang), 'en', '<html lang> must follow the switch');
-  assert.equal(await page.getByRole('button', { name: 'Apply as a test' }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: 'View Detail' }).count(), 1);
   assert.match(await page.locator('body').innerText(), /Synthetic CVs and details only/);
 
-  await page.getByRole('button', { name: 'Apply as a test' }).click();
+  await page.getByRole('button', { name: 'View Detail' }).click();
   await page.getByLabel('Synthetic name').waitFor();
   assert.equal(await page.getByLabel('Synthetic email @example.test').count(), 1);
   assert.equal(await page.getByRole('button', { name: 'Send test application' }).count(), 1);
@@ -89,11 +90,27 @@ async function installCareersApi(context) {
   assert.equal(await page.locator('input[name=cv]').count(), 1);
 
   await page.getByRole('button', { name: 'Tiếng Việt' }).click();
-  await page.getByRole('heading', { name: /Ứng tuyển thử nghiệm:/ }).waitFor();
+  await page.getByRole('heading', { name: /Nộp hồ sơ cho vị trí này/ }).waitFor();
   assert.equal(await page.getByLabel('Tên tổng hợp').count(), 1);
   assert.deepEqual(pageErrors, [], `no client-side exceptions: ${pageErrors.join(' | ')}`);
   assert.deepEqual(unexpected, [], `all API calls are accounted for: ${unexpected.join(', ')}`);
   await context.close();
+
+  // --- 1b. Intake đóng thì KHÔNG hiện tin nào ------------------------------
+  // Một trang tuyển dụng liệt kê việc mà bấm vào không nộp được là trang hỏng.
+  const closed = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await closed.addInitScript(() => localStorage.setItem('hra_locale', 'vi'));
+  await closed.route('**/v1/careers/jobs**', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ items: [], next_cursor: null, accepting_applications: false, reason: 'INTAKE_NOT_OPEN' }),
+  }));
+  await closed.route('**/v1/careers/filters', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ employment_types: [], job_families: [] }) }));
+  const closedPage = await closed.newPage();
+  await closedPage.goto(`${base}/careers`, { waitUntil: 'networkidle' });
+  await closedPage.getByText('Hiện chưa mở nhận hồ sơ').waitFor();
+  assert.equal(await closedPage.getByRole('button', { name: 'Xem chi tiết' }).count(), 0,
+    'no listing rows may be shown while intake is closed');
+  await closed.close();
 
   // --- 2 + 3. A phone-sized form: fits, 44px targets, chosen file, submit ---
   const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
@@ -105,7 +122,7 @@ async function installCareersApi(context) {
 
   await phone.goto(`${base}/careers`, { waitUntil: 'networkidle' });
   await phone.getByRole('heading', { name: 'Vị trí đang tuyển dụng' }).waitFor();
-  await phone.getByRole('button', { name: 'Ứng tuyển thử nghiệm' }).click();
+  await phone.getByRole('button', { name: 'Xem chi tiết' }).click();
   await phone.getByTestId('careers-apply-form').waitFor();
 
   // The file control is a real button with a readable size, not the tiny native input.

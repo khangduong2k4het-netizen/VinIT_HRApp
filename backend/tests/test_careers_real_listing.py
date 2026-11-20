@@ -1,4 +1,9 @@
-"""Real listing tests; only run against disposable local migrated PostgreSQL."""
+"""Real listing tests; only run against disposable local migrated PostgreSQL.
+
+Trang tuyển dụng nay CHỈ trả về vị trí thực sự nhận được hồ sơ: vị trí OPEN, còn
+hạn, có JD, có rubric APPROVED cho đúng phiên bản JD đang hiển thị, và intake đã
+mở. Bộ test này dựng đúng điều kiện đó trước khi kiểm tra phân trang.
+"""
 import os
 from uuid import uuid4
 
@@ -12,20 +17,44 @@ from test_phase1_integration import seed as seed, client as client
 pytestmark = pytest.mark.skipif(not os.environ.get('TEST_DATABASE_URL'), reason='Disposable PostgreSQL required')
 
 
+def _open_intake(monkeypatch):
+    monkeypatch.setattr(settings, 'PUBLIC_CAREERS_TEST_INTAKE_ENABLED', True)
+    monkeypatch.setattr(settings, 'CLAMAV_UNIX_SOCKET', '/run/clamav/clamd.ctl')
+
+
+def _approve_rubric_for_latest_jd(conn, position_id):
+    """Duyệt rubric cho đúng phiên bản JD mới nhất của vị trí."""
+    conn.execute(text("""
+        INSERT INTO app_private.criteria_versions(position_id, jd_version_id, version_number, status)
+        SELECT :p, jd.jd_version_id, 1, 'APPROVED'
+        FROM (SELECT jd_version_id FROM app_private.jd_versions
+              WHERE position_id=:p ORDER BY version_number DESC LIMIT 1) jd
+    """), {'p': position_id})
+
 def test_disabled_by_default_and_open_jobs_only(client, seed, monkeypatch):
     monkeypatch.setattr(settings, 'PUBLIC_CAREERS_ENABLED', False)
     assert client.get('/v1/careers/jobs').status_code == 404
     monkeypatch.setattr(settings, 'PUBLIC_CAREERS_ENABLED', True)
+
+    # Intake đóng: không hiện tin nào, và nói rõ lý do thay vì im lặng.
+    closed = client.get('/v1/careers/jobs').json()
+    assert closed['items'] == [] and closed['reason'] == 'INTAKE_NOT_OPEN'
+
+    _open_intake(monkeypatch)
     assert client.get('/v1/careers/jobs').json()['items'] == []
     with engine.begin() as conn:
         conn.execute(text("UPDATE app_private.positions SET status='OPEN', application_deadline_at=now()+interval '1 day' WHERE position_id=:id"), {'id': seed['pos']})
         conn.execute(text("UPDATE app_private.positions SET status='PAUSED', application_deadline_at=now()+interval '1 day' WHERE position_id=:id"), {'id': seed['pos2']})
         conn.execute(text("INSERT INTO app_private.jd_versions(position_id,version_number,content_text,created_by) VALUES (:p,2,'Newest JD',:u)"), {'p': seed['pos'], 'u': seed['hr']})
+        # Rubric phải duyệt cho ĐÚNG phiên bản JD mới nhất, nếu không tin bị loại.
+        _approve_rubric_for_latest_jd(conn, seed['pos'])
     res = client.get('/v1/careers/jobs')
     assert res.status_code == 200 and res.headers['cache-control'] == 'no-store'
     job = res.json()['items'][0]
     assert len(res.json()['items']) == 1 and job['position_id'] == seed['pos'] and job['description'] == 'Newest JD'
-    assert set(job) == {'position_id', 'position_code', 'title', 'org_unit', 'work_location', 'work_mode', 'employment_type', 'application_deadline_at', 'description', 'can_apply_test'}
+    assert set(job) == {'position_id', 'position_code', 'title', 'org_unit', 'work_location', 'work_mode', 'employment_type',
+                        'job_family', 'application_deadline_at', 'description', 'can_apply_test', 'accepting_applications'}
+    assert job['accepting_applications'] is True
     with engine.begin() as conn:
         conn.execute(text("UPDATE app_private.positions SET application_deadline_at=now()-interval '1 second' WHERE position_id=:id"), {'id': seed['pos']})
     assert client.get('/v1/careers/jobs').json()['items'] == []
@@ -33,17 +62,24 @@ def test_disabled_by_default_and_open_jobs_only(client, seed, monkeypatch):
 
 def test_pagination_and_missing_jd(client, seed, monkeypatch):
     monkeypatch.setattr(settings, 'PUBLIC_CAREERS_ENABLED', True)
+    _open_intake(monkeypatch)
     with engine.begin() as conn:
         for i in range(105):
+            position = str(uuid4())
             conn.execute(text("""INSERT INTO app_private.positions(position_id,position_code,title,created_by,status,application_deadline_at)
                 VALUES (:id,:code,'Synthetic',:creator,'OPEN',now()+interval '1 day')"""),
-                {'id': str(uuid4()), 'code': f'synthetic-{i}', 'creator': seed['hr']})
+                {'id': position, 'code': f'synthetic-{i}', 'creator': seed['hr']})
+            # Tin không có JD không được hiện: ứng viên bấm vào cũng không biết
+            # mình ứng tuyển cho việc gì. Vì vậy mọi tin ở đây đều có JD + rubric.
+            conn.execute(text("INSERT INTO app_private.jd_versions(position_id,version_number,content_text,created_by) VALUES (:p,1,'Synthetic JD',:u)"),
+                         {'p': position, 'u': seed['hr']})
+            _approve_rubric_for_latest_jd(conn, position)
     first = client.get('/v1/careers/jobs?limit=100').json()
     assert len(first['items']) == 100 and first['next_cursor']
     second = client.get('/v1/careers/jobs', params={'limit': 100, 'cursor': first['next_cursor']}).json()
     assert len(second['items']) == 5 and second['next_cursor'] is None
     ids = [job['position_id'] for job in first['items'] + second['items']]
     assert len(set(ids)) == 105
-    assert all(job['description'] is None for job in first['items'] + second['items'])
+    assert all(job['description'] == 'Synthetic JD' for job in first['items'] + second['items'])
     assert client.get('/v1/careers/jobs?limit=101').status_code == 422
     assert client.get('/v1/careers/jobs?cursor=invalid').status_code == 422

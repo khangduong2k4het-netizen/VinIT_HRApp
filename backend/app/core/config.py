@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     PUBLIC_CAREERS_ENABLED: bool = False
     # Synthetic-only end-to-end test: NEVER accept real data yet.
     PUBLIC_CAREERS_TEST_INTAKE_ENABLED: bool = False
+    # Chỉ ở chế độ thử nghiệm: nhận tệp khi ClamAV không chạy, thay vì từ chối.
+    # Mặc định TẮT, và KHÔNG có tác dụng nếu PUBLIC_CAREERS_TEST_INTAKE_ENABLED
+    # đang tắt — nên production không thể vô tình bật riêng cờ này mà nhận tệp
+    # không quét. Khi bật, mỗi lần nhận tệp phải kèm dấu "chưa quét virus" để
+    # HR nhìn thấy, và phải ghi vào audit.
+    PUBLIC_CAREERS_UNSCANNED_FILES_ENABLED: bool = False
     CLAMAV_UNIX_SOCKET: str = ""
     GMAIL_TEST_INGEST_ENABLED: bool = False
     GMAIL_TEST_TOKEN_FILE: str = ""

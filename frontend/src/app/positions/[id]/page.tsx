@@ -583,7 +583,7 @@ export default function PositionDetailPage() {
           {isHR && <Button component={Link} href={`/positions/${positionId}/applicants`} variant="contained">{t('Ứng viên')} {appCounts ? `(${appCounts.total})` : ''}</Button>}
           {!isHR && <Button component={Link} href="/shortlist" variant="outlined">{t('Shortlist được chia sẻ')}</Button>}
           {isHR && <HiringManagerChange positionId={positionId} onChanged={loadData} />}
-          {isHR && <ApplyRubric positionId={positionId} onApplied={loadData} disabled={generating || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status))} />}
+          {isHR && <ApplyRubric positionId={positionId} jobFamilyId={position.job_family_id} onApplied={loadData} disabled={generating || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status))} />}
           {isHR && <Button variant="outlined" startIcon={<EditOutlinedIcon />} onClick={() => {
             setPositionTitle(position.title); setPositionStatus(position.status); setPositionDeadline(position.application_deadline_at ? new Date(new Date(position.application_deadline_at).getTime() - new Date(position.application_deadline_at).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''); setPositionFamily(position.job_family_id || ''); setFamilyChanged(false); setPositionEditError(null); setPositionDialogOpen(true);
             rubricApi.families().then(res => setFamilies(res.data)).catch(() => { setFamilies([]); setPositionEditError(t('Không thể tải nhóm vị trí.')); });

@@ -1712,5 +1712,19 @@
   "không tải được JD": "the job description could not be loaded",
   "không tải được quyền của tài khoản": "your account permissions could not be loaded",
   "Phạm vi xoá rộng hơn những gì bạn chọn: {0}": "The purge scope is wider than what you selected: {0}",
-  "Chuỗi chưa khớp — gõ đúng {0}.": "Phrase does not match — type exactly {0}."
+  "Chuỗi chưa khớp — gõ đúng {0}.": "Phrase does not match — type exactly {0}.",
+  "Tệp được trích xuất nhưng CHƯA được quét virus vì máy quét chưa sẵn sàng. Tệp gốc không được lưu lại. Hãy rà soát nội dung được trích xuất trước khi lưu.": "The file was extracted but was NOT virus-scanned because the scanner is unavailable. The original file is not kept. Review the extracted content before saving.",
+  "Chọn một vị trí để xem mô tả công việc và nộp hồ sơ.": "Select a position to read the job description and apply.",
+  "Loại việc làm": "Job type",
+  "Ngành / Lĩnh vực": "Field / Industry",
+  "Lọc ngành...": "Filter Field / Industry...",
+  "Lọc ngành": "Filter field",
+  "Không có ngành khớp.": "No matching field.",
+  "Tất cả vị trí đang mở": "All Available Jobs",
+  "Xem chi tiết {0}": "View details: {0}",
+  "Hạn": "Expire",
+  "Nộp hồ sơ cho vị trí này": "Apply for this position",
+  "Bộ lọc": "Filters",
+  "Hiện chưa mở nhận hồ sơ. Danh sách vị trí sẽ xuất hiện khi HR mở nhận hồ sơ.": "Applications are not open yet. Positions will appear once HR opens intake.",
+  "(khác nhóm vị trí)": "(different job family)"
 }

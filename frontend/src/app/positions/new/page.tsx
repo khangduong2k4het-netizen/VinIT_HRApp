@@ -204,7 +204,7 @@ export default function CreatePositionPage() {
         </Stack>
         {source === 'file' && <Stack spacing={1} sx={{ mb: 2 }}><Typography variant="body2">{t('Chỉ hỗ trợ DOCX hoặc TXT UTF-8, tối đa 2 MB; không hỗ trợ DOC cũ.')}</Typography><input aria-label={t('Chọn tệp JD')} type="file" accept=".docx,.txt" onChange={e => setFile(e.target.files?.[0] || null)} /><Button type="button" variant="outlined" disabled={importing || !file} onClick={importJd}>{importing ? t('Đang đọc...') : t('Đọc tệp')}</Button></Stack>}
         {source === 'url' && <Stack spacing={1} sx={{ mb: 2 }}><TextField fullWidth label={t('Link JD')} value={url} onChange={e => setUrl(e.target.value)} helperText={t('Hỗ trợ link việc làm careerportalvinuni.talent.vn.')} /><Button type="button" variant="outlined" disabled={importing || !url.trim()} onClick={importJd}>{importing ? t('Đang đọc...') : t('Lấy nội dung JD')}</Button></Stack>}
-        {warning && <Alert severity="info" sx={{ mb: 2 }}>{t(warning)}</Alert>}
+        {warning && <Alert severity={warning.startsWith('Tệp được trích xuất nhưng CHƯA được quét') ? 'warning' : 'info'} sx={{ mb: 2 }} data-testid="jd-import-warning">{t(warning)}</Alert>}
         <TextField required fullWidth multiline minRows={12} label={t('Nội dung JD')} value={content} onChange={e => setContent(e.target.value)} onBlur={() => touch('content')} inputProps={{ maxLength: 100000 }} error={!!contentError} helperText={contentError || t('Bắt buộc: kiểm tra nội dung và yêu cầu công việc trước khi tạo.')} />
       </CardContent></Card>
       </Box>

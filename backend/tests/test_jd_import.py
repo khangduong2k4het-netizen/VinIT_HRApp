@@ -81,6 +81,51 @@ def test_preview_auth_and_scanner_fail_closed(monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_preview_unscanned_is_allowed_only_with_explicit_flag(monkeypatch):
+    """Máy quét chết KHÔNG được chặn cứng đường nhập JD khi cờ cho phép.
+
+    Đây là đường nhập JD: nội dung được trích xuất để HR đọc và sửa, tệp gốc
+    không được giữ và không bao giờ chạy. Chặn cứng ở đây từng làm hỏng đúng
+    thao tác người dùng cần (tải JD .txt lên để tạo vị trí) mà không thêm an
+    toàn nào. Ngược lại, tệp BẨN thì luôn bị chặn, kể cả khi cờ bật.
+    """
+    from app.core.config import settings
+    app.dependency_overrides[get_current_user] = lambda: {'user_id': 'synthetic'}
+    audited = []
+    try:
+        app.dependency_overrides[jd_import.require_hr] = lambda: {'user_id': 'synthetic'}
+        monkeypatch.setattr(jd_import, '_audit_unscanned_preview', lambda *a: audited.append(a))
+        with TestClient(app) as client:
+            monkeypatch.setattr(jd_import, 'scan_bytes', lambda *a, **k: ScanVerdict.UNAVAILABLE)
+
+            # Cờ tắt (mặc định): vẫn fail-closed như trước.
+            monkeypatch.setattr(settings, 'PUBLIC_CAREERS_UNSCANNED_FILES_ENABLED', False)
+            res = client.post('/v1/jd-import/file', files={'file': ('jd.txt', b'hello', 'text/plain')})
+            assert res.status_code == 503 and audited == []
+
+            # Cờ bật: trích xuất được, nhưng phải nói rõ là chưa quét và ghi audit.
+            monkeypatch.setattr(settings, 'PUBLIC_CAREERS_UNSCANNED_FILES_ENABLED', True)
+            res = client.post('/v1/jd-import/file', files={'file': ('jd.txt', b'JD synthetic', 'text/plain')})
+            assert res.status_code == 200
+            body = res.json()
+            assert body['content'] == 'JD synthetic'
+            assert body['scanned'] is False
+            assert 'CHƯA được quét' in body['warning']
+            assert len(audited) == 1 and audited[0][1] == 'jd.txt'
+
+            # Tệp bẩn vẫn bị chặn dù cờ bật.
+            monkeypatch.setattr(jd_import, 'scan_bytes', lambda *a, **k: ScanVerdict.INFECTED)
+            assert client.post('/v1/jd-import/file', files={'file': ('jd.txt', b'x', 'text/plain')}).status_code == 400
+
+            # Máy quét sống: báo scanned=True, không ghi audit "chưa quét".
+            monkeypatch.setattr(jd_import, 'scan_bytes', lambda *a, **k: ScanVerdict.CLEAN)
+            res = client.post('/v1/jd-import/file', files={'file': ('jd.txt', b'JD synthetic', 'text/plain')})
+            assert res.status_code == 200 and res.json()['scanned'] is True
+            assert len(audited) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_role_enforced_by_import_dependency(monkeypatch):
     db = SimpleNamespace(execute=Mock(return_value=SimpleNamespace(first=lambda: None)), close=Mock())
     monkeypatch.setattr(jd_import, 'SessionLocal', lambda: db)
