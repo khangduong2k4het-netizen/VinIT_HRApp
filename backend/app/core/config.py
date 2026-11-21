@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     # HR nhìn thấy, và phải ghi vào audit.
     PUBLIC_CAREERS_UNSCANNED_FILES_ENABLED: bool = False
     CLAMAV_UNIX_SOCKET: str = ""
+    # Mặc định TẮT: /health/ready báo trạng thái máy quét nhưng không trả 503 khi
+    # máy quét chết. Bật cờ này nếu muốn load balancer rút backend khi thiếu máy
+    # quét — chỉ nên bật ở môi trường mà mọi request đều cần quét.
+    READINESS_REQUIRE_CLAMAV: bool = False
     GMAIL_TEST_INGEST_ENABLED: bool = False
     GMAIL_TEST_TOKEN_FILE: str = ""
     # Synthetic-only: use Gmail spam/trash labels without independent spamd.

@@ -14,6 +14,31 @@ setup_logging()
 logger = get_logger(__name__)
 
 
+def _clamav_state() -> str:
+    """Trả `connected` / `unavailable` / `disabled` — **không** ném lỗi.
+
+    `disabled` nghĩa là chưa cấu hình socket (chủ ý), khác với `unavailable`
+    nghĩa là đã cấu hình nhưng clamd không trả lời. Gộp hai thứ này làm một thì
+    không phân biệt được "chưa bật tính năng" với "hỏng".
+
+    Chỉ mở socket rồi đóng, không gửi dữ liệu: health probe phải rẻ và không được
+    đẩy tệp qua clamd. `scan_bytes` không dùng được ở đây vì nó cần dữ liệu để
+    quét; nhưng tiêu chí kết nối thì giống — cùng một đường Unix socket.
+    """
+    socket_path = settings.CLAMAV_UNIX_SOCKET
+    if not socket_path.startswith("/"):
+        return "disabled"
+    import socket as _socket
+    try:
+        with _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM) as conn:
+            conn.settimeout(2.0)
+            conn.connect(socket_path)
+        return "connected"
+    except OSError as exc:
+        logger.warning("ClamAV readiness probe failed", error_type=type(exc).__name__)
+        return "unavailable"
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.APP_NAME,
@@ -56,7 +81,21 @@ def create_app() -> FastAPI:
 
     @app.get("/health/ready", tags=["Health Check"])
     async def readiness_check():
-        """Readiness probe - verifies database connectivity."""
+        """Readiness probe - verifies database connectivity, reports scanner state.
+
+        ClamAV được **báo cáo**, không được dùng để chặn 503. Lý do: máy quét
+        chết thì đường nhận CV hỏng (`careers_intake.py` fail-closed), nhưng phần
+        lớn hệ thống — xem vị trí, chấm hồ sơ đã nhận, duyệt rubric — vẫn chạy
+        bình thường. Trả 503 sẽ khiến load balancer rút backend khỏi vòng phục vụ
+        và biến "thiếu máy quét" thành "sập toàn hệ thống".
+
+        Trước đây endpoint này không nhắc gì tới máy quét, nên `clamav` chết vẫn
+        báo `ready` — không có tín hiệu nào cho giám sát. Đó là lỗi im lặng mà
+        mục HANG-01/HANG-03 đã ghi nhận.
+
+        Ai muốn siết thì bật `READINESS_REQUIRE_CLAMAV`; khi cờ đó bật **và** máy
+        quét không sẵn sàng thì mới trả 503.
+        """
         from sqlalchemy import text
         from app.db.database import SessionLocal
         db = SessionLocal()
@@ -68,12 +107,17 @@ def create_app() -> FastAPI:
             return JSONResponse(status_code=503, content={"status": "unhealthy", "database": "unavailable"})
         finally:
             db.close()
-        return {
+        clamav_status = _clamav_state()
+        payload = {
             "status": "ready",
             "database": db_status,
+            "clamav": clamav_status,
             "app": settings.APP_NAME,
             "environment": settings.APP_ENV,
         }
+        if settings.READINESS_REQUIRE_CLAMAV and clamav_status != "connected":
+            return JSONResponse(status_code=503, content={**payload, "status": "unhealthy"})
+        return payload
 
     @app.on_event("startup")
     async def startup_event():
