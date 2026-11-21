@@ -87,6 +87,15 @@ export const departmentsApi = {
   delete: (id: string) => apiClient.delete(`/departments/${id}`),
 };
 
+export const jobFamiliesApi = {
+  // include_inactive chỉ trả về được với ADMIN — dùng cho màn hình quản trị.
+  list: (includeInactive = false) => apiClient.get('/job-families', { params: { include_inactive: includeInactive } }),
+  create: (data: { code: string; name: string }) => apiClient.post('/job-families', data),
+  // `code` cố ý không có ở đây: nó là khoá nghiệp vụ, đổi mã của nhóm đang dùng
+  // là đổi nghĩa dữ liệu cũ. Chỉ đổi tên và trạng thái.
+  update: (id: string, data: { name?: string; is_active?: boolean }) => apiClient.patch(`/job-families/${id}`, data),
+};
+
 export const criteriaApi = {
   listVersions: (positionId: string) =>
     apiClient.get(`/criteria/position/${positionId}/versions`),

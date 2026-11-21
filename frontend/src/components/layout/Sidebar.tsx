@@ -12,6 +12,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import ApartmentIcon from '@mui/icons-material/Apartment';
+import CategoryIcon from '@mui/icons-material/Category';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 
@@ -38,6 +39,7 @@ const menuGroups = [
       { text: 'Quản trị hệ thống', icon: <SettingsIcon />, href: '/admin' },
       { text: 'Quản lý tài khoản', icon: <ManageAccountsIcon />, href: '/admin/users' },
       { text: 'Quản lý phòng ban', icon: <ApartmentIcon />, href: '/admin/departments' },
+      { text: 'Quản lý nhóm vị trí', icon: <CategoryIcon />, href: '/admin/job-families' },
     ],
   },
 ];
