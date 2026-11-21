@@ -79,6 +79,37 @@ export function reviewShortcut(
   }
 }
 
+export interface VerifyableCriterion {
+  criterion_id: string;
+  result_id?: string | null;
+  requires_verification: boolean;
+  hr_reviews?: unknown[] | null;
+}
+
+/**
+ * Tiêu chí HR nên làm tiếp sau khi vừa xác nhận một tiêu chí.
+ *
+ * Con trỏ cũ đứng lại ở tiêu chí vừa xong, nên lần bấm `1` kế tiếp không làm gì
+ * và HR phải tự tìm tiêu chí còn chờ (đo được: 16 phím cho 2 tiêu chí, 7 lần bấm
+ * vô ích). Đi tiếp về phía trước; chỉ khi phía trước hết việc mới quay lại tiêu
+ * chí còn chờ phía trên, vì bỏ sót nó sẽ im lặng.
+ *
+ * Trả `null` khi không còn gì chờ — con trỏ giữ nguyên ở tiêu chí vừa xác nhận.
+ */
+export function nextPendingCriterionId(
+  results: VerifyableCriterion[],
+  justReviewedCriterionId: string,
+): string | null {
+  const pending = results.filter(result => result.criterion_id !== justReviewedCriterionId
+    && result.requires_verification
+    && result.result_id
+    && !(result.hr_reviews && result.hr_reviews.length));
+  if (!pending.length) return null;
+  const reviewedIndex = results.findIndex(result => result.criterion_id === justReviewedCriterionId);
+  const after = pending.find(result => results.indexOf(result) > reviewedIndex);
+  return (after || pending[0]).criterion_id;
+}
+
 /**
  * Dịch chỉ số tiêu chí đang chọn. Dừng ở hai đầu thay vì quay vòng: nhảy từ
  * tiêu chí cuối về đầu mà không báo gì sẽ làm HR xác nhận nhầm tiêu chí.

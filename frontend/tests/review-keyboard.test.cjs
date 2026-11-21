@@ -72,3 +72,43 @@ test('chuyển tiêu chí dừng ở hai đầu, không quay vòng', () => {
   assert.equal(moveCriterionIndex(-1, 3, 1), 1, 'chưa chọn gì thì j bắt đầu từ tiêu chí đầu');
   assert.equal(moveCriterionIndex(0, 0, 1), -1);
 });
+
+const { nextPendingCriterionId } = loadTypeScriptModule('src/lib/reviewKeyboard.ts');
+
+test('xác nhận xong thì đi tiếp tiêu chí còn chờ, không đứng lại ở tiêu chí vừa xong', () => {
+  const results = [
+    { criterion_id: 'c2', result_id: 'r-c2', requires_verification: true, hr_reviews: [] },
+    { criterion_id: 'c3', result_id: 'r-c3', requires_verification: true, hr_reviews: [] },
+    { criterion_id: 'c4', result_id: 'r-c4', requires_verification: true, hr_reviews: [] },
+  ];
+  assert.equal(nextPendingCriterionId(results, 'c2'), 'c3');
+  assert.equal(nextPendingCriterionId(results, 'c3'), 'c4');
+});
+
+test('hết việc phía trước thì quay lại tiêu chí còn chờ phía trên thay vì bỏ sót', () => {
+  const results = [
+    { criterion_id: 'c2', result_id: 'r-c2', requires_verification: true, hr_reviews: [] },
+    { criterion_id: 'c3', result_id: 'r-c3', requires_verification: true, hr_reviews: [] },
+  ];
+  assert.equal(nextPendingCriterionId(results, 'c3'), 'c2');
+});
+
+test('bỏ qua tiêu chí đã xác minh, không cần xác minh, hoặc không có kết quả để ghi', () => {
+  const results = [
+    { criterion_id: 'c1', result_id: 'r-c1', requires_verification: false, hr_reviews: [] },
+    { criterion_id: 'c2', result_id: 'r-c2', requires_verification: true, hr_reviews: [] },
+    { criterion_id: 'c3', result_id: 'r-c3', requires_verification: true, hr_reviews: [{ decision: 'CONFIRMED' }] },
+    { criterion_id: 'c4', result_id: null, requires_verification: true, hr_reviews: [] },
+    { criterion_id: 'c5', result_id: 'r-c5', requires_verification: true, hr_reviews: [] },
+  ];
+  assert.equal(nextPendingCriterionId(results, 'c2'), 'c5', 'c1/c3/c4 không phải việc còn lại');
+  assert.equal(nextPendingCriterionId(results, 'c1'), 'c2', 'tiêu chí không cần xác minh không phải điểm dừng');
+});
+
+test('không còn tiêu chí chờ thì không nhảy đi đâu', () => {
+  const results = [
+    { criterion_id: 'c2', result_id: 'r-c2', requires_verification: true, hr_reviews: [{ decision: 'CONFIRMED' }] },
+  ];
+  assert.equal(nextPendingCriterionId(results, 'c2'), null);
+  assert.equal(nextPendingCriterionId([], 'c2'), null);
+});

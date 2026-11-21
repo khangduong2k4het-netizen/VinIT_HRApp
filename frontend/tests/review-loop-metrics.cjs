@@ -1,0 +1,176 @@
+/**
+ * Đo vòng xác minh một hồ sơ: số phím HR phải bấm, số request mỗi lần xác nhận,
+ * và việc CV có đi theo tiêu chí hay không.
+ *
+ *   node tests/review-loop-metrics.cjs   -> JSON ra stdout
+ *
+ * Chạy y hệt nhau trước và sau khi sửa để so sánh; mọi con số đều đọc từ màn
+ * hình (chip tiến độ, thẻ đang chọn, trang của khung CV), không đọc state nội
+ * bộ của app.
+ */
+const { chromium } = require('playwright-core');
+const { installMockApi } = require('./fixtures/hr-screens.cjs');
+
+const base = process.env.HRA_E2E_BASE_URL;
+if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostname)) {
+  throw Error('Use local Next server only');
+}
+
+const pendingOf = async page => page.evaluate(() => {
+  const chip = document.querySelector('[data-testid="verification-progress"]');
+  const match = (chip?.textContent || '').match(/Đã xác minh (?:đủ )?(\d+)\/(\d+)/);
+  return match ? { done: Number(match[1]), total: Number(match[2]) } : null;
+});
+
+/** Tiêu chí đang được con trỏ bàn phím chọn, đọc từ id của thẻ. */
+const activeCriterion = async page => page.evaluate(() => {
+  const card = document.querySelector('[data-testid="evidence-card"][data-active="true"]');
+  return card ? card.id.replace(/^criterion-/, '') : null;
+});
+
+/** Trang CV đang mở: hash của iframe PDF, hoặc dòng "Trang N". */
+const cvPageLabel = async page => page.evaluate(() => {
+  const src = document.querySelector('#cv-pdf-viewer')?.getAttribute('src') || '';
+  const fromHash = src.match(/#page=(\d+)/);
+  if (fromHash) return Number(fromHash[1]);
+  const fromText = document.body.innerText.match(/Trang (\d+)/);
+  return fromText ? Number(fromText[1]) : null;
+});
+
+(async () => {
+  const browser = await chromium.launch({
+    executablePath: process.env.HRA_E2E_CHROMIUM_EXECUTABLE,
+    args: JSON.parse(process.env.HRA_E2E_CHROMIUM_ARGS || '[]'),
+  });
+
+  // Mỗi phần đo một context mới: mock giữ lại review đã ghi, dùng chung sẽ làm
+  // phần sau bắt đầu với tiến độ khác 0.
+  const openPage = async () => {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await context.addInitScript(() => {
+      localStorage.setItem('hra_access_token', 'metrics');
+      localStorage.setItem('hra_locale', 'vi');
+    });
+    await installMockApi(context);
+    const page = await context.newPage();
+    const requests = [];
+    page.on('request', request => {
+      const url = new URL(request.url());
+      requests.push({ method: request.method(), path: url.pathname, rsc: Boolean(request.headers()['next-router-prefetch']) });
+    });
+    await page.goto(`${base}/positions/p1/applicants/app-2?queue=NEEDS_VERIFICATION`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('[data-testid="evidence-card"]');
+    await page.waitForTimeout(400);
+    return { page, context, requests };
+  };
+
+  const report = {};
+
+  /**
+   * Xác nhận hết tiêu chí bị gắn cờ. `firstKey` mô phỏng thao tác đầu tiên của
+   * HR: bấm luôn, hoặc bấm j để xem tiêu chí kế trước khi quyết.
+   * Khi một lần bấm không làm tiến độ đổi, HR phải tự chuyển tiêu chí rồi bấm
+   * lại — chính số lần đó là thao tác thừa cần đo.
+   */
+  const runLoop = async (page, requests, firstKeys) => {
+    const start = requests.length;
+    let keys = 0;
+    let wasted = 0;
+    for (const key of firstKeys) {
+      await page.keyboard.press(key);
+      keys += 1;
+      await page.waitForTimeout(300);
+    }
+    let current = await pendingOf(page);
+    const progress = [current];
+    let guard = 0;
+    while (current && current.done < current.total && guard < 8) {
+      guard += 1;
+      const doneBefore = current.done;
+      await page.keyboard.press('1');
+      keys += 1;
+      await page.waitForTimeout(900);
+      current = await pendingOf(page);
+      progress.push(current);
+      if (current.done === doneBefore) {
+        wasted += 1;
+        await page.keyboard.press('j');
+        keys += 1;
+        await page.waitForTimeout(300);
+      }
+    }
+    const during = requests.slice(start);
+    return {
+      keysPressed: keys,
+      pressesThatDidNothing: wasted,
+      progress,
+      getRequests: during.filter(r => r.method === 'GET' && r.path.startsWith('/v1/')).length,
+      documentAndHistoryReloads: during.filter(r => r.method === 'GET' && /^\/v1\/applications\/app-2(\/status-events)?$/.test(r.path)).length,
+      postRequests: during.filter(r => r.method === 'POST').length,
+      getPaths: [...new Set(during.filter(r => r.method === 'GET' && r.path.startsWith('/v1/')).map(r => r.path))],
+      activeCriterionAtEnd: await activeCriterion(page),
+    };
+  };
+
+  // --- 1. Xác nhận liên tiếp, không chọn tay -------------------------------
+  {
+    const { page, context, requests } = await openPage();
+    report.withoutSelection = await runLoop(page, requests, []);
+    report.withoutSelection.nextRouteRequestsOnMount = requests.filter(r => r.path === '/positions/p1/applicants/app-8').length;
+    await page.close();
+    await context.close();
+  }
+
+  // --- 2. Có chọn tiêu chí bằng j (đúng như dòng phím tắt hướng dẫn) -------
+  {
+    const { page, context, requests } = await openPage();
+    report.withSelection = await runLoop(page, requests, ['j']);
+    await page.close();
+    await context.close();
+  }
+
+  // --- 3. CV đang mở thì con trỏ và CV có đi cùng nhau không --------------
+  {
+    const { page, context, requests } = await openPage();
+    const cvBefore = requests.filter(r => r.path.endsWith('/cv-file')).length;
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(1200);
+    const openedCv = requests.filter(r => r.path.endsWith('/cv-file')).length;
+    const pageBefore = await cvPageLabel(page);
+    const activeBefore = await activeCriterion(page);
+    await page.keyboard.press('1');
+    await page.waitForTimeout(900);
+    report.cvFollow = {
+      cvRequestsBeforeEnter: cvBefore,
+      cvRequestsAfterEnter: openedCv,
+      activeBefore,
+      cvPageBefore: pageBefore,
+      activeAfterConfirm: await activeCriterion(page),
+      cvPageAfterConfirm: await cvPageLabel(page),
+      requestsAfterConfirm: requests.slice(-12).map(r => `${r.method} ${r.path}`),
+      progressAfterConfirm: await pendingOf(page),
+    };
+    await page.close();
+    await context.close();
+  }
+
+  // --- 4. Sang hồ sơ kế tiếp: đã tải trước chưa, mất bao lâu --------------
+  {
+    const { page, context, requests } = await openPage();
+    report.nextProfile = {
+      requestsBeforePress: requests.filter(r => r.path === '/positions/p1/applicants/app-8').map(r => (r.rsc ? 'rsc-prefetch' : 'document')),
+    };
+    const startedAt = Date.now();
+    await page.keyboard.press('n');
+    await page.waitForFunction(() => /Ngô Thanh Tùng/.test(document.body.innerText), undefined, { timeout: 15000 });
+    report.nextProfile.msUntilNextProfileNamed = Date.now() - startedAt;
+    report.nextProfile.requestsAfterPress = requests
+      .filter(r => r.path === '/positions/p1/applicants/app-8' || r.path === '/v1/applications/app-8')
+      .map(r => `${r.method} ${r.path}`);
+    await page.close();
+    await context.close();
+  }
+
+  console.log(JSON.stringify(report, null, 2));
+  await browser.close();
+})().catch(err => { console.error(err); process.exit(1); });

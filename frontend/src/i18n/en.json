@@ -527,7 +527,7 @@
   "Có {0} việc mới kể từ lần mở trước.": "{0} new tasks since your last visit.",
   "Không đáp ứng: {0}": "Not met: {0}",
   "Chưa đủ bằng chứng: {0}": "Not enough evidence: {0}",
-  "Phím tắt: j/k chọn tiêu chí · 1 xác nhận · 2 đánh dấu sai · Enter mở trang CV · n hồ sơ tiếp theo": "Shortcuts: j/k to move between criteria · 1 to confirm · 2 to flag as wrong · Enter to open the CV page · n for the next application",
+  "Phím tắt: j/k chọn tiêu chí · 1 xác nhận (tự sang tiêu chí kế tiếp) · 2 đánh dấu sai · Enter mở trang CV · n hồ sơ tiếp theo": "Shortcuts: j/k to move between criteria · 1 to confirm (moves to the next criterion) · 2 to flag as wrong · Enter to open the CV page · n for the next application",
   "Thời gian từ mở đến hoàn tất": "Open to finish",
   "{0} hồ sơ đã hoàn tất trên trình duyệt này.": "{0} profiles finished in this browser.",
   "Hồ sơ chờ xác minh quá hạn": "Verification overdue",

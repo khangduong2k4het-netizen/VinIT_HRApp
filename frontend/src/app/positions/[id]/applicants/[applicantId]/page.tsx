@@ -46,7 +46,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { applicationsApi, assessmentsApi, authApi, criteriaApi, listAllApplications, operationsApi } from '@/lib/api';
 import { recordUxEvent } from '@/lib/uxMetrics';
-import { isTypingTarget, moveCriterionIndex, reviewShortcut } from '@/lib/reviewKeyboard';
+import { isTypingTarget, moveCriterionIndex, nextPendingCriterionId, reviewShortcut } from '@/lib/reviewKeyboard';
 import { criterionReasonCandidates, readRecentReasons, rememberReason } from '@/lib/rejectionReasons';
 import ReasonSuggestions from '@/components/candidates/ReasonSuggestions';
 import StatusBadge from '@/components/common/StatusBadge';
@@ -69,7 +69,7 @@ import {
   type ApplicantQueue,
   type ApplicantSort,
 } from '@/lib/applicantReview';
-import type { ApplicationWithAssessment, Criterion, CriterionResult, PrivateNote, RankingItem } from '@/types';
+import type { ApplicationWithAssessment, Criterion, CriterionResult, HrCriterionReview, PrivateNote, RankingItem } from '@/types';
 import { generalNotes, notesForCriterion, summarizeCriterionNotes } from '@/lib/criterionNotes';
 import { APPLICATION_STATUSES, APPLICATION_TRANSITIONS, isApplicationStatus } from '@/lib/applicationStatus';
 import { readApplicationCapabilities } from '@/lib/applicationCapabilities';
@@ -82,6 +82,20 @@ interface StatusEvent {
   note: string | null;
   changed_at: string;
   changed_by_name: string | null;
+}
+
+/**
+ * Tải trước hồ sơ kế tiếp trong hàng đợi.
+ *
+ * Hồ sơ kế tiếp thường được mở ngay sau khi xác nhận xong tiêu chí cuối, nên
+ * route của nó được tải từ lúc hồ sơ hiện tại còn đang mở. Link trong thanh dính
+ * cũng prefetch, nhưng chỉ khi nó nằm trong khung nhìn; gọi rõ ở đây để việc tải
+ * trước không phụ thuộc vào bố cục màn hình.
+ */
+function PrefetchProfile({ href }: { href: string }) {
+  const router = useRouter();
+  useEffect(() => { router.prefetch(href); }, [href, router]);
+  return null;
 }
 
 export default function ApplicantDetailPage() {
@@ -289,9 +303,11 @@ export default function ApplicantDetailPage() {
       .catch(() => { /* người phụ trách chỉ là hiển thị; không có id vẫn xem được hồ sơ */ });
   }, []);
 
+  // Quyền ghi chú là một boolean, không phải cả object hồ sơ: phụ thuộc vào object
+  // khiến mọi thay đổi nhỏ (một lần xác minh) kéo theo một lần tải lại ghi chú.
+  const mayManageNotes = application ? readApplicationCapabilities(application).manageHrNotes : false;
   useEffect(() => {
     let cancelled = false;
-    const mayManageNotes = application ? readApplicationCapabilities(application).manageHrNotes : false;
     if (!mayManageNotes) { setNotes([]); setNotesLoading(false); return; }
     setNotesLoading(true);
     applicationsApi.getPrivateNotes(applicantId)
@@ -299,7 +315,7 @@ export default function ApplicantDetailPage() {
       .catch((err: any) => { if (!cancelled) setNotesError(err.response?.data?.detail || t("Không thể tải ghi chú nội bộ.")); })
       .finally(() => { if (!cancelled) setNotesLoading(false); });
     return () => { cancelled = true; };
-  }, [applicantId, application, t]);
+  }, [applicantId, mayManageNotes, t]);
 
   const addNote = useCallback(async (content: string, criterionId?: string) => {
     await applicationsApi.addPrivateNote(applicantId, content, criterionId);
@@ -364,9 +380,6 @@ export default function ApplicantDetailPage() {
     } finally { setCvDownloading(false); }
   };
 
-  // Recording a review is not a recruiting action: it never touches
-  // application_status. The reload afterwards is what makes the queue progress
-  // ("đã kiểm 2/4") visible without a manual refresh.
   // Đo tác động UX: thời gian HR thật sự ở trong hồ sơ, để biết các lượt cải tiến
   // trước có rút ngắn việc xác minh hay không. Chỉ ghi id hồ sơ + thời lượng vào
   // localStorage của máy này — không ghi tên, CV hay nội dung đánh giá.
@@ -389,11 +402,58 @@ export default function ApplicantDetailPage() {
   }, []);
 
   const [reviewSaving, setReviewSaving] = useState<string | null>(null);
+
+  // Một lần xác nhận chỉ thêm đúng một review vào một tiêu chí; không có phần
+  // nào khác của hồ sơ đổi theo. Tải lại cả hồ sơ (hồ sơ + lịch sử trạng thái +
+  // ghi chú + panel ứng viên) tốn 7 request cho mỗi phím bấm, làm trang nhấp
+  // nháy và đẩy con trỏ về chỗ cũ — đo trước khi sửa: 15 GET cho 2 tiêu chí.
+  // Nay ghi thẳng bản ghi backend vừa trả về vào đúng tiêu chí đó.
+  const applyReview = useCallback((resultId: string, review: HrCriterionReview) => {
+    setApplication(prev => {
+      const results = prev?.latest_assessment?.criterion_results;
+      if (!prev || !prev.latest_assessment || !results) return prev;
+      return {
+        ...prev,
+        latest_assessment: {
+          ...prev.latest_assessment,
+          criterion_results: results.map(result => (result.result_id === resultId
+            ? { ...result, hr_reviews: [review, ...(result.hr_reviews || [])] }
+            : result)),
+        },
+      };
+    });
+  }, []);
+
+  // Con trỏ bàn phím và khung CV đi cùng nhau: đọc trích dẫn của tiêu chí nào thì
+  // CV mở đúng trang của tiêu chí đó. CV vẫn chỉ tải khi HR yêu cầu (xem
+  // `cvRequested`); đã mở rồi thì nó theo con trỏ thay vì đứng ở trang cũ.
+  const focusCriterion = (result?: CriterionResult) => {
+    if (!result) return;
+    setActiveCriterionId(result.criterion_id);
+    const page = result.evidence?.[0]?.page_number || result.page_number || null;
+    if (page && cvRequested) {
+      setSelectedEvidenceId(result.criterion_id);
+      jumpToPage(page);
+    }
+    // Chờ một nhịp để thẻ mới được vẽ rồi mới cuộn tới nó.
+    window.requestAnimationFrame(() => {
+      document.getElementById(`criterion-${result.criterion_id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  };
+
+  // Ghi nhận xác minh không phải hành động tuyển dụng: không bao giờ đổi
+  // application_status. Xác nhận xong thì con trỏ nhảy sang tiêu chí còn chờ kế
+  // tiếp, nên HR bấm `1` liên tiếp thay vì tự dò tiêu chí bằng j/k.
   const handleReview = async (resultId: string, decision: 'CONFIRMED' | 'REJECTED', comment?: string) => {
     setReviewSaving(resultId);
     try {
-      await assessmentsApi.reviewCriterionResult(resultId, decision, comment);
-      await loadData();
+      const response = await assessmentsApi.reviewCriterionResult(resultId, decision, comment);
+      applyReview(resultId, response.data);
+      if (decision === 'CONFIRMED') {
+        const reviewed = criteriaResults.find(result => result.result_id === resultId);
+        const nextCriterionId = reviewed ? nextPendingCriterionId(criteriaResults, reviewed.criterion_id) : null;
+        if (nextCriterionId) focusCriterion(criteriaResults.find(result => result.criterion_id === nextCriterionId));
+      }
     } finally {
       setReviewSaving(null);
     }
@@ -594,10 +654,7 @@ export default function ApplicantDetailPage() {
       case 'next-criterion':
       case 'prev-criterion': {
         const nextIndex = moveCriterionIndex(activeCriterionIndex, criteriaResults.length, shortcut === 'next-criterion' ? 1 : -1);
-        const next = criteriaResults[nextIndex];
-        if (!next) return;
-        setActiveCriterionId(next.criterion_id);
-        document.getElementById(`criterion-${next.criterion_id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        focusCriterion(criteriaResults[nextIndex]);
         return;
       }
       case 'confirm':
@@ -667,6 +724,7 @@ export default function ApplicantDetailPage() {
 
   return (
     <Box>
+      {nextApplicantId && <PrefetchProfile href={keepContext(nextApplicantId)} />}
       {/* Back button */}
       <Button
         component={Link}
@@ -716,7 +774,7 @@ export default function ApplicantDetailPage() {
           có nó thì phím tắt là tính năng ẩn: HR không đoán ra j/k/1/2/n. */}
       {canWorkVerification && !shareContext && (
         <Typography variant="caption" color="text.secondary" data-testid="review-shortcuts" sx={{ display: 'block', mb: 1.5 }}>
-          {t('Phím tắt: j/k chọn tiêu chí · 1 xác nhận · 2 đánh dấu sai · Enter mở trang CV · n hồ sơ tiếp theo')}
+          {t('Phím tắt: j/k chọn tiêu chí · 1 xác nhận (tự sang tiêu chí kế tiếp) · 2 đánh dấu sai · Enter mở trang CV · n hồ sơ tiếp theo')}
         </Typography>
       )}
 
