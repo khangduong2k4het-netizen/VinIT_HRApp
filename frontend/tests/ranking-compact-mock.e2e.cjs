@@ -34,7 +34,7 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
     };
   });
   assert.equal(box.fold, 900);
-  assert.ok(box.firstRowTop <= 720, `first data row must sit well inside the fold, got ${box.firstRowTop}px`);
+  assert.ok(box.firstRowTop <= 660, `first data row must sit well inside the fold, got ${box.firstRowTop}px`);
   assert.ok(box.rowsVisibleInFirstScreen >= 2, `at least two rows must be visible, got ${box.rowsVisibleInFirstScreen}`);
 
   // --- R6-a: one primary action, the rest behind an explicit menu -------------
@@ -94,17 +94,34 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
   assert.equal(await explanationLine.isVisible(), true);
   // Mặc định là chế độ Xếp hạng; câu giải thích phải đổi theo chế độ đang chọn.
   assert.match(await explanationLine.innerText(), /Sắp theo thứ hạng của lần chạy gần nhất/);
-  // Đổi chế độ xem ghi lại URL, nên chờ đúng trạng thái thay vì bấm liền tay.
-  const modeGroup = page.getByRole('group', { name: 'Chế độ xem ứng viên' });
-  await modeGroup.getByRole('button', { name: 'Cần rà soát' }).click();
+  // Chế độ xem đã gộp vào ô Sắp xếp (trước là hai nút riêng trùng lựa chọn):
+  // đổi chế độ ghi lại URL, nên chờ đúng trạng thái thay vì bấm liền tay.
+  assert.equal(await page.getByRole('button', { name: 'Cần rà soát', exact: true }).count(), 0,
+    'the mode is chosen once, in the sort select');
+  const sortSelect = page.getByRole('combobox', { name: 'Sắp xếp danh sách' });
+  await sortSelect.click();
+  await page.getByRole('option', { name: 'Ưu tiên rà soát' }).click();
   await page.waitForFunction(() => decodeURIComponent(location.search).includes('sort=REVIEW_PRIORITY'));
   await page.getByTestId('sort-explanation').waitFor();
   assert.match(await page.getByTestId('sort-explanation').innerText(), /không phải thứ tự xếp hạng/);
-  await modeGroup.getByRole('button', { name: 'Xếp hạng' }).click();
+  await sortSelect.click();
+  await page.getByRole('option', { name: 'Thứ hạng' }).click();
   await page.waitForFunction(() => !decodeURIComponent(location.search).includes('sort=REVIEW_PRIORITY'));
   // It must not be an alert box anymore (that is what cost 48px of height).
   assert.equal(await explanationLine.evaluate(el => (el.closest('[role="alert"]') !== null)), false);
   assert.equal(await page.getByRole('alert').filter({ hasText: 'không phải thứ tự xếp hạng' }).count(), 0);
+
+  // --- Filter bar: one row of controls, no duplicated buttons ----------------
+  const bar = page.getByTestId('applicant-filter-bar');
+  assert.equal(await bar.count(), 1, 'search, owner, sort and evidence filters sit in one bar');
+  assert.equal(await page.getByTestId('owner-select').count(), 1, 'owner filter is one select, not a row of chips');
+  assert.equal(await page.getByTestId('owner-chip-ALL').count(), 0);
+
+  // --- Duyệt liên tiếp: hồ sơ kế tiếp mở ngay từ đầu trang ------------------
+  const nextProfile = page.getByTestId('open-next-profile');
+  assert.equal(await nextProfile.isVisible(), true, 'the next profile is reachable without scrolling to the table');
+  const nextHref = await nextProfile.getAttribute('href');
+  assert.match(nextHref, /^\/positions\/p1\/applicants\/app-\d+/, 'it links straight into the first profile that still needs work');
 
   // --- R6-c: every filter that used to be a card still works -----------------
   // The four summary cards are gone; each of their behaviours must survive.

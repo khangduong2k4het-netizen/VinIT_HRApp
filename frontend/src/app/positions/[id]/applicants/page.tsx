@@ -46,6 +46,7 @@ import BookmarkAddOutlinedIcon from '@mui/icons-material/BookmarkAddOutlined';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import PlaylistAddCheckIcon from '@mui/icons-material/PlaylistAddCheck';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import ShareIcon from '@mui/icons-material/Share';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -87,6 +88,7 @@ import {
   inScreening,
   isApplicantSort,
   isAssessed,
+  needsVerification,
   normalizeApplicantQueue,
   readApplicantNavigation,
   storeApplicantNavigation,
@@ -557,11 +559,12 @@ export default function ApplicantsRankingPage() {
     setQueue('ALL');
     setSort('RANK');
     setSearchQuery('');
+    setOwnerFilter('ALL');
     setCriterionId('');
     setCriterionOutcome('MISSING');
     setVerificationWaiting('');
   };
-  const filtersActive = queue !== 'ALL' || searchQuery.trim() !== '' || sort !== 'RANK' || hasApplicantCriteriaFilter(criteriaFilter);
+  const filtersActive = queue !== 'ALL' || searchQuery.trim() !== '' || sort !== 'RANK' || ownerFilter !== 'ALL' || hasApplicantCriteriaFilter(criteriaFilter);
 
   // Queues describe work still in screening. Rows outside it can still be
   // rendered (badge "Ngoài sàng lọc") but must not inflate a queue figure that
@@ -768,6 +771,11 @@ export default function ApplicantsRankingPage() {
   // where sessionStorage is empty.
   const profileHref = (applicationId: string) => applicantProfileHref(positionId, applicationId, queue, sort, searchQuery);
 
+  // Lối vào cho việc duyệt liên tiếp: hồ sơ đầu tiên trong đúng danh sách đang
+  // xem mà còn việc (chưa xếp hạng hoặc bằng chứng cần xác minh). Không có hồ sơ
+  // nào như vậy thì lấy hồ sơ đầu danh sách; danh sách rỗng thì không hiện nút.
+  const nextReviewItem = visibleItems.find(item => !isAssessed(item) || needsVerification(item)) || visibleItems[0] || null;
+
   // Cặp hồ sơ đối ứng của một dòng bị gắn cờ, lấy từ chính danh sách cảnh báo.
   const duplicateCounterparts = (applicationId: string) => {
     const pairs: { id: string; name: string }[] = [];
@@ -862,6 +870,24 @@ export default function ApplicantsRankingPage() {
           <Typography variant="body2" color="text.secondary">{t("Xếp hạng sàng lọc theo phiên bản tiêu chí mới nhất đã duyệt; số thứ hạng là tại lần chạy gần nhất.")}</Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+          {/* Duyệt liên tiếp: lối vào hồ sơ kế tiếp nằm ngay cạnh hành động
+              chính, không phải cuộn xuống bảng để tìm dòng đầu tiên. */}
+          {nextReviewItem && (
+            <Tooltip title={t("Tiếp theo: {0}", nextReviewItem.candidate_name || t("Chưa trích xuất tên"))} arrow>
+              <Button
+                component={Link}
+                href={profileHref(nextReviewItem.application_id)}
+                onClick={storeNavigationContext}
+                variant="outlined"
+                color="secondary"
+                startIcon={<PlayArrowIcon />}
+                data-testid="open-next-profile"
+                sx={{ whiteSpace: 'nowrap' }}
+              >
+                {t("Mở hồ sơ kế tiếp")}
+              </Button>
+            </Tooltip>
+          )}
           {/* Một hành động chính, phần còn lại vào menu: ba nút ngang hàng khiến
               HR phải đọc cả ba mới biết nút nào là việc chính. */}
           <Button
@@ -922,31 +948,6 @@ export default function ApplicantsRankingPage() {
           dạng một dòng thay vì hai thẻ cao 89px. Hai thẻ "Cần HR xác minh" và
           "Cảnh báo trùng lặp" đã bị bỏ vì chip hàng đợi ngay dưới đếm đúng hai
           thứ đó, kèm số — giữ cả hai là nói cùng một câu hai lần. */}
-      <Stack direction="row" spacing={2} useFlexGap sx={{ mb: 2, alignItems: 'center', flexWrap: 'wrap' }} data-testid="applicant-funnel">
-        <Typography variant="body2" color="text.secondary">
-          {t("{0}/{1} hồ sơ đã có trong xếp hạng", assessedCount, totalApplications)}
-        </Typography>
-        <Box sx={{ flex: 1 }} />
-        <Typography variant="caption" color="text.secondary">{t("Số trên mỗi nhóm tính trên toàn bộ vị trí")}</Typography>
-      </Stack>
-
-      <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }} role="group" aria-label={t('Chế độ xem ứng viên')}>
-        <Button variant={sort === 'RANK' ? 'contained' : 'outlined'} aria-pressed={sort === 'RANK'} onClick={() => { setQueue('ALL'); setSort('RANK'); }}>{t('Xếp hạng')}</Button>
-        <Button variant={sort === 'REVIEW_PRIORITY' ? 'contained' : 'outlined'} aria-pressed={sort === 'REVIEW_PRIORITY'} onClick={() => { setQueue('ALL'); setSort('REVIEW_PRIORITY'); }}>{t('Cần rà soát')}</Button>
-      </Box>
-      {/* Câu giải thích chế độ xem phải nhìn thấy ngay dưới hai nút: đây là
-          thông tin nghiệp vụ, không phải chi tiết phụ, nên không đưa vào tooltip.
-          Bỏ nền alert và icon để nó thành một dòng chú thích, đỡ chiếm chiều cao. */}
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        data-testid="sort-explanation"
-        sx={{ display: 'block', mb: 2, mt: -0.5 }}
-      >
-        {sort === 'REVIEW_PRIORITY'
-          ? t('Danh sách ưu tiên vấn đề cần xử lý, không phải thứ tự xếp hạng. Số hạng vẫn thuộc lần chạy gần nhất.')
-          : t('Sắp theo thứ hạng của lần chạy gần nhất; hồ sơ chưa có hạng được đưa xuống cuối.')}
-      </Typography>
       {/* Review queues and filters */}
       {/* Lô còn dở từ lần trước: đóng tab hay mất mạng không còn làm mất biên bản,
           và HR vẫn thử lại được đúng phần lỗi thay vì tự dò 30–50 hồ sơ. */}
@@ -971,122 +972,158 @@ export default function ApplicantsRankingPage() {
         </Alert>
       )}
       <QueueFilterChips value={queue} counts={queueCounts} onChange={setQueue} />
-      {/* Lọc theo người phụ trách, tách khỏi chip hàng đợi vì đây là câu hỏi
-          khác: "việc này của ai", không phải "hồ sơ đang ở bước nào". */}
-      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 2 }} role="group" aria-label={t('Lọc theo người phụ trách')} data-testid="owner-filter">
-        {APPLICANT_OWNERSHIP_FILTERS.map(filter => (
-          <Chip
-            key={filter}
-            size="small"
-            data-testid={`owner-chip-${filter}`}
-            label={`${t(APPLICANT_OWNERSHIP_LABELS[filter])} (${ownerCounts[filter]})`}
-            onClick={() => setOwnerFilter(filter)}
-            aria-pressed={ownerFilter === filter}
-            color={ownerFilter === filter ? 'primary' : 'default'}
-            variant={ownerFilter === filter ? 'filled' : 'outlined'}
-            sx={{ fontWeight: ownerFilter === filter ? 700 : 500 }}
-          />
-        ))}
-      </Box>
       {/* Lọc theo bằng chứng, không chỉ theo tên: "hồ sơ thiếu bằng chứng cho tiêu
           chí X" và "hồ sơ chờ tôi xác minh quá 3 ngày" là hai thao tác HR làm mỗi
           ngày, trước đây phải mở từng hồ sơ để tự dò. */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }} data-testid="criteria-filter">
-        <FormControl size="small" sx={{ minWidth: 230, maxWidth: 330 }}>
-          <InputLabel id="applicant-criterion-label">{t("Tiêu chí")}</InputLabel>
-          <Select
-            labelId="applicant-criterion-label"
-            value={criterionId}
-            label={t("Tiêu chí")}
-            onChange={(e) => setCriterionId(e.target.value)}
-            inputProps={{ 'data-testid': 'criterion-filter-select' }}
-          >
-            <MenuItem value="">{t("Mọi tiêu chí")}</MenuItem>
-            {criterionOptions.map(option => (
-              <MenuItem key={option.id} value={option.id}>{option.name}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ minWidth: 190 }} disabled={!criterionId}>
-          <InputLabel id="applicant-criterion-outcome-label">{t("Bằng chứng")}</InputLabel>
-          <Select
-            labelId="applicant-criterion-outcome-label"
-            value={criterionId ? criterionOutcome : 'ALL'}
-            label={t("Bằng chứng")}
-            onChange={(e) => setCriterionOutcome(e.target.value as ApplicantCriterionOutcome)}
-            inputProps={{ 'data-testid': 'criterion-outcome-select' }}
-          >
-            {APPLICANT_CRITERION_OUTCOMES.map(outcome => (
-              <MenuItem key={outcome} value={outcome}>{t(APPLICANT_CRITERION_OUTCOME_LABELS[outcome])}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <FormControl size="small" sx={{ minWidth: 220 }}>
-          <InputLabel id="applicant-waiting-label">{t("Chờ xác minh")}</InputLabel>
-          <Select
-            labelId="applicant-waiting-label"
-            value={verificationWaiting}
-            label={t("Chờ xác minh")}
-            onChange={(e) => setVerificationWaiting(e.target.value as '' | 'any' | '3' | '7')}
-            inputProps={{ 'data-testid': 'verification-waiting-select' }}
-          >
-            <MenuItem value="">{t("Không lọc theo thời gian chờ")}</MenuItem>
-            <MenuItem value="any">{t("Đang chờ tôi xác minh")}</MenuItem>
-            <MenuItem value="3">{t("Quá 3 ngày")}</MenuItem>
-            <MenuItem value="7">{t("Quá 7 ngày")}</MenuItem>
-          </Select>
-        </FormControl>
-      </Box>
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, alignItems: 'center', flexWrap: 'wrap' }}>
-        <OutlinedInput
-          placeholder={t("Tìm kiếm theo tên ứng viên...")}
-          startAdornment={
-            <InputAdornment position="start">
-              <SearchIcon sx={{ color: '#A09F9C' }} />
-            </InputAdornment>
-          }
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          sx={{
-            maxWidth: 350,
-            borderRadius: '30px',
-            backgroundColor: '#F3EEEE',
-            '&.Mui-focused': { backgroundColor: '#FFFFFF' }
-          }}
-          size="small"
-          inputProps={{ 'aria-label': t("Tìm kiếm theo tên ứng viên...") }}
-        />
-        <FormControl size="small" sx={{ minWidth: 230 }}>
-          <InputLabel id="applicant-sort-label">{t("Sắp xếp danh sách")}</InputLabel>
-          <Select
-            labelId="applicant-sort-label"
-            value={sort}
-            label={t("Sắp xếp danh sách")}
-            onChange={(e) => setSort(e.target.value as ApplicantSort)}
-            startAdornment={<SortIcon fontSize="small" sx={{ mr: 0.5, color: 'text.secondary' }} />}
-          >
-            <MenuItem value="REVIEW_PRIORITY">{t("Ưu tiên rà soát")}</MenuItem>
-            <MenuItem value="RANK">{t("Thứ hạng")}</MenuItem>
-            <MenuItem value="SCORE_DESC">{t("Điểm phù hợp cao nhất")}</MenuItem>
-            <MenuItem value="COVERAGE_ASC">{t("Độ phủ thấp trước")}</MenuItem>
-            <MenuItem value="NEWEST">{t("Mới nhất")}</MenuItem>
-          </Select>
-        </FormControl>
-        <Box sx={{ flex: 1 }} />
-        <Button
-          size="small"
-          startIcon={<InfoOutlinedIcon />}
-          endIcon={showHowToRead ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-          aria-expanded={showHowToRead}
-          aria-controls="how-to-read-applicants"
-          onClick={() => setShowHowToRead(!showHowToRead)}
-          sx={{ px: 0.5, whiteSpace: 'nowrap' }}
-          data-testid="how-to-read-toggle"
-        >{t("Cách đọc danh sách")}</Button>
-      </Box>
+      {/* Một thanh lọc duy nhất: tìm kiếm, người phụ trách, sắp xếp ở hàng đầu;
+          tiêu chí, bằng chứng và thời gian chờ ở hàng thứ hai; câu giải thích
+          cách sắp xếp là dòng chú thích cuối thanh. Trước đây là sáu khối rời
+          nhau, đẩy dòng dữ liệu đầu tiên xuống 700px. */}
+      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }} data-testid="applicant-filter-bar">
+        <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
+          <OutlinedInput
+            placeholder={t("Tìm kiếm theo tên ứng viên...")}
+            startAdornment={
+              <InputAdornment position="start">
+                <SearchIcon sx={{ color: '#A09F9C' }} />
+              </InputAdornment>
+            }
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            sx={{
+              flex: '1 1 240px',
+              maxWidth: 350,
+              borderRadius: '30px',
+              backgroundColor: '#F3EEEE',
+              '&.Mui-focused': { backgroundColor: '#FFFFFF' }
+            }}
+            size="small"
+            inputProps={{ 'aria-label': t("Tìm kiếm theo tên ứng viên...") }}
+          />
+          {/* Lọc theo người phụ trách: một ô chọn thay cho hàng chip riêng — cùng
+              số đếm, nhưng không chiếm thêm một dòng trước bảng. */}
+          <FormControl size="small" sx={{ minWidth: 185 }} data-testid="owner-filter">
+            <InputLabel id="applicant-owner-label" shrink>{t('Lọc theo người phụ trách')}</InputLabel>
+            <Select
+              labelId="applicant-owner-label"
+              value={ownerFilter}
+              label={t('Lọc theo người phụ trách')}
+              onChange={event => setOwnerFilter(event.target.value as ApplicantOwnership)}
+              inputProps={{ 'data-testid': 'owner-select' }}
+              notched
+            >
+              {APPLICANT_OWNERSHIP_FILTERS.map(filter => (
+                <MenuItem key={filter} value={filter} data-testid={`owner-option-${filter}`}>
+                  {`${t(APPLICANT_OWNERSHIP_LABELS[filter])} (${ownerCounts[filter]})`}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel id="applicant-sort-label" shrink>{t("Sắp xếp danh sách")}</InputLabel>
+            <Select
+              labelId="applicant-sort-label"
+              value={sort}
+              label={t("Sắp xếp danh sách")}
+              onChange={(e) => setSort(e.target.value as ApplicantSort)}
+              inputProps={{ 'data-testid': 'sort-select' }}
+              startAdornment={<SortIcon fontSize="small" sx={{ mr: 0.5, color: 'text.secondary' }} />}
+              notched
+            >
+              <MenuItem value="REVIEW_PRIORITY">{t("Ưu tiên rà soát")}</MenuItem>
+              <MenuItem value="RANK">{t("Thứ hạng")}</MenuItem>
+              <MenuItem value="SCORE_DESC">{t("Điểm phù hợp cao nhất")}</MenuItem>
+              <MenuItem value="COVERAGE_ASC">{t("Độ phủ thấp trước")}</MenuItem>
+              <MenuItem value="NEWEST">{t("Mới nhất")}</MenuItem>
+            </Select>
+          </FormControl>
+          <Box sx={{ flex: 1 }} />
+          <Button
+            size="small"
+            startIcon={<InfoOutlinedIcon />}
+            endIcon={showHowToRead ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+            aria-expanded={showHowToRead}
+            aria-controls="how-to-read-applicants"
+            onClick={() => setShowHowToRead(!showHowToRead)}
+            sx={{ px: 0.5, whiteSpace: 'nowrap' }}
+            data-testid="how-to-read-toggle"
+          >{t("Cách đọc danh sách")}</Button>
+        </Box>
+        {/* Lọc theo bằng chứng, không chỉ theo tên: "hồ sơ thiếu bằng chứng cho tiêu
+            chí X" và "hồ sơ chờ tôi xác minh quá 3 ngày" là hai thao tác HR làm mỗi
+            ngày, trước đây phải mở từng hồ sơ để tự dò. */}
+        <Box sx={{ display: 'flex', gap: 1.5, mt: 1, alignItems: 'center', flexWrap: 'wrap' }} data-testid="criteria-filter">
+          <FormControl size="small" sx={{ minWidth: 230, maxWidth: 330 }}>
+            <InputLabel id="applicant-criterion-label" shrink>{t("Tiêu chí")}</InputLabel>
+            <Select
+              labelId="applicant-criterion-label"
+              value={criterionId}
+              label={t("Tiêu chí")}
+              onChange={(e) => setCriterionId(e.target.value)}
+              inputProps={{ 'data-testid': 'criterion-filter-select' }}
+              notched
+            >
+              <MenuItem value="">{t("Mọi tiêu chí")}</MenuItem>
+              {criterionOptions.map(option => (
+                <MenuItem key={option.id} value={option.id}>{option.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 190 }} disabled={!criterionId}>
+            <InputLabel id="applicant-criterion-outcome-label" shrink>{t("Bằng chứng")}</InputLabel>
+            <Select
+              labelId="applicant-criterion-outcome-label"
+              value={criterionId ? criterionOutcome : 'ALL'}
+              label={t("Bằng chứng")}
+              onChange={(e) => setCriterionOutcome(e.target.value as ApplicantCriterionOutcome)}
+              inputProps={{ 'data-testid': 'criterion-outcome-select' }}
+              notched
+            >
+              {APPLICANT_CRITERION_OUTCOMES.map(outcome => (
+                <MenuItem key={outcome} value={outcome}>{t(APPLICANT_CRITERION_OUTCOME_LABELS[outcome])}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel id="applicant-waiting-label" shrink>{t("Chờ xác minh")}</InputLabel>
+            <Select
+              labelId="applicant-waiting-label"
+              value={verificationWaiting}
+              label={t("Chờ xác minh")}
+              onChange={(e) => setVerificationWaiting(e.target.value as '' | 'any' | '3' | '7')}
+              inputProps={{ 'data-testid': 'verification-waiting-select' }}
+              notched
+            >
+              <MenuItem value="">{t("Không lọc theo thời gian chờ")}</MenuItem>
+              <MenuItem value="any">{t("Đang chờ tôi xác minh")}</MenuItem>
+              <MenuItem value="3">{t("Quá 3 ngày")}</MenuItem>
+              <MenuItem value="7">{t("Quá 7 ngày")}</MenuItem>
+            </Select>
+          </FormControl>
+          <Box sx={{ flex: 1 }} />
+          {filtersActive && (
+            <Button size="small" onClick={clearFilters} data-testid="clear-applicant-filters">{t("Xoá bộ lọc và tìm kiếm")}</Button>
+          )}
+        </Box>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          data-testid="sort-explanation"
+          sx={{ display: 'block', mt: 1 }}
+        >
+          {sort === 'REVIEW_PRIORITY'
+            ? t('Danh sách ưu tiên vấn đề cần xử lý, không phải thứ tự xếp hạng. Số hạng vẫn thuộc lần chạy gần nhất.')
+            : t('Sắp theo thứ hạng của lần chạy gần nhất; hồ sơ chưa có hạng được đưa xuống cuối.')}
+        </Typography>
+      </Paper>
+
       {/* Dòng đếm nằm chung hàng với ô tìm: trước đây nó chiếm một dòng riêng
           (16px + lề) chỉ để nói "Hiển thị 4/12". */}
-      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 2, mt: -1.5 }}>
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}>
+        <Typography variant="caption" color="text.secondary" data-testid="applicant-funnel">
+          {t("{0}/{1} hồ sơ đã có trong xếp hạng", assessedCount, totalApplications)}
+          {' ·'}
+        </Typography>
         <Typography variant="caption" color="text.secondary" data-testid="applicant-count">
           {t("Hiển thị {0}/{1} hồ sơ của vị trí.", filteredItems.length, rankingItems.length)}
           {searchQuery.trim() ? ` · ${t("Đang lọc theo tên: “{0}”.", searchQuery.trim())}` : ` · ${t("Không lọc theo tên.")}`}
@@ -1098,9 +1135,6 @@ export default function ApplicantsRankingPage() {
               : t("Chỉ hồ sơ chờ xác minh quá {0} ngày.", criteriaFilter.verificationWaitingDays)}`
             : ''}
         </Typography>
-        {filtersActive && (
-          <Button size="small" onClick={clearFilters} data-testid="clear-applicant-filters">{t("Xoá bộ lọc và tìm kiếm")}</Button>
-        )}
       </Box>
 
       {hasMore && (

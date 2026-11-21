@@ -1826,5 +1826,7 @@
   "Xem JD": "View JD",
   "Vai trò của bạn:": "Your role:",
   "Các hàng đợi chỉ hiển thị hồ sơ trong giai đoạn sàng lọc.": "Queues only include applications in the screening stage.",
-  "Bộ tiêu chí hiện tại đang chờ duyệt. Huỷ bản nháp nếu muốn tạo bộ mới.": "The current criteria set is awaiting review. Discard the draft if you want to create a new one."
+  "Bộ tiêu chí hiện tại đang chờ duyệt. Huỷ bản nháp nếu muốn tạo bộ mới.": "The current criteria set is awaiting review. Discard the draft if you want to create a new one.",
+  "Mở hồ sơ kế tiếp": "Open next profile",
+  "Tiếp theo: {0}": "Next: {0}"
 }
