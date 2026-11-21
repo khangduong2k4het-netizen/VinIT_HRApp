@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { careersFailure } from '@/lib/syntheticIntake';
+import { filterJobs } from '@/lib/careersFilter';
 import { useI18n } from '@/i18n/I18nProvider';
 import LanguageSwitcher from '@/i18n/LanguageSwitcher';
 import { Alert, Box, Button, Card, CardContent, Checkbox, CircularProgress, Container, FormControlLabel, Stack, TextField, Typography } from '@mui/material';
@@ -40,6 +41,9 @@ export default function CareersPage() {
   const [typeFilter, setTypeFilter] = useState('');
   const [familyFilter, setFamilyFilter] = useState('');
   const [familyQuery, setFamilyQuery] = useState('');
+  // Tìm theo chức danh, ngay trên danh sách đã tải. Không gọi API: số tin còn
+  // hạn đủ nhỏ để lọc tại chỗ, và lọc tại chỗ thì gõ tới đâu thấy tới đó.
+  const [titleQuery, setTitleQuery] = useState('');
   const [job, setJob] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
   const [requestId, setRequestId] = useState('');
@@ -88,6 +92,9 @@ export default function CareersPage() {
     const needle = familyQuery.trim().toLowerCase();
     return filters.job_families.filter(item => !needle || item.value.toLowerCase().includes(needle));
   }, [filters.job_families, familyQuery]);
+
+  // Logic lọc nằm ở lib/careersFilter.ts để test được mà không cần render React.
+  const visibleJobs = useMemo(() => filterJobs(jobs, titleQuery), [jobs, titleQuery]);
 
   const toggleType = (value: string) => {
     setTypeFilter(previous => previous === value ? '' : value);
@@ -147,6 +154,12 @@ export default function CareersPage() {
     <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
       {t('Chọn một vị trí để xem mô tả công việc và nộp hồ sơ.')}
     </Typography>
+    <TextField
+      fullWidth size="small" value={titleQuery} onChange={event => setTitleQuery(event.target.value)}
+      placeholder={t('Tìm theo chức danh hoặc địa điểm...')}
+      inputProps={{ 'aria-label': t('Tìm việc làm'), maxLength: 120 }}
+      sx={{ mb: 2 }}
+    />
 
     <Alert severity="warning" sx={{ mb: 3 }}>{t('Chỉ kiểm thử với CV và thông tin tổng hợp, email dạng @example.test. Không gửi thông tin cá nhân hoặc CV thật.')}</Alert>
     {error && <Alert severity="error" sx={{ mb: 2 }} action={!job ? <Button color="inherit" onClick={() => void load(null)}>{t('Thử lại')}</Button> : undefined}>{t(error)}</Alert>}
@@ -156,19 +169,45 @@ export default function CareersPage() {
       <Typography variant="body2">{t('Lưu mã và dùng tại /pool-withdraw.')}</Typography>
     </Alert>}
 
+    {/*
+      Thanh danh mục, theo mẫu VinUni. Mỗi mục nối vào bộ lọc `employment_type`
+      có thật — không phải link chết. Nhưng danh mục phổ biến (Toàn thời gian,
+      Thực tập...) thường chưa có tin nào mang nhãn đó: cột `employment_type`
+      của vị trí hay bỏ trống. Nên chỉ hiện mục khi bộ lọc đang thật sự có
+      người chọn được; không bày ra một hàng tab bấm vào là rỗng.
+    */}
+    <Box component="nav" aria-label={t('Danh mục việc làm')} sx={{
+      display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.5,
+      backgroundColor: '#0A2B57', borderRadius: 1, px: 1, py: 0.5, mb: 3,
+    }}>
+      <Button onClick={() => { setTypeFilter(''); setJob(null); }} sx={{
+        color: '#FFFFFF', minHeight: 40, textTransform: 'none', fontWeight: typeFilter ? 400 : 700,
+        textDecoration: typeFilter ? 'none' : 'underline', textUnderlineOffset: 4,
+        '&:hover': { backgroundColor: 'rgba(255,255,255,0.12)' },
+      }}>{t('Tất cả')}</Button>
+      {filters.employment_types.map(item => <Button
+        key={item.value}
+        onClick={() => toggleType(item.value)}
+        aria-pressed={typeFilter === item.value}
+        sx={{
+          color: '#FFFFFF', minHeight: 40, textTransform: 'none',
+          fontWeight: typeFilter === item.value ? 700 : 400,
+          textDecoration: typeFilter === item.value ? 'underline' : 'none', textUnderlineOffset: 4,
+          '&:hover': { backgroundColor: 'rgba(255,255,255,0.12)' },
+        }}
+      >{item.value} ({item.count})</Button>)}
+      {/* Không có loại nào để chọn: nói ra, thay vì để thanh nav trống trơn
+          khiến ứng viên tưởng trang hỏng. */}
+      {!filters.employment_types.length && <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.75)', px: 1 }}>
+        {t('Chưa có tin nào được gắn loại việc làm.')}
+      </Typography>}
+    </Box>
+
     <Box sx={{ display: 'grid', gap: { xs: 2, md: 3 }, gridTemplateColumns: { xs: '1fr', md: '260px 1fr' }, alignItems: 'start' }}>
       {/* Cột lọc: chỉ hiện giá trị đang có tin thật, để không có bộ lọc bấm vào ra rỗng. */}
-      {(filters.employment_types.length > 0 || filters.job_families.length > 0) && <Box component="aside" aria-label={t('Bộ lọc')} sx={{ p: 2, backgroundColor: '#F7F9FC', borderRadius: 1 }}>
-        {filters.employment_types.length > 0 && <>
-          <Typography sx={{ fontWeight: 700, color: '#8A1538', mb: 1 }}>{t('Loại việc làm')}</Typography>
-          <Stack spacing={0.5} sx={{ mb: 2 }}>
-            {filters.employment_types.map(item => <FormControlLabel
-              key={item.value}
-              control={<Checkbox size="small" checked={typeFilter === item.value} onChange={() => toggleType(item.value)} inputProps={{ 'aria-label': item.value }} />}
-              label={<Typography variant="body2">{item.value} ({item.count})</Typography>}
-            />)}
-          </Stack>
-        </>}
+      {filters.job_families.length > 0 && <Box component="aside" aria-label={t('Bộ lọc')} sx={{ p: 2, backgroundColor: '#F7F9FC', borderRadius: 1 }}>
+        {/* "Loại việc làm" đã chuyển lên thanh nav phía trên. Để cả hai thì cùng
+            một bộ lọc nằm hai chỗ, bấm bên này trông như bên kia không ăn. */}
         {filters.job_families.length > 0 && <>
           <Typography sx={{ fontWeight: 700, color: '#8A1538', mb: 1 }}>{t('Ngành / Lĩnh vực')}</Typography>
           <TextField size="small" fullWidth placeholder={t('Lọc ngành...')} value={familyQuery} onChange={event => setFamilyQuery(event.target.value)} sx={{ mb: 1 }} inputProps={{ 'aria-label': t('Lọc ngành') }} />
@@ -186,6 +225,9 @@ export default function CareersPage() {
       <Box>
         <Typography variant="h2" sx={{ fontSize: { xs: 18, md: 20 }, color: '#8A1538', fontWeight: 700, mb: 2 }}>{t('Tất cả vị trí đang mở')}</Typography>
         {loading && <CircularProgress aria-label={t('Đang tải')} />}
+        {!loading && !error && jobs.length > 0 && !visibleJobs.length && <Typography sx={{ mb: 2 }}>
+          {t('Không có vị trí nào khớp từ khóa.')}
+        </Typography>}
         {!loading && !error && !jobs.length && <Typography>
           {reason === 'INTAKE_NOT_OPEN'
             ? t('Hiện chưa mở nhận hồ sơ. Danh sách vị trí sẽ xuất hiện khi HR mở nhận hồ sơ.')
@@ -194,7 +236,7 @@ export default function CareersPage() {
 
         {/* Danh sách dòng. Bấm cả dòng, không chỉ nút — vùng bấm rộng hơn, đỡ trượt. */}
         <Box component="ul" sx={{ listStyle: 'none', p: 0, m: 0 }}>
-          {jobs.map(item => <Box component="li" key={item.position_id}>
+          {visibleJobs.map(item => <Box component="li" key={item.position_id}>
             <Box
               role="button"
               tabIndex={0}

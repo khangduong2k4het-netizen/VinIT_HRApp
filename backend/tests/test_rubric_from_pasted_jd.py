@@ -201,3 +201,74 @@ def test_draft_does_not_contain_the_raw_jd():
     snapshot = snapshot[: snapshot.index("});")]
     assert "jd_text" not in snapshot, "nháp không được chứa JD gốc"
     assert "jdText" not in snapshot, "nháp không được chứa JD gốc"
+
+
+# ---------------------------------------------------------------------------
+# Trang Careers: nav phải nối vào bộ lọc có thật, không phải link chết
+# ---------------------------------------------------------------------------
+
+CAREERS = (BACKEND.parent / "frontend" / "src" / "app" / "careers" / "page.tsx").read_text()
+CAREERS_API = (BACKEND / "app" / "api" / "careers.py").read_text()
+
+
+def test_nav_categories_come_from_real_filter_data():
+    """Nav dựng từ filters.employment_types, không phải danh sách viết cứng.
+
+    Viết cứng "Full-time / Part-time / Internship" như mẫu thì mỗi mục bấm vào
+    là danh sách rỗng, vì cột employment_type của vị trí thường bỏ trống.
+    """
+    nav = CAREERS[CAREERS.index('aria-label={t(\'Danh mục việc làm\')}'):]
+    nav = nav[: nav.index("</Box>")]
+    assert "filters.employment_types.map" in nav
+    for hardcoded in ("Internship", "Part-time", "Work-study"):
+        assert hardcoded not in nav, f"nhãn viết cứng {hardcoded} sẽ dẫn tới danh sách rỗng"
+
+
+def test_nav_says_so_when_no_category_exists():
+    """Thanh nav trống trơn khiến ứng viên tưởng trang hỏng."""
+    assert "Chưa có tin nào được gắn loại việc làm." in CAREERS
+
+
+def test_type_filter_exists_in_only_one_place():
+    """Cùng một bộ lọc nằm hai chỗ thì bấm bên này trông như bên kia không ăn."""
+    assert CAREERS.count("filters.employment_types.map") == 1
+
+
+def test_search_filters_locally_without_an_api_call():
+    """Số tin còn hạn đủ nhỏ; gọi API mỗi lần gõ là thừa và gây nhấp nháy."""
+    # Một dòng sau khi tách logic, nên cắt theo dấu xuống dòng thay vì theo
+    # "}, [jobs, titleQuery]);" — chuỗi đó không còn vì không còn thân hàm dài.
+    block = CAREERS[CAREERS.index("const visibleJobs = useMemo"):].split("\n")[0]
+    # Logic đã tách sang lib/careersFilter.ts để test được mà không cần render
+    # React; trang chỉ gọi hàm đó. Kiểm cả hai đầu để phép tách không bị làm
+    # rỗng: nếu trang tự filter lại thì hàm kia thành mã chết.
+    assert "filterJobs(jobs, titleQuery)" in block
+    assert "fetch(" not in block
+
+    filt = (BACKEND.parent / "frontend" / "src" / "lib" / "careersFilter.ts").read_text()
+    body = filt[filt.index("export function filterJobs"):]
+    assert "jobs.filter(" in body
+    assert "fetch(" not in body
+
+
+def test_search_reports_no_match_instead_of_showing_nothing():
+    assert "Không có vị trí nào khớp từ khóa." in CAREERS
+
+
+def test_listing_empty_state_explains_intake_is_closed():
+    """Trang trống phải nói lý do, không để ứng viên đoán là trang hỏng."""
+    assert "INTAKE_NOT_OPEN" in CAREERS
+    assert "INTAKE_NOT_OPEN" in CAREERS_API
+
+
+def test_rubric_gate_is_in_the_sql_not_the_ui():
+    """Ẩn tin bằng giao diện thì vẫn còn một trang có tin bấm vào không nộp được."""
+    sql = CAREERS_API[CAREERS_API.index("SELECT p.position_id"):]
+    sql = sql[: sql.index("LIMIT :limit")]
+    assert "c.status='APPROVED'" in sql
+    assert "c.jd_version_id=jd.jd_version_id" in sql
+
+
+def test_stale_comment_about_the_listing_being_read_only_is_gone():
+    """Câu cũ nói trang luôn là "danh sách tham khảo" đã sai sau khi chốt chính sách."""
+    assert "nên trang vẫn là danh sách tham khảo" not in CAREERS_API

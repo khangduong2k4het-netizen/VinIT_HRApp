@@ -31,9 +31,10 @@ def jobs(response: Response, cursor: UUID | None = None, limit: int = Query(25, 
     * Điều kiện nghiệp vụ (luôn áp dụng): vị trí OPEN, còn hạn, và có rubric đã
       duyệt cho đúng phiên bản JD đang hiển thị. Không có rubric thì HR cũng
       không chấm được hồ sơ nhận vào, nên nhận hồ sơ lúc đó là nhận rồi để đó.
-    * Điều kiện vận hành (chỉ khi bật nhận hồ sơ thử nghiệm): cờ
-      PUBLIC_CAREERS_TEST_INTAKE_ENABLED. Hiện chưa mở, nên trang vẫn là danh
-      sách tham khảo — xem `accepting_applications`.
+    * Điều kiện vận hành: cờ PUBLIC_CAREERS_TEST_INTAKE_ENABLED **và** có khả
+      năng quét tệp. Chưa đạt thì trả danh sách RỖNG kèm lý do
+      `INTAKE_NOT_OPEN` — không phải trả tin rồi làm mờ nút gửi. Chính sách đã
+      chốt: chưa mở nhận hồ sơ thì trang không mời nộp.
 
     Giao diện dựa vào `accepting_applications` để biết có hiện nút ứng tuyển hay
     không, thay vì tự suy ra từ cờ cấu hình.
