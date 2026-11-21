@@ -62,9 +62,28 @@ bỏ; nội dung của nó nằm trọn trong nhánh chung).
 | `npm run test:unit` | 114/114 pass |
 | `npm run build` | build thành công, `/positions/[id]` 24.6 kB |
 
-**Chưa kiểm.** Chưa mở giao diện bằng trình duyệt (môi trường không có backend
-và trình duyệt): bố cục header, dải chip bước, vị trí thẻ duyệt và hành vi
-`?tab=` mới chỉ được xác nhận qua biên dịch/build, chưa được nhìn tận mắt.
+**Kiểm bằng trình duyệt (mock API).** Thêm `frontend/tests/mock-api-server.cjs`
+dựng từ `tests/fixtures/hr-screens.cjs`, chạy ở cổng 8000 để Next.js proxy `/v1`
+trả dữ liệu fixture; chạy `next start` và chụp màn hình ở 1280px và 900px. Năm
+chỗ lệch lộ ra và đã sửa:
+
+1. Tab cuối bị cắt thành "Mô tả công…" kèm nút cuộn — bỏ `· vN` khỏi nhãn và
+   thu padding/font của tab; nay `scrollWidth` = `width` nên không tràn.
+2. Ở cột hẹp, tên tiêu chí bị bóp còn vài chữ mỗi dòng và nút Xóa bị cắt — cho
+   hàng tiêu đề xuống dòng, chip trọng số xuống dưới tên, Sửa/Xóa giữ một hàng.
+3. Nút của "hành động tiếp theo" lơ lửng giữa thẻ (khối co theo nội dung) — tách
+   thẻ tổng quan thành ba hàng có divider, nút nằm sát mép phải.
+4. Khối tổng quan vẫn chiếm chỗ ở tab Ứng viên, đẩy khung nhận CV xuống dưới màn
+   hình — chỉ hiện ở tab Tiêu chí; khung nhận CV nay nằm trong màn hình đầu.
+5. Nút "Đề xuất tiêu chí AI" (và "Nhận CV") bị khoá im lặng — thêm tooltip nêu
+   lý do, đọc được cả từ cây accessibility.
+
+Đã xác nhận trên trình duyệt: header hai tầng đúng thứ bậc, dải chip bước một
+hàng, dải số liệu đọc được cùng lúc, thẻ duyệt nằm ngay dưới tab bar (trước danh
+sách tiêu chí), đổi tab cập nhật `?tab=`, F5 ở `?tab=jd` vẫn ở tab JD.
+
+**Chưa kiểm.** Chưa thử ở ≤768px (điện thoại thật) và chưa chạy lại bộ e2e
+Playwright vì môi trường không có Chromium của bộ test đó.
 
 ## 2026-11-20 — Sáu cải tiến vòng duyệt hồ sơ: hàng đợi, phím tắt, lý do loại, ghi chú, người phụ trách
 
