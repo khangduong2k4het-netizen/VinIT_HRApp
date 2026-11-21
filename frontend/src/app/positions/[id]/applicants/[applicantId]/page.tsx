@@ -47,6 +47,7 @@ import Link from 'next/link';
 import { applicationsApi, assessmentsApi, authApi, criteriaApi, listAllApplications, operationsApi } from '@/lib/api';
 import { recordUxEvent } from '@/lib/uxMetrics';
 import { isTypingTarget, moveCriterionIndex, nextPendingCriterionId, reviewShortcut } from '@/lib/reviewKeyboard';
+import { suggestFinishStatus, type FinishSuggestionReason } from '@/lib/finishSuggestion';
 import { criterionReasonCandidates, readRecentReasons, rememberReason } from '@/lib/rejectionReasons';
 import ReasonSuggestions from '@/components/candidates/ReasonSuggestions';
 import StatusBadge from '@/components/common/StatusBadge';
@@ -161,7 +162,6 @@ export default function ApplicantDetailPage() {
   const [finishStatus, setFinishStatus] = useState('');
   const [finishReason, setFinishReason] = useState('');
   const [finishNote, setFinishNote] = useState('');
-  const [finishAttest, setFinishAttest] = useState(false);
   const [finishAdvance, setFinishAdvance] = useState(true);
   const [finishing, setFinishing] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
@@ -679,6 +679,26 @@ export default function ApplicantDetailPage() {
   // nếu không, hộp thoại sẽ gọi endpoint review và nhận 403.
   const pendingResults = canVerifyCriteria ? pendingCriteria.filter(result => Boolean(result.result_id)) : [];
   const canFinish = canWorkVerification && !shareContext;
+  // Đề xuất trạng thái sau khi hoàn tất, chọn sẵn trong hộp thoại. Hộp thoại cũ
+  // mở ở "Giữ nguyên trạng thái" nên HR phải tự suy ra bước tiếp theo, dù hồ sơ
+  // đã có đủ dữ liệu để nói. Đây chỉ là giá trị chọn sẵn — đổi được, và vẫn phải
+  // bấm nút hoàn tất.
+  const mandatoryFailed = criteriaResults.some(result => result.category === 'MUST_HAVE' && result.outcome === 'NO_MATCH');
+  const finishSuggestion = canUpdateStatus
+    ? suggestFinishStatus({
+      currentStatus,
+      nextStatuses,
+      mandatoryFailed,
+      score: assessment?.matching_score ?? null,
+    })
+    : { status: '' as const, reason: 'NONE' as FinishSuggestionReason };
+  const suggestionText: Record<FinishSuggestionReason, string> = {
+    NONE: '',
+    MANDATORY_FAILED: t('Có tiêu chí bắt buộc chưa đạt — đề xuất loại ở vòng sàng lọc; lý do vẫn cần bạn nhập.'),
+    START_REVIEW: t('Hồ sơ còn ở trạng thái Mới — đề xuất chuyển sang Đang xem.'),
+    READY_FOR_SHORTLIST: t('Điểm tổng hợp {0}% và không có tiêu chí bắt buộc nào chưa đạt — đề xuất Shortlist.', assessment?.matching_score ?? 0),
+    ADVANCE_STAGE: t('Hồ sơ đã qua vòng sàng lọc — đề xuất chuyển sang Đang phỏng vấn.'),
+  };
   const withCompletedFlag = (href: string) => {
     const [path, query = ''] = href.split('?');
     const search = new URLSearchParams(query);
@@ -686,16 +706,17 @@ export default function ApplicantDetailPage() {
     return `${path}?${search.toString()}`;
   };
   const openFinish = () => {
-    setFinishStatus('');
+    setFinishStatus(finishSuggestion.status);
     setFinishReason('');
     setFinishNote('');
-    setFinishAttest(false);
     setFinishAdvance(Boolean(nextApplicantId));
     setFinishError(null);
     setFinishOpen(true);
   };
-  const finishBlocked = (pendingResults.length > 0 && !finishAttest)
-    || (finishStatus.startsWith('REJECTED') && !finishReason.trim());
+  // Còn lại đúng một điều kiện chặn: loại hồ sơ mà không nêu lý do. Cam kết đã
+  // đối chiếu nằm ngay trên nút, nên bấm nút là chính lời cam kết — không còn
+  // một ô đánh dấu riêng để bấm thêm một lần nữa.
+  const finishBlocked = finishStatus.startsWith('REJECTED') && !finishReason.trim();
   const handleFinish = async () => {
     if (finishing || finishBlocked) return;
     setFinishing(true);
@@ -745,6 +766,50 @@ export default function ApplicantDetailPage() {
               {assessment?.matching_status === 'NEEDS_HR_VERIFICATION' ? ` · ${t("Cần HR xác minh")}` : ''}
             </Typography>
           </Box>
+          {/* Việc chính của màn này nằm ngay trên thanh dính: còn bao nhiêu tiêu chí
+              chờ, và hai quyết định của tiêu chí đang chọn. Trước đây phải cuộn
+              xuống đúng thẻ bằng chứng rồi bấm trong thẻ — trên điện thoại, thẻ
+              đang xem thường ở dưới màn hình sau khi đọc CV. */}
+          {canVerifyCriteria && !shareContext && flaggedCriteria.length > 0 && (
+            <>
+              <Chip
+                size="small"
+                data-testid="sticky-pending"
+                label={pendingCriteria.length > 0
+                  ? t('Còn {0}/{1} tiêu chí chờ', pendingCriteria.length, flaggedCriteria.length)
+                  : t('Đủ {0}/{0} tiêu chí', flaggedCriteria.length)}
+                sx={{
+                  backgroundColor: pendingCriteria.length === 0 ? '#ECFDF3' : '#FFFAEB',
+                  color: pendingCriteria.length === 0 ? '#067647' : '#B54708',
+                  fontWeight: 700,
+                }}
+              />
+              <Tooltip title={activeResult ? t('Đang chọn: {0}', activeResult.criterion_name) : ''}>
+                <span>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="secondary"
+                    data-testid="sticky-confirm"
+                    disabled={!activeAwaitingReview || reviewSaving !== null}
+                    onClick={() => { if (activeResult?.result_id) void handleReview(activeResult.result_id, 'CONFIRMED'); }}
+                  >
+                    {t('Xác nhận')}
+                  </Button>
+                </span>
+              </Tooltip>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                data-testid="sticky-reject"
+                disabled={!activeAwaitingReview}
+                onClick={() => { if (activeResult) setRejectRequest({ criterionId: activeResult.criterion_id, token: Date.now() }); }}
+              >
+                {t('Đánh dấu sai')}
+              </Button>
+            </>
+          )}
           {canFinish && (
             <Button
               variant="contained"
@@ -1152,7 +1217,7 @@ export default function ApplicantDetailPage() {
         <DialogTitle>{t('Hoàn tất hồ sơ này')}</DialogTitle>
         <DialogContent dividers>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            {t('Ghi nhận việc xác minh, đổi trạng thái nếu cần, rồi chuyển sang hồ sơ tiếp theo. Trạng thái chỉ đổi khi bạn chọn bên dưới.')}
+            {t('Ghi nhận việc xác minh, đổi trạng thái nếu cần (đã chọn sẵn đề xuất), rồi chuyển sang hồ sơ tiếp theo.')}
           </Typography>
           {finishError && <Alert severity="error" sx={{ mb: 2 }}>{t(finishError)}</Alert>}
 
@@ -1174,22 +1239,19 @@ export default function ApplicantDetailPage() {
                   <li key={result.criterion_id}><Typography variant="body2">{result.criterion_name}</Typography></li>
                 ))}
               </Box>
-              {/* Xác nhận rõ ràng thay vì tự động coi "đã bấm hoàn tất" là "đã kiểm".
-                  Ghi CONFIRMED cho người chưa nhìn là làm sai lệch biên bản. */}
-              <Box data-testid="finish-attest">
-                <FormControlLabel
-                  sx={{ mt: 1, alignItems: 'flex-start' }}
-                  control={<Checkbox checked={finishAttest} onChange={event => setFinishAttest(event.target.checked)} />}
-                  label={<Typography variant="body2">{t('Tôi đã đối chiếu {0} tiêu chí trên với CV và xác nhận trích dẫn là đúng.', pendingResults.length)}</Typography>}
-                />
-              </Box>
+              {/* Cam kết nằm ngay trên nút chính: bấm nút là chính lời cam kết,
+                  nên không còn ô đánh dấu phải bấm thêm. Vẫn là một hành động
+                  rõ ràng của HR, không tự động coi "đã mở hộp thoại" là "đã kiểm". */}
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }} data-testid="finish-attest-note">
+                {t('Nút bên dưới là xác nhận của bạn: đã đối chiếu {0} tiêu chí trên với CV và trích dẫn là đúng.', pendingResults.length)}
+              </Typography>
             </Box>
           )}
 
           {canUpdateStatus ? (
             <>
               <Typography variant="subtitle2" sx={{ mt: 1, mb: 1 }}>{t('Trạng thái hồ sơ')}</Typography>
-              <FormControl fullWidth size="small" sx={{ mb: 2 }} data-testid="finish-status">
+              <FormControl fullWidth size="small" sx={{ mb: suggestionText[finishSuggestion.reason] ? 1 : 2 }} data-testid="finish-status">
                 <InputLabel id="finish-status-label">{t('Sau khi hoàn tất')}</InputLabel>
                 <Select labelId="finish-status-label" label={t('Sau khi hoàn tất')} value={finishStatus}
                   onChange={event => setFinishStatus(event.target.value)}>
@@ -1199,6 +1261,11 @@ export default function ApplicantDetailPage() {
                   ))}
                 </Select>
               </FormControl>
+              {suggestionText[finishSuggestion.reason] && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }} data-testid="finish-suggestion">
+                  {suggestionText[finishSuggestion.reason]}
+                </Typography>
+              )}
               {finishStatus.startsWith('REJECTED') && (
                 <>
                   <ReasonSuggestions
@@ -1235,7 +1302,11 @@ export default function ApplicantDetailPage() {
           <Button onClick={() => setFinishOpen(false)} disabled={finishing}>{t('Hủy')}</Button>
           <Button variant="contained" color="secondary" startIcon={<CheckCircleOutlineIcon />} onClick={handleFinish}
             disabled={finishing || finishBlocked} data-testid="finish-confirm">
-            {finishing ? t('Đang hoàn tất…') : t('Hoàn tất')}
+            {finishing
+              ? t('Đang hoàn tất…')
+              : pendingResults.length > 0
+                ? t('Xác nhận đã kiểm {0} tiêu chí và hoàn tất', pendingResults.length)
+                : t('Hoàn tất')}
           </Button>
         </DialogActions>
       </Dialog>
