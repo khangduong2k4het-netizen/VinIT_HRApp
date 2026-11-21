@@ -65,6 +65,8 @@ import Link from 'next/link';
 import { assessmentsApi, authApi, operationsApi, applicationsApi, listAllApplications, shortlistApi, positionsApi, type DuplicateSignal } from '@/lib/api';
 import { recordUxEvent } from '@/lib/uxMetrics';
 import { APPLICANT_OWNERSHIP_LABELS } from '@/lib/applicantOwnershipLabels';
+import { duplicateCompareHref } from '@/lib/duplicateCompare';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import {
   APPLICANT_OWNERSHIP_FILTERS,
   applicantOwnershipCounts,
@@ -810,17 +812,32 @@ export default function ApplicantsRankingPage() {
           <>
             <Typography variant="caption" color="text.secondary">{t('Trùng với:')}</Typography>
             {pairs.map(pair => (
-              <MuiLink
-                key={pair.id}
-                component={Link}
-                href={profileHref(pair.id)}
-                onClick={storeNavigationContext}
-                variant="caption"
-                sx={{ fontWeight: 700 }}
-                aria-label={t('Mở hồ sơ đối ứng {0}', pair.name)}
-              >
-                {pair.name}
-              </MuiLink>
+              <React.Fragment key={pair.id}>
+                <MuiLink
+                  component={Link}
+                  href={profileHref(pair.id)}
+                  onClick={storeNavigationContext}
+                  variant="caption"
+                  sx={{ fontWeight: 700 }}
+                  aria-label={t('Mở hồ sơ đối ứng {0}', pair.name)}
+                >
+                  {pair.name}
+                </MuiLink>
+                {/* Quyết định trùng lặp cần thấy cả hai cùng lúc: mở A rồi mở B
+                    bắt HR nhớ dữ liệu của hồ sơ trước trong đầu. */}
+                <Button
+                  component={Link}
+                  href={duplicateCompareHref(positionId, item.application_id, pair.id)}
+                  size="small"
+                  variant="outlined"
+                  startIcon={<CompareArrowsIcon fontSize="small" />}
+                  data-testid={`compare-pair-${item.application_id}-${pair.id}`}
+                  aria-label={t('So sánh cạnh nhau với {0}', pair.name)}
+                  sx={{ ml: 0.5, px: 0.75, minWidth: 0, fontSize: 11, py: 0 }}
+                >
+                  {t('So sánh')}
+                </Button>
+              </React.Fragment>
             ))}
           </>
         )}

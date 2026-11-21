@@ -257,6 +257,38 @@ const DUPLICATE_SIGNALS = [
   },
 ];
 
+// Cặp hồ sơ trong DUPLICATE_SIGNALS, mỗi bên một định danh và một bộ kết quả
+// tiêu chí khác nhau — màn so sánh chỉ có nghĩa khi hai bên thật sự khác nhau.
+// c4 giống nhau (đều chưa đáp ứng) để có cả dòng trùng kết luận.
+const COMPARE_APPLICATIONS = {
+  'app-3': {
+    name: 'Phạm Đình Khang',
+    email: 'khang.pham@example.com',
+    phone: '0912 345 671',
+    score: 61,
+    coverage: 0.58,
+    results: {
+      c1: { outcome: 'MATCH', score: 70, page: 2 },
+      c2: { outcome: 'UNCLEAR', score: null, page: 3 },
+      c3: { outcome: 'MATCH', score: 80, page: 4 },
+      c4: { outcome: 'NO_MATCH', score: 0, page: null },
+    },
+  },
+  'app-9': {
+    name: 'Dương Hồng Yến',
+    email: 'yen.duong@example.com',
+    phone: '0987 654 321',
+    score: 86,
+    coverage: 0.9,
+    results: {
+      c1: { outcome: 'STRONG_MATCH', score: 92, page: 3 },
+      c2: { outcome: 'MATCH', score: 78, page: 2 },
+      c3: { outcome: 'UNCLEAR', score: null, page: 5 },
+      c4: { outcome: 'NO_MATCH', score: 0, page: null },
+    },
+  },
+};
+
 const applications = ranking.map(item => ({
   application_id: item.application_id,
   position_id: 'p1',
@@ -475,6 +507,42 @@ function installMockApi(context, overrides = {}) {
           manage_hr_notes: false, edit_profile: true, view_status_history: true, reprocess_cv: true,
         },
         latest_assessment: { ...detail.latest_assessment, application_id: 'app-admin' },
+      });
+    }
+    // Hai hồ sơ bị gắn cờ trùng (sig-1): mỗi bên một định danh và một bộ kết quả
+    // tiêu chí khác nhau, để màn so sánh có việc thật mà làm. Cùng c4 (đều chưa
+    // đáp ứng) để có cả dòng giống nhau lẫn dòng khác nhau.
+    const compareId = p.match(/^\/v1\/applications\/(app-\d+)$/)?.[1];
+    if (compareId && COMPARE_APPLICATIONS[compareId] && r.request().method() === 'GET') {
+      const spec = COMPARE_APPLICATIONS[compareId];
+      const row = ranking.find(item => item.application_id === compareId);
+      return json({
+        ...detail,
+        application_id: compareId,
+        candidate_name: spec.name,
+        application_status: row?.application_status || 'IN_REVIEW',
+        has_duplicate_warning: true,
+        identity: { display_name: spec.name, email: spec.email, phone: spec.phone },
+        latest_assessment: {
+          ...detail.latest_assessment,
+          application_id: compareId,
+          matching_score: spec.score,
+          evidence_coverage: spec.coverage,
+          criterion_results: CRITERIA.map(item => {
+            const override = spec.results[item.criterion_id];
+            const page = override.page;
+            return {
+              ...item,
+              outcome: override.outcome,
+              score: override.score,
+              page_number: page,
+              evidence: page
+                ? [{ evidence_id: `e-${compareId}-${item.criterion_id}`, verbatim_quote: item.verbatim_quote || item.reasoning, page_number: page, verification_status: 'UNVERIFIED' }]
+                : [],
+              hr_reviews: reviews[item.result_id] || [],
+            };
+          }),
+        },
       });
     }
     // Any other application row from the ranking can be opened too: finishing a
