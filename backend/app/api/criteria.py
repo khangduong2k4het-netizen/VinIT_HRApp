@@ -382,6 +382,36 @@ async def approve_criteria(
                 _materialize_requirement_specs(db, cv_id_str)
             _validate_item_weight_totals(db, cv_id_str)
 
+        # Một vị trí chỉ được có MỘT bộ tiêu chí đang hiệu lực. Không làm việc
+        # này thì duyệt bộ mới (ví dụ bộ chép từ rubric mẫu, sau khi bộ AI đã
+        # duyệt) để lại hai bộ cùng APPROVED cho một JD. Người đọc sau đó
+        # không biết ứng viên cũ đã chấm bằng bộ nào, và mỗi chỗ đọc tự chọn
+        # "bộ APPROVED mới nhất" theo một kiểu khác nhau.
+        #
+        # Dùng SUPERSEDED chứ không dùng ARCHIVED: ARCHIVED / REJECTED đã được
+        # dùng cho nghĩa khác (loại bỏ có chủ ý), và một bộ từng duyệt rồi bị
+        # thay thế KHÔNG phải bộ bị loại — nó vẫn là bằng chứng đã duyệt và
+        # đã chấm ứng viên cũ. Ghi kèm ai duyệt bộ thay thế để truy được.
+        if new_status == "APPROVED":
+            superseded = db.execute(text("""
+                UPDATE app_private.criteria_versions
+                SET status = 'SUPERSEDED', updated_at = NOW()
+                WHERE position_id = :position_id AND status = 'APPROVED'
+                  AND criteria_version_id <> :cv_id
+                RETURNING criteria_version_id, version_number
+            """), {"position_id": position_id, "cv_id": cv_id_str}).mappings().all()
+            for row in superseded:
+                db.execute(text("""
+                    INSERT INTO app_private.audit_events
+                        (actor_user_id, action_type, object_type, object_id, position_id, outcome, metadata)
+                    VALUES (:user_id, 'SUPERSEDE_CRITERIA_VERSION', 'CRITERIA_VERSION', :old_id, :position_id,
+                            'SUCCESS', CAST(:metadata AS jsonb))
+                """), {"user_id": user_id, "old_id": str(row["criteria_version_id"]),
+                        "position_id": position_id,
+                        "metadata": json.dumps({"version_number": row["version_number"],
+                                                "superseded_by": cv_id_str,
+                                                "superseded_by_version": cv["version_number"]})})
+
         db.execute(text("""
             UPDATE app_private.criteria_versions
             SET status = :new_status,

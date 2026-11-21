@@ -41,6 +41,12 @@ export default function RubricsPage() {
   const [suggestPositions, setSuggestPositions] = useState<Array<{ position_id: string; title: string; job_family_id: string | null }>>([]);
   const [suggestPosition, setSuggestPosition] = useState('');
   const [suggesting, setSuggesting] = useState(false);
+  // Sinh nháp từ JD dán tay: dựng rubric mẫu TRƯỚC khi mở vị trí nào.
+  const [jdOpen, setJdOpen] = useState(false);
+  const [jdText, setJdText] = useState('');
+  const [jdTitle, setJdTitle] = useState('');
+  const [jdFamily, setJdFamily] = useState('');
+  const [jdBusy, setJdBusy] = useState(false);
   const canEdit = creating || (!!selected && selected.status === 'DRAFT' && !!capabilities && (capabilities.can_publish || (capabilities.can_create && selected.created_by === capabilities.user_id)));
 
   const load = useCallback(async () => {
@@ -82,13 +88,8 @@ export default function RubricsPage() {
       setSuggesting(true); setError('');
       const res = await rubricApi.suggestFromPosition(suggestPosition);
       const data = res.data;
-      setSelected(null); setCreating(true);
-      setFamily(data.job_family_id); setTitle(data.title); setLevel('');
-      setMandatory('70'); setNice('30');
-      setItems((data.items as Item[]).map(item => ({ ...item, weight_in_group: item.weight_in_group ?? (item as any).weight })));
-      setSpecs((data.items as Item[]).map(item => item.requirement_spec ? JSON.stringify(item.requirement_spec, null, 2) : ''));
-      setKeywords((data.items as Item[]).map(item => item.expected_evidence_keywords.join(', ')));
-      setDirty(true); setSuggestOpen(false);
+      populateDraft(data);
+      setSuggestOpen(false);
       // Nói rõ bản nháp đến từ đâu và chưa được lưu — nếu không, HR dễ tưởng
       // vừa tạo xong một rubric trong thư viện.
       setNotice(data.rejected_items
@@ -99,6 +100,40 @@ export default function RubricsPage() {
       setSuggestOpen(false);
     } finally { setSuggesting(false); }
   };
+  /** Điền biểu mẫu từ một bộ nháp — dùng chung cho cả hai nguồn sinh nháp. */
+  const populateDraft = (data: any) => {
+    setSelected(null); setCreating(true);
+    setFamily(data.job_family_id); setTitle(data.title); setLevel('');
+    setMandatory('70'); setNice('30');
+    setItems((data.items as Item[]).map(item => ({ ...item, weight_in_group: item.weight_in_group ?? (item as any).weight })));
+    setSpecs((data.items as Item[]).map(item => item.requirement_spec ? JSON.stringify(item.requirement_spec, null, 2) : ''));
+    setKeywords((data.items as Item[]).map(item => item.expected_evidence_keywords.join(', ')));
+    setDirty(true);
+  };
+
+  const openJdSuggest = () => {
+    if (dirty && !window.confirm(t('Bỏ các thay đổi chưa lưu?'))) return;
+    setJdOpen(true); setJdText(''); setJdTitle(''); setError(''); setJdBusy(false);
+    setJdFamily((families[0] && families[0].job_family_id) || '');
+  };
+
+  const runJdSuggest = async () => {
+    if (!jdText.trim() || !jdFamily) return;
+    try {
+      setJdBusy(true); setError('');
+      const res = await rubricApi.suggestFromJd({ job_family_id: jdFamily, jd_text: jdText.trim(), title: jdTitle.trim() || undefined });
+      const data = res.data;
+      populateDraft(data);
+      setJdOpen(false);
+      setNotice(data.rejected_items
+        ? t('Đã sinh nháp từ JD dán tay (bỏ {0} tiêu chí không hợp lệ). CHƯA lưu — rà soát rồi bấm lưu.', String(data.rejected_items))
+        : t('Đã sinh nháp từ JD dán tay. CHƯA lưu — rà soát rồi bấm lưu.'));
+    } catch (err: any) {
+      setError(err.response?.data?.detail || t('Không thể sinh rubric từ JD dán tay.'));
+      setJdOpen(false);
+    } finally { setJdBusy(false); }
+  };
+
   const useProposal = () => {
     if (dirty && !window.confirm(t('Bỏ các thay đổi chưa lưu?'))) return;
     const family = families.find(f => f.code === backendProposal.job_family_code);
@@ -194,8 +229,9 @@ export default function RubricsPage() {
         {capabilities.can_create && <Stack spacing={1}>
           <Button variant="contained" onClick={create} disabled={busy}>{t('Tạo rubric nháp')}</Button>
           <Button variant="outlined" onClick={openSuggest} disabled={busy}>{t('Sinh từ JD của một vị trí')}</Button>
+          <Button variant="outlined" onClick={openJdSuggest} disabled={busy}>{t('Sinh từ JD dán tay')}</Button>
           <Button onClick={useProposal} disabled={busy} sx={{ justifyContent: 'flex-start', textAlign: 'left' }}>{t('Dùng bộ mẫu ví dụ (Backend Python)')}</Button>
-          <Typography variant="caption">{t('Bộ mẫu ví dụ là tiêu chí viết sẵn trong mã nguồn, KHÔNG phải AI sinh ra. Nút "Sinh từ JD" mới gọi AI. Cả hai đều chỉ điền biểu mẫu — HR phải rà soát rồi bấm lưu.')}</Typography>
+          <Typography variant="caption">{t('Bộ mẫu ví dụ là tiêu chí viết sẵn trong mã nguồn, KHÔNG phải AI sinh ra. Hai nút "Sinh từ JD" mới gọi AI: một nút đọc JD của vị trí đã có, một nút đọc JD anh dán vào — dùng khi muốn dựng rubric trước khi mở vị trí. Cả ba đều chỉ điền biểu mẫu, HR phải rà soát rồi bấm lưu.')}</Typography>
         </Stack>}
         {versions.length === 0 && <Typography sx={{ mt: 2 }}>{t('Chưa có rubric nào.')}</Typography>}
         {versions.map(v => <Button key={v.template_version_id} fullWidth sx={{ mt: 1, justifyContent: 'flex-start', textAlign: 'left' }} variant={selected?.template_version_id === v.template_version_id ? 'outlined' : 'text'} disabled={busy} onClick={() => select(v.template_version_id)}>{v.title} · v{v.version_number} · {statusLabel(v.status, t)} · {families.find(f => f.job_family_id === v.job_family_id) ? familyLabel(families.find(f => f.job_family_id === v.job_family_id)!.code, v.family_name || '', t) : v.family_name}</Button>)}
@@ -240,6 +276,40 @@ export default function RubricsPage() {
       <DialogActions>
         <Button onClick={() => setSuggestOpen(false)} disabled={suggesting}>{t('Hủy')}</Button>
         <Button variant="contained" onClick={runSuggest} disabled={suggesting || !suggestPosition}>{t('Sinh nháp')}</Button>
+      </DialogActions>
+    </Dialog>
+
+    <Dialog open={jdOpen} onClose={() => !jdBusy && setJdOpen(false)} fullWidth maxWidth="md">
+      <DialogTitle>{t('Sinh rubric nháp từ JD dán tay')}</DialogTitle>
+      <DialogContent>
+        <Typography sx={{ mb: 2 }}>
+          {t('Dán JD vào đây để dựng rubric mẫu cho một loại vị trí sắp tuyển, không cần tạo vị trí trước. AI chỉ đề xuất; bản nháp KHÔNG được lưu cho tới khi anh bấm lưu.')}
+        </Typography>
+        <Stack spacing={2}>
+          <TextField select fullWidth required label={t('Rubric thuộc nhóm vị trí')} value={jdFamily} disabled={jdBusy}
+            onChange={e => setJdFamily(e.target.value)}
+            helperText={t('Nhóm quyết định rubric này dùng lại được cho những vị trí nào.')}>
+            {families.map(f => <MenuItem value={f.job_family_id} key={f.job_family_id}>{familyLabel(f.code, f.name, t)}</MenuItem>)}
+          </TextField>
+          <TextField fullWidth label={t('Tên rubric (tùy chọn)')} value={jdTitle} disabled={jdBusy}
+            onChange={e => setJdTitle(e.target.value)} inputProps={{ maxLength: 200 }}
+            helperText={t('Bỏ trống thì hệ thống đặt tên "Nháp từ JD dán tay". Sửa được sau khi lưu.')} />
+          <TextField fullWidth required multiline minRows={10} label={t('Nội dung JD')} value={jdText} disabled={jdBusy}
+            onChange={e => setJdText(e.target.value)} inputProps={{ maxLength: 100000 }}
+            helperText={t('Tối thiểu 50 ký tự. JD càng nêu rõ yêu cầu thì tiêu chí sinh ra càng dùng được.')} />
+        </Stack>
+        {jdText.trim().length > 0 && jdText.trim().length < 50 && <Alert severity="warning" sx={{ mt: 2 }}>
+          {t('JD quá ngắn để sinh tiêu chí có nghĩa. Cần thêm ít nhất {0} ký tự nữa.', String(50 - jdText.trim().length))}
+        </Alert>}
+        {jdBusy && <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 2 }}>
+          <CircularProgress size={20} /><Typography variant="body2">{t('AI đang đọc JD và đề xuất tiêu chí...')}</Typography>
+        </Stack>}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setJdOpen(false)} disabled={jdBusy}>{t('Hủy')}</Button>
+        <Button variant="contained" onClick={runJdSuggest} disabled={jdBusy || !jdFamily || jdText.trim().length < 50}>
+          {jdBusy ? t('Đang sinh…') : t('Sinh nháp')}
+        </Button>
       </DialogActions>
     </Dialog>
   </Box>;

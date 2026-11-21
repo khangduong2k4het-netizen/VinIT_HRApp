@@ -597,7 +597,7 @@ export default function PositionDetailPage() {
               label={position.status === 'OPEN' ? t("Đang mở") : position.status === 'PAUSED' ? t("Tạm dừng") : t("Đã đóng")}
             />
             {currentCriteria && <StatusBadge type={currentCriteria.status === 'APPROVED' ? 'criteria-approved' : 'criteria-draft'}
-              label={{ DRAFT: t("Bản nháp"), PENDING_HR_REVIEW: t("Chờ HR"), PENDING_HM_APPROVAL: t("Chờ HM"), APPROVED: t("Đã duyệt"), REJECTED: t("Đã từ chối") }[currentCriteria.status]} />}
+              label={{ DRAFT: t("Bản nháp"), PENDING_HR_REVIEW: t("Chờ HR"), PENDING_HM_APPROVAL: t("Chờ HM"), APPROVED: t("Đã duyệt"), REJECTED: t("Đã từ chối"), SUPERSEDED: t("Đã bị thay thế") }[currentCriteria.status]} />}
           </Box>
         </Box>
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>

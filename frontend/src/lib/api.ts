@@ -277,6 +277,10 @@ export const rubricApi = {
   apply: (positionId: string, versionId: string) => apiClient.post(`/rubric-library/positions/${positionId}/apply`, { template_version_id: versionId }),
   // Sinh NHÁP rubric từ JD của một vị trí. Không lưu gì trên máy chủ.
   suggestFromPosition: (positionId: string) => apiClient.post('/rubric-library/suggest-from-position', { position_id: positionId }),
+  // Sinh NHÁP rubric từ một JD dán tay, cho HR dựng template trước khi mở vị trí.
+  // Cũng không lưu gì trên máy chủ.
+  suggestFromJd: (data: { job_family_id: string; jd_text: string; title?: string }) =>
+    apiClient.post('/rubric-library/suggest-from-jd', data),
 };
 
 /**

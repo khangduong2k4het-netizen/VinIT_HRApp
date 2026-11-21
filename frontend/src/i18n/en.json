@@ -1802,5 +1802,20 @@
   " · do AI đề xuất": " · do AI đề xuất",
   "Không khôi phục được. Nhưng vị trí và JD vẫn còn nguyên, nên có thể sinh lại bộ tiêu chí AI bất cứ lúc nào.": "Không khôi phục được. Nhưng vị trí và JD vẫn còn nguyên, nên có thể sinh lại bộ tiêu chí AI bất cứ lúc nào.",
   "Đang huỷ…": "Đang huỷ…",
-  "Huỷ bản nháp": "Huỷ bản nháp"
+  "Huỷ bản nháp": "Huỷ bản nháp",
+  "Sinh từ JD dán tay": "Sinh từ JD dán tay",
+  "Bộ mẫu ví dụ là tiêu chí viết sẵn trong mã nguồn, KHÔNG phải AI sinh ra. Hai nút \"Sinh từ JD\" mới gọi AI: một nút đọc JD của vị trí đã có, một nút đọc JD anh dán vào — dùng khi muốn dựng rubric trước khi mở vị trí. Cả ba đều chỉ điền biểu mẫu, HR phải rà soát rồi bấm lưu.": "Bộ mẫu ví dụ là tiêu chí viết sẵn trong mã nguồn, KHÔNG phải AI sinh ra. Hai nút \"Sinh từ JD\" mới gọi AI: một nút đọc JD của vị trí đã có, một nút đọc JD anh dán vào — dùng khi muốn dựng rubric trước khi mở vị trí. Cả ba đều chỉ điền biểu mẫu, HR phải rà soát rồi bấm lưu.",
+  "Đã sinh nháp từ JD dán tay (bỏ {0} tiêu chí không hợp lệ). CHƯA lưu — rà soát rồi bấm lưu.": "Đã sinh nháp từ JD dán tay (bỏ {0} tiêu chí không hợp lệ). CHƯA lưu — rà soát rồi bấm lưu.",
+  "Đã sinh nháp từ JD dán tay. CHƯA lưu — rà soát rồi bấm lưu.": "Đã sinh nháp từ JD dán tay. CHƯA lưu — rà soát rồi bấm lưu.",
+  "Không thể sinh rubric từ JD dán tay.": "Không thể sinh rubric từ JD dán tay.",
+  "Sinh rubric nháp từ JD dán tay": "Sinh rubric nháp từ JD dán tay",
+  "Dán JD vào đây để dựng rubric mẫu cho một loại vị trí sắp tuyển, không cần tạo vị trí trước. AI chỉ đề xuất; bản nháp KHÔNG được lưu cho tới khi anh bấm lưu.": "Dán JD vào đây để dựng rubric mẫu cho một loại vị trí sắp tuyển, không cần tạo vị trí trước. AI chỉ đề xuất; bản nháp KHÔNG được lưu cho tới khi anh bấm lưu.",
+  "Rubric thuộc nhóm vị trí": "Rubric thuộc nhóm vị trí",
+  "Nhóm quyết định rubric này dùng lại được cho những vị trí nào.": "Nhóm quyết định rubric này dùng lại được cho những vị trí nào.",
+  "Tên rubric (tùy chọn)": "Tên rubric (tùy chọn)",
+  "Bỏ trống thì hệ thống đặt tên \"Nháp từ JD dán tay\". Sửa được sau khi lưu.": "Bỏ trống thì hệ thống đặt tên \"Nháp từ JD dán tay\". Sửa được sau khi lưu.",
+  "Tối thiểu 50 ký tự. JD càng nêu rõ yêu cầu thì tiêu chí sinh ra càng dùng được.": "Tối thiểu 50 ký tự. JD càng nêu rõ yêu cầu thì tiêu chí sinh ra càng dùng được.",
+  "JD quá ngắn để sinh tiêu chí có nghĩa. Cần thêm ít nhất {0} ký tự nữa.": "JD quá ngắn để sinh tiêu chí có nghĩa. Cần thêm ít nhất {0} ký tự nữa.",
+  "Đang sinh…": "Đang sinh…",
+  "Đã bị thay thế": "Đã bị thay thế"
 }

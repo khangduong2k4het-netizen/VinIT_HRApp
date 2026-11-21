@@ -145,8 +145,20 @@ Vào `/rubrics`. Có **ba nút**, đừng nhầm:
 | Nút | Nó làm gì | Có dùng AI? |
 |---|---|---|
 | **Tạo rubric nháp** | Mở biểu mẫu **trống**, anh tự gõ 100% | Không |
-| **Sinh từ JD của một vị trí** | Chọn một vị trí đã có JD → AI đọc JD và **đề xuất** bộ tiêu chí → anh sửa → lưu | **Có** |
+| **Sinh từ JD của một vị trí** | Chọn một vị trí **đã có** JD → AI đọc JD và đề xuất bộ tiêu chí → anh sửa → lưu | **Có** |
+| **Sinh từ JD dán tay** | Dán JD vào, chọn nhóm vị trí → AI đề xuất bộ tiêu chí → anh sửa → lưu | **Có** |
 | **Dùng bộ mẫu ví dụ (Backend Python)** | Điền sẵn 5 tiêu chí viết cứng trong mã nguồn, để xem một rubric tốt trông thế nào | Không |
+
+**Nên dùng nút nào?** Hai nút gọi AI khác nhau ở chỗ **đã có vị trí hay chưa**:
+
+- Đã có vị trí với JD viết kỹ, và muốn biến nó thành khuôn dùng lại → **Sinh từ JD
+  của một vị trí**.
+- Chưa có vị trí nào, hoặc JD nằm ngoài hệ thống (file Word, link tin tuyển
+  dụng), và muốn dựng khuôn **trước** khi mở vị trí → **Sinh từ JD dán tay**.
+
+Dán tay **không** tạo vị trí và **không** lưu JD vào đâu cả — JD chỉ là nguyên
+liệu để đọc. Nếu lưu, mỗi lần thử một JD sẽ để lại dữ liệu rác gắn với một vị
+trí không tồn tại.
 
 Hai điều cần biết về nút thứ hai và thứ ba:
 
@@ -189,6 +201,15 @@ mẫu chỉ đáng công khi:
 Đừng bật rubric mẫu chỉ vì thấy nó "chuẩn hơn". Nó khác, không chắc đúng hơn:
 rubric mẫu mang quan niệm chung của công ty về "giỏi", có thể hạ thấp đúng thứ
 vị trí này cần nhất.
+
+**"Một vị trí có thể có hai bộ tiêu chí cùng được duyệt không?"**
+Không, từ migration `00037`. Duyệt bộ mới thì bộ `APPROVED` cũ tự chuyển sang
+**Đã bị thay thế** (`SUPERSEDED`) trong cùng một transaction, trước khi bộ mới
+được ghi `APPROVED`.
+
+Vì sao không xoá hẳn bộ cũ: nó là **bằng chứng** ứng viên trước đó đã được chấm
+bằng tiêu chí nào. Cũng vì thế mà không gộp nó vào nhãn "bị từ chối": bộ đã duyệt
+rồi bị thay thế **không sai**, chỉ là đã có bộ mới hơn.
 
 **"Sửa rubric mẫu có làm hỏng vị trí đang chạy không?"**
 Không. Vị trí đã có bộ tiêu chí riêng, tách rời. Đó chính là lý do phải "áp dụng"

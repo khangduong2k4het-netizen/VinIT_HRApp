@@ -287,25 +287,28 @@ class SuggestFromPosition(BaseModel):
     position_id: UUID
 
 
-@router.post('/suggest-from-position')
-async def suggest_from_position(request: SuggestFromPosition, user: dict = Depends(get_current_user)):
-    """Sinh **nháp** rubric mẫu từ JD của một vị trí đã có.
+class SuggestFromJdText(BaseModel):
+    """JD dán tay, không gắn với vị trí nào.
 
-    Vì sao cần: rubric mẫu là thứ dùng lại được cho nhiều vị trí cùng nhóm, và
-    cách tạo nhanh nhất là lấy một JD đã viết tốt rồi biến nó thành bộ tiêu chí.
-    Trước đây HR phải tự gõ tay 100% hoặc dùng một bộ mẫu cứng viết sẵn cho
-    đúng một nghề.
+    ``title`` chỉ dùng làm tên gợi ý cho rubric và để model biết đang đọc JD
+    của nghề gì; nó không được lưu ở đâu cả. ``job_family_id`` là nhóm mà rubric
+    sẽ thuộc về — bắt buộc, vì rubric không nhóm thì không tái sử dụng được.
+    """
+    job_family_id: UUID
+    jd_text: str = Field(min_length=50, max_length=100000)
+    title: str | None = Field(default=None, max_length=200)
 
-    Ba điều cố ý:
 
-    * **Trả về nháp, KHÔNG lưu.** Người dùng xem, sửa, rồi mới bấm lưu. Sinh
-      xong ghi thẳng vào thư viện thì model sai một tiêu chí là cả thư viện
-      nhiễm bẩn, và không ai nhớ để dọn.
-    * **Không đụng tới vị trí.** Hàm này không tạo `criteria_versions` cho vị
-      trí, không đổi trạng thái gì. Muốn áp dụng cho vị trí thì dùng đường
-      ``/positions/{id}/apply`` như thường, sau khi rubric đã xuất bản.
-    * **Cùng bộ kiểm tra với sinh tiêu chí cho vị trí** (``rubric_normalizer``),
-      vì cùng model trả lời và cùng những kiểu sai.
+async def _draft_from_jd_text(jd_text: str, job_title: str, requisition_id: str) -> tuple[list[dict], int]:
+    """Biến một đoạn JD thành danh sách tiêu chí nháp, **không lưu gì**.
+
+    Dùng chung cho cả hai đường sinh nháp (từ một vị trí đã có, và từ JD dán
+    tay) để hai đường không lệch nhau. Mọi chốt chặn nằm ở đây: gọi model,
+    kiểm hình dạng output, bỏ tiêu chí hỏng thay vì bỏ cả bộ, rồi chuẩn hoá
+    trọng số về 100 mỗi nhóm.
+
+    Trả về ``(items, rejected)``. ``rejected`` được trả về chứ không im lặng:
+    HR cần biết bộ nháp này đã bị cắt bớt trước khi tin nó là đầy đủ.
     """
     from app.services.llm_client import LLMError, llm_client
     from app.services.rubric_normalizer import (
@@ -313,35 +316,10 @@ async def suggest_from_position(request: SuggestFromPosition, user: dict = Depen
         normalize_weights_in_group, stored_requirement_spec,
     )
 
-    db = SessionLocal()
-    try:
-        _require_directory(db, user['user_id'])
-        position = db.execute(text('''
-            SELECT p.position_code, p.title, p.job_family_id, f.name AS family_name
-            FROM app_private.positions p
-            LEFT JOIN app_private.job_families f ON f.job_family_id=p.job_family_id
-            WHERE p.position_id=:id
-        '''), {'id': str(request.position_id)}).mappings().first()
-        if not position:
-            raise HTTPException(404, 'Không tìm thấy vị trí')
-        if not position['job_family_id']:
-            # Không đoán nhóm: rubric sinh ra mà không biết thuộc nhóm nào thì
-            # không dùng lại được, mất luôn ý nghĩa của thư viện.
-            raise HTTPException(400, 'Vị trí chưa chọn Nhóm vị trí. Gán nhóm rồi thử lại.')
-        jd = db.execute(text('''
-            SELECT content_text FROM app_private.jd_versions
-            WHERE position_id=:id ORDER BY version_number DESC LIMIT 1
-        '''), {'id': str(request.position_id)}).mappings().first()
-        if not jd or not (jd['content_text'] or '').strip():
-            raise HTTPException(400, 'Vị trí chưa có mô tả công việc để sinh rubric')
-        position, jd = dict(position), dict(jd)
-    finally:
-        db.close()
-
     try:
         draft = await llm_client.extract_criteria_from_jd(
-            jd_text=jd['content_text'], requisition_id=position['position_code'],
-            job_title=position['title'], position_id=str(request.position_id),
+            jd_text=jd_text, requisition_id=requisition_id, job_title=job_title,
+            position_id=None,
         )
     except LLMError as exc:
         logger.error('Rubric suggestion failed', error_type=type(exc).__name__)
@@ -373,14 +351,110 @@ async def suggest_from_position(request: SuggestFromPosition, user: dict = Depen
     if not items:
         raise HTTPException(502, 'AI trả về bộ tiêu chí không hợp lệ. Vui lòng thử lại.')
 
-    items = normalize_weights_in_group(items)
+    return normalize_weights_in_group(items), rejected
+
+
+@router.post('/suggest-from-position')
+async def suggest_from_position(request: SuggestFromPosition, user: dict = Depends(get_current_user)):
+    """Sinh **nháp** rubric mẫu từ JD của một vị trí đã có.
+
+    Vì sao cần: rubric mẫu là thứ dùng lại được cho nhiều vị trí cùng nhóm, và
+    cách tạo nhanh nhất là lấy một JD đã viết tốt rồi biến nó thành bộ tiêu chí.
+    Trước đây HR phải tự gõ tay 100% hoặc dùng một bộ mẫu cứng viết sẵn cho
+    đúng một nghề.
+
+    Ba điều cố ý:
+
+    * **Trả về nháp, KHÔNG lưu.** Người dùng xem, sửa, rồi mới bấm lưu. Sinh
+      xong ghi thẳng vào thư viện thì model sai một tiêu chí là cả thư viện
+      nhiễm bẩn, và không ai nhớ để dọn.
+    * **Không đụng tới vị trí.** Hàm này không tạo `criteria_versions` cho vị
+      trí, không đổi trạng thái gì. Muốn áp dụng cho vị trí thì dùng đường
+      ``/positions/{id}/apply`` như thường, sau khi rubric đã xuất bản.
+    * **Cùng bộ kiểm tra với sinh tiêu chí cho vị trí** (``rubric_normalizer``),
+      vì cùng model trả lời và cùng những kiểu sai.
+    """
+    db = SessionLocal()
+    try:
+        _require_directory(db, user['user_id'])
+        position = db.execute(text('''
+            SELECT p.position_code, p.title, p.job_family_id, f.name AS family_name
+            FROM app_private.positions p
+            LEFT JOIN app_private.job_families f ON f.job_family_id=p.job_family_id
+            WHERE p.position_id=:id
+        '''), {'id': str(request.position_id)}).mappings().first()
+        if not position:
+            raise HTTPException(404, 'Không tìm thấy vị trí')
+        if not position['job_family_id']:
+            # Không đoán nhóm: rubric sinh ra mà không biết thuộc nhóm nào thì
+            # không dùng lại được, mất luôn ý nghĩa của thư viện.
+            raise HTTPException(400, 'Vị trí chưa chọn Nhóm vị trí. Gán nhóm rồi thử lại.')
+        jd = db.execute(text('''
+            SELECT content_text FROM app_private.jd_versions
+            WHERE position_id=:id ORDER BY version_number DESC LIMIT 1
+        '''), {'id': str(request.position_id)}).mappings().first()
+        if not jd or not (jd['content_text'] or '').strip():
+            raise HTTPException(400, 'Vị trí chưa có mô tả công việc để sinh rubric')
+        position, jd = dict(position), dict(jd)
+    finally:
+        db.close()
+
+    items, rejected = await _draft_from_jd_text(
+        jd['content_text'], position['title'], position['position_code'],
+    )
     return {
         'job_family_id': str(position['job_family_id']),
         'family_name': position['family_name'],
         'title': f"Nháp từ JD — {position['title']}",
         'items': items,
-        # Nói ra số tiêu chí bị loại thay vì im lặng: HR cần biết bộ nháp này
-        # đã bị cắt bớt trước khi tin nó là đầy đủ.
+        'rejected_items': rejected,
+        'note': 'Đây là bản nháp chưa lưu. Rà soát, sửa rồi mới bấm lưu vào thư viện.',
+    }
+
+
+@router.post('/suggest-from-jd')
+async def suggest_from_jd_text(request: SuggestFromJdText, user: dict = Depends(get_current_user)):
+    """Sinh **nháp** rubric mẫu từ một JD dán tay, không cần tạo vị trí trước.
+
+    Vì sao cần: ``suggest-from-position`` đòi phải có một vị trí đã tồn tại, có
+    JD và có Nhóm vị trí. Nhưng tình huống hay gặp lại ngược lại — HR có sẵn JD
+    của một loại vị trí sắp tuyển và muốn dựng rubric mẫu **trước** khi mở vị
+    trí, để lần tuyển sau dùng lại. Bắt họ tạo một vị trí giả chỉ để lấy rubric
+    là tạo ra dữ liệu rác trong danh sách vị trí.
+
+    Cùng ba nguyên tắc với đường kia:
+
+    * **Trả nháp, không lưu.** Không có câu INSERT/UPDATE/DELETE nào ở đây.
+    * **Không tạo vị trí, không tạo JD.** JD dán tay không được ghi vào
+      ``jd_versions`` — nó chỉ là nguyên liệu để model đọc.
+    * **Cùng ``_draft_from_jd_text``** nên cùng bộ kiểm tra và cùng cách chuẩn
+      hoá trọng số.
+    """
+    db = SessionLocal()
+    try:
+        _require_directory(db, user['user_id'])
+        family = db.execute(text(
+            'SELECT name FROM app_private.job_families WHERE job_family_id=:id'
+        ), {'id': str(request.job_family_id)}).mappings().first()
+        if not family:
+            raise HTTPException(404, 'Không tìm thấy nhóm vị trí')
+        family_name = family['name']
+    finally:
+        db.close()
+
+    title = (request.title or '').strip()
+    items, rejected = await _draft_from_jd_text(
+        request.jd_text.strip(),
+        title or 'Vị trí mới',
+        # requisition_id chỉ để model tham chiếu trong log; JD dán tay không có
+        # mã vị trí thật nên đặt nhãn rõ ràng thay vì bịa một mã trông như thật.
+        requisition_id='PASTED-JD',
+    )
+    return {
+        'job_family_id': str(request.job_family_id),
+        'family_name': family_name,
+        'title': title or 'Nháp từ JD dán tay',
+        'items': items,
         'rejected_items': rejected,
         'note': 'Đây là bản nháp chưa lưu. Rà soát, sửa rồi mới bấm lưu vào thư viện.',
     }
