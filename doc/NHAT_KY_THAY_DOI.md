@@ -9,6 +9,54 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-21 — So sánh cạnh nhau hai hồ sơ bị gắn cờ trùng
+
+**Vấn đề.** Cảnh báo trùng chỉ nêu tên hồ sơ đối ứng và một link sang hồ sơ đó.
+Muốn quyết định, HR mở A, đọc định danh và bốn tiêu chí, quay lại danh sách, mở B
+rồi so trong đầu — trong khi hai CV cần được nhìn ở hai trang khác nhau cùng lúc.
+Không có chỗ nào trong hệ thống đặt hai hồ sơ cạnh nhau.
+
+**Đã làm.**
+
+- **Màn so sánh mới** `/positions/[id]/applicants/compare?left=…&right=…`. Cặp
+  đang xem nằm trong URL, nên mở lại, tải lại hay gửi cho đồng nghiệp vẫn đúng
+  hai hồ sơ; vào thiếu tham số thì màn nói rõ thay vì đoán.
+- **Định danh hai bên**: tên, ID, email, điện thoại, tệp gốc, trạng thái, điểm
+  tổng hợp, độ phủ bằng chứng, và link mở hồ sơ đầy đủ — đây là phần trả lời
+  "có phải cùng một người không".
+- **CV mỗi bên một khung riêng**: tải khi được yêu cầu, con trỏ trang độc lập,
+  bấm trích dẫn ở tiêu chí nào thì chỉ khung của bên đó nhảy tới trang đó. Hai
+  bên giữ được hai trang khác nhau — đúng thứ không làm được khi mở A rồi mở B.
+- **Kết quả tiêu chí theo dòng**, hai bên trong cùng một dòng, kèm chip kết luận,
+  điểm, trích dẫn và nút mở trang CV. Dòng hai bên kết luận khác nhau được đánh
+  dấu "Khác kết luận", và đầu màn ghi tổng: "Khác kết luận ở 3/4 tiêu chí".
+- **Lý do bị gắn cờ**: loại tín hiệu và độ tin cậy lấy từ `/duplicate-signals`,
+  đối chiếu đúng cặp (bảng tín hiệu có thể ghi ngược thứ tự hai bên).
+- **Lối vào**: trên dòng bị gắn cờ ở danh sách ứng viên, cạnh tên hồ sơ đối ứng
+  có nút `So sánh`.
+
+**Phạm vi giữ nguyên.** Màn so sánh không có hành động ghi nào — không đổi trạng
+thái, không ghi review, không tự "dismiss" tín hiệu trùng (backend chưa có
+endpoint đó). Mọi quyết định vẫn thực hiện ở hồ sơ, nơi đã có sẵn luồng và quyền.
+
+**Kiểm thử đã chạy.** `tsc --noEmit` sạch; `eslint` sạch trên 3 file; unit
+**127/127** (thêm 3 test cho `duplicateCompare`: dựng URL, tìm tín hiệu không phụ
+thuộc thứ tự, đếm tiêu chí khác kết luận); i18n **3/3**; `next build` OK; e2e mới
+`tests/duplicate-compare.e2e.cjs` pass với `DUPLICATE_SIGNALS` trong fixture (nút
+So sánh trên dòng mở đúng cặp, hai định danh khác email, tín hiệu "Cùng email ·
+92%", "Khác kết luận ở 3/4", c4 không bị đánh dấu, chưa tải CV nào khi mở màn, bấm
+trích dẫn bên trái → khung trái trang 3 và chỉ 1 request CV, bấm bên phải → khung
+phải trang 5 còn trái vẫn trang 3, nút "Trang sau" của khung trái không kéo khung
+phải). Fixture có thêm `COMPARE_APPLICATIONS` để hai bên thật sự khác nhau.
+Các e2e danh sách đã chạy lại và pass: `duplicate-warning`, `ranking-compact-mock`,
+`ranking-context-mock`.
+
+**Chưa kiểm.** Chưa thử trên backend thật; đề xuất/dữ liệu đều từ mock.
+`applicants-large-list-mock.e2e.cjs` đang fail vì mock riêng của nó thiếu route
+`/duplicate-signals` — lỗi có từ trước lượt này (trang danh sách đã tự tải tín hiệu
+trùng từ trước), không liên quan màn so sánh. Màn so sánh chưa được đo ở 390px;
+bố cục dựa trên Grid `xs=12` nên hai bên xếp chồng, chưa kiểm bằng mắt.
+
 ## 2026-11-21 — Hồ sơ: hộp thoại hoàn tất chọn sẵn đề xuất, thanh dính mang việc chính
 
 **Vấn đề.** Hai chỗ cuối cùng còn bắt HR làm thêm một bước mà máy đã biết câu trả lời.
