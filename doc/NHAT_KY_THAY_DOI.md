@@ -9,6 +9,56 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-21 (2) — Health báo ClamAV, và hồ sơ vào khi máy quét chết có dấu vết
+
+**Hai việc, cùng một gốc: máy quét virus hỏng mà không ai biết.**
+
+### 1. `/health/ready` báo trạng thái ClamAV
+
+Trước: endpoint chỉ kiểm DB. `clamd` chết thì đường nhận CV trả 503 trong khi
+health vẫn nói `ready` — không tín hiệu nào cho giám sát (HANG-01/HANG-03).
+
+Nay trả thêm `clamav: connected | unavailable | disabled`. Ba giá trị, cố ý
+không gộp: `disabled` (chưa cấu hình socket, chủ ý) khác `unavailable` (đã cấu
+hình nhưng hỏng) — gộp lại thì không phân biệt được "chưa bật" với "đang lỗi".
+
+**Không** trả 503 khi máy quét chết. Chỉ đường nộp CV phụ thuộc nó; xem vị trí,
+chấm hồ sơ đã nhận, duyệt rubric vẫn chạy. 503 sẽ khiến load balancer rút backend
+và biến "thiếu máy quét" thành "sập toàn hệ thống". Có cờ
+`READINESS_REQUIRE_CLAMAV` (mặc định tắt) cho ai muốn siết.
+
+Probe chỉ mở socket rồi đóng, không gửi dữ liệu — health chạy liên tục, đẩy tệp
+qua clamd trong đó là tự tạo tải và có thể bị tính là một lượt quét.
+
+### 2. Nhận hồ sơ khi máy quét chết — có cờ, có dấu, có audit
+
+Trước: `careers_intake.py` chặn cứng ngay đầu request khi thiếu socket. Ở vòng
+thử nghiệm, một dịch vụ phụ hỏng làm tắc **toàn bộ** form ứng tuyển.
+
+Nay giữ nguyên hành vi mặc định (fail-closed 503), nhưng khi bật
+`PUBLIC_CAREERS_UNSCANNED_FILES_ENABLED` thì vẫn nhận, với ba ràng buộc:
+
+- Tệp **bẩn** luôn chặn 400 — nhánh `INFECTED` đứng **trước** nhánh đọc cờ, và
+  có test khoá thứ tự đó.
+- Bản ghi mang `application_documents.scan_state = 'UNSCANNED'` (migration
+  `00038`, đã áp).
+- Audit riêng `CAREERS_UNSCANNED_FILE_ACCEPTED`, không nhồi vào JSON của lần
+  nhận hồ sơ — câu hỏi "hồ sơ nào vào lúc máy quét chết" phải tra bằng
+  `action_type`.
+
+Giao diện hồ sơ hiện chip vàng "Tệp chưa quét virus" kèm tooltip.
+
+**Vì sao khác `jd_import.py`:** ở đó cờ chỉ cần một câu cảnh báo vì tệp gốc
+không được lưu. Ở đây tệp được lưu và xử lý tiếp, nên cái giá của việc nhận bừa
+cao hơn — vì vậy phải có dấu trên bản ghi, không chỉ một câu cảnh báo.
+
+**Ghi chú vận hành.** Đường Gmail thử nghiệm gọi cùng hàm ghi và không truyền
+cờ, nên mặc định `unscanned=False` → `'SCANNED'`. Đúng cho đường đó: nó đã chặn
+`ScanVerdict.UNAVAILABLE` thành `REVIEW/ANTIVIRUS_UNAVAILABLE` từ trước khi ghi.
+
+**Kiểm thử.** Backend 581 passed / 174 skipped (thêm 22: 8 cho health, 14 cho
+đường nhận tệp). Unit frontend 127/127. `tsc`, `lint`, `build` sạch.
+
 ## 2026-11-21 — Nhóm vị trí có API quản trị, và `/careers` chỉ còn một nguồn nhóm
 
 **Vấn đề 1 — mở một ngành tuyển dụng mới phải chạy SQL.** Bảng `job_families`

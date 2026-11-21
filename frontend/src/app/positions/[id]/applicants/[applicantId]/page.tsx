@@ -770,6 +770,13 @@ export default function ApplicantDetailPage() {
             {application.file_processing_status === 'PROCESSING' && (
               <Chip label={t("Đang xử lý CV")} size="small" />
             )}
+            {/* Tệp vào hệ thống trong lúc máy quét virus không chạy (chỉ có thể
+                xảy ra khi bật cờ thử nghiệm). Nói thẳng ra thay vì để HR tưởng
+                mọi tệp đều đã được quét. */}
+            {application.documents?.[0]?.scan_state === 'UNSCANNED' && (
+              <Chip label={t("Tệp chưa quét virus")} size="small" sx={{ backgroundColor: '#FEF0C7', color: '#B54708' }}
+                title={t('Tệp được nhận trong lúc máy quét virus không hoạt động. Hãy cân nhắc trước khi mở tệp.')} />
+            )}
             {application.has_duplicate_warning && (
               <Chip label={t("Hồ sơ trùng lặp")} size="small" sx={{ backgroundColor: '#FEF0C7', color: '#B54708' }} />
             )}

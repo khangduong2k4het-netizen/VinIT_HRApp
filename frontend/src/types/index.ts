@@ -364,6 +364,8 @@ export interface ApplicationWithAssessment {
     original_filename: string;
     mime_type?: string;
     page_count?: number;
+    /** 'UNSCANNED' khi tệp vào hệ thống lúc máy quét virus không chạy. */
+    scan_state?: 'SCANNED' | 'UNSCANNED' | 'INFECTED';
   }>;
 }
 

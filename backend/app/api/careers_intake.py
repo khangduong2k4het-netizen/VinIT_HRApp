@@ -36,8 +36,9 @@ async def apply(position_id: UUID, request_id: UUID = Form(...), name: str = For
                 pool_opt_in: bool = Form(False), pool_token: str = Form('')):
     if not settings.PUBLIC_CAREERS_ENABLED or not settings.PUBLIC_CAREERS_TEST_INTAKE_ENABLED:
         raise HTTPException(404, 'Không khả dụng')
-    if not settings.CLAMAV_UNIX_SOCKET.startswith('/'):
-        raise HTTPException(503, 'Dịch vụ kiểm tra tệp chưa sẵn sàng')
+    # Không chặn cứng khi thiếu socket. Quyết định có nhận tệp chưa quét hay
+    # không nằm ở điều kiện cờ bên dưới, cùng một chỗ với bước quét — nếu tách
+    # làm hai nơi, có ngày một bên đổi mà bên kia không.
     if pool_opt_in and not settings.TALENT_POOL_STORAGE_READY:
         raise HTTPException(503, 'Talent Pool chưa sẵn sàng')
     name, phone = name.strip(), phone.strip()
@@ -58,9 +59,21 @@ async def apply(position_id: UUID, request_id: UUID = Form(...), name: str = For
     # errors/limits/timeouts fail closed, not clean.
     verdict = await run_in_threadpool(scan_bytes, data, socket_path=settings.CLAMAV_UNIX_SOCKET,
                                       max_bytes=settings.MAX_FILE_SIZE_BYTES)
-    if verdict != ScanVerdict.CLEAN:
-        raise HTTPException(400 if verdict == ScanVerdict.INFECTED else 503,
-                            'Không thể tiếp nhận tệp' if verdict == ScanVerdict.INFECTED else 'Dịch vụ kiểm tra tệp chưa sẵn sàng')
+    # Ba kết cục, cố ý khác nhau:
+    #   CLEAN       -> nhận, ghi scan_state='SCANNED'
+    #   INFECTED    -> từ chối. Tệp bẩn thì luôn chặn, kể cả ở chế độ thử nghiệm.
+    #   UNAVAILABLE -> máy quét chết/cấu hình sai. Mặc định vẫn từ chối (503) —
+    #                  fail-closed là hành vi production. Nhận vào hàng chờ chỉ
+    #                  khi bật cờ thử nghiệm rõ ràng, và khi đó bản ghi phải mang
+    #                  dấu 'chưa quét' để HR nhìn thấy.
+    # Cùng khuôn với jd_import.py; khác một điểm: ở đó cờ được kiểm vì tệp không
+    # được lưu, còn ở đây tệp được lưu nên cái giá của việc nhận bừa cao hơn —
+    # vì vậy cờ cũng phải kèm dấu vết trên bản ghi, không chỉ một câu cảnh báo.
+    if verdict == ScanVerdict.INFECTED:
+        raise HTTPException(400, 'Không thể tiếp nhận tệp')
+    unscanned = verdict != ScanVerdict.CLEAN
+    if unscanned and not settings.PUBLIC_CAREERS_UNSCANNED_FILES_ENABLED:
+        raise HTTPException(503, 'Dịch vụ kiểm tra tệp chưa sẵn sàng')
     try:
         mime = await document_processor.validate_file(data, filename, cv.content_type or '')
     except FileValidationError:
@@ -74,10 +87,11 @@ async def apply(position_id: UUID, request_id: UUID = Form(...), name: str = For
     except ValueError:
         raise HTTPException(503, 'Storage chưa sẵn sàng') from None
     return await run_in_threadpool(_commit_intake, pos, req, digest, path, name, email, phone,
-                                   filename, data, mime, cv.content_type, pool_opt_in, pool_token, backend, bucket, identity)
+                                   filename, data, mime, cv.content_type, pool_opt_in, pool_token,
+                                   backend, bucket, identity, 'CAREERS', unscanned)
 
 
-def _commit_intake(pos, req, digest, path, name, email, phone, filename, data, mime, declared_type, pool_opt_in, pool_token, backend, bucket, identity, source="CAREERS"):
+def _commit_intake(pos, req, digest, path, name, email, phone, filename, data, mime, declared_type, pool_opt_in, pool_token, backend, bucket, identity, source="CAREERS", unscanned=False):
     if source not in ("CAREERS", "EMAIL_TEST"):
         raise ValueError("Invalid intake source")
     # Persist the intended path before external I/O. Stale STAGING receipts are
@@ -125,9 +139,10 @@ def _commit_intake(pos, req, digest, path, name, email, phone, filename, data, m
             VALUES (:pos,:source,NULL) RETURNING application_id"""), {'pos': pos, 'source': source}).scalar_one()
         db.execute(text("INSERT INTO app_private.application_identities(application_id,display_name,email,phone) VALUES (:app,:name,:email,:phone)"),
                    {'app': application, 'name': name, 'email': email, 'phone': phone or None})
-        document = db.execute(text("""INSERT INTO app_private.application_documents(application_id,document_type,bucket,storage_path,original_filename,mime_type,size_bytes,file_processing_status)
-            VALUES (:app,'CV',:bucket,:path,:name,:mime,:size,'RECEIVED') RETURNING document_id"""),
-            {'app': application, 'bucket': receipt['storage_bucket'], 'path': receipt['storage_path'], 'name': filename, 'mime': mime, 'size': len(data)}).scalar_one()
+        document = db.execute(text("""INSERT INTO app_private.application_documents(application_id,document_type,bucket,storage_path,original_filename,mime_type,size_bytes,file_processing_status,scan_state)
+            VALUES (:app,'CV',:bucket,:path,:name,:mime,:size,'RECEIVED',:scan_state) RETURNING document_id"""),
+            {'app': application, 'bucket': receipt['storage_bucket'], 'path': receipt['storage_path'], 'name': filename, 'mime': mime, 'size': len(data),
+             'scan_state': 'UNSCANNED' if unscanned else 'SCANNED'}).scalar_one()
         db.execute(text("INSERT INTO app_private.document_processing_runs(document_id,operation_id,extraction_type,status) VALUES (:doc,:op,'INITIAL_EXTRACTION','PENDING')"), {'doc': document, 'op': operation})
         db.execute(text("""INSERT INTO app_private.cv_batch_items(batch_id,original_filename,declared_mime_type,detected_mime_type,size_bytes,validation_result,application_id)
             VALUES (:batch,:name,:declared,:mime,:size,'ACCEPTED',:app)"""), {'batch': batch, 'name': filename, 'declared': declared_type, 'mime': mime, 'size': len(data), 'app': application})
@@ -138,6 +153,14 @@ def _commit_intake(pos, req, digest, path, name, email, phone, filename, data, m
         db.execute(text("""UPDATE app_private.careers_intake_receipts SET state='COMMITTED',application_id=:app,updated_at=clock_timestamp() WHERE request_id=:req"""), {'app': application, 'req': req})
         db.execute(text("""INSERT INTO app_private.audit_events(action_type,object_type,object_id,position_id,outcome,metadata)
             VALUES ('CAREERS_TEST_APPLY','APPLICATION',:app,:pos,'SUCCESS',jsonb_build_object('source',CAST(:source AS text)))"""), {'app': application, 'pos': pos, 'source': source})
+        if unscanned:
+            # Một dòng audit riêng, không nhồi vào dòng trên: câu hỏi "hồ sơ nào
+            # vào hệ thống lúc máy quét chết" phải tra được bằng action_type,
+            # không phải bằng cách đọc JSON của mọi lần nhận hồ sơ.
+            db.execute(text("""INSERT INTO app_private.audit_events(action_type,object_type,object_id,position_id,outcome,metadata)
+                VALUES ('CAREERS_UNSCANNED_FILE_ACCEPTED','APPLICATION',:app,:pos,'SUCCESS',
+                        jsonb_build_object('source',CAST(:source AS text),'document_id',CAST(:doc AS text),'reason','SCANNER_UNAVAILABLE'))"""),
+                {'app': application, 'pos': pos, 'source': source, 'doc': str(document)})
         db.commit()
         return {'message': 'Hồ sơ thử nghiệm đã được tiếp nhận.'}
     except IntegrityError:
