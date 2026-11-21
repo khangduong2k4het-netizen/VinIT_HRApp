@@ -104,6 +104,30 @@ export function shareFeedbackDraftKey(shareId: string): string {
   return `${DRAFT_PREFIX}share-feedback:${shareId}`;
 }
 
+/**
+ * Nháp rubric mẫu đang soạn ở `/rubrics`, chưa lưu lên máy chủ.
+ *
+ * Vì sao cần: nút "Sinh từ JD" (cả hai đường) chỉ **điền biểu mẫu** — không
+ * lưu gì. HR dán một JD dài, chờ AI, sửa vài tiêu chí rồi lỡ đóng tab là mất
+ * toàn bộ công đoạn đó, không có dấu vết nào trên máy chủ để khôi phục.
+ *
+ * Chỉ chứa nội dung rubric HR đang viết: tên, mô tả, trọng số. Không chứa JD
+ * gốc, không chứa thông tin ứng viên. `localStorage` không mã hoá nên ranh giới
+ * này phải giữ.
+ */
+export function rubricDraftKey(): string {
+  // Một khoá duy nhất, không tách theo template_version_id: HR chỉ soạn một
+  // bản tại một thời điểm. Tách khoá theo phiên bản thì có thể tồn tại hai nháp
+  // cùng lúc, và lúc khôi phục phải đoán cái nào mới hơn — đoán sai là mất bản
+  // mới. Bản nháp thuộc phiên bản nào được ghi bên trong chính nó.
+  return `${DRAFT_PREFIX}rubric:pending`;
+}
+
+/** Xoá mọi nháp rubric đang soạn (dùng khi đã lưu, hoặc khi bắt đầu bộ khác). */
+export function purgeRubricDrafts(storage: Storage | null = defaultStorage()): number {
+  return purgeDrafts(`${DRAFT_PREFIX}rubric:`, storage);
+}
+
 /** Everything this reviewer typed for one share, used on access loss and sign-out. */
 export function purgeShareDrafts(shareId: string, storage: Storage | null = defaultStorage()): number {
   return purgeDrafts(`${DRAFT_PREFIX}scorecard:${shareId}:`, storage) + purgeDrafts(`${DRAFT_PREFIX}share-feedback:${shareId}`, storage);

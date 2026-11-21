@@ -142,3 +142,62 @@ def test_migration_does_not_touch_data():
     assert "UPDATE " not in MIGRATION
     assert "DELETE " not in MIGRATION
     assert "INSERT " not in MIGRATION
+
+
+# ---------------------------------------------------------------------------
+# Nháp rubric trong trình duyệt: chống mất dữ liệu, nhưng không giữ quá lâu
+# ---------------------------------------------------------------------------
+
+RUBRIC_PAGE = (BACKEND.parent / "frontend" / "src" / "app" / "rubrics" / "page.tsx").read_text()
+DRAFTS = (BACKEND.parent / "frontend" / "src" / "lib" / "localDrafts.ts").read_text()
+
+
+def test_leaving_the_page_with_unsaved_rubric_asks_first():
+    """Sinh nháp bằng AI mất hàng chục giây; đóng tab ngang là mất trắng."""
+    assert "useUnsavedChangesGuard(dirty" in RUBRIC_PAGE
+
+
+def test_draft_survives_a_hard_close():
+    """Hộp thoại beforeunload không phải lúc nào cũng hiện, nên phải có lưu tạm."""
+    assert "writeDraft(rubricDraftKey()" in RUBRIC_PAGE
+    assert "readDraft<any>(rubricDraftKey())" in RUBRIC_PAGE
+
+
+def test_one_draft_key_not_one_per_version():
+    """Một khoá duy nhất: HR chỉ soạn một bản tại một thời điểm.
+
+    Tách khoá theo phiên bản thì có thể tồn tại hai nháp cùng lúc và lúc khôi
+    phục phải đoán cái nào mới hơn — đoán sai là mất bản mới.
+    """
+    assert "rubric:pending" in DRAFTS
+    assert "rubricDraftKey(" in DRAFTS.split("export function rubricDraftKey")[1].split("}")[0].split("\n")[0] \
+        or "export function rubricDraftKey(): string" in DRAFTS, "khoá không được nhận tham số"
+
+
+def test_restoring_a_saved_versions_draft_reloads_selected():
+    """Thiếu bước này thì Lưu gọi update(selected!.template_version_id) trên null."""
+    restore = RUBRIC_PAGE[RUBRIC_PAGE.index("readDraft<any>(rubricDraftKey())") - 200:]
+    restore = restore[: restore.index("}, [loading]);")]
+    assert "rubricApi.getVersion(stored.selected_id)" in restore
+    assert "setSelected(" in restore
+
+
+def test_lost_access_deletes_the_local_draft():
+    """Nháp nằm trong localStorage không mã hoá — không được giữ khi mất quyền."""
+    assert "[403, 404].includes" in RUBRIC_PAGE
+    assert RUBRIC_PAGE.count("purgeRubricDrafts()") >= 2
+
+
+def test_draft_is_purged_once_saved_to_the_server():
+    """Nháp trong trình duyệt không còn là bản mới nhất sau khi lưu."""
+    save_block = RUBRIC_PAGE[RUBRIC_PAGE.index("const save = async"):]
+    save_block = save_block[: save_block.index("const act = async")]
+    assert "purgeRubricDrafts()" in save_block
+
+
+def test_draft_does_not_contain_the_raw_jd():
+    """localStorage không mã hoá. Nháp chỉ chứa rubric HR đang viết, không chứa JD."""
+    snapshot = RUBRIC_PAGE[RUBRIC_PAGE.index("const currentDraft = () => ({"):]
+    snapshot = snapshot[: snapshot.index("});")]
+    assert "jd_text" not in snapshot, "nháp không được chứa JD gốc"
+    assert "jdText" not in snapshot, "nháp không được chứa JD gốc"

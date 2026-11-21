@@ -160,6 +160,29 @@ Dán tay **không** tạo vị trí và **không** lưu JD vào đâu cả — J
 liệu để đọc. Nếu lưu, mỗi lần thử một JD sẽ để lại dữ liệu rác gắn với một vị
 trí không tồn tại.
 
+### Nếu anh đóng tab giữa chừng thì sao
+
+Sinh nháp bằng AI mất hàng chục giây, nên mất trắng vì đóng tab là chuyện thật.
+Có ba lớp bảo vệ:
+
+1. **Hỏi trước khi rời trang** — đóng tab, bấm link nội bộ, hay bấm Back đều
+   hỏi. Bấm Hủy thì ở lại.
+2. **Lưu tạm trong trình duyệt** — mỗi lần sửa, bản đang soạn được ghi vào
+   `localStorage` của chính máy đó. Mở lại `/rubrics` sẽ hỏi *"Có bản nháp rubric
+   chưa lưu từ lần trước. Khôi phục?"*. Đồng ý thì nội dung quay lại đúng chỗ,
+   kèm dải cảnh báo vàng nhắc **nó chưa lên máy chủ**.
+3. **Tự xoá khi không còn quyền** — nếu lúc khôi phục mà tài khoản không còn
+   quyền với rubric đó (403/404), bản nháp bị xoá khỏi trình duyệt chứ không
+   nằm lại.
+
+> **Lưu tạm không phải lưu thật.** Nó chỉ nằm trong trình duyệt đã soạn, hết hạn
+> sau 7 ngày, và **không** hiện trên máy khác. Muốn thật thì phải bấm
+> **Lưu bản nháp**.
+>
+> Nháp chỉ chứa nội dung rubric (tên, mô tả, trọng số) — **không** chứa JD gốc
+> anh dán vào, và không chứa thông tin ứng viên. `localStorage` không mã hoá nên
+> ranh giới đó phải giữ.
+
 Hai điều cần biết về nút thứ hai và thứ ba:
 
 - **"Sinh từ JD" không tự lưu.** Nó điền vào biểu mẫu rồi dừng. Anh phải đọc,

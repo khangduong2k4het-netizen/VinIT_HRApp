@@ -1817,5 +1817,9 @@
   "Tối thiểu 50 ký tự. JD càng nêu rõ yêu cầu thì tiêu chí sinh ra càng dùng được.": "Tối thiểu 50 ký tự. JD càng nêu rõ yêu cầu thì tiêu chí sinh ra càng dùng được.",
   "JD quá ngắn để sinh tiêu chí có nghĩa. Cần thêm ít nhất {0} ký tự nữa.": "JD quá ngắn để sinh tiêu chí có nghĩa. Cần thêm ít nhất {0} ký tự nữa.",
   "Đang sinh…": "Đang sinh…",
-  "Đã bị thay thế": "Đã bị thay thế"
+  "Đã bị thay thế": "Đã bị thay thế",
+  "Bản nháp rubric chưa lưu sẽ bị mất. Tiếp tục?": "Bản nháp rubric chưa lưu sẽ bị mất. Tiếp tục?",
+  "Có bản nháp rubric chưa lưu từ lần trước. Khôi phục?": "Có bản nháp rubric chưa lưu từ lần trước. Khôi phục?",
+  "Đã khôi phục bản nháp rubric CHƯA lưu từ lần trước. Kiểm tra lại rồi bấm Lưu bản nháp — cho tới lúc đó nó chỉ nằm trong trình duyệt này.": "Đã khôi phục bản nháp rubric CHƯA lưu từ lần trước. Kiểm tra lại rồi bấm Lưu bản nháp — cho tới lúc đó nó chỉ nằm trong trình duyệt này.",
+  "Bỏ bản nháp": "Bỏ bản nháp"
 }

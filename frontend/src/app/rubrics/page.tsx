@@ -5,6 +5,8 @@ import { Accordion, AccordionDetails as AccordionContent, AccordionSummary, Aler
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useI18n } from '@/i18n/I18nProvider';
 import { positionsApi, rubricApi } from '@/lib/api';
+import { purgeRubricDrafts, readDraft, removeDraft, rubricDraftKey, writeDraft } from '@/lib/localDrafts';
+import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { optionalRequirementSpec, rubricKeywords } from '@/lib/phase2Workflow';
 import backendProposal from '@/data/rubric-proposal-it-backend.json';
 
@@ -47,6 +49,9 @@ export default function RubricsPage() {
   const [jdTitle, setJdTitle] = useState('');
   const [jdFamily, setJdFamily] = useState('');
   const [jdBusy, setJdBusy] = useState(false);
+  // Nháp khôi phục được sau khi đóng tab: nháp chỉ nằm trong bộ nhớ trình duyệt
+  // cho tới khi bấm Lưu, nên đóng tab/mất điện là mất trắng công đoạn sinh nháp.
+  const [recovered, setRecovered] = useState<{ savedAt: number } | null>(null);
   const canEdit = creating || (!!selected && selected.status === 'DRAFT' && !!capabilities && (capabilities.can_publish || (capabilities.can_create && selected.created_by === capabilities.user_id)));
 
   const load = useCallback(async () => {
@@ -54,6 +59,71 @@ export default function RubricsPage() {
     setFamilies(f.data); setVersions(v.data); setCapabilities(c.data);
   }, []);
   useEffect(() => { let active = true; load().catch((err: any) => { if (active) setError(err.response?.data?.detail || t('Không thể tải thư viện rubric.')); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [load, t]);
+  /**
+   * Trạng thái đang soạn, gom một chỗ để lưu nháp và khôi phục không bị lệch
+   * với những gì biểu mẫu thực sự giữ.
+   */
+  const currentDraft = () => ({
+    selected_id: selected?.template_version_id ?? null, creating,
+    family, title, level, mandatory, nice, items, specs, keywords,
+  });
+
+  const applySnapshot = (d: any) => {
+    setCreating(!!d.creating);
+    setFamily(d.family || ''); setTitle(d.title || ''); setLevel(d.level || '');
+    setMandatory(d.mandatory ?? '70'); setNice(d.nice ?? '30');
+    setItems(Array.isArray(d.items) ? d.items : []);
+    setSpecs(Array.isArray(d.specs) ? d.specs : []);
+    setKeywords(Array.isArray(d.keywords) ? d.keywords : []);
+  };
+
+  // Chặn ba đường mất dữ liệu mà không hỏi: đóng tab, bấm link nội bộ, bấm Back.
+  useUnsavedChangesGuard(dirty, t('Bản nháp rubric chưa lưu sẽ bị mất. Tiếp tục?'), { fallbackHref: '/rubrics' });
+
+  // Lưu nháp xuống trình duyệt. Khôi phục được cả khi trình duyệt tắt ngang —
+  // hộp thoại beforeunload không phải lúc nào cũng hiện (một số trình duyệt chỉ
+  // hiện sau khi người dùng đã tương tác với trang).
+  useEffect(() => {
+    if (!dirty || loading) return;
+    writeDraft(rubricDraftKey(), currentDraft());
+    // currentDraft() đọc trực tiếp state; đưa từng field vào deps thay vì dùng
+    // hàm để không lưu lại mỗi lần render vì một object mới.
+  }, [dirty, loading, selected, creating, family, title, level, mandatory, nice, items, specs, keywords]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Nháp cũ chưa lưu (đóng tab, mất điện) — hỏi khôi phục thay vì lặng lẽ bỏ.
+  useEffect(() => {
+    if (loading) return;
+    const stored = readDraft<any>(rubricDraftKey());
+    if (!stored || !Array.isArray(stored.items) || !stored.items.length) return;
+    if (!window.confirm(t('Có bản nháp rubric chưa lưu từ lần trước. Khôi phục?'))) {
+      purgeRubricDrafts();
+      return;
+    }
+    void (async () => {
+      applySnapshot(stored);
+      if (stored.selected_id) {
+        // Nháp của một phiên bản ĐÃ CÓ: phải nạp lại `selected` từ máy chủ, nếu
+        // không thì `save` gọi update(selected!.template_version_id) trên null.
+        // Nạp hỏng (bị xoá, mất quyền) thì chuyển thành nháp mới để không mất
+        // nội dung HR đã viết — tệ nhất là lưu thành một rubric khác.
+        try { setSelected((await rubricApi.getVersion(stored.selected_id)).data); setCreating(false); }
+        catch (err: any) {
+          // 403/404: phiên bản không còn thuộc quyền của người này — bỏ nháp,
+          // không giữ nội dung rubric của người khác trong máy.
+          if ([403, 404].includes(err?.response?.status)) { purgeRubricDrafts(); return; }
+          setSelected(null); setCreating(true);
+        }
+      }
+      setRecovered({ savedAt: Date.now() });
+      setDirty(true);
+    })();
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const discardLocalDraft = () => {
+    purgeRubricDrafts();
+    setRecovered(null);
+  };
+
   const populate = (v: Version) => {
     setSelected(v); setCreating(false); setMandatory(String(v.mandatory_weight_total)); setNice(String(v.nice_to_have_weight_total));
     setItems(v.items); setSpecs(v.items.map(i => i.requirement_spec ? JSON.stringify(i.requirement_spec, null, 2) : '')); setKeywords(v.items.map(i => i.expected_evidence_keywords.join(', ')));  setDirty(false);
@@ -153,6 +223,8 @@ export default function RubricsPage() {
       setBusy(true); setError('');
       const payload = { mandatory_weight_total: Number(mandatory), nice_to_have_weight_total: Number(nice), items: items.map((item, i) => ({ ...item, expected_evidence_keywords: rubricKeywords(keywords[i]), weight_in_group: Number(item.weight_in_group), requirement_spec: optionalRequirementSpec(specs[i] || '') })) };
       const result = creating ? await rubricApi.create({ ...payload, job_family_id: family, title, level_band: level || null }) : await rubricApi.update(selected!.template_version_id, { ...payload, expected_revision: selected!.revision });
+      // Đã lên máy chủ thì nháp trong trình duyệt không còn là bản mới nhất.
+      purgeRubricDrafts(); setRecovered(null);
       populate(result.data); await load();
     } catch (err: any) { setError(err instanceof SyntaxError ? t('Requirement spec phải là JSON hợp lệ.') : (err.response?.data?.detail || t('Không thể lưu rubric.'))); }
     finally { setBusy(false); }
@@ -161,7 +233,12 @@ export default function RubricsPage() {
     if (!selected || dirty) return;
     if (!window.confirm(action === 'publish' ? t('Xuất bản phiên bản này? Phiên bản đã xuất bản sẽ bất biến.') : t('Tạo phiên bản nháp mới từ rubric này?'))) return;
     try { setBusy(true); setError(''); const result = action === 'publish' ? await rubricApi.publish(selected.template_version_id, selected.revision) : await rubricApi.clone(selected.template_version_id); populate(result.data); await load(); }
-    catch (err: any) { setError(err.response?.data?.detail || t('Không thể cập nhật rubric.')); }
+    catch (err: any) {
+      // Mất quyền hoặc rubric đã bị xoá: nội dung đang soạn không còn là việc
+      // của tài khoản này nữa, nên đừng giữ lại trong trình duyệt.
+      if ([403, 404].includes(err.response?.status)) discardLocalDraft();
+      setError(err.response?.data?.detail || t('Không thể cập nhật rubric.'));
+    }
     finally { setBusy(false); }
   };
   return <Box>
@@ -169,6 +246,12 @@ export default function RubricsPage() {
     <Typography color="text.secondary" sx={{ mb: 2 }}>{t('HR tạo bản nháp; HR Lead xuất bản. Đề xuất chưa phải chuẩn nghiệp vụ.')}</Typography>
     {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{t(error)}</Alert>}
     {notice && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setNotice('')} data-testid="rubric-notice">{notice}</Alert>}
+    {/* Nháp khôi phục từ trình duyệt: nói rõ nó CHƯA lên máy chủ, và cho bỏ đi
+        nếu HR không muốn dùng tiếp — nếu không, nháp cũ sẽ quay lại mãi. */}
+    {recovered && dirty && <Alert severity="warning" sx={{ mb: 2 }} data-testid="rubric-recovered"
+      action={<Button color="inherit" size="small" onClick={discardLocalDraft}>{t('Bỏ bản nháp')}</Button>}>
+      {t('Đã khôi phục bản nháp rubric CHƯA lưu từ lần trước. Kiểm tra lại rồi bấm Lưu bản nháp — cho tới lúc đó nó chỉ nằm trong trình duyệt này.')}
+    </Alert>}
 
     {/* Hướng dẫn ngay trên trang: người mới mở /rubrics lần đầu không biết
         "rubric" là gì và ba nút khác nhau ở đâu. Giải thích tại chỗ tốt hơn
