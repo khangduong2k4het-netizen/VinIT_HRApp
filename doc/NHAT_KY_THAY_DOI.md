@@ -9,6 +9,74 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-21 — Hồ sơ: xác nhận xong tự sang tiêu chí kế, không tải lại cả hồ sơ
+
+**Vấn đề.** Vòng xác minh một hồ sơ bắt HR bấm thừa ở hai chỗ, đo trên mock
+(`tests/review-loop-metrics.cjs`, 2 tiêu chí bị gắn cờ c2/c3):
+
+1. **Con trỏ đứng lại sau khi xác nhận.** Người đã chọn tiêu chí bằng `j` (đúng
+   như dòng phím tắt hướng dẫn) thì sau khi bấm `1`, con trỏ vẫn ở tiêu chí vừa
+   xong; lần bấm `1` kế tiếp không làm gì. Đo được **16 phím cho 2 tiêu chí, 7
+   lần bấm vô ích**, và hồ sơ vẫn kẹt ở "Đã xác minh 1/2" sau 8 vòng bấm.
+2. **Mỗi lần xác nhận tải lại cả hồ sơ.** `handleReview` gọi `loadData()`, kéo
+   theo `GET /applications/{id}`, `GET /status-events`, `GET /profile` (nhiều
+   lần) và `GET /private-notes`: **15 GET cho 2 tiêu chí**, trang nhấp nháy, và
+   chính lần tải lại đó là thứ làm con trỏ nhảy về chỗ cũ.
+3. **CV không đi theo tiêu chí.** CV đang mở ở trang 3 của c2; xác nhận xong con
+   trỏ sang c3 (trang 4) nhưng khung CV vẫn ở trang 3.
+
+**Đã làm.**
+
+- **Cập nhật tại chỗ thay vì tải lại.** `applyReview` ghi bản ghi review mà
+  backend vừa trả về vào đúng tiêu chí trong `application`, không gọi
+  `loadData()`. Hiệu ứng tải ghi chú đổi phụ thuộc từ cả object `application`
+  sang một boolean quyền, nên một lần xác nhận không còn kéo theo lần tải ghi
+  chú nữa.
+- **Tự nhảy tiêu chí kế.** `nextPendingCriterionId` (thuần, có unit test) chọn
+  tiêu chí còn chờ kế tiếp: đi tiếp về phía trước, chỉ quay lại tiêu chí còn chờ
+  phía trên khi phía trước đã hết — bỏ sót nó sẽ im lặng. Không còn gì chờ thì
+  con trỏ giữ nguyên ở tiêu chí vừa xác nhận.
+- **CV đi theo con trỏ.** `focusCriterion` dùng chung cho `j/k` và cho bước nhảy
+  sau xác nhận: đặt tiêu chí đang chọn, cuộn tới thẻ, và chuyển khung CV sang
+  đúng trang trích dẫn — nhưng chỉ khi CV đã được HR mở (giữ nguyên quy tắc
+  không tải CV trước khi được yêu cầu).
+- **Tải trước hồ sơ kế tiếp.** `PrefetchProfile` gọi `router.prefetch` cho href
+  của hồ sơ kế tiếp ngay khi hồ sơ hiện tại mở xong, không phụ thuộc việc link
+  có nằm trong khung nhìn hay không.
+
+**Số đo trước/sau** (cùng script, cùng mock, 1440×900):
+
+| Chỉ số | Trước | Sau |
+| --- | --- | --- |
+| Phím để xác nhận 2 tiêu chí, không chọn tay | 2 | 2 |
+| Phím để xác nhận 2 tiêu chí, có chọn tay bằng `j` | 16 (7 vô ích) | 3 (0 vô ích) |
+| GET `/applications/{id}` + `/status-events` mỗi lần xác nhận | 2 | 0 |
+| Tổng GET `/v1` cho 2 tiêu chí (không chọn tay) | 15 | 4 |
+| Trang CV sau khi xác nhận (CV đang mở trang 3) | 3 | 4 |
+| Request route hồ sơ kế tiếp trước khi bấm `n` | 1 | 1 |
+| Thời gian tới khi hồ sơ kế tiếp hiện tên | 159 ms | 152–200 ms (dao động) |
+
+Việc tải trước hồ sơ kế tiếp **không đo được cải thiện**: `<Link>` của nút "Hồ
+sơ tiếp theo" nằm trong khung nhìn nên Next đã prefetch route đó từ trước. Lệnh
+`router.prefetch` giữ lại để việc tải trước không phụ thuộc bố cục, nhưng trung
+thực mà nói nó chưa tạo ra khác biệt đo được ở màn này.
+
+**Phạm vi giữ nguyên.** Không thêm endpoint, không đổi shape dữ liệu: review vẫn
+là `POST /assessments/results/{id}/review`, quyền vẫn do backend quyết. Không có
+bước nhảy trạng thái nào; xác minh vẫn không đổi `application_status`. Panel
+`Profile ứng viên` và ghi chú vẫn là hai component riêng.
+
+**Kiểm thử đã chạy.** `npx tsc --noEmit` sạch; `eslint` sạch trên 2 file sửa;
+unit **118/118** (thêm 4 test cho `nextPendingCriterionId`); i18n **3/3**;
+`next build` OK; e2e mới `tests/review-auto-advance.e2e.cjs` pass (tự nhảy tiêu
+chí, không có GET tải lại, CV 3→4, prefetch hồ sơ kế tiếp); e2e
+`tests/finish-application.e2e.cjs` pass (vòng hoàn tất không hồi quy).
+
+**Chưa kiểm.** Panel `Profile ứng viên` vẫn gọi lại `/v1/applications/{id}/profile`
+mỗi khi state hồ sơ đổi (4 request lúc mở trang, và sau mỗi lần xác nhận) — hành
+vi có từ trước, không sửa trong lượt này, và là phần còn lại duy nhất của câu
+"tải lại hồ sơ". Chưa thử trên backend thật; toàn bộ số đo lấy từ mock tĩnh.
+
 ## 2026-11-21 — Danh sách ứng viên: một thanh lọc, lối vào hồ sơ kế tiếp ở đầu trang
 
 **Vấn đề.** Trước bảng dữ liệu của `/positions/[id]/applicants` có tám khối xếp
