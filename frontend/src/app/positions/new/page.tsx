@@ -216,7 +216,12 @@ export default function CreatePositionPage() {
   const runTemplateApply = async (positionId: string): Promise<boolean> => {
     setProgressStep('generating'); setProgressError('');
     try {
-      await rubricApi.apply(positionId, templateId);
+      // Vị trí vừa tạo: nhóm vị trí là state `family`. Nếu HR cố ý chọn rubric
+      // khác nhóm (danh sách có dán nhãn đỏ) thì phải nói rõ với máy chủ, vì
+      // máy chủ mặc định từ chối áp chéo nhóm.
+      const chosen = templateVersions.find(v => v.template_version_id === templateId);
+      const crossFamily = !!family && !!chosen && chosen.job_family_id !== family;
+      await rubricApi.apply(positionId, templateId, crossFamily);
       finishCriteria(positionId);
       return true;
     } catch (err: any) {

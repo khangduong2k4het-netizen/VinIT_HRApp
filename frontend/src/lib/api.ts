@@ -274,7 +274,10 @@ export const rubricApi = {
   update: (id: string, data: unknown) => apiClient.put(`/rubric-library/versions/${id}`, data),
   publish: (id: string, revision: number) => apiClient.post(`/rubric-library/versions/${id}/publish`, { expected_revision: revision }),
   clone: (id: string) => apiClient.post(`/rubric-library/versions/${id}/clone`),
-  apply: (positionId: string, versionId: string) => apiClient.post(`/rubric-library/positions/${positionId}/apply`, { template_version_id: versionId }),
+  // allowOtherFamily: HR đã thấy nhãn đỏ "(khác nhóm vị trí)" và chủ động chọn.
+  // Máy chủ mặc định từ chối áp chéo nhóm để không lỡ tay qua đường API.
+  apply: (positionId: string, versionId: string, allowOtherFamily = false) =>
+    apiClient.post(`/rubric-library/positions/${positionId}/apply`, { template_version_id: versionId, allow_other_family: allowOtherFamily }),
   // Sinh NHÁP rubric từ JD của một vị trí. Không lưu gì trên máy chủ.
   suggestFromPosition: (positionId: string) => apiClient.post('/rubric-library/suggest-from-position', { position_id: positionId }),
   // Sinh NHÁP rubric từ một JD dán tay, cho HR dựng template trước khi mở vị trí.

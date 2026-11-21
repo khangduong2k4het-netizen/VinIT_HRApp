@@ -289,3 +289,44 @@ def test_superseded_can_never_be_the_newest_version():
     # Điều kiện phải loại trừ chính bộ đang duyệt: nếu không, tự nó bị hạ.
     assert "status = 'APPROVED'" in supersede
     assert "criteria_version_id <> :cv_id" in supersede
+
+
+# ---------------------------------------------------------------------------
+# Áp rubric khác nhóm: giao diện đã cảnh báo, máy chủ phải chặn
+# ---------------------------------------------------------------------------
+
+RUBRIC_LIB = (BACKEND / "app" / "api" / "rubric_library.py").read_text()
+
+
+def test_cross_family_apply_is_rejected_by_default():
+    """Dán nhãn đỏ ở giao diện là chưa đủ: gọi thẳng API vẫn áp được."""
+    apply = RUBRIC_LIB[RUBRIC_LIB.index("def apply_template"):]
+    assert "allow_other_family" in apply
+    assert "409" in apply
+
+
+def test_cross_family_flag_defaults_to_false():
+    """Mặc định phải là từ chối; cờ quên truyền không được thành cho phép."""
+    assert "allow_other_family: bool = False" in RUBRIC_LIB
+
+
+def test_same_family_is_never_blocked():
+    """Cùng nhóm thì không được chặn — đó là đường bình thường."""
+    apply = RUBRIC_LIB[RUBRIC_LIB.index("def apply_template"):]
+    guard = apply[apply.index("position_family"):]
+    guard = guard[: guard.index("raise HTTPException") + 200]
+    assert "!= str(source['job_family_id'])" in guard
+
+
+def test_position_without_family_still_works():
+    """Vị trí chưa gán nhóm thì không có gì để so — không được chặn oan."""
+    apply = RUBRIC_LIB[RUBRIC_LIB.index("def apply_template"):]
+    guard = apply[apply.index("position_family"):]
+    assert "if (position_family and" in guard
+
+
+def test_frontend_only_raises_the_flag_for_a_mismatched_family():
+    """Gửi cờ vô điều kiện thì chốt chặn ở máy chủ thành vô nghĩa."""
+    comp = (BACKEND.parent / "frontend" / "src" / "components" / "positions" / "ApplyRubric.tsx").read_text()
+    assert "chosen.job_family_id !== jobFamilyId" in comp
+    assert "rubricApi.apply(positionId, selected, crossFamily)" in comp

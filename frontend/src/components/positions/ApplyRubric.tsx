@@ -40,7 +40,11 @@ export default function ApplyRubric({ positionId, jobFamilyId, disabled, onAppli
     finally { setBusy(false); }
   };
   const apply = async () => {
-    try { setBusy(true); setError(''); await rubricApi.apply(positionId, selected); setOpen(false); await onApplied(); }
+    const chosen = versions.find(v => v.template_version_id === selected);
+    // Chỉ bật cờ khi rubric lệch nhóm — tức đúng trường hợp HR đã thấy nhãn đỏ.
+    // Gửi cờ vô điều kiện thì chốt chặn ở máy chủ thành vô nghĩa.
+    const crossFamily = !!jobFamilyId && !!chosen && chosen.job_family_id !== jobFamilyId;
+    try { setBusy(true); setError(''); await rubricApi.apply(positionId, selected, crossFamily); setOpen(false); await onApplied(); }
     catch (err: any) { setError(err.response?.data?.detail || t('Không thể áp dụng rubric.')); }
     finally { setBusy(false); }
   };

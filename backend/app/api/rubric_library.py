@@ -67,6 +67,10 @@ class PublishTemplate(BaseModel):
 
 class ApplyTemplate(BaseModel):
     template_version_id: UUID
+    # Cố ý dùng rubric của nhóm khác. Mặc định từ chối: rubric được xây theo
+    # nhóm công việc ("IT & Digital" và "Vận hành & Hành chính" khác hẳn nhau),
+    # nên áp chéo gần như luôn là bấm nhầm.
+    allow_other_family: bool = False
 
 
 def _roles(db, actor: str, lock: bool = False):
@@ -266,6 +270,22 @@ def apply_template(position_id: UUID, request: ApplyTemplate, user: dict = Depen
         db.execute(text('SELECT 1 FROM app_private.rubric_template_versions WHERE template_version_id=:id FOR SHARE'), {'id': str(request.template_version_id)})
         source = _version(db, request.template_version_id)
         if source['status'] != 'PUBLISHED': raise HTTPException(409, 'Chỉ dùng rubric đã xuất bản')
+        # Chặn áp rubric KHÁC NHÓM. Giao diện đã xếp rubric cùng nhóm lên đầu và
+        # dán nhãn đỏ "(khác nhóm vị trí)", nhưng API vẫn nhận — nghĩa là gọi
+        # thẳng API vẫn áp được bộ tiêu chí vận hành cho một vị trí kỹ thuật.
+        # Sai từ gốc và không ai phát hiện cho tới lúc chấm điểm.
+        #
+        # Có cờ cho phép cố ý dùng chéo: đó phải là quyết định có ghi nhận, không
+        # phải chuyện lỡ tay.
+        position_family = db.execute(text(
+            'SELECT job_family_id FROM app_private.positions WHERE position_id=:id'
+        ), {'id': str(position_id)}).scalar_one_or_none()
+        if (position_family and str(position_family) != str(source['job_family_id'])
+                and not request.allow_other_family):
+            raise HTTPException(
+                409,
+                'Rubric này thuộc nhóm vị trí khác. Chọn rubric cùng nhóm, hoặc xác nhận rõ nếu cố ý dùng chéo.',
+            )
         jd = db.execute(text('SELECT jd_version_id FROM app_private.jd_versions WHERE position_id=:id ORDER BY version_number DESC LIMIT 1'), {'id': str(position_id)}).scalar_one_or_none()
         if not jd: raise HTTPException(400, 'Vị trí chưa có JD')
         if db.execute(text("SELECT 1 FROM app_private.criteria_versions WHERE position_id=:pos AND jd_version_id=:jd AND status IN ('DRAFT','PENDING_HR_REVIEW','PENDING_HM_APPROVAL')"), {'pos': str(position_id), 'jd': jd}).first():

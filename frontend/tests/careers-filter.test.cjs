@@ -21,11 +21,14 @@ const JOBS = [
   { title: 'BACKEND PYTHON ENGINEER', org_unit: 'IT', work_location: 'Hà Nội' },
   { title: 'Thực tập sinh Data', org_unit: 'IT', work_location: 'Đà Nẵng' },
   { title: 'Chuyên viên Nhân sự', org_unit: 'HR', work_location: null },
+  // Tin này không liên quan gì tới IT, nhưng chứa "it" giữa chữ "Digital".
+  // Có nó thì bug "khớp chuỗi con giữa chữ" mới lộ ra khi chạy test.
+  { title: 'Digital Marketing', org_unit: 'Marketing', work_location: 'Hà Nội' },
 ];
 
 test('từ khoá rỗng trả về nguyên danh sách', () => {
-  assert.equal(filterJobs(JOBS, '').length, 3);
-  assert.equal(filterJobs(JOBS, '   ').length, 3);
+  assert.equal(filterJobs(JOBS, '').length, JOBS.length);
+  assert.equal(filterJobs(JOBS, '   ').length, JOBS.length);
 });
 
 test('khớp theo chức danh, không phân biệt hoa thường', () => {
@@ -61,4 +64,24 @@ test('không sửa mảng gốc', () => {
   const copy = JSON.parse(JSON.stringify(JOBS));
   filterJobs(JOBS, 'backend');
   assert.deepEqual(JOBS, copy);
+});
+
+test('không khớp chuỗi con giữa chữ', () => {
+  // Bug thật đã sửa: tìm "IT" bằng includes() khớp cả "Digital" (và "with",
+  // "recruit"...). Một từ khoá hai chữ cái lọc ra gần như mọi tin, trông như bộ
+  // lọc hỏng. Giờ phải khớp theo ranh giới từ.
+  const hit = filterJobs(JOBS, 'IT').map(j => j.title);
+  assert.deepEqual(hit, ['BACKEND PYTHON ENGINEER', 'Thực tập sinh Data']);
+  assert.ok(!hit.includes('Digital Marketing'), '"IT" không được khớp giữa chữ "Digital"');
+});
+
+test('vẫn khớp được tiền tố của một từ', () => {
+  // Gõ dở dang là chuyện thường khi đang gõ; chặn hết thì bộ lọc thành vô dụng.
+  assert.equal(filterJobs(JOBS, 'back').length, 1);
+  assert.equal(filterJobs(JOBS, 'market').length, 1);
+});
+
+test('khớp dấu câu bao quanh từ', () => {
+  const jobs = [{ title: 'Kỹ sư (backend), 3 năm', org_unit: null, work_location: null }];
+  assert.equal(filterJobs(jobs, 'backend').length, 1);
 });
