@@ -9,6 +9,58 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-21 — Danh sách ứng viên: một thanh lọc, lối vào hồ sơ kế tiếp ở đầu trang
+
+**Vấn đề.** Trước bảng dữ liệu của `/positions/[id]/applicants` có tám khối xếp
+chồng: dòng đếm, hai nút chế độ xem, câu giải thích, hàng chip hàng đợi, hàng
+chip người phụ trách, hàng ba ô chọn tiêu chí, hàng tìm kiếm + sắp xếp, và dòng
+"hiển thị x/y". Ở 1440×900 dòng dữ liệu đầu tiên nằm ở **700px** và chỉ thấy **2**
+dòng. Ba vấn đề cụ thể:
+
+1. Hai nút `Xếp hạng` / `Cần rà soát` trùng đúng hai lựa chọn của ô `Sắp xếp`,
+   và bấm chúng còn âm thầm đặt lại hàng đợi về `Tất cả`.
+2. Hàng chip người phụ trách chiếm một dòng riêng dù chỉ là một câu hỏi phụ.
+3. Muốn mở hồ sơ kế tiếp, HR phải cuộn xuống bảng rồi tự tìm dòng — trong khi
+   việc chính của màn này là duyệt liên tiếp.
+
+**Đã làm.**
+
+- **Một thanh lọc thay sáu khối.** Tìm kiếm, người phụ trách, sắp xếp ở hàng đầu;
+  tiêu chí, bằng chứng, thời gian chờ ở hàng thứ hai; câu giải thích cách sắp
+  xếp là dòng chú thích cuối thanh. Người phụ trách thành ô chọn (vẫn giữ số đếm
+  trong từng lựa chọn) thay cho hàng chip. Nút `Xoá bộ lọc và tìm kiếm` chuyển
+  vào thanh, và giờ cũng xoá luôn bộ lọc người phụ trách — trước đây bấm "xoá bộ
+  lọc" mà bộ lọc đó vẫn còn.
+- **Bớt nút trùng.** Bỏ hai nút chế độ xem; `Xếp hạng`/`Ưu tiên rà soát` chỉ còn
+  một nơi là ô `Sắp xếp danh sách`. Đổi chế độ không còn đặt lại hàng đợi.
+- **Lối vào "hồ sơ kế tiếp".** Nút `Mở hồ sơ kế tiếp` nằm ngay cạnh hành động
+  chính ở header, trỏ vào hồ sơ đầu tiên trong danh sách đang xem mà còn việc
+  (chưa xếp hạng hoặc bằng chứng cần xác minh); tooltip nêu tên ứng viên. Link
+  mang theo ngữ cảnh duyệt (hàng đợi, từ khoá) như mọi link hồ sơ khác.
+- **Chip hàng đợi gọn hơn.** Chip cỡ nhỏ ở mọi màn hình; trên điện thoại chúng
+  chảy thành **một dải cuộn ngang** thay vì bảy dòng (390px không tràn ngang).
+
+**Đo.** Cùng dữ liệu mock, 1440×900: dòng dữ liệu đầu tiên **700px → 610px**, số
+dòng thấy trong màn đầu **2 → 3**. Thanh lọc cao 138px cho hai hàng điều khiển.
+
+**Giữ nguyên.** Mọi hành vi lọc: chip hàng đợi kèm số đếm toàn vị trí, lọc theo
+bằng chứng và thời gian chờ, tìm kiếm theo tên, sắp xếp 5 kiểu, `Cách đọc danh
+sách` (mặc định đóng, mở bằng bàn phím), dòng đếm `Hiển thị x/y`, thanh hành
+động nổi, biên bản lô và cột `Xem` của bảng.
+
+**Kiểm.** `tsc --noEmit`, `eslint` (2 file sửa), unit **114/114**, i18n **3/3**,
+`next build`. E2E: `ranking-compact-mock` (sửa selector: chọn chế độ qua ô Sắp
+xếp thay hai nút đã bỏ; ngưỡng dòng đầu siết 720px → 660px; thêm assert thanh
+lọc gọn và nút hồ sơ kế tiếp), `ranking-context-mock` (thêm mock
+`/v1/dashboard/work-queue` cho badge header), `applicant-criteria-filter`,
+`bulk-actions` — tất cả pass. Ảnh kiểm (không commit):
+`artifacts/applicants-filter-bar.png`, `artifacts/applicants-filter-bar-390.png`.
+
+**Chưa kiểm.** Chưa chạy trên backend thật (mọi e2e ở trên dùng mock);
+`synthetic-ui` vẫn cần backend disposable + fixture token thật nên không chạy
+được ở đây. Chưa đo lại trên màn 360px cho trang này (bulk-actions có chạy 360px
+và pass, nhưng đó là thanh hành động, không phải thanh lọc).
+
 ## 2026-11-21 — Bố cục lại trang chi tiết vị trí: một việc chính, không lặp CTA
 
 **Vấn đề.** Trang `/positions/[id]` là nơi HR ở lâu nhất nhưng bố cục buộc họ
