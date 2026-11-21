@@ -82,8 +82,37 @@ chỗ lệch lộ ra và đã sửa:
 hàng, dải số liệu đọc được cùng lúc, thẻ duyệt nằm ngay dưới tab bar (trước danh
 sách tiêu chí), đổi tab cập nhật `?tab=`, F5 ở `?tab=jd` vẫn ở tab JD.
 
-**Chưa kiểm.** Chưa thử ở ≤768px (điện thoại thật) và chưa chạy lại bộ e2e
-Playwright vì môi trường không có Chromium của bộ test đó.
+**E2E chạm trang vị trí.** Chạy bốn test được nêu, trên `next start` (127.0.0.1:3000)
+với chromium headless shell cài trong máy. Hai test phải bổ sung mock, vì code đã
+thêm hai lời gọi mà mock của test chưa có:
+
+- `/v1/dashboard/work-queue` — badge "việc cần làm" trên header gọi ở mọi trang
+  đã đăng nhập, kể cả trang vị trí; thiếu route thì test báo "Unexpected request"
+  ở bước kiểm cuối dù mọi assertion đều đã qua.
+- `POST /v1/criteria/generate/{id}` — luồng tạo vị trí sinh bộ tiêu chí nháp ngay
+  sau khi tạo; thiếu route thì trang tạo đứng lại ở `/positions/new` và
+  `account-ui` timeout khi chờ `?tab=criteria`.
+
+| Test | Kết quả |
+| --- | --- |
+| `position-open-partial-failure.e2e.cjs` | pass (sau khi thêm mock work-queue) |
+| `workflow-create-mock.e2e.cjs` | pass (sau khi thêm mock work-queue) |
+| `account-ui.e2e.cjs` | pass (thêm mock work-queue + generate sau tạo vị trí) |
+| `synthetic-ui.e2e.cjs` | **không chạy được ở đây** — cần backend disposable ở chế độ
+  `testing` + fixture có token thật và dữ liệu seed; môi trường này chỉ có mock tĩnh |
+
+Nhãn tab tiếng Anh `Job description (JD)` mà `synthetic-ui` bấm vẫn khớp sau khi bỏ
+"· vN" (kiểm riêng trên mock ở locale `en`, mở được luôn hộp thoại tạo phiên bản
+JD), nên việc đổi nhãn không làm hỏng test đó.
+
+**Ghi chú môi trường.** Chromium headless shell trong sandbox này thiếu
+`libnspr4/libnss3/libX*/fontconfig` và không có font nào (mọi chữ render cao 0px,
+`getByText` báo hidden). Đã tải `.deb` của các thư viện + `fonts-dejavu-core`,
+giải nén vào một thư mục riêng rồi chạy test với `LD_LIBRARY_PATH` và
+`FONTCONFIG_FILE` trỏ vào đó. Không sửa gì trong repo cho việc này.
+
+**Chưa kiểm.** Chưa thử ở ≤768px ngoài lần chạy `account-ui` (mobile 390px của
+trang tài khoản) và chưa chạy `synthetic-ui` (lý do ở trên).
 
 ## 2026-11-20 — Sáu cải tiến vòng duyệt hồ sơ: hàng đợi, phím tắt, lý do loại, ghi chú, người phụ trách
 
