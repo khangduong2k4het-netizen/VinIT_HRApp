@@ -9,6 +9,63 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-21 — Bố cục lại trang chi tiết vị trí: một việc chính, không lặp CTA
+
+**Vấn đề.** Trang `/positions/[id]` là nơi HR ở lâu nhất nhưng bố cục buộc họ
+đọc lại cùng một thông tin nhiều lần và cuộn mới bấm được việc chính:
+
+1. Header có 6 nút cùng cỡ (Ứng viên, Đổi Hiring Manager, Dùng rubric, Chỉnh sửa
+   vị trí, Đề xuất tiêu chí AI, Tải lên CV) — không nút nào nổi bật, xuống dòng
+   lung tung ở màn hình 1280px.
+2. Trước khi tới nội dung phải đi qua 3 khối xếp chồng: 6 thẻ số liệu, stepper,
+   thẻ "hành động tiếp theo" — cùng nhắc lại một việc.
+3. Tab "Danh sách ứng viên" lặp lại 4 thẻ số liệu đã có ở trên, cộng 2 nút dẫn
+   tới cùng một trang xếp hạng, trong khi việc thật của tab là nhận CV.
+4. Tab tiêu chí mở bằng nguyên văn JD (đã có tab JD riêng), rồi danh sách tiêu
+   chí, lịch sử duyệt, và **nút duyệt nằm cuối cùng** — phải cuộn hết trang.
+5. Đổi tab xong tải lại trang là quay về tab đầu; không gửi link thẳng cho đồng
+   nghiệp được.
+6. Nút "Tải lên CV" bị khoá mà không nói vì sao.
+
+**Đã làm.**
+
+- **Header hai tầng.** Hàng chính chỉ còn `Ứng viên (N)` và `Nhận CV` (nút thứ
+  hai có tooltip giải thích khi bị khoá: cần bộ tiêu chí đã duyệt và vị trí đang
+  mở). Hàng phụ cỡ nhỏ: `Đề xuất tiêu chí AI`, `Chỉnh sửa vị trí`, `Đổi Hiring
+  Manager`. `Dùng rubric đã xuất bản` chuyển vào thanh công cụ của tab tiêu chí —
+  đúng nơi HR chọn nguồn tiêu chí.
+- **Ba khối thành một thẻ tổng quan.** `WorkflowStepper` thành dải chip 5 bước
+  (bước hiện tại tô đậm, bước bị chặn đỏ, tooltip trạng thái); `PositionSummary`
+  thành dải 6 số ngang vẫn bấm được để mở đúng hàng đợi; `NextActionCard` thêm
+  biến thể `bare` để nằm cùng thẻ. Bớt ~2 khung và ~300px cuộn trước nội dung.
+- **Tab ứng viên.** Bỏ 4 thẻ số liệu trùng và nút trùng: còn khung nhận CV (việc
+  chính) + một dòng số liệu + một nút `Mở trang xếp hạng`.
+- **Duyệt tiêu chí lên đầu tab.** Thẻ duyệt (trạng thái, vai trò của bạn, nút
+  Từ chối / HR duyệt & gửi HM / duyệt trực tiếp / HM duyệt) nằm ngay dưới các
+  cảnh báo, trên danh sách tiêu chí. Bỏ khối JD đầy đủ ở đầu tab, thay bằng nút
+  `Xem JD · vN` trong thanh trọng số.
+- **Tab gắn URL.** `?tab=criteria|applications|shortlist|jd` cập nhật bằng
+  `replaceState` (Back vẫn về trang trước), áp dụng cho cả nút `Nhận CV` và
+  "hành động tiếp theo". Nhãn tab kèm số đếm: `Tiêu chí (7)`, `Ứng viên (12)`,
+  `Shortlist (4)`, `Mô tả công việc (JD) · v3`.
+- **Chi tiết nhỏ.** Chip nhóm vị trí + hạn ứng tuyển ngay dưới tiêu đề (trước đây
+  hạn chỉ thấy trong hộp thoại chỉnh sửa). `ApplyRubric`/`HiringManagerChange`
+  nhận prop `size` để dùng được ở hàng phụ.
+
+**Kiểm thử đã chạy (pass).**
+
+| Lệnh | Kết quả |
+| --- | --- |
+| `npx tsc --noEmit` | 0 lỗi |
+| `npx eslint` (6 file đã sửa) | 0 lỗi |
+| `npm run test:i18n` | 3/3 pass (đã bổ sung 8 khoá tiếng Anh) |
+| `npm run test:unit` | 114/114 pass |
+| `npm run build` | build thành công, `/positions/[id]` 24.6 kB |
+
+**Chưa kiểm.** Chưa mở giao diện bằng trình duyệt (môi trường không có backend
+và trình duyệt): bố cục header, dải chip bước, vị trí thẻ duyệt và hành vi
+`?tab=` mới chỉ được xác nhận qua biên dịch/build, chưa được nhìn tận mắt.
+
 ## 2026-11-20 — Sáu cải tiến vòng duyệt hồ sơ: hàng đợi, phím tắt, lý do loại, ghi chú, người phụ trách
 
 **Vấn đề.** Sáu chỗ HR phải làm lại việc máy đã biết, đo trên chính luồng duyệt
