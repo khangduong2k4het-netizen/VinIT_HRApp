@@ -222,6 +222,7 @@ def test_update_only_changes_what_was_sent(use_fake_db):
         _Result(first=(1,)),
         _Result(one={"job_family_id": family_id, "code": "NEW_FAMILY", "name": "Tên mới", "is_active": True}),
         _Result(),
+        _Result(),
         _Result(one={"position_count": 0, "template_count": 0}),
     ]))
     module.update_job_family(family_id, module.JobFamilyUpdate(name="Tên mới"), USER)
@@ -244,9 +245,47 @@ def test_code_sent_to_patch_is_ignored(use_fake_db):
         _Result(first=(1,)),
         _Result(one={"job_family_id": family_id, "code": "NEW_FAMILY", "name": "Nhóm mới", "is_active": True}),
         _Result(),
+        _Result(),
         _Result(one={"position_count": 0, "template_count": 0}),
     ]))
     payload = module.JobFamilyUpdate.model_validate({"code": "HACKED", "name": "Nhóm mới"})
     module.update_job_family(family_id, payload, USER)
     update_sql = next(sql for sql, _ in db.issued if sql.strip().startswith("UPDATE app_private.job_families"))
     assert "code" not in update_sql
+
+
+def test_renaming_a_family_updates_the_text_snapshot(use_fake_db):
+    """``positions.job_family`` là bản sao tên lúc gán — đổi tên phải đi theo.
+
+    Không đồng bộ thì cột text giữ một cái tên không còn tồn tại ở đâu khác, và
+    báo cáo cũ đọc cột đó sẽ ra tên ma. Đồng bộ trong cùng transaction với lần
+    đổi tên, nên hai chỗ không thể lệch nhau.
+    """
+    family_id = uuid.uuid4()
+    db = use_fake_db(FakeDB(ADMIN_OK + [
+        _Result(first=(1,)),
+        _Result(one={"job_family_id": family_id, "code": "NEW_FAMILY", "name": "Tên mới", "is_active": True}),
+        _Result(),
+        _Result(),
+        _Result(one={"position_count": 2, "template_count": 0}),
+    ]))
+    module.update_job_family(family_id, module.JobFamilyUpdate(name="Tên mới"), USER)
+    snapshot = [(sql, params) for sql, params in db.issued
+                if sql.strip().startswith("UPDATE app_private.positions")]
+    assert len(snapshot) == 1
+    assert snapshot[0][1] == {"name": "Tên mới", "id": str(family_id)}
+    assert db.committed
+
+
+def test_turning_a_family_off_does_not_touch_positions(use_fake_db):
+    """Tắt nhóm không đổi tên gì, nên không được ghi vào bảng vị trí."""
+    family_id = uuid.uuid4()
+    db = use_fake_db(FakeDB(ADMIN_OK + [
+        _Result(first=(1,)),
+        _Result(scalar=0),
+        _Result(one={"job_family_id": family_id, "code": "NEW_FAMILY", "name": "Nhóm mới", "is_active": False}),
+        _Result(),
+        _Result(one={"position_count": 0, "template_count": 0}),
+    ]))
+    module.update_job_family(family_id, module.JobFamilyUpdate(is_active=False), USER)
+    assert not [sql for sql, _ in db.issued if "UPDATE app_private.positions" in sql]

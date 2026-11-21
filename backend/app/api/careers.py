@@ -2,6 +2,14 @@
 
 Router này chỉ ĐỌC. Việc nhận hồ sơ nằm ở ``careers_intake.py``, và chỉ những
 vị trí trả về ở đây với ``accepting_applications=true`` mới thực sự nhận được.
+
+Nhóm vị trí lấy từ **bảng ``job_families``** (qua ``positions.job_family_id``),
+không lấy từ cột text ``positions.job_family``. Cột text là dữ liệu cũ, không có
+ràng buộc: nó từng khiến một nhóm vừa tạo trong màn hình quản trị không xuất
+hiện trong danh mục ở đây. Giờ chỉ còn một nguồn.
+
+Vị trí chưa gán nhóm vẫn hiện tin, chỉ là không lọt vào bộ lọc nhóm nào — cột
+``job_family`` trả về null và giao diện không vẽ chip nhóm cho nó.
 """
 from uuid import UUID
 
@@ -49,12 +57,13 @@ def jobs(response: Response, cursor: UUID | None = None, limit: int = Query(25, 
         rows = db.execute(text("""
             SELECT p.position_id, p.position_code, p.title, p.org_unit, p.work_location,
                    p.work_mode, p.employment_type, p.application_deadline_at,
-                   p.job_family,
+                   f.name AS job_family,
                    jd.content_text AS description,
                    EXISTS (SELECT 1 FROM app_private.criteria_versions c
                      WHERE c.position_id=p.position_id AND c.status='APPROVED'
                        AND c.jd_version_id=jd.jd_version_id) AS rubric_approved
             FROM app_private.positions p
+            LEFT JOIN app_private.job_families f ON f.job_family_id = p.job_family_id
             LEFT JOIN LATERAL (
                 SELECT jd_version_id, content_text FROM app_private.jd_versions
                 WHERE position_id=p.position_id ORDER BY version_number DESC LIMIT 1
@@ -68,7 +77,7 @@ def jobs(response: Response, cursor: UUID | None = None, limit: int = Query(25, 
                             WHERE c.position_id=p.position_id AND c.status='APPROVED'
                               AND c.jd_version_id=jd.jd_version_id)
               AND (:employment_type IS NULL OR p.employment_type = :employment_type)
-              AND (:job_family IS NULL OR p.job_family = :job_family)
+              AND (:job_family IS NULL OR f.name = :job_family)
               AND (:cursor IS NULL OR p.position_id > CAST(:cursor AS uuid))
             ORDER BY p.position_id LIMIT :limit
         """), {'cursor': str(cursor) if cursor else None, 'limit': limit + 1,
@@ -113,11 +122,15 @@ def filters(response: Response):
         raise HTTPException(404, 'Không khả dụng', headers={'Cache-Control': 'no-store'})
     db = SessionLocal()
     try:
+        # Nhóm lấy theo tên trong bảng job_families. Nhóm đã tắt vẫn hiện nếu
+        # còn tin đang tuyển: ứng viên phải lọc được đúng cái họ đang thấy, kể
+        # cả khi HR đã ngừng dùng nhóm đó cho vị trí mới.
         rows = db.execute(text("""
-            SELECT p.employment_type, p.job_family, count(*) AS n
+            SELECT p.employment_type, f.name AS job_family, count(*) AS n
             FROM app_private.positions p
+            LEFT JOIN app_private.job_families f ON f.job_family_id = p.job_family_id
             WHERE p.status='OPEN' AND p.application_deadline_at > statement_timestamp()
-            GROUP BY p.employment_type, p.job_family
+            GROUP BY p.employment_type, f.name
         """)).mappings().all()
         types: dict[str, int] = {}
         families: dict[str, int] = {}

@@ -192,6 +192,16 @@ def update_job_family(job_family_id: UUID, payload: JobFamilyUpdate,
             UPDATE app_private.job_families SET {sets}
             WHERE job_family_id = :id RETURNING *
         """), {**values, "id": str(job_family_id)}).mappings().one()
+        if "name" in values:
+            # ``positions.job_family`` là bản sao tên nhóm lúc gán, không phải
+            # nguồn đọc (``/careers`` và mọi bộ lọc đã chuyển sang bảng). Nhưng
+            # để nó lệch lại còn tệ hơn không có: báo cáo cũ đọc cột này sẽ ra
+            # một cái tên không còn tồn tại ở đâu khác. Cập nhật trong cùng
+            # transaction với lần đổi tên để hai chỗ không bao giờ lệch nhau.
+            db.execute(text("""
+                UPDATE app_private.positions SET job_family = :name
+                WHERE job_family_id = :id
+            """), {"name": row["name"], "id": str(job_family_id)})
         _audit(db, current_user["user_id"], "UPDATE_JOB_FAMILY", job_family_id,
                {"fields": sorted(values), "is_active": row["is_active"]})
         db.commit()

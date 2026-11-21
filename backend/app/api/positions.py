@@ -170,11 +170,16 @@ async def create_position(
         if not department["is_active"]:
             raise HTTPException(status_code=400, detail="Đơn vị/phòng ban đã ngừng hoạt động")
         position_code, department_sequence = next_position_code(db, dict(department))
-        family_name = position_data.job_family
+        # Chỉ kiểm khoá ngoại tồn tại và đang hoạt động. ``job_family`` (text)
+        # vẫn được ghi xuống để vài báo cáo cũ còn đọc được, nhưng nó là bản sao
+        # lúc tạo — nguồn thật là ``job_family_id``. Không ai được đọc text để
+        # lọc hay gom nhóm nữa, nếu không nhóm đổi tên là dữ liệu lệch ngay.
         if position_data.job_family_id:
             family_name = db.execute(text("SELECT name FROM app_private.job_families WHERE job_family_id=:id AND is_active FOR SHARE"), {'id': str(position_data.job_family_id)}).scalar_one_or_none()
             if family_name is None:
                 raise HTTPException(status_code=400, detail="Nhóm vị trí không hoạt động")
+        else:
+            family_name = position_data.job_family
         # Ngôn ngữ suy ra từ chính nội dung JD, không hỏi người dùng. Ô chọn
         # ngôn ngữ cũ đã bỏ vì giá trị của nó không được nơi nào dùng.
         jd_language = detect_language_code(position_data.jd_content)

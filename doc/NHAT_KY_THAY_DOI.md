@@ -9,6 +9,43 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-21 — Nhóm vị trí có API quản trị, và `/careers` chỉ còn một nguồn nhóm
+
+**Vấn đề 1 — mở một ngành tuyển dụng mới phải chạy SQL.** Bảng `job_families`
+chỉ có dữ liệu mồi từ migration `00023`. Muốn thêm nhóm, người có quyền vào
+database phải tự `INSERT`. Không có màn hình, không có audit.
+
+**Đã làm.** `backend/app/api/job_families.py`:
+`GET /job-families` (kèm `position_count`/`template_count`; `include_inactive`
+chỉ ADMIN), `POST` (chuẩn hoá mã `IT Digital` → `IT_DIGITAL`, trùng mã → 409),
+`PATCH` (chỉ `name` + `is_active`; tắt nhóm còn vị trí → 409 kèm số lượng).
+Không có DELETE: nhóm đã gắn với vị trí/rubric thì xoá là mất chỗ trỏ tới.
+`code` bất biến sau khi tạo vì rubric mẫu và báo cáo tham chiếu tới nó.
+Màn hình `/admin/job-families` theo khuôn phòng ban.
+
+**Vấn đề 2 — hai nguồn "nhóm" song song, và nguồn công khai là nguồn cũ.**
+`/careers` lọc và gom danh mục theo cột text `positions.job_family`, trong khi
+vị trí/rubric dùng bảng `job_families`. Hệ quả đo được trên dữ liệu thật
+(`myrymlqdbyqmpynesiwk`): vị trí gán nhóm qua bảng có cột text `NULL` → lọc
+theo bảng ra `IT & Digital`, lọc theo cột text ra `null`. Nhóm mới tạo trong
+màn hình quản trị sẽ **không** xuất hiện trong danh mục ở `/careers`.
+
+**Đã làm.** `/careers/jobs` và `/careers/filters` join `job_families` qua
+`job_family_id` và đọc `f.name`; tham số `job_family` của API so với `f.name`.
+Dùng `LEFT JOIN` để vị trí chưa gán nhóm **vẫn hiện tin** — hiện tại toàn bộ
+tin thật đều chưa gán nhóm, `JOIN` sẽ làm trang trống hoàn toàn. Đổi tên nhóm
+trong API quản trị giờ cập nhật luôn bản sao text trong cùng transaction.
+
+**Phạm vi giữ nguyên.** Không xoá cột `positions.job_family`: cột vẫn được ghi
+lúc tạo/sửa vị trí như bản sao lịch sử, nhưng không còn ai đọc để lọc/gom nhóm.
+Không có migration mới — thay đổi thuần đọc.
+
+**Kiểm thử.** Backend 559 passed / 174 skipped (thêm 41 test: 27 tĩnh + 16 gọi
+thật endpoint với DB giả cho job_families, 7 khoá nguồn nhóm của `/careers`).
+Unit frontend 127/127. `tsc`, `lint`, `build` sạch. **Chưa kiểm:** 38 test e2e
+Playwright không chạy được trong sandbox (thiếu Chromium và Next server), nên
+luồng `/careers` trên trình duyệt thật chưa được xác nhận lại.
+
 ## 2026-11-20 — Sáu cải tiến vòng duyệt hồ sơ: hàng đợi, phím tắt, lý do loại, ghi chú, người phụ trách
 
 **Vấn đề.** Sáu chỗ HR phải làm lại việc máy đã biết, đo trên chính luồng duyệt
