@@ -44,7 +44,7 @@ chí inline) là P2 thật sự chưa làm — và nên chờ dữ liệu sử d
 | Xung đột với `main` | **0** (main có 1 commit dọn `.md` vào `audit/`, không đụng file nào của đợt này) |
 | Nhánh so với `main` | đi trước **177** commit, không có commit lạc |
 | PR đang mở | **không có** — cần mở PR để review trước khi merge |
-| Migration chưa áp lên VPS | **`00033`, `00034`** — xem mục 1 |
+| Migration chưa áp lên VPS | **Không còn** — `00033`/`00034` đã áp (`20261119093753`, `20261119093801`); DB mới nhất là `00037` (`20261120093000`), khớp repo. Đối chiếu `list_migrations` 2026-11-21. |
 | Quyền của tính năng mới | `GET/PATCH /v1/admin/settings` đều `require_admin_role`; ghi review cần `can_manage_hr_notes` |
 
 ## 4. Kiểm chứng tự động tại HEAD `f0f015b`

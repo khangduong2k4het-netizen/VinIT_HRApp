@@ -18,7 +18,7 @@ ký.
 | --- | --- | --- | --- |
 | 1 | Lịch phỏng vấn & scorecard | **Chờ làm** — khoảng trống nghiệp vụ lớn nhất | Mục 3 trong danh sách ưu tiên của anh; chi tiết ở §1 |
 | 2 | Backend tổng hợp số đo UX (bảng event + endpoint theo tuần/vị trí/HR) | Chờ làm | Số đo hiện chỉ cục bộ trên một trình duyệt — `doc/NHAT_KY_THAY_DOI.md` mục 2026-11-19 “Đo tác động…” |
-| 3 | Retention `execute` / `recover` (UI + xác nhận hai bước) | Chờ làm — cố ý chưa làm | Xoá dữ liệu thật, cần quy trình vận hành riêng — `doc/NHAT_KY_THAY_DOI.md` mục “Dữ liệu & lưu trữ” |
+| 3 | Retention `execute` / `recover` (UI + xác nhận hai bước) | **Đã đóng — giữ nguyên quyết định không đưa nút vào UI** | Backend có từ trước (`retention.py:161`, `:175`); frontend cố ý không nối (`api.ts:300`: *"bước thực thi nằm ngoài màn hình này"*). Người dùng chốt 2026-11-21: **giữ nguyên**, thao tác xoá dữ liệu thật chỉ qua API có chủ đích. |
 | 4 | 3.8 sửa tiêu chí tại chỗ | Chờ làm — chờ dữ liệu usability | `doc/TONG_HOP_DONG_PHASE_UIUX.md` §6.1 (khuyến nghị cách B) |
 | 5 | Usability test staging + Safari/iOS + deploy `00033`/`00034` | Chờ làm — gate nghiệm thu | `doc/E2E_STAGING_EXECUTION_CHECKLIST.md`, `doc/TONG_HOP_DONG_PHASE_UIUX.md` §5 |
 

@@ -23,12 +23,12 @@ Việc không thoả thì xếp vào phần C (chờ), kèm lý do cụ thể.
 
 | # | Việc | Ưu tiên | Ước lượng | Vì sao làm được ngay |
 |---|---|---|---|---|
-| A1 | Nối `retention execute/recover` vào giao diện | Trung bình — **cần anh quyết** | 2–3 giờ | Backend đã có đủ; chỉ thiếu 2 hàm client + 1 dialog xác nhận |
-| A2 | Đưa ClamAV vào `/health/ready` | **Cao** | 1 giờ | Sửa trong `main.py`, không migration, không phụ thuộc ai |
+| A1 | ~~Nối `retention execute/recover` vào giao diện~~ | **ĐÃ CHỐT: rút** | — | Anh chọn *giữ nguyên* ngày 2026-11-21: không đưa nút xoá dữ liệu thật vào UI |
+| A2 | Đưa ClamAV vào `/health/ready` | ✅ **Xong** `93a9120` | 1 giờ | 8 test; báo `connected`/`unavailable`/`disabled`, không trả 503 khi thiếu máy quét |
 | A3 | Bảng `ux_events` + endpoint tổng hợp số đo UX | Trung bình | 4–6 giờ | Dữ liệu đã có sẵn ở client, chỉ thiếu chỗ lưu và chỗ cộng |
 | A4 | Cờ "hồ sơ chưa quét virus" cho luồng nộp CV | Trung bình | 3–4 giờ + migration | Hướng đã thống nhất trong `VIEC_CHO_LAM.md` HANG-01 |
 | A5 | 3.8 — sửa tiêu chí tại chỗ (cách B) | Thấp | 2–3 giờ | API và `criteriaApi.updateItem` đã có sẵn |
-| A6 | Dọn tài liệu treo sai trạng thái | Thấp | 30 phút | Chính lần rà này phát hiện chỗ sai |
+| A6 | Dọn tài liệu treo sai trạng thái | ✅ **Xong** (cùng commit) | 30 phút | Đã sửa `VIEC_CHO_LAM` mục 3 và `TONG_HOP §3` |
 
 ## B. Chi tiết từng việc
 
@@ -52,7 +52,8 @@ không phải thiếu sót:** *"liệt kê, tạo, xác nhận, huỷ; bước t
 màn hình này"*. Ai đó đã cố ý không đặt nút xoá dữ liệu thật vào giao diện.
 
 Vì vậy tôi **hạ ưu tiên A1 và không coi đây là việc hiển nhiên nên làm**. Có hai
-đường, và cần anh chọn:
+đường, và anh đã chọn **giữ nguyên (2026-11-21)** — A1 rút khỏi danh sách.
+Ghi lại hai đường để lần sau không mở lại mà không có lý do mới:
 
 - **Giữ nguyên quyết định cũ** → A1 rút khỏi danh sách; chỉ còn A6 (sửa câu chữ
   tài liệu cho khớp sự thật). Cách này an toàn nhất.
@@ -75,8 +76,8 @@ một nút bấm được luôn dễ bấm nhầm hơn một lệnh gọi API c�
 không phải HR Lead/Admin; không tự retry khi storage lỗi (A3 đã chốt là **không
 tự retry**). Test phải khoá cả hai điều đó.
 
-**Cần quyết trước khi code:** **có** — xem đoạn trên. Đây là câu hỏi về chính
-sách vận hành, không phải kỹ thuật.
+**Đã chốt:** giữ nguyên, không nối vào UI. Muốn mở lại thì cần lý do mới, không
+phải chỉ vì "backend có sẵn".
 
 ---
 
