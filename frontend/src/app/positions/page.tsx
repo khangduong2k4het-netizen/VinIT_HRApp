@@ -111,11 +111,17 @@ export default function PositionsPage() {
     const labels: Record<string, string> = {
       DRAFT: t("Bản nháp"), PENDING_HR_REVIEW: t("Chờ HR duyệt"),
       PENDING_HM_APPROVAL: t("Chờ HM duyệt"), APPROVED: t("Đã duyệt"), REJECTED: t("Từ chối"),
+      // SUPERSEDED (00037) = bộ này từng duyệt rồi bị bộ mới hơn thay thế. Không
+      // có nhãn thì nó rơi vào "Chưa rõ" — đúng trạng thái bình thường bị đọc
+      // như dữ liệu hỏng.
+      SUPERSEDED: t("Đã bị thay thế"),
     };
     const label = pos.criteria_status ? (labels[pos.criteria_status] || t("Chưa rõ")) : t("Chưa có");
-    const description = pos.criteria_approved && pos.criteria_status !== 'APPROVED'
-      ? t("Phiên bản mới nhất chưa hoàn tất; vẫn có phiên bản trước đã duyệt.")
-      : t("Trạng thái của phiên bản tiêu chí mới nhất");
+    const description = pos.criteria_status === 'SUPERSEDED'
+      ? t("Bộ tiêu chí mới nhất đã bị thay thế. Vị trí vẫn có một bộ đang hiệu lực.")
+      : pos.criteria_approved && pos.criteria_status !== 'APPROVED'
+        ? t("Phiên bản mới nhất chưa hoàn tất; vẫn có phiên bản trước đã duyệt.")
+        : t("Trạng thái của phiên bản tiêu chí mới nhất");
     return (
       <Tooltip title={description}>
         <span><StatusBadge type={pos.criteria_status === 'APPROVED' ? 'criteria-approved' : 'criteria-draft'} label={label} /></span>

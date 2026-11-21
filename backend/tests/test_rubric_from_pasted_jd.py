@@ -272,3 +272,20 @@ def test_rubric_gate_is_in_the_sql_not_the_ui():
 def test_stale_comment_about_the_listing_being_read_only_is_gone():
     """Câu cũ nói trang luôn là "danh sách tham khảo" đã sai sau khi chốt chính sách."""
     assert "nên trang vẫn là danh sách tham khảo" not in CAREERS_API
+
+
+def test_superseded_can_never_be_the_newest_version():
+    """Vì sao frontend KHÔNG cần lọc SUPERSEDED khi chọn bộ hiện tại.
+
+    `currentCriteria = criteriaVersions[0]` (mới nhất) đã đúng, vì SUPERSEDED
+    chỉ được đặt cho một bộ **cũ hơn** bộ vừa được duyệt trong cùng lệnh. Nếu
+    ai thêm "ưu tiên APPROVED" vào đó thì bản nháp mới hơn mà HR cần xử lý sẽ
+    bị giấu đi — đúng thứ comment trong trang cảnh báo phải tránh.
+    """
+    approve = CRITERIA[CRITERIA.index("new_status, reviewer_role = criteria_decision"):]
+    approve = approve[: approve.index("updated = dict(")]
+    supersede = approve[approve.index("UPDATE app_private.criteria_versions"):]
+    supersede = supersede[: supersede.index("RETURNING")]
+    # Điều kiện phải loại trừ chính bộ đang duyệt: nếu không, tự nó bị hạ.
+    assert "status = 'APPROVED'" in supersede
+    assert "criteria_version_id <> :cv_id" in supersede

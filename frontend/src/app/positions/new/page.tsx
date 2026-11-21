@@ -8,6 +8,7 @@ import apiClient, { criteriaApi, departmentsApi, positionsApi, rubricApi, usersA
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import CreatePositionProgressDialog, { type CreateProgressStep } from '@/components/positions/CreatePositionProgressDialog';
 import { interpretGenerationFailure } from '@/lib/criteriaGeneration';
+import { EMPLOYMENT_TYPES } from '@/lib/employmentTypes';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { Department, UserSummary } from '@/types';
 
@@ -25,6 +26,11 @@ export default function CreatePositionPage() {
   const [source, setSource] = useState<Source>('paste');
   const [content, setContent] = useState('');
   const [deadline, setDeadline] = useState('');
+  // Loại việc làm là thứ trang /careers dùng để lọc và để dựng thanh danh mục.
+  // Thiếu ô này thì cột employment_type luôn NULL và mọi bộ lọc loại việc làm
+  // trên trang tuyển dụng đều rỗng — không phải lỗi giao diện Careers mà là
+  // không có chỗ nào nhập dữ liệu.
+  const [employmentType, setEmploymentType] = useState('');
   const [url, setUrl] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -171,7 +177,8 @@ export default function CreatePositionPage() {
     if (!pendingRequest.current) {
       pendingRequest.current = { ...(idempotencySupported ? { request_id: globalThis.crypto.randomUUID() } : {}),
         department_id: department, title: title.trim(), hiring_manager_user_id: manager.user_id,
-        ...(family ? { job_family_id: family } : {}), jd_content: content.trim(),
+        ...(family ? { job_family_id: family } : {}),
+        ...(employmentType ? { employment_type: employmentType } : {}), jd_content: content.trim(),
         application_deadline_at: deadline ? new Date(deadline).toISOString() : null };
     }
     submitting.current = true; setBusy(true); setError('');
@@ -240,6 +247,10 @@ export default function CreatePositionPage() {
           <Grid item xs={12} md={6}><TextField select fullWidth label={t('Nhóm vị trí (tùy chọn)')} value={family} onChange={e => setFamily(e.target.value)}><MenuItem value="">{t('Chưa chọn')}</MenuItem>{families.map(f => <MenuItem key={f.job_family_id} value={f.job_family_id}>{f.name}</MenuItem>)}</TextField></Grid>
           <Grid item xs={12} md={6}><TextField fullWidth label={t('Mã vị trí dự kiến (tự sinh)')} value={preview} InputProps={{ readOnly: true }} helperText={t('Mã chính thức do hệ thống cấp khi tạo.')} /></Grid>
           <Grid item xs={12} md={6}><TextField fullWidth type="datetime-local" label={t('Hạn ứng tuyển (giờ trình duyệt)')} value={deadline} onChange={e => setDeadline(e.target.value)} InputLabelProps={{ shrink: true }} /></Grid>
+          <Grid item xs={12} md={6}><TextField select fullWidth label={t('Loại việc làm (tùy chọn)')} value={employmentType} onChange={e => setEmploymentType(e.target.value)} helperText={t('Dùng để lọc trên trang tuyển dụng. Bỏ trống thì tin vẫn đăng, chỉ không nằm trong bộ lọc nào.')}>
+            <MenuItem value="">{t('Chưa chọn')}</MenuItem>
+            {EMPLOYMENT_TYPES.map(value => <MenuItem key={value} value={value}>{t(value)}</MenuItem>)}
+          </TextField></Grid>
         </Grid>
         {deadline && <Alert severity="info" sx={{ mt: 2 }}>{t('Khi Careers được bật, vị trí đang mở còn hạn và JD mới nhất có thể được công khai, kể cả khi tiêu chí chưa duyệt.')}</Alert>}
       </CardContent></Card>

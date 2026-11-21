@@ -53,6 +53,7 @@ import OperationProgressPanel from '@/components/workflow/OperationProgressPanel
 import InvalidFileList from '@/components/workflow/InvalidFileList';
 import CVIntakePanel from '@/components/positions/CVIntakePanel';
 import ApplyRubric from '@/components/positions/ApplyRubric';
+import { EMPLOYMENT_TYPES } from '@/lib/employmentTypes';
 import HiringManagerChange from './HiringManagerChange';
 import { validateIntakeFiles } from '@/lib/intake';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
@@ -173,6 +174,10 @@ export default function PositionDetailPage() {
   const [families, setFamilies] = useState<Array<{job_family_id: string; code: string; name: string}>>([]);
   const [positionDeadline, setPositionDeadline] = useState('');
   const [positionStatus, setPositionStatus] = useState<Position['status']>('OPEN');
+  // Loại việc làm sửa được SAU khi tạo — nếu không, vị trí tạo trước khi có ô
+  // này (như IT-0001) sẽ mang employment_type NULL mãi và không bao giờ vào
+  // được bộ lọc nào trên trang tuyển dụng.
+  const [positionEmploymentType, setPositionEmploymentType] = useState('');
   const [savingPosition, setSavingPosition] = useState(false);
   const [positionEditError, setPositionEditError] = useState<string | null>(null);
   const [approvalHistory, setApprovalHistory] = useState<any[]>([]);
@@ -184,6 +189,12 @@ export default function PositionDetailPage() {
   const approvedCriteria = criteriaVersions.find(c => c.status === 'APPROVED' && c.jd_version_id === latestJd?.jd_version_id);
   // Versions are returned newest-first. A newer draft/rejected version must not
   // disappear behind a previously approved version.
+  //
+  // Không cần xử lý riêng SUPERSEDED: trạng thái đó chỉ được đặt khi có một bộ
+  // KHÁC được duyệt trong cùng lệnh, và bộ đó có version_number lớn hơn. Nên
+  // phần tử đầu danh sách không bao giờ là SUPERSEDED khi vị trí còn bộ hiệu
+  // lực. Ưu tiên APPROVED ở đây sẽ GIẤU bản nháp mới hơn mà HR cần xử lý —
+  // một regression, không phải bản sửa.
   const currentCriteria = criteriaVersions[0];
   const criteriaStale = !!currentCriteria && !!latestJd && currentCriteria.jd_version_id !== latestJd.jd_version_id;
   const selectedJd = jdVersions.find(jd => jd.jd_version_id === selectedJdId) || latestJd;
@@ -467,7 +478,7 @@ export default function PositionDetailPage() {
     if (!positionTitle.trim() || savingPosition) return;
     try {
       setSavingPosition(true); setPositionEditError(null);
-      await positionsApi.update(positionId, { title: positionTitle.trim(), status: positionStatus, application_deadline_at: positionDeadline ? new Date(positionDeadline).toISOString() : null, ...(familyChanged ? { job_family_id: positionFamily || null } : {}) });
+      await positionsApi.update(positionId, { title: positionTitle.trim(), status: positionStatus, application_deadline_at: positionDeadline ? new Date(positionDeadline).toISOString() : null, ...(familyChanged ? { job_family_id: positionFamily || null } : {}), ...(positionEmploymentType ? { employment_type: positionEmploymentType } : {}) });
       setPositionDialogOpen(false);
       await loadData();
     } catch (err: any) {
@@ -606,7 +617,8 @@ export default function PositionDetailPage() {
           {isHR && <HiringManagerChange positionId={positionId} onChanged={loadData} />}
           {isHR && <ApplyRubric positionId={positionId} jobFamilyId={position.job_family_id} onApplied={loadData} disabled={generating || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status))} />}
           {isHR && <Button variant="outlined" startIcon={<EditOutlinedIcon />} onClick={() => {
-            setPositionTitle(position.title); setPositionStatus(position.status); setPositionDeadline(position.application_deadline_at ? new Date(new Date(position.application_deadline_at).getTime() - new Date(position.application_deadline_at).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''); setPositionFamily(position.job_family_id || ''); setFamilyChanged(false); setPositionEditError(null); setPositionDialogOpen(true);
+            setPositionTitle(position.title); setPositionStatus(position.status);
+            setPositionEmploymentType((position as any).employment_type || ''); setPositionDeadline(position.application_deadline_at ? new Date(new Date(position.application_deadline_at).getTime() - new Date(position.application_deadline_at).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''); setPositionFamily(position.job_family_id || ''); setFamilyChanged(false); setPositionEditError(null); setPositionDialogOpen(true);
             rubricApi.families().then(res => setFamilies(res.data)).catch(() => { setFamilies([]); setPositionEditError(t('Không thể tải nhóm vị trí.')); });
           }}>{t("Chỉnh sửa vị trí")}</Button>}
           <Button
@@ -1105,6 +1117,12 @@ export default function PositionDetailPage() {
             </FormControl>
             <TextField type="datetime-local" fullWidth label={t('Hạn ứng tuyển (giờ trình duyệt)')} value={positionDeadline}
               InputLabelProps={{ shrink: true }} onChange={e => setPositionDeadline(e.target.value)} />
+            <TextField select fullWidth label={t('Loại việc làm')} value={positionEmploymentType}
+              onChange={e => setPositionEmploymentType(e.target.value)}
+              helperText={t('Dùng để lọc trên trang tuyển dụng.')}>
+              <MenuItem value="">{t('Chưa chọn')}</MenuItem>
+              {EMPLOYMENT_TYPES.map(value => <MenuItem key={value} value={value}>{t(value)}</MenuItem>)}
+            </TextField>
             <Typography variant="caption">{t('Để trống nếu chưa có hạn. Khi cổng được bật, vị trí OPEN còn hạn và JD mới nhất có thể được công khai; HR cần kiểm tra nội dung JD.')}</Typography>
             {positionStatus !== 'OPEN' && <Alert severity="info">{t("Vị trí tạm dừng hoặc đóng sẽ không nhận thêm CV; tác vụ đã chạy không tự hủy. Việc lưu trữ và xóa dữ liệu chưa được tự động thực hiện.")}</Alert>}
           </Box>

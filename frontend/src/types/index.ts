@@ -43,7 +43,7 @@ export interface Position {
   closed_at?: string;
   created_at: string;
   updated_at?: string;
-  criteria_status?: 'DRAFT' | 'PENDING_HR_REVIEW' | 'PENDING_HM_APPROVAL' | 'APPROVED' | 'REJECTED' | null;
+  criteria_status?: 'DRAFT' | 'PENDING_HR_REVIEW' | 'PENDING_HM_APPROVAL' | 'APPROVED' | 'REJECTED' | 'SUPERSEDED' | null;
   criteria_approved?: boolean;
 }
 
@@ -211,7 +211,9 @@ export interface CriteriaVersion {
   version_number: number;
   origin: 'AI_DRAFT' | 'HR_CREATED' | 'TEMPLATE_CLONE';
   source_template_version_id?: string | null;
-  status: 'DRAFT' | 'PENDING_HR_REVIEW' | 'PENDING_HM_APPROVAL' | 'APPROVED' | 'REJECTED';
+  // SUPERSEDED = từng duyệt và đang dùng, sau đó bị một bộ mới hơn thay thế
+  // (migration 00037). Nó là bằng chứng lịch sử, KHÔNG phải bộ đang hiệu lực.
+  status: 'DRAFT' | 'PENDING_HR_REVIEW' | 'PENDING_HM_APPROVAL' | 'APPROVED' | 'REJECTED' | 'SUPERSEDED';
   mandatory_weight_total: number;
   nice_to_have_weight_total: number;
   approved_by_hr?: string;
