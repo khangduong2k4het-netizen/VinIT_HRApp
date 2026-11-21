@@ -67,6 +67,7 @@ import { recordUxEvent } from '@/lib/uxMetrics';
 import { APPLICANT_OWNERSHIP_LABELS } from '@/lib/applicantOwnershipLabels';
 import { duplicateCompareHref } from '@/lib/duplicateCompare';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
+import ChecklistIcon from '@mui/icons-material/Checklist';
 import {
   APPLICANT_OWNERSHIP_FILTERS,
   applicantOwnershipCounts,
@@ -905,6 +906,19 @@ export default function ApplicantsRankingPage() {
               </Button>
             </Tooltip>
           )}
+          {/* Cùng một tiêu chí trên nhiều hồ sơ: khi cả loạt hồ sơ bị nghi ở
+              cùng một tiêu chí, mở từng hồ sơ để tìm đúng chỗ đó là việc lặp. */}
+          <Button
+            component={Link}
+            href={`/positions/${positionId}/applicants/by-criterion`}
+            variant="outlined"
+            color="secondary"
+            startIcon={<ChecklistIcon />}
+            data-testid="review-by-criterion"
+            sx={{ whiteSpace: 'nowrap' }}
+          >
+            {t("Duyệt theo tiêu chí")}
+          </Button>
           {/* Một hành động chính, phần còn lại vào menu: ba nút ngang hàng khiến
               HR phải đọc cả ba mới biết nút nào là việc chính. */}
           <Button

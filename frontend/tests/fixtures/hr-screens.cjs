@@ -560,7 +560,12 @@ function installMockApi(context, overrides = {}) {
         latest_assessment: {
           ...detail.latest_assessment,
           application_id: id,
-          criterion_results: CRITERIA.map(c => ({ ...c, hr_reviews: reviews[c.result_id] || [] })),
+          // Mỗi hồ sơ một result_id riêng, đúng như bảng thật: xác minh ở hồ sơ
+          // này không được biến hồ sơ khác thành "đã kiểm".
+          criterion_results: CRITERIA.map(c => {
+            const resultId = `${id}:${c.result_id}`;
+            return { ...c, result_id: resultId, hr_reviews: reviews[resultId] || [] };
+          }),
         },
       });
     }
