@@ -7,7 +7,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 
 type Person = { user_id: string; display_name: string; account_status?: string; version?: string };
 
-export default function HiringManagerChange({ positionId, onChanged }: { positionId: string; onChanged: () => Promise<void> }) {
+export default function HiringManagerChange({ positionId, onChanged, size = 'medium' }: { positionId: string; onChanged: () => Promise<void>; size?: 'small' | 'medium' }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState<Person[] | null>(null);
@@ -58,7 +58,7 @@ export default function HiringManagerChange({ positionId, onChanged }: { positio
     } finally { setSaving(false); }
   };
   return <Box>
-    <Button variant="outlined" onClick={() => { setSuccess(null); setOpen(true); }}>{t("Đổi Hiring Manager")}</Button>
+    <Button variant="outlined" size={size} onClick={() => { setSuccess(null); setOpen(true); }}>{t("Đổi Hiring Manager")}</Button>
     {success && <Alert severity="success" onClose={() => setSuccess(null)} sx={{ mt: 1 }}>{success === 'changed' ? t("Đã cập nhật Hiring Manager. Hãy chia sẻ shortlist mới nếu cần.") : t("Hiring Manager không thay đổi; các shortlist hiện tại vẫn giữ nguyên.")}</Alert>}
     <Dialog open={open} onClose={() => !saving && setOpen(false)} maxWidth="sm" fullWidth>
       <DialogTitle>{t("Đổi Hiring Manager")}</DialogTitle>

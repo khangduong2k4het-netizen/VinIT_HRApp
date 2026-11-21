@@ -1817,5 +1817,13 @@
   "Tối thiểu 50 ký tự. JD càng nêu rõ yêu cầu thì tiêu chí sinh ra càng dùng được.": "Tối thiểu 50 ký tự. JD càng nêu rõ yêu cầu thì tiêu chí sinh ra càng dùng được.",
   "JD quá ngắn để sinh tiêu chí có nghĩa. Cần thêm ít nhất {0} ký tự nữa.": "JD quá ngắn để sinh tiêu chí có nghĩa. Cần thêm ít nhất {0} ký tự nữa.",
   "Đang sinh…": "Đang sinh…",
-  "Đã bị thay thế": "Đã bị thay thế"
+  "Đã bị thay thế": "Đã bị thay thế",
+  "Nhận CV": "Receive CVs",
+  "Hạn ứng tuyển:": "Deadline:",
+  "Chưa đặt hạn ứng tuyển": "No application deadline set",
+  "Cần duyệt bộ tiêu chí cho JD hiện tại và mở vị trí trước khi nhận CV.": "Approve the criteria set for the current JD and open the position before receiving CVs.",
+  "Mở trang xếp hạng": "Open ranking page",
+  "Xem JD": "View JD",
+  "Vai trò của bạn:": "Your role:",
+  "Các hàng đợi chỉ hiển thị hồ sơ trong giai đoạn sàng lọc.": "Queues only include applications in the screening stage."
 }

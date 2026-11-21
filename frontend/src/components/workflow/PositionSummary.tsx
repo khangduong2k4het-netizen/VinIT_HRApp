@@ -2,10 +2,18 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { Box, Card, CardActionArea, CardContent, Grid, Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { PositionWorkspace } from '@/types';
 
+/**
+ * Dải số liệu của vị trí.
+ *
+ * Trước đây là 6 thẻ riêng trong một grid: chiếm gần một màn hình, đẩy phần
+ * việc thật (tiêu chí, hồ sơ) xuống dưới, và trông như một dashboard con nằm
+ * trong trang. Nay gộp thành một dải chữ ngang, HR đọc được cùng lúc 6 con số
+ * mà không phải cuộn; mỗi số vẫn bấm được để mở đúng hàng đợi.
+ */
 export default function PositionSummary({ workspace, isHR }: { workspace: PositionWorkspace; isHR: boolean }) {
   const { t } = useI18n();
   const counts = workspace.counts;
@@ -17,19 +25,39 @@ export default function PositionSummary({ workspace, isHR }: { workspace: Positi
     { label: t("Cần xác minh"), value: counts.needs_verification, color: counts.needs_verification ? '#B54708' : '#667085', path: '?queue=NEEDS_VERIFICATION' },
     { label: t("Đã shortlist"), value: counts.shortlisted, color: '#067647', path: '?queue=SHORTLIST' },
   ];
+  const positionId = workspace.position.position_id;
 
   return (
-    <Box sx={{ mb: 3 }}><Grid container spacing={2} sx={{ mb: 3 }} aria-label={t("Tóm tắt hồ sơ của vị trí")}>
-      {cards.map(card => (
-        <Grid item xs={6} md={2} key={card.label}>
-          <Card variant="outlined" sx={{ height: '100%', borderColor: '#E4EAF2' }}>
-            {isHR && card.path !== null ? <CardActionArea component={Link} href={card.path.startsWith('?tab=') ? `/positions/${workspace.position.position_id}${card.path}` : `/positions/${workspace.position.position_id}/applicants${card.path}`} aria-label={`${card.label}: ${card.value} — ${t('Mở danh sách liên quan')}`}><CardContent sx={{ py: 2 }}>
-              <Typography variant="caption" color="text.secondary">{card.label}</Typography>
-              <Typography variant="h3" sx={{ fontSize: 26, fontWeight: 700, color: card.color, mt: 0.5 }}>{card.value}</Typography>
-            </CardContent></CardActionArea> : <CardContent sx={{ py: 2 }}><Typography variant="caption" color="text.secondary">{card.label}</Typography><Typography variant="h3" sx={{ fontSize: 26, fontWeight: 700, color: card.color, mt: 0.5 }}>{card.value}</Typography></CardContent>}
-          </Card>
-        </Grid>
-      ))}
-    </Grid><Typography variant="caption" color="text.secondary">{t('Các hàng đợi chỉ hiển thị hồ sơ trong giai đoạn sàng lọc; số tổng hợp có thể bao gồm các trạng thái khác.')}</Typography></Box>
+    <Box
+      aria-label={t("Tóm tắt hồ sơ của vị trí")}
+      sx={{ display: 'flex', alignItems: 'center', columnGap: 0.5, rowGap: 1, flexWrap: 'wrap' }}
+    >
+      {cards.map(card => {
+        const body = (
+          <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, px: 1, py: 0.5, borderRadius: 1 }}>
+            <Typography component="span" sx={{ fontSize: 22, fontWeight: 700, lineHeight: 1.1, color: card.color }}>{card.value}</Typography>
+            <Typography component="span" variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>{card.label}</Typography>
+          </Box>
+        );
+        if (!isHR || card.path === null) return <Box key={card.label}>{body}</Box>;
+        const href = card.path.startsWith('?tab=')
+          ? `/positions/${positionId}${card.path}`
+          : `/positions/${positionId}/applicants${card.path}`;
+        return (
+          <Box
+            key={card.label}
+            component={Link}
+            href={href}
+            aria-label={`${card.label}: ${card.value} — ${t('Mở danh sách liên quan')}`}
+            sx={{ textDecoration: 'none', color: 'inherit', borderRadius: 1, '&:hover': { backgroundColor: '#F5F8FC' } }}
+          >
+            {body}
+          </Box>
+        );
+      })}
+      <Typography variant="caption" color="text.disabled" sx={{ px: 1 }}>
+        {t('Các hàng đợi chỉ hiển thị hồ sơ trong giai đoạn sàng lọc.')}
+      </Typography>
+    </Box>
   );
 }

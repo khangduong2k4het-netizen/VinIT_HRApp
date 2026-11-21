@@ -54,32 +54,46 @@ const ACTION_DESCRIPTIONS: Record<string, string> = {
 interface NextActionCardProps {
   workspace: PositionWorkspace;
   onAction?: (action: PositionWorkspace['workflow']['next_action']) => void;
+  /**
+   * Bỏ khung thẻ riêng để nhúng vào thẻ tổng quan của trang vị trí.
+   *
+   * Trang vị trí từng có ba khối xếp chồng (số liệu, tiến trình, hành động tiếp
+   * theo) cùng nhắc lại một việc; gộp lại một thẻ thì HR thấy ngay "đang ở đâu,
+   * còn gì phải làm" mà không phải cuộn qua ba khung.
+   */
+  bare?: boolean;
 }
 
-export default function NextActionCard({ workspace, onAction }: NextActionCardProps) {
+export default function NextActionCard({ workspace, onAction, bare = false }: NextActionCardProps) {
   const { t } = useI18n();
   const action = workspace.workflow.next_action;
   const label = ACTION_LABELS[action.code] || 'Tiếp tục';
   const description = ACTION_DESCRIPTIONS[action.code] || 'Mở bước tiếp theo của vị trí.';
   const href = `${action.target.pathname}${action.target.search ? `?${action.target.search}` : ''}`;
 
+  const content = (
+    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
+      <Box sx={{ minWidth: 240, flex: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: bare ? 0.25 : 0.75 }}>
+          <Typography variant="overline" color="secondary.main">{t("Hành động tiếp theo")}</Typography>
+          {action.blocked_reason_code && <Chip size="small" label={t("Đang chờ")} color="warning" variant="outlined" />}
+        </Box>
+        <Typography variant="h3" sx={{ fontSize: bare ? 16 : 18, color: '#0A2B57' }}>{t(label)}</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>{t(description)}</Typography>
+      </Box>
+      {onAction ? (
+        <Button variant="contained" color="secondary" size={bare ? 'small' : 'medium'} endIcon={<ArrowForwardIcon />} onClick={() => onAction(action)}>{t(label)}</Button>
+      ) : (
+        <Button component={Link} href={href} variant="contained" color="secondary" size={bare ? 'small' : 'medium'} endIcon={<ArrowForwardIcon />}>{t(label)}</Button>
+      )}
+    </Box>
+  );
+
+  if (bare) return content;
+
   return (
     <Card sx={{ mb: 3, border: '1px solid #F3C2C6', borderLeft: '5px solid #C72127', backgroundColor: '#FFFBFB' }}>
-      <CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
-        <Box sx={{ minWidth: 260, flex: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.75 }}>
-            <Typography variant="overline" color="secondary.main">{t("Hành động tiếp theo")}</Typography>
-            {action.blocked_reason_code && <Chip size="small" label={t("Đang chờ")} color="warning" variant="outlined" />}
-          </Box>
-          <Typography variant="h3" sx={{ fontSize: 18, color: '#0A2B57' }}>{t(label)}</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{t(description)}</Typography>
-        </Box>
-        {onAction ? (
-          <Button variant="contained" color="secondary" endIcon={<ArrowForwardIcon />} onClick={() => onAction(action)}>{t(label)}</Button>
-        ) : (
-          <Button component={Link} href={href} variant="contained" color="secondary" endIcon={<ArrowForwardIcon />}>{t(label)}</Button>
-        )}
-      </CardContent>
+      <CardContent>{content}</CardContent>
     </Card>
   );
 }

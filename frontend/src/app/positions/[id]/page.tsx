@@ -30,6 +30,7 @@ import {
   InputLabel,
   MenuItem,
   Select,
+  Tooltip,
 } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
@@ -94,6 +95,23 @@ function requirementSpecSummary(criterion: Criterion, t: (text: string) => strin
 function formatPercent(value: number): string {
   if (!Number.isFinite(value)) return '0';
   return String(Math.round(value * 100) / 100);
+}
+
+const TAB_SLUGS = ['criteria', 'applications', 'shortlist', 'jd'] as const;
+
+/**
+ * Ghi tab đang xem vào URL (`?tab=...`).
+ *
+ * Dùng replaceState để không tạo thêm mục lịch sử: bấm Back vẫn về trang trước
+ * thay vì lùi từng tab. Nhờ vậy tải lại trang hay gửi link cho đồng nghiệp vẫn
+ * mở đúng tab đang xử lý.
+ */
+function writeTabToUrl(index: number) {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  url.searchParams.set('tab', TAB_SLUGS[index] || 'criteria');
+  url.searchParams.delete('intake');
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
 function distributeWeights(items: Criterion[], mode: 'equal' | 'proportional'): Record<string, string> {
@@ -521,6 +539,7 @@ export default function PositionDetailPage() {
 
   const scrollToIntake = useCallback(() => {
     setActiveTab(1);
+    writeTabToUrl(1);
     window.setTimeout(() => document.getElementById('cv-intake')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
   }, []);
 
@@ -553,12 +572,19 @@ export default function PositionDetailPage() {
     }
     const search = new URLSearchParams(action.target.search || '');
     const tabIndex = { criteria: 0, applications: 1, shortlist: 2, jd: 3 }[search.get('tab') || ''];
-    if (tabIndex != null) setActiveTab(tabIndex);
+    if (tabIndex != null) { setActiveTab(tabIndex); writeTabToUrl(tabIndex); }
     if (search.get('intake') === '1') scrollToIntake();
   };
 
+  // Ghi tab vào URL: trước đây đổi tab xong tải lại trang là quay về tab Tiêu chí,
+  // và không thể gửi link thẳng cho đồng nghiệp cùng xem một tab.
+  const goToTab = useCallback((index: number) => {
+    setActiveTab(index);
+    writeTabToUrl(index);
+  }, []);
+
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    setActiveTab(newValue);
+    goToTab(newValue);
   };
 
   if (loading) {
@@ -569,9 +595,31 @@ export default function PositionDetailPage() {
     );
   }
 
+  const myRoleLabels = [
+    mySystemRoles.has('ADMIN') && 'Admin',
+    (mySystemRoles.has('HR_LEAD') || myPositionRoles.has('HR_LEAD')) && 'HR Lead',
+    myPositionRoles.has('HR_RECRUITER') && 'HR Recruiter',
+    isHM && 'Hiring Manager',
+    !isHR && !isHM && !canDirectApprove && (me?.system_roles?.length ? me.system_roles.join(', ') : t("Chưa gán vai trò")),
+  ].filter(Boolean).join(' · ');
+
   if (!position) {
     return <Alert severity="error" action={<Button onClick={() => loadData(true)}>{t("Thử lại")}</Button>}>{t(error || "Không tìm thấy vị trí")}</Alert>;
   }
+
+  const canUpload = !!approvedCriteria && position.status === 'OPEN' && !isOperationRunning;
+
+  // Mở hộp thoại chỉnh sửa vị trí (tách khỏi JSX để header gọn hơn).
+  const openPositionEdit = () => {
+    setPositionTitle(position.title);
+    setPositionStatus(position.status);
+    setPositionDeadline(position.application_deadline_at ? new Date(new Date(position.application_deadline_at).getTime() - new Date(position.application_deadline_at).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '');
+    setPositionFamily(position.job_family_id || '');
+    setFamilyChanged(false);
+    setPositionEditError(null);
+    setPositionDialogOpen(true);
+    rubricApi.families().then(res => setFamilies(res.data)).catch(() => { setFamilies([]); setPositionEditError(t('Không thể tải nhóm vị trí.')); });
+  };
 
   return (
     <Box>
@@ -582,51 +630,54 @@ export default function PositionDetailPage() {
         <Typography color="text.primary">{position.title}</Typography>
       </Breadcrumbs>
 
-      {/* Position Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2, mb: 3 }}>
-        <Box>
-          <Typography variant="h1" sx={{ fontSize: 28, color: '#0A2B57', mb: 0.5 }}>
-            {position.title}
-          </Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1, flexWrap: 'wrap' }}>
-            <Typography variant="body2" color="text.secondary" fontFamily="monospace">
-              {position.position_code}
+      {/* Position Header — hai việc chính lên trước, phần quản lý vị trí xuống hàng phụ */}
+      <Box sx={{ mb: 3 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography variant="h1" sx={{ fontSize: 28, color: '#0A2B57', mb: 0.5 }}>
+              {position.title}
             </Typography>
-            <StatusBadge
-              type={position.status === 'OPEN' ? 'position-open' : position.status === 'PAUSED' ? 'position-paused' : 'position-closed'}
-              label={position.status === 'OPEN' ? t("Đang mở") : position.status === 'PAUSED' ? t("Tạm dừng") : t("Đã đóng")}
-            />
-            {currentCriteria && <StatusBadge type={currentCriteria.status === 'APPROVED' ? 'criteria-approved' : 'criteria-draft'}
-              label={{ DRAFT: t("Bản nháp"), PENDING_HR_REVIEW: t("Chờ HR"), PENDING_HM_APPROVAL: t("Chờ HM"), APPROVED: t("Đã duyệt"), REJECTED: t("Đã từ chối"), SUPERSEDED: t("Đã bị thay thế") }[currentCriteria.status]} />}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: 0.5, flexWrap: 'wrap' }}>
+              <Typography variant="body2" color="text.secondary" fontFamily="monospace">
+                {position.position_code}
+              </Typography>
+              <StatusBadge
+                type={position.status === 'OPEN' ? 'position-open' : position.status === 'PAUSED' ? 'position-paused' : 'position-closed'}
+                label={position.status === 'OPEN' ? t("Đang mở") : position.status === 'PAUSED' ? t("Tạm dừng") : t("Đã đóng")}
+              />
+              {currentCriteria && <StatusBadge type={currentCriteria.status === 'APPROVED' ? 'criteria-approved' : 'criteria-draft'}
+                label={{ DRAFT: t("Bản nháp"), PENDING_HR_REVIEW: t("Chờ HR"), PENDING_HM_APPROVAL: t("Chờ HM"), APPROVED: t("Đã duyệt"), REJECTED: t("Đã từ chối"), SUPERSEDED: t("Đã bị thay thế") }[currentCriteria.status]} />}
+              {position.job_family && <Chip size="small" variant="outlined" label={position.job_family === 'ADMIN_OPERATIONS' ? t('Vận hành & Hành chính') : position.job_family} />}
+              <Typography variant="caption" color="text.secondary">
+                {position.application_deadline_at
+                  ? `${t('Hạn ứng tuyển:')} ${new Date(position.application_deadline_at).toLocaleDateString(dateLocale)}`
+                  : t('Chưa đặt hạn ứng tuyển')}
+              </Typography>
+            </Box>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+            {isHR && <Button component={Link} href={`/positions/${positionId}/applicants`} variant="contained">{t('Ứng viên')} {appCounts ? `(${appCounts.total})` : ''}</Button>}
+            {!isHR && <Button component={Link} href="/shortlist" variant="contained" color="secondary">{t('Shortlist được chia sẻ')}</Button>}
+            {isHR && (
+              <Tooltip title={canUpload ? '' : t('Cần duyệt bộ tiêu chí cho JD hiện tại và mở vị trí trước khi nhận CV.')}>
+                <span>
+                  <Button variant="contained" color="secondary" startIcon={<UploadFileIcon />} onClick={scrollToIntake} disabled={!canUpload}>{t('Nhận CV')}</Button>
+                </span>
+              </Tooltip>
+            )}
           </Box>
         </Box>
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-          {isHR && <Button component={Link} href={`/positions/${positionId}/applicants`} variant="contained">{t('Ứng viên')} {appCounts ? `(${appCounts.total})` : ''}</Button>}
-          {!isHR && <Button component={Link} href="/shortlist" variant="outlined">{t('Shortlist được chia sẻ')}</Button>}
-          {isHR && <HiringManagerChange positionId={positionId} onChanged={loadData} />}
-          {isHR && <ApplyRubric positionId={positionId} jobFamilyId={position.job_family_id} onApplied={loadData} disabled={generating || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status))} />}
-          {isHR && <Button variant="outlined" startIcon={<EditOutlinedIcon />} onClick={() => {
-            setPositionTitle(position.title); setPositionStatus(position.status); setPositionDeadline(position.application_deadline_at ? new Date(new Date(position.application_deadline_at).getTime() - new Date(position.application_deadline_at).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ''); setPositionFamily(position.job_family_id || ''); setFamilyChanged(false); setPositionEditError(null); setPositionDialogOpen(true);
-            rubricApi.families().then(res => setFamilies(res.data)).catch(() => { setFamilies([]); setPositionEditError(t('Không thể tải nhóm vị trí.')); });
-          }}>{t("Chỉnh sửa vị trí")}</Button>}
-          <Button
-            variant="outlined"
-            startIcon={<AutoAwesomeIcon />}
-            onClick={handleGenerateCriteria}
-            disabled={generating || !isHR || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status))}
-            sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
-          >
-            {generating ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
-            {currentCriteria?.status === 'APPROVED' ? t("Tạo phiên bản tiêu chí mới") : t("Đề xuất tiêu chí AI")}
-          </Button>
-          <Button
-            variant="contained"
-            color="secondary"
-            startIcon={<UploadFileIcon />}
-            onClick={scrollToIntake}
-            disabled={!approvedCriteria || !isHR || position.status !== 'OPEN' || isOperationRunning}
-          >{t("Tải lên CV")}</Button>
-        </Box>
+        {isHR && (
+          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', alignItems: 'center', mt: 1.5, pt: 1.5, borderTop: '1px solid #EDF1F5' }}>
+            <Button size="small" startIcon={<AutoAwesomeIcon />} onClick={handleGenerateCriteria}
+              disabled={generating || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status))}>
+              {generating ? <CircularProgress size={16} sx={{ mr: 1 }} /> : null}
+              {currentCriteria?.status === 'APPROVED' ? t("Tạo phiên bản tiêu chí mới") : t("Đề xuất tiêu chí AI")}
+            </Button>
+            <Button size="small" startIcon={<EditOutlinedIcon />} onClick={openPositionEdit}>{t("Chỉnh sửa vị trí")}</Button>
+            <HiringManagerChange positionId={positionId} onChanged={loadData} size="small" />
+          </Box>
+        )}
       </Box>
 
       {partialError && (
@@ -642,11 +693,16 @@ export default function PositionDetailPage() {
       )}
 
       {workspace && (
-        <>
-          <PositionSummary workspace={workspace} isHR={isHR} />
-          <WorkflowStepper workspace={workspace} />
-          <NextActionCard workspace={workspace} onAction={handleNextAction} />
-        </>
+        <Card variant="outlined" sx={{ mb: 3, borderColor: '#E4EAF2' }}>
+          <CardContent sx={{ py: 1.75, '&:last-child': { pb: 1.75 } }}>
+            <WorkflowStepper workspace={workspace} />
+            <Divider sx={{ my: 1.5 }} />
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+              <PositionSummary workspace={workspace} isHR={isHR} />
+              <NextActionCard workspace={workspace} onAction={handleNextAction} bare />
+            </Box>
+          </CardContent>
+        </Card>
       )}
 
       {/* Processing status — shared operation progress */}
@@ -682,19 +738,18 @@ export default function PositionDetailPage() {
         </Alert>
       )}
 
-      {/* Tabs */}
+      {/* Tabs — số đếm ngay trên nhãn để không phải mở từng tab mới biết có gì */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
         <Tabs value={activeTab} onChange={handleTabChange} variant="scrollable" scrollButtons="auto" aria-label={t("Thông tin vị trí")}>
-          <Tab label={t("Tiêu chí đánh giá")} />
-          <Tab label={t("Danh sách ứng viên")} />
-          <Tab label={t("Shortlist đã chia sẻ")} />
-          <Tab label={t("Mô tả công việc (JD)")} />
+          <Tab label={currentCriteria ? `${t("Tiêu chí đánh giá")} (${currentCriteria.criteria.length})` : t("Tiêu chí đánh giá")} />
+          <Tab label={appCounts ? `${t("Danh sách ứng viên")} (${appCounts.total})` : t("Danh sách ứng viên")} />
+          <Tab label={appCounts ? `${t("Shortlist đã chia sẻ")} (${appCounts.shortlisted})` : t("Shortlist đã chia sẻ")} />
+          <Tab label={latestJd ? `${t("Mô tả công việc (JD)")} · v${latestJd.version_number}` : t("Mô tả công việc (JD)")} />
         </Tabs>
       </Box>
 
       {/* Tab 1: Criteria & Approval */}
       <TabPanel value={activeTab} index={0}>
-        {latestJd && <Card variant="outlined" sx={{ mb: 2 }}><CardContent><Typography variant="h4" sx={{ mb: 1 }}>{t('JD mới nhất để đối chiếu')} · v{latestJd.version_number}</Typography><Box component="details"><Box component="summary" sx={{ cursor: 'pointer', fontWeight: 600 }}>{t('Xem mô tả công việc')}</Box><Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 1, maxHeight: 360, overflow: 'auto' }}>{latestJd.content_text}</Typography></Box></CardContent></Card>}
         {currentCriteria?.source_template_version_id && <Alert severity="info" sx={{ mb: 2 }}>{t("Nguồn phiên bản rubric")}: {currentCriteria.source_template_version_id}</Alert>}
         {isHR && currentCriteria?.status === 'DRAFT' && <Alert severity="info" sx={{ mb: 2 }} action={
           <Button color="inherit" size="small" onClick={() => { setDiscardDraftError(null); setDiscardDraftOpen(true); }}>
@@ -704,19 +759,81 @@ export default function PositionDetailPage() {
         </Alert>}
         {criteriaStale && <Alert severity="warning" sx={{ mb: 2 }}>{t("JD đã thay đổi. Cần tạo và duyệt bộ tiêu chí cho phiên bản mới trước khi tải hoặc đánh giá CV.")}</Alert>}
         {isHM && isSameApprover && currentCriteria?.status === 'PENDING_HM_APPROVAL' && <Alert severity="warning" sx={{ mb: 2 }}>{t("Hai bước duyệt phải do hai tài khoản khác nhau thực hiện. Vui lòng nhờ Hiring Manager khác được phân công duyệt.")}</Alert>}
+        {/* Duyệt tiêu chí — đưa lên đầu tab: trước đây nằm dưới cả danh sách tiêu chí
+            và lịch sử duyệt nên HR phải cuộn hết trang mới bấm được nút duyệt. */}
+        {currentCriteria && currentCriteria.status !== 'APPROVED' && (
+          <Card sx={{ mb: 2, backgroundColor: '#FFFAEB', border: '1px solid #FEF0C7' }}>
+            <CardContent sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap', py: 2, '&:last-child': { pb: 2 } }}>
+              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, flex: 1, minWidth: 260 }}>
+                <WarningIcon sx={{ color: '#B54708', mt: 0.25 }} />
+                <Box>
+                  <Typography variant="body1" fontWeight={700} color="#B54708">
+                    {currentCriteria.status === 'DRAFT' && t("Chờ HR Recruiter rà soát tiêu chí")}
+                    {currentCriteria.status === 'PENDING_HR_REVIEW' && t("Chờ HR Recruiter xác nhận quy trình")}
+                    {currentCriteria.status === 'PENDING_HM_APPROVAL' && t("Chờ Hiring Manager duyệt chuyên môn")}
+                    {currentCriteria.status === 'REJECTED' && t("Bộ tiêu chí đã bị từ chối")}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                    {currentCriteria.status === 'PENDING_HM_APPROVAL'
+                      ? t("Sau khi HM duyệt, bộ tiêu chí sẽ được khóa và dùng để đánh giá ứng viên.")
+                      : t("Sau khi HR duyệt, hệ thống sẽ chuyển sang bước phê duyệt của Hiring Manager.")}
+                  </Typography>
+                  <Typography variant="caption" color="text.disabled" sx={{ display: 'block', mt: 0.5 }}>
+                    {t("Vai trò của bạn:")} {myRoleLabels}
+                  </Typography>
+                </Box>
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                {currentCriteria.status === 'REJECTED' ? (
+                  <Button variant="contained" color="secondary" onClick={handleGenerateCriteria} disabled={generating || !isHR}>{t("Tạo lại đề xuất tiêu chí")}</Button>
+                ) : (currentCriteria.status === 'DRAFT' || currentCriteria.status === 'PENDING_HR_REVIEW') ? (
+                  <>
+                    {isHR && (
+                      <>
+                        <Button variant="outlined" color="error" onClick={() => { setApprovalComment(''); setApprovalAction('REJECT'); }} disabled={approving}>{t("Từ chối")}</Button>
+                        <Button variant="contained" color="secondary" startIcon={<CheckCircleIcon />} onClick={() => handleApprove('APPROVE')} disabled={approving || criteriaStale || !itemWeightsValid}>{t("HR duyệt & gửi HM")}</Button>
+                        {canDirectApprove && (
+                          <Button variant="contained" color="warning" startIcon={<AdminPanelSettingsIcon />} onClick={() => handleApprove('DIRECT_APPROVE')} disabled={approving || criteriaStale || !itemWeightsValid}>{t("Admin/HR Lead duyệt trực tiếp")}</Button>
+                        )}
+                      </>
+                    )}
+                    {!isHR && <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>{t("Chờ HR Recruiter rà soát")}</Typography>}
+                  </>
+                ) : currentCriteria.status === 'PENDING_HM_APPROVAL' ? (
+                  <>
+                    {isHM && (
+                      <Button variant="outlined" onClick={() => { setApprovalComment(''); setApprovalAction('REQUEST_CHANGES'); }} disabled={approving} sx={{ borderColor: '#B54708', color: '#B54708' }}>{t("Yêu cầu chỉnh sửa")}</Button>
+                    )}
+                    {isHM && (
+                      <Button variant="contained" color="secondary" startIcon={<CheckCircleIcon />} onClick={() => handleApprove('APPROVE')} disabled={approving || criteriaStale || isSameApprover || !itemWeightsValid}>{t("HM duyệt chuyên môn")}</Button>
+                    )}
+                    {canDirectApprove && (
+                      <Button variant="contained" color="warning" startIcon={<AdminPanelSettingsIcon />} onClick={() => handleApprove('DIRECT_APPROVE')} disabled={approving || criteriaStale || !itemWeightsValid}>{t("Admin/HR Lead duyệt trực tiếp")}</Button>
+                    )}
+                    {!isHM && !canDirectApprove && <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>{t("Chờ Hiring Manager duyệt")}</Typography>}
+                  </>
+                ) : null}
+              </Box>
+            </CardContent>
+          </Card>
+        )}
+
         {!currentCriteria ? (
           <Card>
             <CardContent sx={{ textAlign: 'center', py: 8 }}>
               <WarningIcon sx={{ fontSize: 64, color: '#B54708', mb: 2 }} />
               <Typography variant="h4" sx={{ fontSize: 18, mb: 1 }}>{t("Chưa có bộ tiêu chí nào")}</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>{t("Nhấn nút “Đề xuất tiêu chí AI” để AI tự động phân tích JD và tạo bộ tiêu chí nháp")}</Typography>
-              <Button
-                variant="contained"
-                color="secondary"
-                startIcon={<AutoAwesomeIcon />}
-                onClick={handleGenerateCriteria}
-                disabled={generating || !isHR}
-              >{t("Tạo đề xuất tiêu chí ngay")}</Button>
+              <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <Button
+                  variant="contained"
+                  color="secondary"
+                  startIcon={<AutoAwesomeIcon />}
+                  onClick={handleGenerateCriteria}
+                  disabled={generating || !isHR}
+                >{t("Tạo đề xuất tiêu chí ngay")}</Button>
+                <ApplyRubric positionId={positionId} jobFamilyId={position.job_family_id} onApplied={loadData} disabled={generating} />
+              </Box>
             </CardContent>
           </Card>
         ) : (
@@ -732,6 +849,9 @@ export default function PositionDetailPage() {
                   {canEditCriteria && <Button startIcon={<TuneIcon />} onClick={openItemWeights}>{t("Điều chỉnh trọng số tiêu chí")}</Button>}
                   {canEditCriteria &&
                     <Button startIcon={<EditOutlinedIcon />} onClick={() => { setMandatoryWeight(String(currentCriteria.mandatory_weight_total)); setWeightError(null); setWeightDialogOpen(true); }}>{t("Điều chỉnh trọng số nhóm")}</Button>}
+                  <ApplyRubric positionId={positionId} jobFamilyId={position.job_family_id} onApplied={loadData} size="small"
+                    disabled={generating || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status))} />
+                  {latestJd && <Button size="small" onClick={() => goToTab(3)}>{`${t('Xem JD')} · v${latestJd.version_number}`}</Button>}
                 </Box>
               </CardContent></Card>
               {!itemWeightsValid && <Alert severity="warning" sx={{ mt: 2 }}>{t("Tổng trọng số trong mỗi nhóm tiêu chí phải bằng 100% trước khi HR duyệt. Hãy dùng Điều chỉnh trọng số tiêu chí để chia đều hoặc chuẩn hóa theo tỉ lệ hiện tại.")}</Alert>}
@@ -862,186 +982,49 @@ export default function PositionDetailPage() {
               </Grid>
             )}
 
-            {/* Approval Actions — role-aware */}
-            {currentCriteria.status !== 'APPROVED' && (
-              <Grid item xs={12}>
-                <Card sx={{ backgroundColor: '#FFFAEB', border: '1px solid #FEF0C7' }}>
-                  <CardContent>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'flex-start', flex: 1, minWidth: 280 }}>
-                        <WarningIcon sx={{ color: '#B54708', mr: 2, mt: 0.3 }} />
-                        <Box>
-                          <Typography variant="body1" fontWeight={600} color="#B54708">
-                            {currentCriteria.status === 'DRAFT' && t("Chờ HR Recruiter rà soát tiêu chí")}
-                            {currentCriteria.status === 'PENDING_HR_REVIEW' && t("Chờ HR Recruiter xác nhận quy trình")}
-                            {currentCriteria.status === 'PENDING_HM_APPROVAL' && t("Chờ Hiring Manager duyệt chuyên môn")}
-                            {currentCriteria.status === 'REJECTED' && t("Bộ tiêu chí đã bị từ chối")}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                            {currentCriteria.status === 'PENDING_HM_APPROVAL'
-                              ? t("Sau khi HM duyệt, bộ tiêu chí sẽ được khóa và dùng để đánh giá ứng viên.")
-                              : t("Sau khi HR duyệt, hệ thống sẽ chuyển sang bước phê duyệt của Hiring Manager.")}
-                          </Typography>
-                          <Typography variant="caption" color="text.disabled" sx={{ mt: 0.5, display: 'block' }}>{t("                            Vai trò của bạn:")} {[
-                              mySystemRoles.has('ADMIN') && 'Admin',
-                              (mySystemRoles.has('HR_LEAD') || myPositionRoles.has('HR_LEAD')) && 'HR Lead',
-                              myPositionRoles.has('HR_RECRUITER') && 'HR Recruiter',
-                              isHM && 'Hiring Manager',
-                              !isHR && !isHM && !canDirectApprove && (me?.system_roles?.length ? me.system_roles.join(', ') : t("Chưa gán vai trò")),
-                            ].filter(Boolean).join(' · ')}</Typography>
-                          {canDirectApprove && (
-                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                              {t("Admin hoặc HR Lead có thể duyệt trực tiếp, không cần chờ Hiring Manager; luồng HR → HM vẫn giữ nguyên.")}
-                            </Typography>
-                          )}
-                        </Box>
-                      </Box>
-                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                        {currentCriteria.status === 'REJECTED' ? (
-                          <Button variant="contained" color="secondary" onClick={handleGenerateCriteria} disabled={generating || !isHR}>{t("Tạo lại đề xuất tiêu chí")}</Button>
-                        ) : (currentCriteria.status === 'DRAFT' || currentCriteria.status === 'PENDING_HR_REVIEW') ? (
-                          <>
-                            {isHR && (
-                              <>
-                                <Button
-                                  variant="outlined"
-                                  color="error"
-                                  onClick={() => { setApprovalComment(''); setApprovalAction('REJECT'); }}
-                                  disabled={approving}
-                                >{t("Từ chối")}</Button>
-                                <Button
-                                  variant="contained"
-                                  color="secondary"
-                                  startIcon={<CheckCircleIcon />}
-                                  onClick={() => handleApprove('APPROVE')}
-                                  disabled={approving || criteriaStale || !itemWeightsValid}
-                                >{t("HR duyệt & gửi HM")}</Button>
-                                {canDirectApprove && (
-                                  <Button
-                                    variant="contained"
-                                    color="warning"
-                                    startIcon={<AdminPanelSettingsIcon />}
-                                    onClick={() => handleApprove('DIRECT_APPROVE')}
-                                    disabled={approving || criteriaStale || !itemWeightsValid}
-                                  >{t("Admin/HR Lead duyệt trực tiếp")}</Button>
-                                )}
-                              </>
-                            )}
-                            {!isHR && (
-                              <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>{t("Chờ HR Recruiter rà soát")}</Typography>
-                            )}
-                          </>
-                        ) : currentCriteria.status === 'PENDING_HM_APPROVAL' ? (
-                          <>
-                            {isHM && (
-                              <Button
-                                variant="outlined"
-                                onClick={() => { setApprovalComment(''); setApprovalAction('REQUEST_CHANGES'); }}
-                                disabled={approving}
-                                sx={{ borderColor: '#B54708', color: '#B54708' }}
-                              >{t("Yêu cầu chỉnh sửa")}</Button>
-                            )}
-                            {isHM && (
-                              <Button
-                                variant="contained"
-                                color="secondary"
-                                startIcon={<CheckCircleIcon />}
-                                onClick={() => handleApprove('APPROVE')}
-                                  disabled={approving || criteriaStale || isSameApprover || !itemWeightsValid}
-                              >{t("HM duyệt chuyên môn")}</Button>
-                            )}
-                            {canDirectApprove && (
-                              <Button
-                                variant="contained"
-                                color="warning"
-                                startIcon={<AdminPanelSettingsIcon />}
-                                onClick={() => handleApprove('DIRECT_APPROVE')}
-                                disabled={approving || criteriaStale || !itemWeightsValid}
-                              >{t("Admin/HR Lead duyệt trực tiếp")}</Button>
-                            )}
-                            {!isHM && !canDirectApprove && (
-                              <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>{t("Chờ Hiring Manager duyệt")}</Typography>
-                            )}
-                          </>
-                        ) : null}
-                      </Box>
-                    </Box>
-                  </CardContent>
-                </Card>
-              </Grid>
-            )}
           </Grid>
         )}
       </TabPanel>
 
-      {/* Tab 2: Applications — link to dedicated ranking page + stats */}
+      {/* Tab 2: Applications — tiếp nhận CV trước, số liệu gộp một dòng, một lối sang trang xếp hạng */}
       <TabPanel value={activeTab} index={1}>
-        {isHR && (
-          <CVIntakePanel
-            files={selectedFiles}
-            onFiles={handleFilesSelected}
-            onRemove={handleRemoveFile}
-            onUpload={handleUpload}
-            uploading={uploading}
-            uploadProgress={uploadProgress}
-            disabled={!approvedCriteria || position.status !== 'OPEN' || isOperationRunning}
-            error={uploadError}
-          />
-        )}
-        {isHR ? <Grid container spacing={3}>
-          <Grid item xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography variant="caption" color="text.secondary">{t("Tổng hồ sơ")}</Typography>
-                <Typography variant="h4" sx={{ fontSize: 24, fontWeight: 'bold', color: '#0A2B57' }}>{appCounts?.total ?? '—'}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <Card sx={{ border: (appCounts?.processing || 0) > 0 ? '1px solid #B54708' : undefined }}>
-              <CardContent>
-                <Typography variant="caption" color="text.secondary">{t("Đang xử lý CV")}</Typography>
-                <Typography variant="h4" sx={{ fontSize: 24, fontWeight: 'bold', color: (appCounts?.processing || 0) > 0 ? '#B54708' : '#667085' }}>{appCounts?.processing ?? '—'}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <Card sx={{ border: (appCounts?.needs_review || 0) > 0 ? '1px solid #FECDCA' : undefined }}>
-              <CardContent>
-                <Typography variant="caption" color="text.secondary">{t("Cần HR xem lại")}</Typography>
-                <Typography variant="h4" sx={{ fontSize: 24, fontWeight: 'bold', color: (appCounts?.needs_review || 0) > 0 ? '#C72127' : '#667085' }}>{appCounts?.needs_review ?? '—'}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography variant="caption" color="text.secondary">{t("Đã shortlist")}</Typography>
-                <Typography variant="h4" sx={{ fontSize: 24, fontWeight: 'bold', color: '#067647' }}>{appCounts?.shortlisted ?? '—'}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={12}>
-            <Card>
-              <CardContent sx={{ textAlign: 'center', py: 6 }}>
-                <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>{t("Xem bảng xếp hạng, đối chiếu bằng chứng, đánh dấu shortlist và chia sẻ cho Hiring Manager tại trang chuyên dụng.")}</Typography>
-                <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
-                  <Button
-                    variant="outlined"
-                    startIcon={<UploadFileIcon />}
-                    onClick={scrollToIntake}
-                    disabled={!approvedCriteria || !isHR || position.status !== 'OPEN' || isOperationRunning}
-                    sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
-                  >{t("Tải lên CV ứng viên")}</Button>
-                  {isHR ? <Button component={Link} href={`/positions/${positionId}/applicants`} variant="contained" color="secondary">{t("Mở trang xếp hạng & đánh giá")}</Button> : <Button component={Link} href="/shortlist" variant="contained" color="secondary">{t("Xem shortlist được chia sẻ")}</Button>}
+        {isHR ? (
+          <>
+            <CVIntakePanel
+              files={selectedFiles}
+              onFiles={handleFilesSelected}
+              onRemove={handleRemoveFile}
+              onUpload={handleUpload}
+              uploading={uploading}
+              uploadProgress={uploadProgress}
+              disabled={!canUpload}
+              error={uploadError}
+            />
+            <Card variant="outlined">
+              <CardContent sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap', py: 2, '&:last-child': { pb: 2 } }}>
+                <Box sx={{ display: 'flex', gap: { xs: 2, sm: 3 }, flexWrap: 'wrap' }}>
+                  {[
+                    { label: t("Tổng hồ sơ"), value: appCounts?.total, color: '#0A2B57' },
+                    { label: t("Đang xử lý CV"), value: appCounts?.processing, color: (appCounts?.processing || 0) > 0 ? '#B54708' : '#667085' },
+                    { label: t("Cần HR xem lại"), value: appCounts?.needs_review, color: (appCounts?.needs_review || 0) > 0 ? '#C72127' : '#667085' },
+                    { label: t("Đã shortlist"), value: appCounts?.shortlisted, color: '#067647' },
+                  ].map(item => (
+                    <Box key={item.label}>
+                      <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+                      <Typography variant="h4" sx={{ fontSize: 20, fontWeight: 700, color: item.color }}>{item.value ?? '—'}</Typography>
+                    </Box>
+                  ))}
                 </Box>
+                <Button component={Link} href={`/positions/${positionId}/applicants`} variant="contained" color="secondary">{t('Mở trang xếp hạng')}</Button>
               </CardContent>
             </Card>
-          </Grid>
-        </Grid> : <Card><CardContent sx={{ textAlign: 'center', py: 6 }}>
-          <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>{t("Bạn chỉ xem được hồ sơ đã được HR chia sẻ qua shortlist.")}</Typography>
-          <Button component={Link} href="/shortlist" variant="contained" color="secondary">{t("Xem shortlist được chia sẻ")}</Button>
-        </CardContent></Card>}
+          </>
+        ) : (
+          <Card><CardContent sx={{ textAlign: 'center', py: 6 }}>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>{t("Bạn chỉ xem được hồ sơ đã được HR chia sẻ qua shortlist.")}</Typography>
+            <Button component={Link} href="/shortlist" variant="contained" color="secondary">{t("Xem shortlist được chia sẻ")}</Button>
+          </CardContent></Card>
+        )}
       </TabPanel>
 
       {/* Tab 3: Shortlist — link to shortlist inbox */}
