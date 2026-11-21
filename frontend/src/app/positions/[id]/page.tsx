@@ -608,6 +608,7 @@ export default function PositionDetailPage() {
   }
 
   const canUpload = !!approvedCriteria && position.status === 'OPEN' && !isOperationRunning;
+  const criteriaGenerateBlocked = !!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status);
 
   // Mở hộp thoại chỉnh sửa vị trí (tách khỏi JSX để header gọn hơn).
   const openPositionEdit = () => {
@@ -669,11 +670,14 @@ export default function PositionDetailPage() {
         </Box>
         {isHR && (
           <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', alignItems: 'center', mt: 1.5, pt: 1.5, borderTop: '1px solid #EDF1F5' }}>
-            <Button size="small" startIcon={<AutoAwesomeIcon />} onClick={handleGenerateCriteria}
-              disabled={generating || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status))}>
-              {generating ? <CircularProgress size={16} sx={{ mr: 1 }} /> : null}
-              {currentCriteria?.status === 'APPROVED' ? t("Tạo phiên bản tiêu chí mới") : t("Đề xuất tiêu chí AI")}
-            </Button>
+            <Tooltip title={criteriaGenerateBlocked ? t('Bộ tiêu chí hiện tại đang chờ duyệt. Huỷ bản nháp nếu muốn tạo bộ mới.') : ''}>
+              <span>
+                <Button size="small" startIcon={<AutoAwesomeIcon />} onClick={handleGenerateCriteria} disabled={generating || criteriaGenerateBlocked}>
+                  {generating ? <CircularProgress size={16} sx={{ mr: 1 }} /> : null}
+                  {currentCriteria?.status === 'APPROVED' ? t("Tạo phiên bản tiêu chí mới") : t("Đề xuất tiêu chí AI")}
+                </Button>
+              </span>
+            </Tooltip>
             <Button size="small" startIcon={<EditOutlinedIcon />} onClick={openPositionEdit}>{t("Chỉnh sửa vị trí")}</Button>
             <HiringManagerChange positionId={positionId} onChanged={loadData} size="small" />
           </Box>
@@ -692,15 +696,18 @@ export default function PositionDetailPage() {
         </Alert>
       )}
 
-      {workspace && (
+      {/* Tổng quan chỉ hiện ở tab Tiêu chí: các tab còn là nơi làm việc (nhận CV, JD)
+          nên khối này chỉ đẩy nội dung chính xuống dưới màn hình. */}
+      {workspace && activeTab === 0 && (
         <Card variant="outlined" sx={{ mb: 3, borderColor: '#E4EAF2' }}>
           <CardContent sx={{ py: 1.75, '&:last-child': { pb: 1.75 } }}>
             <WorkflowStepper workspace={workspace} />
             <Divider sx={{ my: 1.5 }} />
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-              <PositionSummary workspace={workspace} isHR={isHR} />
-              <NextActionCard workspace={workspace} onAction={handleNextAction} bare />
-            </Box>
+            <PositionSummary workspace={workspace} isHR={isHR} />
+            <Divider sx={{ my: 1.5 }} />
+            {/* Mỗi hàng một việc: khi số liệu và hành động nằm chung một hàng, nút hành động
+                bị đẩy xuống dưới và lơ lửng giữa thẻ vì khối chứa nó co theo nội dung. */}
+            <NextActionCard workspace={workspace} onAction={handleNextAction} bare />
           </CardContent>
         </Card>
       )}
@@ -740,11 +747,21 @@ export default function PositionDetailPage() {
 
       {/* Tabs — số đếm ngay trên nhãn để không phải mở từng tab mới biết có gì */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-        <Tabs value={activeTab} onChange={handleTabChange} variant="scrollable" scrollButtons="auto" aria-label={t("Thông tin vị trí")}>
+        {/* Nhãn tab gọn (padding nhỏ, không min-width mặc định): ở 1280px bốn nhãn tiếng Việt
+            vượt khung nên tab cuối bị cắt thành "Mô tả công…" kèm nút cuộn. */}
+        <Tabs
+          value={activeTab}
+          onChange={handleTabChange}
+          variant="scrollable"
+          scrollButtons="auto"
+          aria-label={t("Thông tin vị trí")}
+          sx={{ '& .MuiTab-root': { minWidth: 0, px: 1.5, fontSize: 13.5, whiteSpace: 'nowrap' } }}
+        >
           <Tab label={currentCriteria ? `${t("Tiêu chí đánh giá")} (${currentCriteria.criteria.length})` : t("Tiêu chí đánh giá")} />
           <Tab label={appCounts ? `${t("Danh sách ứng viên")} (${appCounts.total})` : t("Danh sách ứng viên")} />
           <Tab label={appCounts ? `${t("Shortlist đã chia sẻ")} (${appCounts.shortlisted})` : t("Shortlist đã chia sẻ")} />
-          <Tab label={latestJd ? `${t("Mô tả công việc (JD)")} · v${latestJd.version_number}` : t("Mô tả công việc (JD)")} />
+          {/* Không ghép số phiên bản vào nhãn: ở màn 1280px nó làm tab cuối bị cắt chữ. */}
+          <Tab label={t("Mô tả công việc (JD)")} />
         </Tabs>
       </Box>
 
@@ -880,17 +897,21 @@ export default function PositionDetailPage() {
                       .filter(c => c.category === 'MUST_HAVE')
                       .map((crit, idx) => (
                         <ListItem key={crit.criterion_id} sx={{ px: 0, py: 1, flexDirection: 'column', alignItems: 'flex-start' }}>
-                          <Box sx={{ width: '100%', display: 'flex', justifyContent: 'space-between' }}>
-                            <Typography variant="body2" fontWeight={600}>
-                              {idx + 1}. {crit.name}
-                            </Typography>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-                              <Chip label={`${formatPercent(criterionShare(crit))}% ${t("trong nhóm")} · ${formatPercent(criterionEffectiveWeight(crit))}% ${t("tổng")}`} size="small" sx={{ height: 20, fontSize: 11, backgroundColor: '#F3EEEE' }} />
-                              {canEditCriteria && (<>
+                          {/* Cho hàng tiêu đề xuống dòng thay vì bóp tên tiêu chí: trước đây ở cột
+                              hẹp tên bị ép còn vài chữ mỗi dòng và nút Xóa bị cắt mất. */}
+                          <Box sx={{ width: '100%', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                            <Box sx={{ flex: '1 1 200px', minWidth: 0 }}>
+                              <Typography variant="body2" fontWeight={600}>
+                                {idx + 1}. {crit.name}
+                              </Typography>
+                              <Chip label={`${formatPercent(criterionShare(crit))}% · ${formatPercent(criterionEffectiveWeight(crit))}% ${t("tổng")}`} size="small" sx={{ height: 20, fontSize: 11, backgroundColor: '#F3EEEE', mt: 0.5 }} />
+                            </Box>
+                            {canEditCriteria && (
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
                                 <Button size="small" startIcon={<EditOutlinedIcon />} onClick={() => { setCriterionError(null); setEditingCriterion({ ...crit, requirement_spec: crit.requirement_spec || { kind: 'SKILL', terms: crit.expected_evidence_keywords || [], required_languages: [] } }); }}>{t("Sửa")}</Button>
                                 <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => setDeletingCriterion(crit)}>{t("Xóa")}</Button>
-                              </>)}
-                            </Box>
+                              </Box>
+                            )}
                           </Box>
                           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                             {crit.description}
@@ -934,17 +955,21 @@ export default function PositionDetailPage() {
                       .filter(c => c.category === 'NICE_TO_HAVE')
                       .map((crit, idx) => (
                         <ListItem key={crit.criterion_id} sx={{ px: 0, py: 1, flexDirection: 'column', alignItems: 'flex-start' }}>
-                          <Box sx={{ width: '100%', display: 'flex', justifyContent: 'space-between' }}>
-                            <Typography variant="body2" fontWeight={600}>
-                              {idx + 1}. {crit.name}
-                            </Typography>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-                              <Chip label={`${formatPercent(criterionShare(crit))}% ${t("trong nhóm")} · ${formatPercent(criterionEffectiveWeight(crit))}% ${t("tổng")}`} size="small" sx={{ height: 20, fontSize: 11, backgroundColor: '#F3EEEE' }} />
-                              {canEditCriteria && (<>
+                          {/* Cho hàng tiêu đề xuống dòng thay vì bóp tên tiêu chí: trước đây ở cột
+                              hẹp tên bị ép còn vài chữ mỗi dòng và nút Xóa bị cắt mất. */}
+                          <Box sx={{ width: '100%', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+                            <Box sx={{ flex: '1 1 200px', minWidth: 0 }}>
+                              <Typography variant="body2" fontWeight={600}>
+                                {idx + 1}. {crit.name}
+                              </Typography>
+                              <Chip label={`${formatPercent(criterionShare(crit))}% · ${formatPercent(criterionEffectiveWeight(crit))}% ${t("tổng")}`} size="small" sx={{ height: 20, fontSize: 11, backgroundColor: '#F3EEEE', mt: 0.5 }} />
+                            </Box>
+                            {canEditCriteria && (
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
                                 <Button size="small" startIcon={<EditOutlinedIcon />} onClick={() => { setCriterionError(null); setEditingCriterion({ ...crit, requirement_spec: crit.requirement_spec || { kind: 'SKILL', terms: crit.expected_evidence_keywords || [], required_languages: [] } }); }}>{t("Sửa")}</Button>
                                 <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => setDeletingCriterion(crit)}>{t("Xóa")}</Button>
-                              </>)}
-                            </Box>
+                              </Box>
+                            )}
                           </Box>
                           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                             {crit.description}
