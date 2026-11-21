@@ -9,6 +9,59 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-21 — Hồ sơ: hộp thoại hoàn tất chọn sẵn đề xuất, thanh dính mang việc chính
+
+**Vấn đề.** Hai chỗ cuối cùng còn bắt HR làm thêm một bước mà máy đã biết câu trả lời.
+
+1. **Hộp thoại hoàn tất luôn mở ở "Giữ nguyên trạng thái".** Hồ sơ đã có điểm tổng
+   hợp, kết quả từng tiêu chí và bước chuyển hợp lệ, nhưng HR vẫn phải mở ô chọn,
+   tự suy ra nên chuyển sang đâu, rồi bấm thêm một ô "Tôi đã đối chiếu…" trước khi
+   nút hoàn tất bấm được — ba thao tác cho một quyết định đã nằm sẵn trong dữ liệu.
+2. **Việc chính của màn hồ sơ nằm ngoài tầm tay.** Trạng thái "còn mấy tiêu chí
+   chờ" chỉ có trong khối tiến độ phía trên, còn hai nút Xác nhận/Đánh dấu sai chỉ
+   nằm trong từng thẻ bằng chứng. HR đọc CV ở cột phải (trên điện thoại là cuộn
+   xuống dưới), muốn quyết định phải cuộn ngược lên đúng thẻ đang xem.
+
+**Đã làm.**
+
+- **Chọn sẵn trạng thái đề xuất.** `suggestFinishStatus` (hàm thuần, có unit test)
+  chọn theo thứ tự: có tiêu chí bắt buộc chưa đạt → loại ở vòng sàng lọc; hồ sơ
+  còn "Mới" → "Đang xem"; "Đang xem" và điểm ≥ 60 → Shortlist; đã shortlist →
+  phỏng vấn; còn lại giữ nguyên. Hộp thoại mở với giá trị đó, hiện một dòng nói vì
+  sao, và HR vẫn đổi được. Đề xuất loại **không** bỏ qua bước nhập lý do.
+- **Gộp cam kết vào nút chính.** Bỏ ô đánh dấu; thay bằng một dòng ngay trên nút
+  ("Nút bên dưới là xác nhận của bạn: đã đối chiếu 2 tiêu chí trên với CV…") và
+  nhãn nút "Xác nhận đã kiểm 2 tiêu chí và hoàn tất". Vẫn là một hành động rõ ràng
+  của HR — bấm nút chính là cam kết, không tự động coi việc mở hộp thoại là đã kiểm.
+  Điều kiện chặn duy nhất còn lại: loại hồ sơ mà chưa nêu lý do.
+- **Thanh dính mang việc chính.** Thêm chip `Còn 2/2 tiêu chí chờ` (→ `Đủ 2/2 tiêu
+  chí` khi xong) và hai nút `Xác nhận` / `Đánh dấu sai` cho tiêu chí đang chọn,
+  đặt ngay trên thanh dính trước nút hoàn tất. Tooltip nêu tên tiêu chí đang chọn;
+  hết việc thì cả hai nút tự tắt. Nút dùng chung `handleReview` với bàn phím và với
+  thẻ bằng chứng, nên không có đường ghi thứ hai.
+
+**Số đo.** Với hồ sơ đang xem, thao tác phải làm để hoàn tất một hồ sơ có 2 tiêu
+chí chờ:
+
+| Bước | Trước | Sau |
+| --- | --- | --- |
+| Chọn trạng thái sau khi hoàn tất | mở ô chọn + chọn 1 dòng (2 cú bấm) | 0 (đã chọn sẵn, đổi được) |
+| Cam kết đã đối chiếu | 1 cú bấm vào ô đánh dấu | 0 (nằm trong nút chính) |
+| Bấm xác nhận tiêu chí trên điện thoại 390px | phải cuộn tới thẻ bằng chứng | 0 cuộn: hai nút nằm trong khung nhìn (e2e kiểm `boundingBox` trong 390×844) |
+
+**Kiểm thử đã chạy.** `tsc --noEmit` sạch; `eslint` sạch trên 2 file sửa; unit
+**124/124** (thêm 6 test cho `suggestFinishStatus`, đã thêm file vào `test:unit`);
+i18n **3/3**; `next build` OK; e2e mới `tests/sticky-review-actions.e2e.cjs` pass ở
+cả 390×844 và 1440×900 (chip đếm đúng, hai nút trong khung nhìn, bấm xác nhận ghi
+nhận và chuyển tiêu chí, mở đúng hộp thoại lý do khi đánh dấu sai, hết việc thì
+nút tắt); `finish-application`, `verify-only`, `capabilities` pass sau khi cập nhật
+theo luồng mới (ba test này trước đó dựa vào ô đánh dấu).
+
+**Chưa kiểm.** Chưa thử trên backend thật; đề xuất trạng thái dựa trên dữ liệu mock.
+Ngưỡng 60 điểm là hằng số `SHORTLIST_MIN_SCORE` chọn theo màu điểm đang dùng trong
+trang, chưa phải chính sách do backend trả về — nếu tuyển dụng đổi ngưỡng thì phải
+sửa ở đây.
+
 ## 2026-11-21 — Hồ sơ: xác nhận xong tự sang tiêu chí kế, không tải lại cả hồ sơ
 
 **Vấn đề.** Vòng xác minh một hồ sơ bắt HR bấm thừa ở hai chỗ, đo trên mock
