@@ -38,6 +38,17 @@ export default function CreatePositionPage() {
   // Tiến trình sau khi tạo: hộp thoại chặn màn hình, rồi tự sinh tiêu chí.
   const [progressStep, setProgressStep] = useState<CreateProgressStep | null>(null);
   const [progressError, setProgressError] = useState('');
+  // Nguồn bộ tiêu chí đầu tiên. Mặc định 'ai' để luồng cũ không đổi; 'template'
+  // thì bỏ hẳn bước sinh AI và áp rubric mẫu ngay, tránh vòng duyệt vô nghĩa:
+  // một bộ DRAFT của AI chặn apply_template bằng 409 cho tới khi được duyệt.
+  const [criteriaSource, setCriteriaSource] = useState<'ai' | 'template'>('ai');
+  const [templateVersions, setTemplateVersions] = useState<Array<{template_version_id: string; title: string; family_name: string; job_family_id: string; version_number: number; level_band: string | null}>>([]);
+  const [templateId, setTemplateId] = useState('');
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  // Đã hỏi thư viện chưa — tách khỏi `templateVersions.length` vì thư viện
+  // RỖNG (0 rubric đã xuất bản) cũng là một câu trả lời hợp lệ. Dùng độ dài
+  // làm điều kiện dừng thì effect tự kích lại mỗi lần và gọi API vô hạn.
+  const templatesLoaded = useRef(false);
   // Giữ id vị trí đã tạo để (a) không gửi lại request tạo, (b) mở đúng vị trí.
   const createdPositionId = useRef<string | null>(null);
   const navigating = useRef(false);
@@ -152,7 +163,11 @@ export default function CreatePositionPage() {
     if (submitting.current || importing || !department || !manager || !title.trim() || !content.trim()) return;
     // Nếu vị trí đã tạo ở lần bấm trước (ví dụ sinh tiêu chí lỗi rồi bấm lại),
     // không tạo thêm vị trí nữa — chỉ thử sinh lại tiêu chí.
-    if (createdPositionId.current) { await runCriteriaGeneration(createdPositionId.current); return; }
+    if (createdPositionId.current) {
+      if (criteriaSource === 'template' && templateId) await runTemplateApply(createdPositionId.current);
+      else await runCriteriaGeneration(createdPositionId.current);
+      return;
+    }
     if (!pendingRequest.current) {
       pendingRequest.current = { ...(idempotencySupported ? { request_id: globalThis.crypto.randomUUID() } : {}),
         department_id: department, title: title.trim(), hiring_manager_user_id: manager.user_id,
@@ -165,9 +180,10 @@ export default function CreatePositionPage() {
       const res = await positionsApi.create(pendingRequest.current);
       setUncertain(false); pendingRequest.current = null;
       createdPositionId.current = res.data.position_id;
-      // Sinh tiêu chí ngay, không bắt HR qua thêm bước thủ công.
-      // Lỗi ở bước này không ném ra: vị trí đã tạo xong rồi.
-      await runCriteriaGeneration(res.data.position_id);
+      // Sinh tiêu chí ngay, không bắt HR qua thêm bước thủ công. Lỗi ở bước
+      // này không ném ra: vị trí đã tạo xong rồi.
+      if (criteriaSource === 'template' && templateId) await runTemplateApply(res.data.position_id);
+      else await runCriteriaGeneration(res.data.position_id);
     } catch (err: any) {
       const status = err.response?.status;
       setProgressStep(null);
@@ -177,6 +193,38 @@ export default function CreatePositionPage() {
       } else { pendingRequest.current = null; setError(err.response?.data?.detail || t('Không thể tạo vị trí. Vui lòng kiểm tra lại.')); }
     } finally { submitting.current = false; setBusy(false); }
   };
+  // Chỉ tải khi người dùng thực sự chọn rubric mẫu: HR tạo vị trí bằng AI
+  // không phải chờ một request thư viện không dùng tới.
+  useEffect(() => {
+    if (criteriaSource !== 'template' || templatesLoaded.current) return;
+    templatesLoaded.current = true;
+    setTemplatesLoading(true);
+    rubricApi.templates()
+      .then(res => setTemplateVersions((Array.isArray(res.data) ? res.data : []).filter((v: any) => v.status === 'PUBLISHED')))
+      .catch(() => setTemplateVersions([]))
+      .finally(() => setTemplatesLoading(false));
+  }, [criteriaSource]);
+
+  /** Áp rubric mẫu lên vị trí vừa tạo; ``true`` khi bộ tiêu chí đã có trên server. */
+  const runTemplateApply = async (positionId: string): Promise<boolean> => {
+    setProgressStep('generating'); setProgressError('');
+    try {
+      await rubricApi.apply(positionId, templateId);
+      finishCriteria(positionId);
+      return true;
+    } catch (err: any) {
+      // Vị trí đã tạo xong. Áp thất bại thì để HR mở vị trí và thử lại, không
+      // khuyên tạo lại vị trí.
+      const exists = await criteriaExist(positionId);
+      setProgressStep('generating');
+      setProgressError(err?.response?.data?.detail
+        || (exists === false
+          ? t('Chưa áp được rubric mẫu và vị trí chưa có bộ tiêu chí nào. Mở vị trí để áp lại khi sẵn sàng.')
+          : t('Chưa xác nhận được rubric mẫu đã áp hay chưa. Mở vị trí để xem kết quả; không cần tạo lại vị trí.')));
+      return false;
+    }
+  };
+
   const leave = () => router.push('/positions');
   return <Box sx={{ maxWidth: 1000, mx: 'auto' }}>
     <Button onClick={leave} sx={{ mb: 1 }}>← {t('Vị trí tuyển dụng')}</Button>
@@ -208,17 +256,60 @@ export default function CreatePositionPage() {
         {warning && <Alert severity={warning.startsWith('Tệp được trích xuất nhưng CHƯA được quét') ? 'warning' : 'info'} sx={{ mb: 2 }} data-testid="jd-import-warning">{t(warning)}</Alert>}
         <TextField required fullWidth multiline minRows={12} label={t('Nội dung JD')} value={content} onChange={e => setContent(e.target.value)} onBlur={() => touch('content')} inputProps={{ maxLength: 100000 }} error={!!contentError} helperText={contentError || t('Bắt buộc: kiểm tra nội dung và yêu cầu công việc trước khi tạo.')} />
       </CardContent></Card>
+      <Card variant="outlined" sx={{ mb: 2 }}><CardContent>
+        <Typography variant="h2" sx={{ fontSize: 20, mb: 1 }}>{t('3. Bộ tiêu chí đầu tiên')}</Typography>
+        <Typography color="text.secondary" sx={{ mb: 2 }}>
+          {t('Chọn trước khi tạo: hệ thống tạo bộ tiêu chí nào cho vị trí này. Cả hai đều ra bản nháp và đều cần HR và Hiring Manager duyệt trước khi chấm ứng viên.')}
+        </Typography>
+        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mb: 2 }}>
+          <Button type="button" variant={criteriaSource === 'ai' ? 'contained' : 'outlined'}
+            onClick={() => { setCriteriaSource('ai'); setError(''); }} aria-pressed={criteriaSource === 'ai'}>
+            {t('AI sinh từ JD')}
+          </Button>
+          <Button type="button" variant={criteriaSource === 'template' ? 'contained' : 'outlined'}
+            onClick={() => { setCriteriaSource('template'); setError(''); }} aria-pressed={criteriaSource === 'template'}>
+            {t('Dùng rubric mẫu đã xuất bản')}
+          </Button>
+        </Stack>
+        {criteriaSource === 'ai' ? (
+          <Alert severity="info">
+            {t('AI đọc JD của vị trí này rồi đề xuất tiêu chí và trọng số. Bám sát JD nhất, nhưng trọng số có thể khác nhau giữa các vị trí cùng loại.')}
+          </Alert>
+        ) : templatesLoading ? <CircularProgress size={24} /> : !templateVersions.length ? (
+          <Alert severity="warning">
+            {t('Thư viện chưa có rubric mẫu nào đã xuất bản. Vào mục Rubric để tạo và xuất bản trước, hoặc chọn AI sinh từ JD.')}
+          </Alert>
+        ) : <>
+          <TextField select fullWidth label={t('Rubric mẫu')} value={templateId}
+            onChange={e => setTemplateId(e.target.value)}
+            helperText={t('Rubric cùng nhóm vị trí được xếp lên đầu. Dùng rubric khác nhóm là lựa chọn có chủ ý, không phải mặc định.')}>
+            {[...templateVersions]
+              .sort((a, b) => Number(b.job_family_id === family) - Number(a.job_family_id === family))
+              .map(v => <MenuItem key={v.template_version_id} value={v.template_version_id}>
+                {v.title} · {v.family_name} · v{v.version_number}{v.level_band ? ` · ${v.level_band}` : ''}
+                {family && v.job_family_id !== family && <Typography component="span" variant="caption" sx={{ ml: 1, color: '#B42318' }}>{t('(khác nhóm vị trí)')}</Typography>}
+              </MenuItem>)}
+          </TextField>
+          {!family && <Alert severity="info" sx={{ mt: 2 }}>
+            {t('Chưa chọn Nhóm vị trí nên thư viện không lọc được theo nhóm. Nên chọn nhóm ở bước 1 để tránh áp nhầm rubric của nhóm khác.')}
+          </Alert>}
+        </>}
+      </CardContent></Card>
       </Box>
       {missing.length > 0 && <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'right', mb: 1 }} data-testid="missing-fields">
         {t('Còn thiếu: {0}.', missing.join(', '))}
       </Typography>}
-      <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mb: 4 }}><Button type="button" onClick={leave} disabled={busy}>{t('Hủy')}</Button><Button type="submit" variant="contained" color="secondary" disabled={busy || importing || uncertain || loadFailed || !department || !manager || !title.trim() || !content.trim()}>{busy ? t('Đang tạo...') : t('Tạo vị trí và tiếp tục')}</Button></Stack>
+      <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mb: 4 }}><Button type="button" onClick={leave} disabled={busy}>{t('Hủy')}</Button><Button type="submit" variant="contained" color="secondary" disabled={busy || importing || uncertain || loadFailed || !department || !manager || !title.trim() || !content.trim() || (criteriaSource === 'template' && !templateId)}>{busy ? t('Đang tạo...') : t('Tạo vị trí và tiếp tục')}</Button></Stack>
     </Box>}
     <CreatePositionProgressDialog
       open={progressStep !== null}
       step={progressStep ?? 'creating'}
       error={progressError}
-      onRetryGenerate={() => { if (createdPositionId.current) void runCriteriaGeneration(createdPositionId.current); }}
+      onRetryGenerate={() => {
+        if (!createdPositionId.current) return;
+        if (criteriaSource === 'template' && templateId) void runTemplateApply(createdPositionId.current);
+        else void runCriteriaGeneration(createdPositionId.current);
+      }}
       onEnterPosition={() => { if (createdPositionId.current) openPosition(createdPositionId.current); }}
     />
   </Box>;

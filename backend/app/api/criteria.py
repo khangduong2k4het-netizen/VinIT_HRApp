@@ -660,6 +660,83 @@ async def delete_criterion(criteria_version_id: UUID, criterion_id: UUID,
         db.close()
 
 
+@router.delete("/{criteria_version_id}/draft")
+async def discard_draft_criteria(criteria_version_id: UUID, current_user: dict = Depends(get_current_user)):
+    """Huỷ một bộ tiêu chí **nháp** để mở đường cho rubric mẫu.
+
+    Vì sao cần: khi tạo vị trí, hệ thống tự sinh ngay một bộ tiêu chí AI ở
+    trạng thái ``DRAFT``. Ở trạng thái đó ``apply_template`` từ chối (409 "Vị
+    trí đã có tiêu chí đang xử lý"), nên HR muốn dùng rubric mẫu thì buộc phải
+    đưa bộ AI qua **cả** vòng duyệt (HR → Hiring Manager) chỉ để mở một cái
+    nút. Một vòng duyệt không ai cần.
+
+    Năm điều kiện, tất cả đều cố ý:
+
+    * Chỉ xoá ``DRAFT``. ``PENDING_HR_REVIEW`` trở đi là đã có người khác nhìn
+      thấy và có ý kiến; huỷ im lặng ở đó là xoá việc của người khác.
+    * Chỉ người sửa được tiêu chí của vị trí (HR phụ trách) — cùng lớp quyền
+      với ``_lock_editable_criteria_version``.
+    * Không xoá khi **đã có lần chấm nào** tham chiếu bộ này. Khoá ngoại từ
+      ``assessment_runs`` không CASCADE, nên xoá sẽ lỗi ở tầng DB; kiểm trước
+      để trả câu giải thích được thay vì lỗi ràng buộc.
+    * Không xoá khi bộ này là bộ **đã duyệt** dùng cho JD hiện tại — đó là
+      thước đang chấm thật.
+    * Ghi audit trước khi xoá, giữ lại tên và số tiêu chí đã mất: sau khi xoá
+      thì không còn gì để truy lại.
+    """
+    db = SessionLocal()
+    try:
+        version = db.execute(text("""
+            SELECT position_id, status, version_number, jd_version_id, origin
+            FROM app_private.criteria_versions
+            WHERE criteria_version_id = :id FOR UPDATE
+        """), {"id": str(criteria_version_id)}).mappings().first()
+        if not version:
+            raise NotFoundError("Criteria version")
+        position_id = str(version["position_id"])
+        if not can_update_application_status(current_user["user_id"], position_id):
+            raise HTTPException(status_code=403, detail="Chỉ HR phụ trách mới có thể huỷ bản nháp tiêu chí")
+        if version["status"] != "DRAFT":
+            raise HTTPException(
+                status_code=409,
+                detail="Chỉ huỷ được bản nháp. Bộ tiêu chí đã được gửi duyệt hoặc đã duyệt thì không huỷ.",
+            )
+        if db.execute(text(
+            "SELECT 1 FROM app_private.assessment_runs WHERE criteria_version_id = :id LIMIT 1"
+        ), {"id": str(criteria_version_id)}).first():
+            raise HTTPException(
+                status_code=409,
+                detail="Bộ tiêu chí này đã được dùng để chấm ứng viên nên không huỷ được.",
+            )
+        item_count = db.execute(text(
+            "SELECT count(*) FROM app_private.criteria_items WHERE criteria_version_id = :id"
+        ), {"id": str(criteria_version_id)}).scalar_one()
+        # Cùng transaction với lệnh xoá: audit ghi sau khi xoá mà transaction
+        # hỏng thì mất dấu; ghi trước thì luôn còn.
+        db.execute(text("""
+            INSERT INTO app_private.audit_events
+                (actor_user_id, action_type, object_type, object_id, position_id, outcome, metadata)
+            VALUES (:user_id, 'DISCARD_CRITERIA_DRAFT', 'CRITERIA_VERSION', :id, :position_id, 'SUCCESS',
+                    CAST(:metadata AS jsonb))
+        """), {"user_id": current_user["user_id"], "id": str(criteria_version_id), "position_id": position_id,
+                "metadata": json.dumps({"version_number": version["version_number"], "origin": version["origin"],
+                                        "item_count": int(item_count), "jd_version_id": str(version["jd_version_id"])})})
+        # criteria_items CASCADE theo criteria_versions; ghi chú HR gắn tiêu chí
+        # (00036) dùng ON DELETE SET NULL nên nội dung ghi chú vẫn ở lại.
+        db.execute(text("DELETE FROM app_private.criteria_versions WHERE criteria_version_id = :id"),
+                   {"id": str(criteria_version_id)})
+        db.commit()
+        return {"status": "discarded", "position_id": position_id, "item_count": int(item_count)}
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 @router.get("/position/{position_id}/approved", response_model=Optional[CriteriaVersion])
 async def get_latest_approved_criteria(position_id: UUID, current_user: dict = Depends(get_current_user)):
     await check_position_access(position_id, current_user)

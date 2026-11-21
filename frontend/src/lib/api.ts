@@ -102,6 +102,10 @@ export const criteriaApi = {
     apiClient.patch(`/criteria/${versionId}/items/${itemId}`, data),
   deleteItem: (versionId: string, itemId: string) =>
     apiClient.delete(`/criteria/${versionId}/items/${itemId}`),
+  // Huỷ bản nháp để mở đường cho rubric mẫu (apply_template từ chối khi đang
+  // có bộ tiêu chí DRAFT). Chỉ dùng được với DRAFT chưa từng chấm.
+  discardDraft: (versionId: string) =>
+    apiClient.delete(`/criteria/${versionId}/draft`),
   updateItemWeights: (versionId: string, items: { criterion_id: string; weight_in_group: number }[]) =>
     apiClient.patch(`/criteria/${versionId}/items/weights`, { items }),
   updateWeights: (versionId: string, mandatory: number, nice: number) =>

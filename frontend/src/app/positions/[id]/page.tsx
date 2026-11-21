@@ -163,6 +163,9 @@ export default function PositionDetailPage() {
   const [savingItemWeights, setSavingItemWeights] = useState(false);
   const [deletingCriterion, setDeletingCriterion] = useState<Criterion | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [discardDraftOpen, setDiscardDraftOpen] = useState(false);
+  const [discardingDraft, setDiscardingDraft] = useState(false);
+  const [discardDraftError, setDiscardDraftError] = useState<string | null>(null);
   const [positionDialogOpen, setPositionDialogOpen] = useState(false);
   const [positionTitle, setPositionTitle] = useState('');
   const [positionFamily, setPositionFamily] = useState('');
@@ -367,6 +370,25 @@ export default function PositionDetailPage() {
       requirement_spec: { kind: 'SKILL', terms: [], required_languages: [] },
       display_order: currentCriteria.criteria.length,
     } as Criterion);
+  };
+
+  /**
+   * Huỷ bản nháp tiêu chí để mở đường cho rubric mẫu.
+   *
+   * Nút "Dùng rubric đã xuất bản" bị server chặn (409) khi vị trí còn bộ tiêu
+   * chí DRAFT. Không có lối này thì HR phải đưa bộ AI qua cả vòng duyệt chỉ để
+   * mở một cái nút, và bộ AI đó ở lại vĩnh viễn với trạng thái APPROVED.
+   */
+  const handleDiscardDraft = async () => {
+    if (!currentCriteria || discardingDraft) return;
+    setDiscardingDraft(true); setDiscardDraftError(null);
+    try {
+      await criteriaApi.discardDraft(currentCriteria.criteria_version_id);
+      setDiscardDraftOpen(false);
+      await loadData();
+    } catch (err: any) {
+      setDiscardDraftError(err?.response?.data?.detail || t('Không huỷ được bản nháp tiêu chí.'));
+    } finally { setDiscardingDraft(false); }
   };
 
   const deleteCriterion = async () => {
@@ -674,6 +696,12 @@ export default function PositionDetailPage() {
       <TabPanel value={activeTab} index={0}>
         {latestJd && <Card variant="outlined" sx={{ mb: 2 }}><CardContent><Typography variant="h4" sx={{ mb: 1 }}>{t('JD mới nhất để đối chiếu')} · v{latestJd.version_number}</Typography><Box component="details"><Box component="summary" sx={{ cursor: 'pointer', fontWeight: 600 }}>{t('Xem mô tả công việc')}</Box><Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 1, maxHeight: 360, overflow: 'auto' }}>{latestJd.content_text}</Typography></Box></CardContent></Card>}
         {currentCriteria?.source_template_version_id && <Alert severity="info" sx={{ mb: 2 }}>{t("Nguồn phiên bản rubric")}: {currentCriteria.source_template_version_id}</Alert>}
+        {isHR && currentCriteria?.status === 'DRAFT' && <Alert severity="info" sx={{ mb: 2 }} action={
+          <Button color="inherit" size="small" onClick={() => { setDiscardDraftError(null); setDiscardDraftOpen(true); }}>
+            {t('Huỷ bản nháp này')}
+          </Button>}>
+          {t('Đang là bản nháp. Nếu muốn dùng rubric mẫu có sẵn thay cho bộ AI đề xuất, hãy huỷ bản nháp trước rồi bấm “Dùng rubric đã xuất bản”.')}
+        </Alert>}
         {criteriaStale && <Alert severity="warning" sx={{ mb: 2 }}>{t("JD đã thay đổi. Cần tạo và duyệt bộ tiêu chí cho phiên bản mới trước khi tải hoặc đánh giá CV.")}</Alert>}
         {isHM && isSameApprover && currentCriteria?.status === 'PENDING_HM_APPROVAL' && <Alert severity="warning" sx={{ mb: 2 }}>{t("Hai bước duyệt phải do hai tài khoản khác nhau thực hiện. Vui lòng nhờ Hiring Manager khác được phân công duyệt.")}</Alert>}
         {!currentCriteria ? (
@@ -1087,6 +1115,29 @@ export default function PositionDetailPage() {
         </DialogActions>
       </Dialog>
 
+      <Dialog open={discardDraftOpen} onClose={() => !discardingDraft && setDiscardDraftOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{t('Huỷ bản nháp tiêu chí')}</DialogTitle>
+        <DialogContent>
+          {discardDraftError && <Alert severity="error" sx={{ mb: 2 }}>{t(discardDraftError)}</Alert>}
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {t('Bộ tiêu chí AI đề xuất sẽ bị xoá khỏi vị trí này, cùng toàn bộ tiêu chí bên trong. Sau đó có thể bấm “Dùng rubric đã xuất bản” để áp rubric mẫu.')}
+          </Typography>
+          {currentCriteria && <Typography variant="body2" sx={{ mb: 1 }}>
+            {t('Bộ sẽ bị huỷ: ')}<strong>v{currentCriteria.version_number}</strong>
+            {' · '}{currentCriteria.criteria.length}{t(' tiêu chí')}
+            {currentCriteria.origin === 'AI_DRAFT' ? t(' · do AI đề xuất') : ''}
+          </Typography>}
+          <Alert severity="warning">
+            {t('Không khôi phục được. Nhưng vị trí và JD vẫn còn nguyên, nên có thể sinh lại bộ tiêu chí AI bất cứ lúc nào.')}
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDiscardDraftOpen(false)} disabled={discardingDraft}>{t("Hủy")}</Button>
+          <Button variant="contained" color="error" onClick={handleDiscardDraft} disabled={discardingDraft}>
+            {discardingDraft ? t('Đang huỷ…') : t('Huỷ bản nháp')}
+          </Button>
+        </DialogActions>
+      </Dialog>
       <Dialog open={weightDialogOpen} onClose={() => !savingWeights && setWeightDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{t("Điều chỉnh trọng số nhóm")}</DialogTitle>
         <DialogContent>

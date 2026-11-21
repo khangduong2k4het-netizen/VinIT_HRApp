@@ -83,23 +83,46 @@ Vào Vị trí → Tạo vị trí. Điền JD, **và chọn Nhóm vị trí**.
 > được vị trí, nhưng lúc lấy rubric hệ thống không biết nhóm nào là đúng, và
 > **không sinh được rubric từ JD** (nút đó yêu cầu có nhóm).
 
-### Bước 2 — Vào vị trí, tab **Tiêu chí**
+### Bước 2 — Chọn nguồn tiêu chí **ngay khi tạo vị trí**
 
-Hệ thống đã tự sinh một bộ tiêu chí nháp từ JD ngay khi tạo vị trí. Xem qua.
+Trang tạo vị trí có **bước 3 — Bộ tiêu chí đầu tiên**, chọn một trong hai:
 
-### Bước 3 — Chọn cách có bộ tiêu chí
-
-Ba đường, chọn một:
-
-| Cách | Khi nào dùng | Ưu / nhược |
+| Chọn | Hệ thống làm gì | Nên dùng khi |
 |---|---|---|
-| **Dùng tiêu chí AI đã tự sinh** | Vị trí này bình thường, JD viết kỹ | Nhanh nhất. Nhưng mỗi vị trí một bộ riêng, không so sánh được giữa các vị trí cùng nhóm |
-| **Dùng rubric đã xuất bản** | Muốn mọi vị trí cùng nhóm chấm bằng **cùng một thước** | Chuẩn nhất về mặt công bằng. Phải có rubric mẫu trước |
-| Tự nhập tay | JD đặc biệt, rubric mẫu không hợp | Kiểm soát tối đa, tốn thời gian |
+| **AI sinh từ JD** (mặc định) | Đọc JD, đề xuất tiêu chí + trọng số, ra bản nháp | Tuyển một vị trí, chỉ cần bám sát JD |
+| **Dùng rubric mẫu đã xuất bản** | Chép tiêu chí + trọng số của rubric mẫu vào vị trí, ra bản nháp | Sẽ tuyển loại vị trí này nhiều lần, muốn giữ nguyên một thước |
 
-Nút **"Dùng rubric đã xuất bản"** nằm trong tab Tiêu chí. Danh sách đã được xếp
-rubric **cùng nhóm lên đầu**; rubric khác nhóm vẫn chọn được nhưng có nhãn đỏ
-`(khác nhóm vị trí)` — đó phải là lựa chọn có chủ ý, không phải bấm nhầm.
+Cả hai đều ra **bản nháp** và đều phải qua duyệt HR → Hiring Manager trước khi
+chấm. Bỏ qua bước chọn này là lý do trước đây HR bị kẹt: xem mục dưới.
+
+> **Vì sao phải chọn ngay từ đầu, không để áp sau:** bộ tiêu chí AI ở trạng thái
+> nháp **chặn** việc áp rubric mẫu (máy chủ trả 409 "Vị trí đã có tiêu chí đang
+> xử lý"). Trước đây muốn đổi sang rubric mẫu, HR buộc phải đưa bộ AI qua **cả
+> vòng duyệt** chỉ để mở một cái nút — rồi sau đó duyệt lại từ đầu cho rubric
+> mẫu, và bộ AI ở lại vĩnh viễn với trạng thái đã duyệt.
+
+### Bước 2b — Đã lỡ tạo rồi mới muốn đổi sang rubric mẫu
+
+Vào vị trí, tab **Tiêu chí**. Nếu bộ hiện tại còn **Nháp**, có dòng thông báo
+kèm nút **"Huỷ bản nháp này"**. Huỷ xong thì nút **"Dùng rubric đã xuất bản"**
+mở ra và áp được ngay.
+
+Ba thứ **không** huỷ được, và đó là cố ý:
+
+- Bộ đã gửi duyệt hoặc đã duyệt — đã có người khác xem và có ý kiến.
+- Bộ đã từng dùng để chấm ứng viên — xoá đi là mất dấu vết đã chấm bằng gì.
+- Bộ của vị trí mà anh không phải HR phụ trách.
+
+Huỷ bản nháp **không** xoá vị trí, không xoá JD. Sinh lại bộ AI lúc nào cũng được.
+
+### Bước 3 — Vào vị trí, tab **Tiêu chí**
+
+Xem lại bộ tiêu chí vừa có, sửa/xoá/thêm tiêu chí nếu cần.
+
+Nút **"Dùng rubric đã xuất bản"** nằm cạnh nút **Ứng viên** ở đầu trang vị trí.
+Danh sách đã được xếp rubric **cùng nhóm lên đầu**; rubric khác nhóm vẫn chọn
+được nhưng có nhãn đỏ `(khác nhóm vị trí)` — đó phải là lựa chọn có chủ ý,
+không phải bấm nhầm.
 
 ### Bước 4 — Duyệt tiêu chí
 
@@ -152,9 +175,20 @@ giữ được câu trả lời cho "vị trí này đã chấm theo tiêu chí 
 ## 7. Trả lời nhanh vài câu hay gặp
 
 **"Rubric mẫu có cần cho mọi vị trí không?"**
-Không bắt buộc. Nhưng nếu tuyển nhiều vị trí cùng nhóm (ví dụ 5 kỹ sư backend),
-dùng chung một rubric thì so sánh được giữa các vị trí. Mỗi vị trí một bộ riêng
-thì không so sánh được.
+Không. Để tuyển **một** vị trí, bộ AI tự sinh không thua kém gì — mọi ứng viên
+của vị trí đó vẫn được chấm bằng đúng một bộ tiêu chí, nên vẫn công bằng. Rubric
+mẫu chỉ đáng công khi:
+
+1. **Tuyển một loại vị trí qua nhiều đợt** (ví dụ mỗi quý tuyển 2 kỹ sư backend).
+   Để AI tự sinh mỗi lần thì trọng số trôi giữa các đợt: cùng một người có thể
+   được 94 điểm ở đợt 1 và 70 điểm ở đợt 3 mà không ai giải thích được. Thước
+   chung khoá trọng số lại.
+2. **JD quá sơ sài** khiến AI sinh ra tiêu chí vô nghĩa — dùng rubric mẫu như
+   bản nháp đã có người viết.
+
+Đừng bật rubric mẫu chỉ vì thấy nó "chuẩn hơn". Nó khác, không chắc đúng hơn:
+rubric mẫu mang quan niệm chung của công ty về "giỏi", có thể hạ thấp đúng thứ
+vị trí này cần nhất.
 
 **"Sửa rubric mẫu có làm hỏng vị trí đang chạy không?"**
 Không. Vị trí đã có bộ tiêu chí riêng, tách rời. Đó chính là lý do phải "áp dụng"
