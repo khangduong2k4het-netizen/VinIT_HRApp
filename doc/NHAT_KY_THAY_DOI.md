@@ -9,6 +9,60 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-21 — Duyệt một tiêu chí trên nhiều hồ sơ
+
+**Vấn đề.** Khi một tiêu chí bị nghi trên cả loạt hồ sơ (ví dụ "thiết kế cơ sở dữ
+liệu quan hệ"), việc của HR là đọc *cùng một chỗ* trên vài chục CV rồi quyết
+từng hồ sơ. Trang hồ sơ làm đúng một hồ sơ một lúc: mở hồ sơ, cuộn tới tiêu chí,
+bấm, quay lại danh sách — lặp lại đến hết danh sách, và mỗi vòng đều phải tìm
+lại đúng tiêu chí đó.
+
+**Đã làm.**
+
+- **Màn mới** `/positions/[id]/applicants/by-criterion`, mở từ nút `Duyệt theo
+  tiêu chí` ngay cạnh `Mở hồ sơ kế tiếp` ở danh sách ứng viên.
+- **Danh sách dựng từ ranking, không thêm endpoint**: một request ranking đã kèm
+  kết quả từng tiêu chí của mọi hồ sơ, nên màn hiện ngay tên, hạng, kết luận và
+  điểm của tiêu chí đang chọn. Chọn tiêu chí bằng ô chọn ở đầu màn; mặc định
+  nhảy vào tiêu chí đầu tiên còn hồ sơ chờ, không phải tiêu chí đầu danh sách.
+- **Mỗi dòng một hồ sơ, một trích dẫn** của tiêu chí đó (nguyên văn + số trang),
+  kèm `Xác nhận` / `Đánh dấu sai` tại chỗ. Ghi vẫn qua
+  `POST /assessments/results/{id}/review` sẵn có; đánh dấu sai bắt buộc nêu lý do.
+- **Chỉ tiêu chí đang chờ mới cho thao tác**: dòng không bị gắn cờ ghi "Không
+  cần xác minh", dòng đã kiểm ghi "Đã xác nhận"/"Đã đánh dấu sai" và khoá nút,
+  thiếu quyền ghi review thì ghi rõ. Nút ở trạng thái khoá thay vì bấm rồi báo lỗi.
+- **Mở hồ sơ đầy đủ** từ đúng dòng, kèm `#criterion-…` để sang đó là đứng ngay
+  tiêu chí đang duyệt.
+- **Tiến độ theo tiêu chí**: "Đã xác minh 2/12 hồ sơ theo tiêu chí này", đếm trên
+  hồ sơ bị gắn cờ chứ không phải mọi dòng.
+- **Tải theo trang**: mỗi trang 8 hồ sơ, chỉ tải chi tiết (trích dẫn, `result_id`,
+  lần kiểm trước) của những dòng đang hiện; tiêu chí có hàng trăm hồ sơ không
+  sinh hàng trăm request ngay khi mở màn.
+
+**Kiểm thử đã chạy.** `tsc --noEmit` sạch; `eslint` sạch; unit **128/128** (4 test
+mới cho `criterionQueue`: lọc theo xét tuyển + có kết quả, giữ thứ tự hạng và cờ
+xác minh, sáu trạng thái dòng, đếm tiến độ chỉ trên hồ sơ bị gắn cờ); i18n **3/3**
+(19 khoá mới); `next build` OK. e2e mới `tests/criterion-queue.e2e.cjs` pass: nút
+trong danh sách mở đúng màn, mặc định chọn tiêu chí đang chờ, "0/12" và trang đầu
+"8/12", trích dẫn + trang 3 của app-0, xác nhận tại chỗ → "Đã xác nhận", khoá nút
+của dòng đó, "1/12", **hồ sơ khác vẫn chờ**, POST đúng `app-0:r-c2`/CONFIRMED;
+chuyển sang tiêu chí không gắn cờ → "Không cần xác minh", "0/0", không ghi gì;
+quay lại thì quyết định cũ còn; đánh dấu sai thiếu lý do bị khoá, có lý do thì
+ghi REJECTED kèm lý do, "2/12"; link mở hồ sơ đúng `app-1` + `#criterion-c2`;
+chưa bấm "Tải thêm" thì không gọi quá 8 chi tiết, bấm thì đủ 12. Fixture: hồ sơ
+trong ranking giờ có `result_id` riêng từng hồ sơ (`app-0:r-c2`) để xác minh một
+dòng không biến các dòng khác thành đã kiểm. Các e2e cũ chạy lại đều pass:
+`finish-application`, `duplicate-warning`, `duplicate-compare`,
+`sticky-review-actions`, `verify-only`, `review-auto-advance`, `capabilities`,
+`ranking-compact-mock`, `ranking-context-mock`.
+
+**Chưa kiểm.** Chưa thử trên backend thật. Ở 390px màn mới chưa được đo bằng mắt
+(dòng dùng flex-wrap nên sẽ xuống hàng). `ranking-context-mock` một lần báo
+`Unexpected GET /v1/applications/app-2` ngay sau khi điều hướng khỏi trang hồ sơ —
+request của trang đang bị rời đi, chạy lại hai lần đều pass; test đã có từ trước và
+không liên quan màn mới. `applicants-large-list-mock` vẫn fail vì mock riêng thiếu
+route `/duplicate-signals` (có từ trước).
+
 ## 2026-11-21 — So sánh cạnh nhau hai hồ sơ bị gắn cờ trùng
 
 **Vấn đề.** Cảnh báo trùng chỉ nêu tên hồ sơ đối ứng và một link sang hồ sơ đó.
