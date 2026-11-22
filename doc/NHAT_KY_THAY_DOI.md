@@ -9,6 +9,32 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-21 — Xác nhận tiêu chí: 0 request tải lại profile, và script đo tự chặn nếu tái diễn
+
+**Truy vết.** Gắn tạm một dấu vết vào `load()` của `CandidateProfilePanel` để ghi lại
+stack của mọi lần gọi, rồi chạy lại vòng duyệt: chỉ có **một** lần gọi, stack trỏ đúng vào
+`onChange` của `AccordionSummary` (cú bấm mở panel), không có lần nào phát sinh từ việc xác
+nhận tiêu chí. Đo trên hồ sơ 6 tiêu chí, panel **đang mở**, bấm xác nhận cả 6: `0,0,0,0,0,0`
+request `/profile` — tổng cộng 1 cho cả lượt xem (lúc mở panel).
+
+**Vì sao trước đây là 4.** Hai panel anh em (`CandidateProfilePanel`, `HRNotesPanel`) dùng chung
+`key={applicantId}`. Khi hai phần tử cùng key nằm cạnh nhau, React gắn lại key chứ không giữ
+định danh, nên mỗi lần trang render lại sau một lần xác nhận là subtree bị mount lại: 4 instance
+panel cùng sống (mount mà không unmount theo nghĩa state bị bỏ), mỗi instance tự gọi `/profile`
+khi mount. Đã sửa bằng key riêng (`profile-…`/`notes-…`) và panel chỉ tải ở lần mở accordion
+đầu tiên. Con số "4" trong nhật ký trước là **4 lần lúc mở hồ sơ trên bản `bf16e19`**, cộng
+thêm 2 lần sau mỗi lần xác nhận (13 lần cho một lượt xem).
+
+**Chốt chặn.** `tests/review-loop-metrics.cjs` giờ in thêm `requestsPerConfirm` (số request sau
+mỗi lần bấm xác nhận) và `getRequestCounts` (đếm theo path thay vì chỉ liệt kê), và **throw**
+nếu trong vòng xác nhận có bất kỳ `GET …/profile` hay `GET …/status-events` nào. Chạy lại:
+`requestsPerConfirm: [1, 1]` (đúng một POST review mỗi lần), `profileOrHistoryRequests: 0`,
+`getRequests: 0`.
+
+**Chưa kiểm.** Chưa chạy với backend thật. Con số trên đo trên Chromium headless với mock API;
+nếu panel bị ép mount lại bằng một thay đổi khác trong tương lai, chốt chặn trong script sẽ báo
+ngay chứ không im lặng như trước.
+
 ## 2026-11-21 — E2E cho nhánh hồ sơ trượt tiêu chí bắt buộc khi hoàn tất
 
 **Vì sao cần.** Quy tắc "có tiêu chí MUST_HAVE kết luận NO_MATCH → chọn sẵn Loại vòng sàng
