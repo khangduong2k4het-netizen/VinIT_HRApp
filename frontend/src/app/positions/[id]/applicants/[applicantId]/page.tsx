@@ -95,6 +95,22 @@ interface StatusEvent {
  * `GET /applications/{id}` — trang hiện spinner cho tới khi request đó xong — nên
  * component này tải trước dữ liệu, và trang hồ sơ dùng nó để vẽ ngay.
  */
+/**
+ * Nhãn ngắn cho màn hẹp, nhãn đầy đủ từ 600px.
+ *
+ * Ở 390px, "Đánh dấu sai" và "Đã xử lý xong hồ sơ này" chiếm gần trọn một hàng
+ * cho mỗi nút, đẩy thanh dính cao gần nửa màn hình. Chỉ chữ hiển thị đổi — vẫn là
+ * hai quyết định đó, cùng một nút, cùng một chỗ bấm.
+ */
+function CompactLabel({ compact, full }: { compact: string; full: string }) {
+  return (
+    <>
+      <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>{compact}</Box>
+      <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>{full}</Box>
+    </>
+  );
+}
+
 function PrefetchProfile({ applicantId, href }: { applicantId: string; href: string }) {
   const router = useRouter();
   // Hữu ích cho lần bấm `n`, nhưng không phải việc của màn hình đầu: để trình
@@ -830,22 +846,39 @@ export default function ApplicantDetailPage() {
         {canBrowseProfiles && !shareContext ? t("Quay lại danh sách xếp hạng") : t("Quay lại shortlist")}
       </Button>
 
+      {/* Thanh dính gọn lại ở màn hẹp: ba hàng (ngữ cảnh + bộ đếm, tiêu chí + hai
+          quyết định, hoàn tất + điều hướng) thay vì mỗi thứ một hàng. Từ 600px trở
+          lên vẫn là một hàng như cũ. Việc chính vẫn nằm ngay trên thanh: còn bao
+          nhiêu tiêu chí chờ, và hai quyết định của tiêu chí đang chọn — trước đây
+          phải cuộn xuống đúng thẻ bằng chứng, mà trên điện thoại thẻ đang xem
+          thường đã trôi khỏi màn hình sau khi đọc CV. */}
       <StickyActionBar>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-          <Box sx={{ minWidth: 220, flex: 1 }}>
-            <Typography variant="caption" color="text.secondary">
-              {navigationIndex >= 0
-                ? t("Hồ sơ {0}/{1} trong hàng đợi đang xem", navigationIndex + 1, browseTotal)
-                : t("Đang xem chi tiết hồ sơ")}
-              {assessment?.matching_status === 'NEEDS_HR_VERIFICATION' ? ` · ${t("Cần HR xác minh")}` : ''}
-            </Typography>
-          </Box>
-          {/* Việc chính của màn này nằm ngay trên thanh dính: còn bao nhiêu tiêu chí
-              chờ, và hai quyết định của tiêu chí đang chọn. Trước đây phải cuộn
-              xuống đúng thẻ bằng chứng rồi bấm trong thẻ — trên điện thoại, thẻ
-              đang xem thường ở dưới màn hình sau khi đọc CV. */}
-          {canVerifyCriteria && !shareContext && flaggedCriteria.length > 0 && (
-            <>
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: { xs: 'column', sm: 'row' },
+            alignItems: { xs: 'stretch', sm: 'center' },
+            columnGap: { sm: 1.5, md: 2 },
+            rowGap: 1,
+            // `wrap` chỉ từ 600px trở lên: với hướng cột, wrap biến các hàng
+            // thành các cột cạnh nhau và thanh rộng ra ngoài khổ màn hình.
+            flexWrap: { xs: 'nowrap', sm: 'wrap' },
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: { sm: 1 } }}>
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              >
+                {navigationIndex >= 0
+                  ? t("Hồ sơ {0}/{1} trong hàng đợi đang xem", navigationIndex + 1, browseTotal)
+                  : t("Đang xem chi tiết hồ sơ")}
+                {assessment?.matching_status === 'NEEDS_HR_VERIFICATION' ? ` · ${t("Cần HR xác minh")}` : ''}
+              </Typography>
+            </Box>
+            {canVerifyCriteria && !shareContext && flaggedCriteria.length > 0 && (
               <Chip
                 size="small"
                 data-testid="sticky-pending"
@@ -853,11 +886,16 @@ export default function ApplicantDetailPage() {
                   ? t('Còn {0}/{1} tiêu chí chờ', pendingCriteria.length, flaggedCriteria.length)
                   : t('Đủ {0}/{0} tiêu chí', flaggedCriteria.length)}
                 sx={{
+                  flexShrink: 0,
                   backgroundColor: pendingCriteria.length === 0 ? '#ECFDF3' : '#FFFAEB',
                   color: pendingCriteria.length === 0 ? '#067647' : '#B54708',
                   fontWeight: 700,
                 }}
               />
+            )}
+          </Box>
+          {canVerifyCriteria && !shareContext && flaggedCriteria.length > 0 && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: { xs: '1 1 auto', sm: '0 1 auto' } }}>
               {/* Tên tiêu chí phải đọc được ngay trên thanh, không chỉ trong tooltip:
                   trên điện thoại không có hover, nên HR chỉ thấy hai nút mà không biết
                   đang quyết định cho tiêu chí nào. Cắt bằng ellipsis để vẫn gọn ở 390px. */}
@@ -868,7 +906,9 @@ export default function ApplicantDetailPage() {
                   data-testid="sticky-criterion"
                   label={t('Đang chọn: {0}', activeResult.criterion_name)}
                   sx={{
-                    maxWidth: { xs: 200, sm: 360 },
+                    flex: '1 1 auto',
+                    minWidth: 0,
+                    maxWidth: { xs: 'none', sm: 360 },
                     borderColor: '#D0D5DD',
                     backgroundColor: '#F9FAFB',
                     '& .MuiChip-label': {
@@ -881,18 +921,19 @@ export default function ApplicantDetailPage() {
                 />
               )}
               <Tooltip title={activeResult ? t('Đang chọn: {0}', activeResult.criterion_name) : ''}>
-                <span>
+                <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0 }}>
                   <Button
                     size="small"
                     variant="contained"
                     color="secondary"
                     data-testid="sticky-confirm"
                     disabled={!activeAwaitingReview || reviewSaving !== null}
+                    sx={{ whiteSpace: 'nowrap' }}
                     onClick={() => { if (activeResult?.result_id) void handleReview(activeResult.result_id, 'CONFIRMED'); }}
                   >
-                    {t('Xác nhận')}
+                    <CompactLabel compact={t('Đúng')} full={t('Xác nhận')} />
                   </Button>
-                </span>
+                </Box>
               </Tooltip>
               <Button
                 size="small"
@@ -900,34 +941,40 @@ export default function ApplicantDetailPage() {
                 color="error"
                 data-testid="sticky-reject"
                 disabled={!activeAwaitingReview}
+                sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
                 onClick={() => { if (activeResult) setRejectRequest({ criterionId: activeResult.criterion_id, token: Date.now() }); }}
               >
-                {t('Đánh dấu sai')}
+                <CompactLabel compact={t('Sai')} full={t('Đánh dấu sai')} />
               </Button>
-            </>
+            </Box>
           )}
-          {canFinish && (
-            <Button
-              variant="contained"
-              color="secondary"
-              size="small"
-              startIcon={<CheckCircleOutlineIcon />}
-              onClick={openFinish}
-              data-testid="finish-application"
-            >
-              {t('Đã xử lý xong hồ sơ này')}
-            </Button>
-          )}
-          {previousApplicantId ? (
-            <Button component={Link} href={keepContext(previousApplicantId)} variant="outlined" size="small" startIcon={<NavigateBeforeIcon />}>{t("Hồ sơ trước")}</Button>
-          ) : (
-            <Button variant="outlined" size="small" startIcon={<NavigateBeforeIcon />} disabled>{t("Hồ sơ trước")}</Button>
-          )}
-          {nextApplicantId ? (
-            <Button component={Link} href={keepContext(nextApplicantId)} variant="contained" color="secondary" size="small" endIcon={<NavigateNextIcon />}>{t("Hồ sơ tiếp theo")}</Button>
-          ) : (
-            <Button variant="outlined" size="small" endIcon={<NavigateNextIcon />} disabled>{t("Hồ sơ tiếp theo")}</Button>
-          )}
+          {/* Hoàn tất và điều hướng hồ sơ: hàng cuối ở màn hẹp. Bỏ icon dưới 600px
+              để ba nút vẫn nằm chung một hàng mà nhãn không phải đổi. */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', minWidth: 0 }}>
+            {canFinish && (
+              <Button
+                variant="contained"
+                color="secondary"
+                size="small"
+                startIcon={<CheckCircleOutlineIcon />}
+                onClick={openFinish}
+                data-testid="finish-application"
+                sx={{ whiteSpace: 'nowrap', '& .MuiButton-startIcon': { display: { xs: 'none', sm: 'inline-flex' } } }}
+              >
+                <CompactLabel compact={t('Hoàn tất')} full={t('Đã xử lý xong hồ sơ này')} />
+              </Button>
+            )}
+            {previousApplicantId ? (
+              <Button component={Link} href={keepContext(previousApplicantId)} variant="outlined" size="small" startIcon={<NavigateBeforeIcon />} sx={{ whiteSpace: 'nowrap', '& .MuiButton-startIcon': { display: { xs: 'none', sm: 'inline-flex' } } }}><CompactLabel compact={t('Trước')} full={t("Hồ sơ trước")} /></Button>
+            ) : (
+              <Button variant="outlined" size="small" startIcon={<NavigateBeforeIcon />} disabled sx={{ whiteSpace: 'nowrap', '& .MuiButton-startIcon': { display: { xs: 'none', sm: 'inline-flex' } } }}><CompactLabel compact={t('Trước')} full={t("Hồ sơ trước")} /></Button>
+            )}
+            {nextApplicantId ? (
+              <Button component={Link} href={keepContext(nextApplicantId)} variant="contained" color="secondary" size="small" endIcon={<NavigateNextIcon />} sx={{ whiteSpace: 'nowrap', '& .MuiButton-endIcon': { display: { xs: 'none', sm: 'inline-flex' } } }}><CompactLabel compact={t('Tiếp')} full={t("Hồ sơ tiếp theo")} /></Button>
+            ) : (
+              <Button variant="outlined" size="small" endIcon={<NavigateNextIcon />} disabled sx={{ whiteSpace: 'nowrap', '& .MuiButton-endIcon': { display: { xs: 'none', sm: 'inline-flex' } } }}><CompactLabel compact={t('Tiếp')} full={t("Hồ sơ tiếp theo")} /></Button>
+            )}
+          </Box>
         </Box>
       </StickyActionBar>
 
