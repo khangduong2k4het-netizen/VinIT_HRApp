@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from . import auth, users, positions, criteria, applications, assessments, shortlist, dashboard, admin, account_admin, operations, candidate_details, departments, job_families, retention, rubric_library, scorecards, careers_demo, careers, talent_pool, careers_intake, gmail_test, jd_import, test_data
+from . import auth, users, positions, criteria, applications, assessments, shortlist, dashboard, admin, account_admin, operations, candidate_details, departments, job_families, interviews, retention, rubric_library, scorecards, careers_demo, careers, talent_pool, careers_intake, gmail_test, jd_import, test_data
 
 api_router = APIRouter()
 api_router.include_router(jd_import.router, prefix="/jd-import", tags=["JD import preview"])
@@ -13,6 +13,7 @@ api_router.include_router(operations.router, prefix="/operations", tags=["Async 
 api_router.include_router(users.router, prefix="/users", tags=["Users"])
 api_router.include_router(departments.router, prefix="/departments", tags=["Departments"])
 api_router.include_router(job_families.router, prefix="/job-families", tags=["Job families"])
+api_router.include_router(interviews.router, prefix="/interviews", tags=["Interviews"])
 api_router.include_router(positions.router, prefix="/positions", tags=["Positions"])
 api_router.include_router(criteria.router, prefix="/criteria", tags=["Criteria & Rubric"])
 api_router.include_router(applications.router, prefix="/applications", tags=["Applications & CVs"])
