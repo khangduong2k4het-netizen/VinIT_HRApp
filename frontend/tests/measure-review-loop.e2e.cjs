@@ -99,8 +99,12 @@ const EXTRA_RESULTS = [
 
   // --- Vào hồ sơ app-0 với đủ 6 tiêu chí -----------------------------------
   const openStart = Date.now();
-  await page.goto(`${base}/positions/p1/applicants/app-0?queue=NEEDS_VERIFICATION&sort=REVIEW_PRIORITY`, { waitUntil: 'networkidle' });
-  await page.getByTestId('sticky-pending').waitFor({ timeout: 10000 });
+  // Hai mốc: lúc hồ sơ dùng được (không chờ mạng lắng) và lúc mọi request xong.
+  // Việc hoãn tới lúc rảnh chỉ có nghĩa nếu mốc đầu nhanh lên, nên phải đo riêng.
+  await page.goto(`${base}/positions/p1/applicants/app-0?queue=NEEDS_VERIFICATION&sort=REVIEW_PRIORITY`, { waitUntil: 'domcontentloaded' });
+  await page.getByTestId('sticky-pending').waitFor({ timeout: 15000 });
+  const firstPaintMs = Date.now() - openStart;
+  await page.waitForLoadState('networkidle');
   const openMs = Date.now() - openStart;
   const callsAfterOpen = apiCalls.length;
   assert.match(await page.getByTestId('verification-progress').innerText(), new RegExp(`0/${CRITERIA_TOTAL}\\b`), 'hồ sơ đo phải có đúng 6 tiêu chí chờ');
@@ -172,6 +176,7 @@ const EXTRA_RESULTS = [
       }, {}),
     },
     timing: {
+      profileFirstPaintMs: firstPaintMs,
       profileOpenMs: openMs,
       sixConfirmMs: loopMs,
       perConfirmMs: Math.round((loopMs / CRITERIA_TOTAL) * 10) / 10,

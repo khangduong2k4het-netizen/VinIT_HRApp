@@ -9,6 +9,7 @@ import { useState, useEffect, useRef } from 'react';
 import Sidebar from './Sidebar';
 import Header, { APPBAR_HEIGHT } from './Header';
 import { authApi, dashboardApi } from '@/lib/api';
+import { runWhenIdle } from '@/lib/idle';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { t } = useI18n();
@@ -61,9 +62,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (pathname === '/dashboard') return;
     if (Date.now() - workQueueFetchedAt.current < 30_000) return;
     workQueueFetchedAt.current = Date.now();
-    dashboardApi.getWorkQueue()
+    // Badge là phụ trợ: để trình duyệt rảnh rồi mới hỏi, không tranh với dữ liệu
+    // của màn hình vừa mở.
+    const cancel = runWhenIdle(() => dashboardApi.getWorkQueue()
       .then(response => setWorkCount(response.data?.items?.length ?? 0))
-      .catch(() => { /* badge là phụ trợ; lỗi mạng không được chặn màn hình */ });
+      .catch(() => { /* badge là phụ trợ; lỗi mạng không được chặn màn hình */ }));
+    return cancel;
   }, [authenticated, pathname]);
 
   if (['/', '/bootstrap', '/change-password', '/careers-demo', '/careers', '/pool-withdraw', '/demo'].includes(pathname)) return <>{children}</>;

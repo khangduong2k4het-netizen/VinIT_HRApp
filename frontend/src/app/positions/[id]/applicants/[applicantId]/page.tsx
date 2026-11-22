@@ -46,6 +46,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { applicationsApi, assessmentsApi, authApi, criteriaApi, listAllApplications, operationsApi } from '@/lib/api';
 import { recordUxEvent } from '@/lib/uxMetrics';
+import { runWhenIdle } from '@/lib/idle';
 import { isTypingTarget, moveCriterionIndex, nextPendingCriterionId, reviewShortcut } from '@/lib/reviewKeyboard';
 import { suggestFinishStatus, type FinishSuggestionReason } from '@/lib/finishSuggestion';
 import { criterionReasonCandidates, readRecentReasons, rememberReason } from '@/lib/rejectionReasons';
@@ -95,7 +96,9 @@ interface StatusEvent {
  */
 function PrefetchProfile({ href }: { href: string }) {
   const router = useRouter();
-  useEffect(() => { router.prefetch(href); }, [href, router]);
+  // Prefetch hồ sơ kế hữu ích cho lần bấm `n`, nhưng không phải việc của màn
+  // hình đầu: để trình duyệt rảnh rồi mới tải thay vì chen vào lúc mở hồ sơ.
+  useEffect(() => runWhenIdle(() => router.prefetch(href)), [href, router]);
   return null;
 }
 
@@ -125,6 +128,9 @@ export default function ApplicantDetailPage() {
   const [reprocessNotice, setReprocessNotice] = useState(false);
   const [history, setHistory] = useState<StatusEvent[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  // Đã nạp lịch sử cho hồ sơ nào — mở/đóng accordion không gọi lại.
+  const historyLoadedFor = useRef<string | null>(null);
   // Ghi chú tải một lần cho cả trang: ghi chú chung vào bảng cuối trang, ghi chú
   // theo tiêu chí vào đúng card của nó. Một nguồn, không hai danh sách lệch nhau.
   const [notes, setNotes] = useState<PrivateNote[]>([]);
@@ -179,11 +185,10 @@ export default function ApplicantDetailPage() {
       setApplication(res.data);
       setError(null);
       const loadedCaps = readApplicationCapabilities(res.data);
-      if (loadedCaps.viewStatusHistory) {
-        applicationsApi.getStatusEvents(applicantId).then(events => {
-          if (currentRequest === requestId.current) { setHistory(events.data || []); setHistoryError(null); }
-        }).catch(() => { if (currentRequest === requestId.current) setHistoryError(t("Không thể tải lịch sử trạng thái.")); });
-      } else { setHistory([]); setHistoryError(null); }
+      // Lịch sử trạng thái nằm trong một accordion đang đóng: tải khi HR mở nó
+      // (xem `loadStatusHistory`) thay vì bắt mọi lần mở hồ sơ trả giá cho một
+      // khối chưa ai đọc.
+      if (!loadedCaps.viewStatusHistory) { setHistory([]); setHistoryError(null); setHistoryLoading(false); }
       if (!loadedCaps.viewCv) {
         // Losing CV permission must drop any copy already held in memory.
         if (blobUrl.current) { URL.revokeObjectURL(blobUrl.current); blobUrl.current = null; }
@@ -201,6 +206,22 @@ export default function ApplicantDetailPage() {
     loadData(true);
     return () => { requestId.current += 1; if (blobUrl.current) { URL.revokeObjectURL(blobUrl.current); blobUrl.current = null; } };
   }, [loadData]);
+
+  const loadStatusHistory = useCallback(async () => {
+    if (historyLoadedFor.current === applicantId) return;
+    historyLoadedFor.current = applicantId;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const events = await applicationsApi.getStatusEvents(applicantId);
+      setHistory(events.data || []);
+    } catch (err: any) {
+      historyLoadedFor.current = null;
+      setHistoryError(err.response?.data?.detail || t("Không thể tải lịch sử trạng thái."));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [applicantId, t]);
 
   // The rubric itself, so the reviewer can check "what did this criterion
   // actually ask for" without leaving the profile. One request per page, keyed
@@ -234,14 +255,27 @@ export default function ApplicantDetailPage() {
       search: fromUrl.search,
       fromList: Boolean(fromUrl.queue || fromUrl.sort || fromUrl.search || params.get('from') === 'list'),
     });
-    setNavigationContext(readApplicantNavigation(positionId));
+    const storedNavigation = readApplicantNavigation(positionId);
+    setNavigationContext(storedNavigation);
     setUrlQueue(null);
     const queueParam = normalizeApplicantQueue(params.get('queue'));
     const sortParam = isApplicantSort(params.get('sort')) ? (params.get('sort') as ApplicantSort) : 'RANK';
     if (queueParam || sortParam !== 'RANK' || params.get('q')) {
       const contextKey = `${positionId}:${queueParam || 'ALL'}:${sortParam}:${params.get('q') || ''}`;
       urlQueueFor.current = contextKey;
-      Promise.all([assessmentsApi.getLatestRanking(positionId), listAllApplications(positionId)])
+      // Danh sách vừa mở hồ sơ để lại đúng thứ tự id trong sessionStorage, nên
+      // prev/next và bộ đếm "hồ sơ k/n" không cần gọi lại ranking + cả danh sách
+      // ứng viên. Chỉ deep link lạnh mới phải dựng lại, và lần đó chạy khi trình
+      // duyệt rảnh thay vì tranh với hồ sơ đang mở.
+      const storedOrder = storedNavigation
+        && storedNavigation.queue === (queueParam || 'ALL')
+        && storedNavigation.sort === sortParam
+        && storedNavigation.search === (params.get('q') || '')
+        && storedNavigation.applicationIds.includes(applicantId)
+        ? storedNavigation.applicationIds
+        : null;
+      if (storedOrder) setUrlQueue(storedOrder);
+      else Promise.all([assessmentsApi.getLatestRanking(positionId), listAllApplications(positionId)])
         .then(([rankRes, appsRes]) => {
           if (urlQueueFor.current !== contextKey) return;
           const appMap = new Map<string, any>();
@@ -298,9 +332,13 @@ export default function ApplicantDetailPage() {
   }, [statusDialogOpen, finishOpen, positionId]);
 
   useEffect(() => {
-    authApi.me()
-      .then(response => setCurrentUserId(response.data?.user_id || null))
-      .catch(() => { /* người phụ trách chỉ là hiển thị; không có id vẫn xem được hồ sơ */ });
+    // Chỉ để hiển thị "người phụ trách" và nút nhận hồ sơ: để trình duyệt rảnh
+    // rồi mới hỏi, không tranh với hồ sơ + tiêu chí của màn hình đầu.
+    return runWhenIdle(() => {
+      authApi.me()
+        .then(response => setCurrentUserId(response.data?.user_id || null))
+        .catch(() => { /* người phụ trách chỉ là hiển thị; không có id vẫn xem được hồ sơ */ });
+    });
   }, []);
 
   // Quyền ghi chú là một boolean, không phải cả object hồ sơ: phụ thuộc vào object
@@ -310,11 +348,15 @@ export default function ApplicantDetailPage() {
     let cancelled = false;
     if (!mayManageNotes) { setNotes([]); setNotesLoading(false); return; }
     setNotesLoading(true);
-    applicationsApi.getPrivateNotes(applicantId)
-      .then(response => { if (!cancelled) { setNotes(response.data || []); setNotesError(null); } })
-      .catch((err: any) => { if (!cancelled) setNotesError(err.response?.data?.detail || t("Không thể tải ghi chú nội bộ.")); })
-      .finally(() => { if (!cancelled) setNotesLoading(false); });
-    return () => { cancelled = true; };
+    // Ghi chú chỉ để hiện số ghi chú bên cạnh tiêu chí và panel ghi chú ở dưới:
+    // nạp sau khi hồ sơ đã dùng được, không chiếm lượt tải đầu.
+    const cancelIdle = runWhenIdle(() => {
+      applicationsApi.getPrivateNotes(applicantId)
+        .then(response => { if (!cancelled) { setNotes(response.data || []); setNotesError(null); } })
+        .catch((err: any) => { if (!cancelled) setNotesError(err.response?.data?.detail || t("Không thể tải ghi chú nội bộ.")); })
+        .finally(() => { if (!cancelled) setNotesLoading(false); });
+    });
+    return () => { cancelled = true; cancelIdle(); };
   }, [applicantId, mayManageNotes, t]);
 
   const addNote = useCallback(async (content: string, criterionId?: string) => {
@@ -1166,12 +1208,17 @@ export default function ApplicantDetailPage() {
       )}
 
       {caps.viewStatusHistory && (
-        <Accordion disableGutters elevation={0} sx={{ mb: 3, border: '1px solid #E4E7EC', borderRadius: '8px !important', '&:before': { display: 'none' } }}>
+        <Accordion
+          disableGutters
+          elevation={0}
+          onChange={(_event, expanded) => { if (expanded) void loadStatusHistory(); }}
+          sx={{ mb: 3, border: '1px solid #E4E7EC', borderRadius: '8px !important', '&:before': { display: 'none' } }}
+        >
           <AccordionSummary expandIcon={<ExpandMoreIcon />} aria-controls="status-history-content" id="status-history-header">
             <Typography fontWeight={600}>{t("Lịch sử trạng thái ")}{history.length > 0 && `(${history.length})`}</Typography>
           </AccordionSummary>
           <AccordionDetails id="status-history-content">
-            {historyError ? <Alert severity="error">{t(historyError)}</Alert> : history.length === 0 ? (
+            {historyLoading && history.length === 0 ? <CircularProgress size={20} /> : historyError ? <Alert severity="error">{t(historyError)}</Alert> : history.length === 0 ? (
               <Typography variant="body2" color="text.secondary">{t("Chưa có thay đổi trạng thái.")}</Typography>
             ) : history.map(event => (
               <Box key={event.event_id} sx={{ py: 1.5, borderTop: '1px solid #EDF1F5' }}>
