@@ -9,6 +9,39 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-21 — Panel Profile ứng viên: không còn tự gọi lại `/profile` khi state hồ sơ đổi
+
+**Đo lại đúng chỗ nghi ngờ.** Mở hồ sơ 6 tiêu chí, mở panel Profile, xác nhận 3 tiêu chí,
+đổi tiêu chí đang chọn, mở panel ghi chú, đóng/mở lại panel — đếm `GET /v1/applications/{id}/profile`:
+
+| Thời điểm | Trước (`bf16e19`) | Hiện tại |
+|---|---|---|
+| Vừa mở hồ sơ | 4 | **0** |
+| Mở panel lần đầu | 4 | **1** |
+| Sau 3 lần xác nhận tiêu chí | 10 | **1** |
+| Sau khi đổi tiêu chí đang chọn | 12 | **1** |
+| Sau khi mở panel ghi chú | 13 | **1** |
+| Đóng rồi mở lại panel | 13 | **1** |
+
+**Nguyên nhân (đã sửa ở lần trước, nay đo lại và khoá bằng test).** Hai panel anh em
+(`CandidateProfilePanel` và `HRNotesPanel`) dùng chung `key={applicantId}` nên React gắn lại
+key sai: mỗi lần trang render lại (mỗi lần xác nhận, đổi tiêu chí, mở hộp thoại) subtree bị
+mount lại, panel nạp lại từ đầu và cộng dồn — 4 request ngay khi mở, rồi +2 mỗi lần xác nhận.
+Đã đổi key thành `profile-${applicantId}` / `notes-${applicantId}`, và panel chỉ tải ở lần mở
+accordion đầu tiên (`loadedOnce`), không tải khi mount. Vì vậy phần "tải lại còn sót" không
+còn tái hiện: state đổi bao nhiêu lần cũng chỉ một request.
+
+**Khoá lại.** `tests/profile-lazy-panels.e2e.cjs` thêm bước: mở panel, xác nhận 3 tiêu chí,
+đổi tiêu chí, mở panel ghi chú → số request `/profile` phải giữ nguyên 1. Không còn đường
+nào âm thầm quay lại hành vi cũ.
+
+**Số toàn vòng (script baseline, 3 lần):** 20–22 request cả vòng, 8–9 request lúc mở,
+`GET …/profile` **0** lần (baseline đầu tiên: 16 lần), mở tới dùng được 449–463 ms.
+
+**Chưa kiểm.** Chưa chạy với backend thật. `ranking-context-mock` vẫn flaky đúng như trước
+(2/3 lần pass, lỗi `Unexpected GET /v1/applications/app-2` ở bước chuyển sang danh sách sau
+khi bấm "Hồ sơ tiếp theo"); lỗi này có từ trước lần sửa này.
+
 ## 2026-11-21 — Link "Mở hồ sơ" từ màn duyệt theo tiêu chí không kèm hàng đợi lạ
 
 **Vấn đề.** Trên màn duyệt một tiêu chí, mỗi dòng có nút "Mở hồ sơ", nhưng href bị
