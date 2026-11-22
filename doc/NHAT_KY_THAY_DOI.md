@@ -9,6 +9,26 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-21 — Thanh dính: hiện tên tiêu chí đang chọn, không phụ thuộc tooltip
+
+**Vấn đề.** Trên thanh dính của hồ sơ, hai nút "Xác nhận"/"Đánh dấu sai" chỉ nói đang quyết
+định cho tiêu chí nào qua tooltip. Trên điện thoại không có hover, nên HR thấy hai nút mà
+không biết chúng áp cho tiêu chí nào — phải cuộn xuống thẻ bằng chứng để đoán.
+
+**Sửa.** Thêm một chip nhỏ ngay cạnh hai nút, hiện `Đang chọn: <tên tiêu chí>`, cập nhật theo
+tiêu chí đang chọn (kể cả khi tự nhảy sang tiêu chí kế sau khi xác nhận). Tên dài bị cắt bằng
+ellipsis trên một dòng: tối đa 200px ở màn hẹp, 360px từ `sm` trở lên. Tooltip giữ nguyên cho
+chuột. Dùng lại khoá i18n có sẵn `Đang chọn: {0}`, không thêm chuỗi mới.
+
+**Kiểm.** `sticky-review-actions.e2e.cjs` (chạy ở 390px và 1440px) thêm assert: chip hiện tên
+tiêu chí, nằm trong bề ngang màn hình, cao ≤ 30px (một dòng), `text-overflow: ellipsis`, và
+sau khi xác nhận thì tên đổi sang tiêu chí kế. Không tràn ngang ở cả hai bề rộng. Ảnh chụp
+390px/1440px xem bằng mắt: chip "Đang chọn: Thiết kế cơ sở..." nằm cùng dòng với nút Xác nhận.
+
+**Chưa kiểm.** Chưa thử trên máy thật/trình duyệt di động thật (chỉ Chromium headless 390px).
+Thanh dính ở 390px vẫn xếp mỗi nút một dòng (tình trạng có từ trước, chip không làm tăng số
+dòng vì nó nằm chung dòng với "Xác nhận"), nên thanh vẫn cao — chưa gộp bớt nút.
+
 ## 2026-11-21 — Panel Profile ứng viên: không còn tự gọi lại `/profile` khi state hồ sơ đổi
 
 **Đo lại đúng chỗ nghi ngờ.** Mở hồ sơ 6 tiêu chí, mở panel Profile, xác nhận 3 tiêu chí,
