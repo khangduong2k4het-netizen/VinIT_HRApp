@@ -102,8 +102,8 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
 
   // --- 7. Mở hồ sơ đầy đủ từ đúng dòng -------------------------------------
   const profileHref = await page.getByTestId('criterion-open-profile-app-1').getAttribute('href');
-  assert.match(profileHref, /\/positions\/p1\/applicants\/app-1\?/, 'mở đúng hồ sơ của dòng');
-  assert.match(profileHref, /#criterion-c2$/, 'nhảy thẳng tới tiêu chí đang duyệt');
+  assert.equal(profileHref, '/positions/p1/applicants/app-1#criterion-c2', 'mở đúng hồ sơ, không kèm hàng đợi lạ');
+  assert.ok(!/[?&](queue|sort)=/.test(profileHref), 'link không được gắn hàng đợi của màn duyệt theo tiêu chí');
 
   // --- 8. Trang sau, và chỉ tải chi tiết hồ sơ đang hiện -------------------
   assert.ok(detailRequests.length <= 8, `chưa bấm tải thêm mà đã gọi ${detailRequests.length} hồ sơ`);

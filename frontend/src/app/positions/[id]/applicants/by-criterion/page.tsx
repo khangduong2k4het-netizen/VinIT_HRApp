@@ -15,7 +15,7 @@ import ReportProblemOutlinedIcon from '@mui/icons-material/ReportProblemOutlined
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { assessmentsApi, applicationsApi, criteriaApi } from '@/lib/api';
 import { useI18n } from '@/i18n/I18nProvider';
-import { applicantProfileHref, type ApplicantQueue, type ApplicantSort } from '@/lib/applicantReview';
+
 import { readApplicationCapabilities } from '@/lib/applicationCapabilities';
 import { buildCriterionRows, countCriterionProgress, criterionRowState } from '@/lib/criterionQueue';
 import type { ApplicationWithAssessment, Criterion, CriterionResult, RankingItem } from '@/types';
@@ -179,7 +179,11 @@ export default function ReviewByCriterionPage() {
     }
   };
 
-  const profileHref = (applicationId: string) => `${applicantProfileHref(positionId, applicationId, 'NEEDS_VERIFICATION' as ApplicantQueue, 'REVIEW_PRIORITY' as ApplicantSort, '')}#criterion-${criterionId}`;
+  // Mở hồ sơ từ đây không kèm hàng đợi. Hàng đợi "cần xác minh / ưu tiên duyệt"
+  // không phải ngữ cảnh HR đang xem — họ đang duyệt theo một tiêu chí — nên mở
+  // ra kèm hàng đợi đó chỉ làm bộ đếm "hồ sơ k/n" và prev/next trỏ sang những hồ
+  // sơ không liên quan. Chỉ mang theo tiêu chí để sang đó là đứng đúng chỗ.
+  const profileHref = (applicationId: string) => `/positions/${positionId}/applicants/${applicationId}#criterion-${criterionId}`;
   const activeCriterion = criteria.find(criterion => criterion.criterion_id === criterionId);
   const outcomeStyle = (outcome: string | null) => (outcome ? OUTCOME_STYLES[outcome] : undefined);
 
