@@ -9,6 +9,41 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-22 — Bấm `1` hai lần trên một tiêu chí: một review, con trỏ nhảy một lần
+
+**Vấn đề.** Đường bàn phím không biết `reviewSaving`. Nút "Xác nhận" đã bị disable khi
+`reviewSaving !== null`, nhưng phím `1` chỉ hỏi "tiêu chí này còn chờ HR không" — mà tiêu chí
+chỉ hết chờ sau khi backend trả lời. Hai cú bấm sát nhau trong lúc request đầu còn bay cùng thấy
+"chưa xác minh" và cùng gửi `POST …/review`. Review là bảng append-only, nên lịch sử của tiêu chí
+có hai dòng `CONFIRMED` của cùng một người ở cùng một thời điểm — một quyết định được ghi hai lần.
+
+**Vì sao chỉ dựa vào state là không đủ.** `setReviewSaving(resultId)` chỉ có hiệu lực sau khi
+React vẽ lại. Cú bấm thứ hai có thể tới trước lần vẽ đó và vẫn đọc giá trị cũ. Vì vậy chốt chặn
+nằm ở một `ref` đổi ngay trong lần gọi đầu (`reviewSavingRef`), và `handleReview` bỏ qua mọi
+lần gọi khi đã có một lần ghi đang chạy. Con trỏ chỉ nhảy ở nhánh sau `await`, nên bỏ qua lần
+bấm trùng cũng có nghĩa con trỏ chỉ nhảy một lần.
+
+**Phím xác nhận.** `reviewShortcut` nhận thêm điều kiện `activeAwaitingReview && !reviewInFlight`:
+đang lưu thì `1` không phải lệnh và cũng không bị `preventDefault`. Không mất thao tác nào của
+HR: con trỏ chỉ sang tiêu chí kế sau khi request xong, nên không có cú bấm hợp lệ nào bị nuốt.
+
+**Test mới `tests/review-double-confirm.e2e.cjs`.** Mock giữ mỗi POST review 700ms để hai lần
+bấm chắc chắn rơi vào lúc đang lưu (nếu không, test chỉ đo tốc độ mạng). Test bấm `1` hai lần
+liền, rồi kiểm: đúng **một** POST cho `r-c2`, tiến độ `1/2` (không phải 2), con trỏ sang `c3`;
+sau đó bấm hai lần vào nút xác nhận cho tiêu chí thứ hai và kiểm tổng cộng đúng hai review
+(`r-c2`, `r-c3`), không có dòng trùng.
+
+**Đối chứng.** Tạm bỏ chốt chặn (`if (false) return;` + `canConfirm` không xét `reviewInFlight`)
+rồi chạy lại test: **fail với `2 !== 1`** — đúng lỗi được báo. Khôi phục chốt chặn thì pass.
+
+**Kiểm.** `tsc --noEmit`, `eslint` trên file trang, `npm run test:unit` (131/131), `npm run build`.
+E2E trên bản build production: `review-double-confirm`, `review-auto-advance`, `mandatory-fail-finish`,
+`sticky-review-actions` đều pass.
+
+**Chưa kiểm.** Chưa chạy với backend thật (mock API trả lời trong trình duyệt). Con số 700ms là
+của test, không phải độ trễ thật của endpoint; chốt chặn không phụ thuộc con số đó vì nó khoá
+theo thời gian request chứ không theo đồng hồ.
+
 ## 2026-11-21 — Xác nhận tiêu chí: 0 request tải lại profile, và script đo tự chặn nếu tái diễn
 
 **Truy vết.** Gắn tạm một dấu vết vào `load()` của `CandidateProfilePanel` để ghi lại
