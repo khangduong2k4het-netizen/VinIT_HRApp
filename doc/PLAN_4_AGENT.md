@@ -39,6 +39,24 @@ Cột "bằng chứng" là thứ tôi đã mở và đọc, không phải suy t�
 `CLOSED_SCOPED`, DEP-02 `PARTIAL`, DEP-03/04/05 `BLOCKED`, DEP-06/07/08 `WAITING`.
 App **chưa deploy** lần nào kể cả sau khi 00039–00041 đã áp lên Supabase.
 
+### 1.1.b. Trạng thái CI lúc lập kế hoạch (đã sửa xong)
+
+CI đã **đỏ ở mọi lần push từ 19/11 đến 30/11**. Lần xanh cuối trước đó là `db6efa2`.
+Nguyên nhân và việc đã làm:
+
+| Lỗi | Gốc | Xử lý |
+|---|---|---|
+| Job integration chết ở bước áp migration | `00035_purge_test_cv_jd_data` là migration **xoá dữ liệu một lần**, có chốt chặn đòi schema `app_backup_20261119` không migration nào tạo → luôn `RAISE EXCEPTION` trên DB trắng | Loại đúng file đó khỏi bước dựng schema test (CI, không đụng file đã áp) |
+| Job unit chết ở ruff | 8 lỗi F401/F841 tích tụ | Sửa hết |
+| **82 test tích hợp + 92 test khác chưa từng chạy 11 ngày** | bị che bởi lỗi migration | Chạy lại → lộ 1 bug thật + 2 test lỗi thời, đã sửa |
+| **BUG THẬT:** duyệt bộ tiêu chí thứ hai → 500 | `criteria.py` đọc `cv["version_number"]` nhưng SELECT không có cột đó | Thêm cột + test khoá (đã kiểm ngược) |
+
+Sau khi sửa: **CI xanh cả 3 job** tại `5c939df`. Đây là mốc M0 đã đạt phần CI.
+
+Bài học đưa vào `AGENTS.md`: **một job đỏ thì mọi thứ sau nó là vô nghĩa.** CI đỏ
+11 ngày nghĩa là 11 ngày không ai biết code có chạy không, trong khi vẫn có 8 commit
+được push.
+
 ### 1.2. Ba mâu thuẫn cần người quyết, không phải agent tự quyết
 
 1. **F3.05 chưa có, nhưng người dùng đã chốt "email để sau"** cho lịch phỏng vấn.
@@ -67,7 +85,8 @@ App **chưa deploy** lần nào kể cả sau khi 00039–00041 đã áp lên Su
 | **Một migration tại một thời điểm** | Số thứ tự `00042` là tài nguyên tuần tự; hai agent cùng tạo ⇒ trùng số, phải sửa tay | Người điều phối (A) |
 | **Không có môi trường chạy chung** | Chỉ Supabase test `myrymlqdbyqmpynesiwk`, mọi agent cùng áp migration vào **một** DB | A + DevOps |
 | **`backend/app/api/__init__.py`, `types/index.ts`, `en.json` là file nóng** | Ai cũng phải sửa; merge conflict gần như chắc chắn | Quy ước: sửa muộn, commit nhỏ |
-| **`pytest` hệ thống không dùng được** | Phải `/tmp/venv/bin/pytest`; agent mới sẽ mất thời gian phát hiện | Ghi vào `README`/AGENTS |
+| **`pytest` hệ thống không dùng được** | Phải `/tmp/venv/bin/pytest`; agent mới sẽ mất thời gian phát hiện | Ghi vào `AGENTS.md` |
+| **Test tích hợp không chạy được trên Supabase** | conftest từ chối + fixture TRUNCATE CASCADE | Mỗi agent dựng PostgreSQL cục bộ (§7.1) |
 | **Chưa có `AGENTS.md`** | 3 agent mới sẽ tự đoán quy ước (i18n phải dịch thật, test phải kiểm ngược, không sửa migration đã áp) | A viết trước khi mời |
 
 ---
@@ -113,25 +132,38 @@ chéo và agent phải chờ nhau.
 
 ---
 
-## 4. Thứ tự thực hiện (8 tuần, 4 agent)
+## 4. Thứ tự thực hiện (2 tuần — đã đổi theo quyết định số 4)
 
-Giả định mỗi agent ~1 tính năng vừa / 3–5 ngày. **Tuần 1 là bắt buộc tuần tự.**
+> Bản đầu của mục này chia 8 tuần và xếp buffer. Người dùng đã bác: 4 agent năng
+> lực cao, không cần ưu tiên luồng nào, sẽ xong trong 2 tuần. Mục này giữ lại
+> **thứ tự phụ thuộc** (cái nào phải trước cái nào), bỏ phần chia lịch tuần tự.
+> Lịch thật nằm ở §7.3 — 4 mốc đồng bộ trong 14 ngày.
 
-| Tuần | A (nền tảng) | B (ứng viên) | C (đo lường) | D (ngôn ngữ/UX) |
+### 4.1. Thứ tự bắt buộc (không phải lịch)
+
+Chỉ có ba ràng buộc thật, phần còn lại chạy song song được:
+
+1. **`AGENTS.md` trước mọi thứ.** Không có nó, 3 agent mới sẽ tự đoán quy ước —
+   và làm sai những chỗ đã có luật (i18n phải dịch thật, không `"X": "X"`; không
+   thêm cột "đã gửi" khi chưa gửi). Việc này mất nửa ngày, chặn cả 3 luồng.
+2. **Số migration cấp sau `AGENTS.md`.** Chỉ người điều phối cấp. Luồng B gần như
+   chắc chắn cần `00042` (lưu vết thư đã gửi), nên B xin số sớm.
+3. **Deploy lần đầu không chặn code mới nhưng chặn "tính là xong".** Bốn agent có
+   thể viết song song ngay từ ngày 2; nhưng nếu hết 14 ngày chưa deploy thì cả
+   4 luồng vẫn là code chưa từng chạy trên môi trường đích.
+
+### 4.2. Chạy song song được ngay từ ngày 2
+
+| Luồng | Ngày 2–4 | Ngày 5–7 | Ngày 8–10 | Ngày 11–14 |
 |---|---|---|---|---|
-| 1 | `AGENTS.md`, cổng migration, deploy thử | chờ (đọc AGENTS, làm F3.05 khảo sát) | chờ | chờ |
-| 2 | Deploy + E2E | F3.05 backend (thông báo ứng viên) | F2.03 báo cáo phễu | F3.06 khảo sát CV/JD đa ngữ |
-| 3 | Sửa lỗi từ E2E | F3.05 UI + chính sách | F2.03 UI | F2.09 so sánh song song |
-| 4 | Dọn `-demo` | F3.03 Gmail thật | F2.04 lấy mẫu kiểm | F2.09 xuất báo cáo |
-| 5 | Hỗ trợ + review | F2.06 OCR ảnh | F2.04 UI | F3.06 CV/JD đa ngữ |
-| 6 | Review + gate | F2.06 hoàn thiện | F4.01 analytics đọc | F4.03 tra cứu trạng thái |
-| 7 | Gate nghiệm thu | Buffer | Buffer | Buffer |
-| 8 | Deploy cuối | — | — | — |
+| **A** | `AGENTS.md`, cấp số migration, dựng staging | Deploy lần đầu | Sửa lỗi từ deploy | E2E, gate |
+| **B** | F3.05: chọn nhà cung cấp + lưu vết gửi | F3.05 gửi thật ở chế độ thử | F3.05 bật + F3.03 Gmail | F2.06 OCR ảnh |
+| **C** | F2.03 báo cáo phễu | F2.03 UI | F2.04 lấy mẫu kiểm | F4.01 analytics đọc |
+| **D** | F3.06 dò ngôn ngữ CV | F3.06 hiển thị song ngữ | F2.09 so sánh song song | F2.09 xuất báo cáo |
 
-Tuần 7 là buffer **cố ý**, không phải thời gian rảnh: với 4 agent sửa cùng repo,
-một tuần buffer là mức tối thiểu để hấp thụ conflict và lỗi tích hợp.
-
----
+Không luồng nào trong bảng này sửa file của luồng khác — đó là lý do chia theo
+tầng dọc ở §3. Hai ngoại lệ duy nhất là `api/__init__.py`, `types/index.ts`,
+`en.json`; quy ước: **sửa sau cùng trong ngày, commit riêng, nhỏ**.
 
 ## 5. Quy ước làm việc 4 agent (đề xuất đưa vào `AGENTS.md`)
 
@@ -146,11 +178,114 @@ một tuần buffer là mức tối thiểu để hấp thụ conflict và lỗi
 
 ---
 
-## 6. Điều tôi chưa biết, cần người dùng trả lời
+## 6. Quyết định đã chốt (2026-11-30) — thay thế phần câu hỏi
 
-1. **F3.05 phạm vi**: thông báo cho ứng viên, hay mở rộng thông báo nội bộ sang email?
-2. **Deploy**: có môi trường staging thật ngoài Supabase test không? Nếu không, 4 agent
-   cùng áp migration vào một DB là rủi ro.
-3. **3 agent mới là ai**: có cùng quyền commit vào repo này không, hay mỗi agent một
-   fork? Điều này quyết định cách chia nhánh.
-4. **Ưu tiên**: nếu chỉ làm được 2 luồng trong 8 tuần, chọn luồng nào?
+| # | Đã chốt | Hệ quả lên kế hoạch |
+|---|---|---|
+| 1 | **F3.05 = gửi email cho ứng viên** | Luồng B có việc thật, và phải xây hạ tầng gửi từ đầu (§7) |
+| 2 | Chỉ dùng Supabase test `myrymlqdbyqmpynesiwk`; **chỉ 1 người được áp migration**, ai cần thì hỏi | Cổng migration đã có người giữ. **Nhưng test thì không được chạy trên DB đó** (§7.1) |
+| 3 | **Mỗi agent một fork**; người dùng là người chia việc và điều phối | Bỏ mô hình PR chung một repo; đổi sang quy trình fork + cherry-pick (§7.2) |
+| 4 | **Không cần ưu tiên** — 4 agent năng lực cao, chắc chắn xong trong 2 tuần | Bỏ bảng 8 tuần. Thay bằng 2 tuần có cổng kiểm (§7.3) |
+
+### 6.1. Điều chỉnh quan trọng nhất, rút ra từ câu trả lời số 4
+
+**Nút thắt không phải năng lực agent, mà là việc kiểm chứng.** Bằng chứng ngay
+trong đợt rà soát này: CI đã đỏ từ 19/11 và không ai biết. Khi sửa xong, lộ ra
+một lỗi làm **tính năng "một vị trí chỉ một bộ tiêu chí hiệu lực" chưa từng chạy
+được** — duyệt bộ thứ hai là 500 — và 82 test tích hợp chưa từng chạy suốt 11
+ngày. 4 agent viết nhanh gấp 4 thì lượng code chưa từng chạy thật cũng tăng gấp 4.
+
+Vì vậy kế hoạch 2 tuần **không** chia theo "mỗi ngày xong một tính năng". Nó chia
+theo **4 mốc đồng bộ**, mỗi mốc trả lời một câu: *cái vừa viết đã chạy thật chưa?*
+
+---
+
+## 7. Bốn điều chỉnh bắt buộc trước khi mời 3 agent
+
+### 7.1. Test KHÔNG được chạy trên Supabase `myrymlqdbyqmpynesiwk`
+
+Đây là điểm tôi phải nói thẳng: `backend/tests/conftest.py` **từ chối** chạy nếu
+`TEST_DATABASE_URL` không phải host cục bộ và tên DB không kết thúc `_test`. Nó
+còn ghi rõ trong README: fixture sẽ `TRUNCATE app_private.positions CASCADE` và
+`TRUNCATE auth.users CASCADE` — **xoá gần như toàn bộ dữ liệu**.
+
+Nghĩa là 174 test tích hợp **không thể** chạy trên Supabase test. Ai đó trỏ vào
+đó sẽ bị conftest chặn; nếu vô hiệu hoá conftest để chạy, họ xoá sạch DB. Hai
+kết cục đều xấu.
+
+**Cách đúng, và nó miễn phí:** mỗi agent dựng một PostgreSQL cục bộ dùng một lần
+(`pgvector/pgvector:pg17`, port riêng, `*_test`), áp migration từ đầu. CI đã làm
+đúng thế từ trước — xem job `backend-integration` trong `.github/workflows/ci.yml`.
+Không agent nào cần quyền trên Supabase để chạy test.
+
+| Việc | Chạy ở đâu | Ai |
+|---|---|---|
+| Test đơn vị + ruff + i18n + build | máy agent / CI | cả 4, thoải mái |
+| Test tích hợp | **PostgreSQL cục bộ của từng agent** | cả 4, mỗi người một cụm |
+| Áp migration lên Supabase | `myrymlqdbyqmpynesiwk` | **chỉ người điều phối** |
+
+### 7.2. Quy trình fork (thay cho PR chung)
+
+1. Agent làm trên fork của mình, nhánh riêng.
+2. **CI trên fork phải xanh trước khi xin gộp** — đây là cổng, không phải thủ tục.
+   Fork chạy CI được là điều kiện tiên quyết; nếu fork không chạy được CI thì
+   phải nói ngay từ đầu thay vì phát hiện giữa tuần.
+3. Người điều phối gộp bằng **cherry-pick một commit**, không merge cả nhánh —
+   giữ lịch sử tuyến tính và dễ lùi.
+4. Commit phải nêu **lý do**, không chỉ việc đã làm (quy ước đang dùng).
+5. Migration: agent **không** tự đặt số. Đề xuất nội dung, người điều phối cấp số
+   `00042+` và áp.
+
+### 7.3. Hai tuần, 4 mốc đồng bộ (thay bảng 8 tuần)
+
+Mỗi mốc là một buổi kiểm chung. Không đạt mốc thì **dừng nhận việc mới**, không
+chạy tiếp — vì nợ chưa kiểm sẽ cộng dồn và mất dấu.
+
+| Mốc | Thời điểm | Câu hỏi phải trả lời được |
+|---|---|---|
+| **M0** | trước khi mời agent | `AGENTS.md` có chưa? CI trên nhánh chính xanh chưa? Fork chạy được CI chưa? |
+| **M1** | hết ngày 4 | Mỗi agent có **một** thứ chạy được đầu-cuối trên DB cục bộ, không phải khung rỗng? |
+| **M2** | hết ngày 7 | Đã có ít nhất một luồng chạy trên **Supabase thật** sau khi áp migration? |
+| **M3** | hết ngày 10 | Demo được 4 luồng cạnh nhau, không luồng nào làm hỏng luồng khác? |
+| **M4** | hết ngày 14 | Deploy lần đầu + E2E. Nếu chưa deploy được thì **2 tuần đó chưa tính là xong** |
+
+### 7.4. Chia lại việc theo 4 quyết định trên
+
+| Luồng | Việc | Ghi chú sau khi chốt |
+|---|---|---|
+| **A** (điều phối) | `AGENTS.md`, cổng migration, deploy, E2E, dọn `-demo` | Không kiêm tính năng — điều phối 3 người là đủ việc |
+| **B** | **F3.05 gửi email ứng viên** → F3.03 Gmail thật → F2.06 OCR ảnh | F3.05 nay là việc lớn nhất: **chưa có hạ tầng gửi email nào** (§8) |
+| **C** | F2.03 báo cáo phễu → F2.04 lấy mẫu kiểm → F4.01 analytics | Giữ nguyên |
+| **D** | F3.06 đa ngữ CV/JD → F2.09 so sánh + xuất → F4.03 tra cứu | Giữ nguyên |
+
+---
+
+## 8. F3.05: việc lớn hơn tên gọi của nó
+
+Đã kiểm: **repo không có hạ tầng gửi email nào.** Không SMTP, không SendGrid,
+không Resend, không `send_email` — chỉ có:
+- `services/email_demo.py`: docstring ghi *"Offline MIME routing demonstration.
+  Never contacts a mailbox"* — chỉ phân tích MIME, không gửi.
+- `services/gmail_test_client.py`: client Gmail **test**.
+
+Nên F3.05 không phải "thêm một thông báo". Nó là: chọn nhà cung cấp → quản lý
+khoá → mẫu thư + bản dịch → xử lý thư trả về/hỏng → **đồng ý nhận thư** → ghi
+nhật ký đã gửi. Và có ràng buộc pháp lý: gửi thư cho ứng viên là xử lý dữ liệu
+cá nhân, phải có căn cứ và phải rút được.
+
+Ba điều bắt buộc, rút từ lỗi cũ:
+1. **Không thêm cột `sent_at`/`delivered` trước khi có cơ chế gửi thật** — đã có
+   test khoá điều này.
+2. **Không báo "đã gửi" khi chưa gửi** — đúng loại lỗi vừa tìm thấy ở `criteria.py`:
+   ghi vào audit một giá trị chưa từng được nạp.
+3. **Gửi hỏng phải thấy được**, không im lặng nuốt lỗi.
+
+---
+
+## 9. Điều còn chưa biết (thay cho §6 cũ)
+
+1. **Fork có chạy được CI không?** Nếu không, cả quy trình §7.2 sụp. Cần biết
+   trước M0.
+2. **Nhà cung cấp email nào?** Chưa chốt thì luồng B bắt đầu bằng một quyết định
+   hạ tầng, không phải code.
+3. **Ai duyệt nội dung thư gửi ứng viên?** Thư gửi ra ngoài không thể thu hồi.
