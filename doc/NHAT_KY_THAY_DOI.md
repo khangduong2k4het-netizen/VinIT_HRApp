@@ -9,6 +9,40 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-22 — Tải trước dữ liệu hồ sơ kế tiếp: mở hồ sơ kế 704 ms → 100 ms
+
+**Vấn đề.** `PrefetchProfile` chỉ gọi `router.prefetch(href)` — đúng việc mà chính
+`next/link` của nút "Hồ sơ tiếp theo" đã làm khi link nằm trong khung nhìn. Vì vậy nó không tạo
+ra khác biệt đo được. Thứ thật sự làm HR chờ khi bấm `n` không phải route mà là
+`GET /v1/applications/{id}`: trang hồ sơ hiện spinner cho tới khi request đó xong.
+
+**Thay đổi.** Thêm `src/lib/profilePrefetch.ts`: tải trước chính request dữ liệu hồ sơ kế, giữ
+trong bộ nhớ của tab (một mục cho mỗi hồ sơ, hết hạn sau 60 giây, dùng một lần, lỗi thì bỏ qua
+— tải trước thất bại không được làm hỏng gì). `PrefetchProfile` giờ nhận `applicantId` và gọi
+việc tải trước trong `runWhenIdle`, y như trước; `loadData(initial)` lấy bản đã tải trước để
+**vẽ ngay** rồi vẫn gọi lại API — màn hình không bao giờ tin dữ liệu cũ vô điều kiện.
+
+**Đo.** `tests/prefetch-next-profile.e2e.cjs`: mock giữ request dữ liệu hồ sơ kế **600 ms**, đo
+từ lúc bấm `n` tới lúc hồ sơ kế vẽ xong (tên ứng viên + thẻ tiêu chí), 3 lần lấy trung vị.
+
+| Bản | 3 lần đo (ms) | Trung vị |
+| --- | --- | --- |
+| Có tải trước dữ liệu | 94, 100, 104 | **100 ms** |
+| Đối chứng: bỏ dùng bản tải trước | 704, 706, 704 | **704 ms** |
+
+Bản đối chứng là cùng một mã nguồn với `takePrefetchedApplication` trả `null` (một dòng, đã
+gỡ sau khi đo), nên chênh lệch ~600 ms đúng bằng độ trễ của request — không phải nhiễu. Test
+còn kiểm rằng sau khi vẽ từ bản tải trước vẫn có **request thứ hai** đọc lại hồ sơ từ API.
+
+**Kiểm.** `tsc --noEmit`, `eslint` hai file, `npm run build`. E2E trên bản build production:
+`prefetch-next-profile`, `review-double-confirm`, `review-auto-advance`, `profile-lazy-panels`,
+`criterion-queue`, `mandatory-fail-finish`, `sticky-review-actions` đều pass; `npm run test:unit`
+pass.
+
+**Chưa kiểm.** Chưa chạy với backend thật: 600 ms là độ trễ do test dựng nên. Trên mạng thật,
+mức tiết kiệm đúng bằng thời gian `GET /applications/{id}` của hồ sơ đó; nếu backend trả lời
+trong 30 ms thì lợi ích cũng chỉ 30 ms. Chưa đo trên điện thoại thật hay mạng chậm.
+
 ## 2026-11-22 — Bấm `1` hai lần trên một tiêu chí: một review, con trỏ nhảy một lần
 
 **Vấn đề.** Đường bàn phím không biết `reviewSaving`. Nút "Xác nhận" đã bị disable khi
