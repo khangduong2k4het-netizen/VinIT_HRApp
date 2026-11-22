@@ -83,15 +83,21 @@ const cvPageLabel = async page => page.evaluate(() => {
     }
     let current = await pendingOf(page);
     const progress = [current];
+    // Số request phát sinh sau mỗi lần bấm xác nhận. Đây là con số cần đọc khi
+    // nghi ngờ "xác nhận xong lại tải lại hồ sơ": một lần xác nhận chỉ nên sinh
+    // đúng một POST review.
+    const requestsPerConfirm = [];
     let guard = 0;
     while (current && current.done < current.total && guard < 8) {
       guard += 1;
       const doneBefore = current.done;
+      const beforePress = requests.length;
       await page.keyboard.press('1');
       keys += 1;
       await page.waitForTimeout(900);
       current = await pendingOf(page);
       progress.push(current);
+      requestsPerConfirm.push(requests.length - beforePress);
       if (current.done === doneBefore) {
         wasted += 1;
         await page.keyboard.press('j');
@@ -100,10 +106,22 @@ const cvPageLabel = async page => page.evaluate(() => {
       }
     }
     const during = requests.slice(start);
+    // Panel Profile ứng viên chỉ được tải khi HR mở accordion, không phải sau mỗi
+    // lần xác nhận: profile và lịch sử trạng thái không được xuất hiện ở đây.
+    const reloadedDuringLoop = during.filter(r => /^\/v1\/applications\/[^/]+\/(profile|status-events)$/.test(r.path));
+    if (reloadedDuringLoop.length > 0) {
+      throw Error(`Xác nhận tiêu chí kéo theo tải lại ${[...new Set(reloadedDuringLoop.map(r => r.path))].join(', ')} (${reloadedDuringLoop.length} lần) — đúng lỗi cần chặn`);
+    }
+    const countByPath = during
+      .filter(r => r.method === 'GET' && r.path.startsWith('/v1/'))
+      .reduce((acc, r) => ({ ...acc, [r.path]: (acc[r.path] || 0) + 1 }), {});
     return {
       keysPressed: keys,
       pressesThatDidNothing: wasted,
       progress,
+      requestsPerConfirm,
+      profileOrHistoryRequests: reloadedDuringLoop.length,
+      getRequestCounts: countByPath,
       getRequests: during.filter(r => r.method === 'GET' && r.path.startsWith('/v1/')).length,
       documentAndHistoryReloads: during.filter(r => r.method === 'GET' && /^\/v1\/applications\/app-2(\/status-events)?$/.test(r.path)).length,
       postRequests: during.filter(r => r.method === 'POST').length,
