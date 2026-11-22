@@ -65,6 +65,15 @@ SCOPES: dict[str, dict[str, Any]] = {
 #: chứng chạy đúng* trên schema hiện tại; đừng sắp xếp lại theo alphabet.
 DELETE_ORDER: list[tuple[str, str]] = [
     # (scope, table) — một bảng có thể xuất hiện một lần duy nhất ở đây.
+    #
+    # Lịch phỏng vấn thuộc CV, không phải bảng cấu hình: nó gắn vào một hồ sơ
+    # (interviews.application_id là CASCADE) nên không thể sống sót khi hồ sơ bị
+    # xoá. Đã kiểm trong pg_constraint ngày 2026-11-29: nếu bỏ hai bảng này ra
+    # khỏi thứ tự xoá, PostgreSQL vẫn xoá ngầm chúng qua CASCADE — nghĩa là một
+    # bảng nằm trong PROTECTED_TABLES vẫn mất dữ liệu, đúng kiểu âm thầm nguy
+    # hiểm nhất. Vì vậy chúng nằm trong phạm vi CV và xoá tường minh.
+    ("CV", "interview_participants"),
+    ("CV", "interviews"),
     ("CV", "shortlist_scorecard_criteria"),
     ("CV", "scorecard_reopen_events"),
     ("CV", "shortlist_scorecards"),

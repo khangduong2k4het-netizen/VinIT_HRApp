@@ -212,6 +212,31 @@ Xếp để bước 1 đã có giá trị, không phải chờ đủ bộ.
 Tổng 3,5–4,5 ngày. Nếu chỉ làm được một bước: **B1**, vì sau B1 đã trả lời được
 "tuần này ai phỏng vấn ai" — câu HR hỏi hằng ngày.
 
+### Đã làm (2026-11-29)
+
+| Bước | Commit | Kết quả |
+|---|---|---|
+| B1 | `a7d619e` | Migration `00039` đã áp (`interviews_00039`); 5 route CRUD; 32 test |
+| B2 | `f835e5a` | Migration `00040` đã áp (`interview_scorecards_00040`); sinh scorecard theo buổi; 12 test; 2 test chống hồi quy cho đường share |
+| B3 | `d699b09` | `InterviewPanel` trong hồ sơ + `/interviews` theo tuần; logic tuần tách ra `lib/interviewWeek.ts`, 10 test |
+| B4 | `f5b5e8f` | `INTERVIEW_TODAY` + `SCORECARD_OVERDUE` trong work-queue; 12 test |
+| Purge | sau B4 | `interviews`/`interview_participants` vào phạm vi `CV` của `test_data_purge.py`, 3 test |
+
+Ba chỗ khác với bản đề xuất, đều vì kiểm lại code/DB thấy khác:
+
+1. **B2 tách thành migration `00040`.** `00039` đã áp rồi thì không được sửa file
+   nữa — PostgreSQL sẽ không chạy lại nó. Việc mở khoá scorecard nằm ở `00040`.
+2. **Số bảng "CASCADE cả hai" ở §6 chưa đúng.** `interviews → applications` là
+   CASCADE (`interviews_application_id_fkey`, `confdeltype='c'`), nhưng
+   `interview_participants` không trỏ tới `applications`; nó CASCADE vào
+   `interviews`. Hệ quả cho purge: hai bảng **không** được nằm trong
+   `PROTECTED_TABLES`. Nếu nằm đó, chọn xoá `CV` vẫn xoá sạch chúng qua CASCADE và
+   preview sẽ nói dối rằng chúng được bảo vệ. Đã kiểm `pg_constraint` trên DB thật
+   và thêm 5 cạnh vào `tests/fixtures/app_private_foreign_keys.json`.
+3. **Retention thật chưa đụng tới.** Đề xuất ghi "và vào luồng retention thật";
+   luồng đó đang dựa trên hồ sơ nên xoá hồ sơ đã kéo lịch theo qua CASCADE. Không
+   thêm bảng vào retention là chủ ý, không phải bỏ sót.
+
 ---
 
 ## 6. Rủi ro và cách chặn

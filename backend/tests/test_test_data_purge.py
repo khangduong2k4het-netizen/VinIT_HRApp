@@ -466,3 +466,52 @@ def test_storage_cleanup_called_after_commit_boundary():
         assert called == ["swept"], "Phải đối soát Storage kể cả khi không có path trực tiếp"
     finally:
         sp.sweep_orphans = original
+
+# ---------------------------------------------------------------------------
+# Lịch phỏng vấn (00039/00040)
+# ---------------------------------------------------------------------------
+
+def test_interviews_are_deleted_before_applications():
+    """interviews.application_id là CASCADE — nhưng vẫn phải xoá tường minh.
+
+    Hai điểm, cả hai đều đã kiểm bằng pg_constraint trên DB thật:
+
+    1. Thứ tự: participants trước interviews (participants.interview_id CASCADE),
+       interviews trước applications.
+    2. Không được đưa hai bảng này vào PROTECTED_TABLES. Nếu đưa vào, người dùng
+       chọn xoá CV với niềm tin "bảng được bảo vệ thì còn nguyên" — nhưng CASCADE
+       vẫn xoá ngầm chúng. Một bảng nằm trong danh sách bảo vệ mà vẫn mất dữ liệu
+       là kiểu hỏng tệ nhất của thao tác phá huỷ.
+    """
+    order = [t for _s, t in DELETE_ORDER]
+    assert order.index("interview_participants") < order.index("interviews")
+    assert order.index("interviews") < order.index("applications")
+
+    for table in ("interviews", "interview_participants"):
+        assert f"app_private.{table}" not in PROTECTED_TABLES, (
+            f"{table} không thể là bảng bảo vệ: interviews → applications là CASCADE, "
+            "xoá CV vẫn xoá nó, chỉ khác là không ai thấy trong preview"
+        )
+
+
+def test_interview_tables_belong_to_the_cv_scope():
+    """Lịch đi theo hồ sơ, không đi theo vị trí.
+
+    Xoá CV một mình phải xoá được lịch của các hồ sơ đó mà không kéo theo vị trí —
+    cùng lý do với shortlist_scorecards.
+    """
+    tables = set(tables_for(expand_scopes(["CV"])))
+    assert {"interviews", "interview_participants"} <= tables
+    assert "positions" not in tables
+
+
+def test_interview_tables_are_counted_and_previewed():
+    """Bảng trong phạm vi phải hiện trong bảng đếm; bảng bảo vệ cũng hiện.
+
+    Test này canh chuyện ngược lại test trên: đừng vừa thêm vào DELETE_ORDER vừa
+    giữ trong PROTECTED_TABLES để "cho chắc" — hai danh sách loại trừ nhau.
+    """
+    in_scope = {table for _scope, table in DELETE_ORDER}
+    protected = {t.split(".", 1)[1] for t in PROTECTED_TABLES if t.startswith("app_private.")}
+    assert not (in_scope & protected)
+    assert {"interviews", "interview_participants"} <= in_scope

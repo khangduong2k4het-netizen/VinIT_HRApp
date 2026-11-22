@@ -1,5 +1,5 @@
 {
-  "note": "Khoá ngoại trong schema app_private, đọc từ pg_constraint trên database thật ngày 2026-11-20. on_delete: c=CASCADE, n=SET NULL, a=NO ACTION, r=RESTRICT.",
+  "note": "Khoá ngoại trong schema app_private, đọc từ pg_constraint trên database thật ngày 2026-11-20. on_delete: c=CASCADE, n=SET NULL, a=NO ACTION, r=RESTRICT. Bổ sung 2026-11-29: 5 cạnh khoá ngoại của interviews/interview_participants và shortlist_scorecards→interviews (đọc từ pg_constraint sau migration 00039/00040). Riêng các cạnh này đọc trực tiếp trên DB thật, không phải suy từ migration.",
   "foreign_keys": [
     {
       "child": "ai_auxiliary_config_drafts",
@@ -454,6 +454,31 @@
     {
       "child": "user_profiles",
       "parent": "auth.users",
+      "on_delete": "c"
+    },
+    {
+      "child": "interviews",
+      "parent": "applications",
+      "on_delete": "c"
+    },
+    {
+      "child": "interviews",
+      "parent": "users",
+      "on_delete": "a"
+    },
+    {
+      "child": "interview_participants",
+      "parent": "interviews",
+      "on_delete": "c"
+    },
+    {
+      "child": "interview_participants",
+      "parent": "users",
+      "on_delete": "a"
+    },
+    {
+      "child": "shortlist_scorecards",
+      "parent": "interviews",
       "on_delete": "c"
     }
   ]
