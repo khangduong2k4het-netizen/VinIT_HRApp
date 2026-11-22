@@ -379,26 +379,36 @@ def _load_work_queue(user_id: str) -> dict:
         criteria_pending_positions += any(item["type"] in ("CRITERIA_PENDING_HR", "CRITERIA_PENDING_HM", "POSITION_SETUP") for item in position_items)
         shares_without_feedback += int(row.get("shares_without_feedback") or 0)
 
-    # Việc phát sinh từ lịch phỏng vấn. Cố ý thêm dưới dạng ITEM riêng chứ không
-    # trộn vào item của vị trí: item của vị trí mở trang vị trí, còn hai việc này
-    # mở đúng trang lịch — gộp vào sẽ cho ra nút dẫn sai chỗ.
+    # Việc phát sinh từ lịch phỏng vấn đi vào **khoá riêng**, không vào `items`.
+    #
+    # Bản đầu tiên của đoạn này nhét hai việc đó vào `items`, và sai ở ba chỗ:
+    #
+    # 1. `target` phải là `{pathname, search}` — dạng mà `workQueueListHref` đọc.
+    #    Đưa `{page: "interviews"}` thì client dựng ra `href="undefined"`; bấm vào
+    #    là điều hướng tới `/undefined`.
+    # 2. Mọi item trong `items` đều gắn với một vị trí: `positions_needing_attention`
+    #    đếm `len({item["position_id"] ...})`. `position_id: None` thành một phần tử
+    #    riêng, nên "1 vị trí cần chú ý" biến thành "2" khi có buổi hôm nay.
+    # 3. `position_id: None` còn làm dòng việc hiện tiêu đề "Vị trí tuyển dụng"
+    #    trong khi nó chẳng thuộc vị trí nào.
+    #
+    # Hai việc này cũng không phải "việc của một vị trí" về mặt ý nghĩa: chúng là
+    # việc của **người dùng** ("hôm nay tôi có 3 buổi"). Vì vậy chúng có khoá
+    # riêng, `interview_work`, để không client nào phải lọc chúng ra khỏi `items`.
     from app.services.workspace import summarize_interview_work
     interview_counts = summarize_interview_work(interview_rows, now=datetime.now(timezone.utc))
+    interview_work = []
     if interview_counts["interviews_today"]:
-        items.append({
+        interview_work.append({
             "item_id": "INTERVIEW_TODAY:mine", "type": "INTERVIEW_TODAY", "priority": "HIGH",
             "count": interview_counts["interviews_today"],
-            "position_id": None, "position_code": None, "position_title": None,
-            "position_status": None,
-            "target": {"page": "interviews"},
+            "target": {"pathname": "/interviews", "search": ""},
         })
     if interview_counts["scorecards_overdue"]:
-        items.append({
+        interview_work.append({
             "item_id": "SCORECARD_OVERDUE:mine", "type": "SCORECARD_OVERDUE", "priority": "MEDIUM",
             "count": interview_counts["scorecards_overdue"],
-            "position_id": None, "position_code": None, "position_title": None,
-            "position_status": None,
-            "target": {"page": "interviews"},
+            "target": {"pathname": "/interviews", "search": ""},
         })
 
     priority_rank = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
@@ -411,7 +421,8 @@ def _load_work_queue(user_id: str) -> dict:
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
-            "positions_needing_attention": len({item["position_id"] for item in items}),
+            "positions_needing_attention": len({item["position_id"] for item in items
+                                              if item.get("position_id")}),
             "files_needing_review": sum(counts["file_review"] for counts in counts_by_position.values()),
             "applications_needing_verification": sum(counts["needs_verification"] for counts in counts_by_position.values()),
             # Finished verification work stays counted, so the dashboard can say
@@ -439,6 +450,9 @@ def _load_work_queue(user_id: str) -> dict:
             "scorecards_overdue": interview_counts["scorecards_overdue"],
         },
         "items": items,
+        # Khoá bổ sung; client cũ bỏ qua. Tách khỏi `items` vì đó là danh sách
+        # "việc của từng vị trí", còn đây là việc của chính người dùng.
+        "interview_work": interview_work,
     }
 
 

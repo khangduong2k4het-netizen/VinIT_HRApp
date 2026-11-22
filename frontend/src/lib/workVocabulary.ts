@@ -46,6 +46,11 @@ const ITEM_CLUSTERS: Record<WorkQueueItem['type'], WorkCluster> = {
   SHARE_WITHOUT_FEEDBACK: 'DECISION',
   POSITION_DEADLINE_PASSED: 'ACTION',
   POSITION_DEADLINE_SOON: 'ACTION',
+  // Hai loại này không đi qua `WorkQueueList` (chúng là việc của người dùng,
+  // không của vị trí), nhưng kiểu Record bắt buộc phải khai đủ. Thiếu hai dòng
+  // này là lỗi biên dịch, không phải lỗi hiển thị — nên cứ để kiểu ép khai.
+  INTERVIEW_TODAY: 'ACTION',
+  SCORECARD_OVERDUE: 'ACTION',
 };
 
 /** A work-queue type this build does not know lands in the actionable group. */

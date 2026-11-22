@@ -95,15 +95,36 @@ def test_empty_input():
 # Nối vào dashboard
 # ---------------------------------------------------------------------------
 
-def test_dashboard_adds_items_with_their_own_target():
-    """Item của lịch phải mở trang lịch, không phải trang vị trí.
+def test_interview_work_has_the_target_shape_the_client_reads():
+    """`target` phải là `{pathname, search}`, đúng dạng `workQueueListHref` đọc.
 
-    Gộp vào item của vị trí sẽ cho ra một nút dẫn sai chỗ — người dùng bấm
-    "3 buổi hôm nay" mà mở ra danh sách vị trí.
+    Bản đầu tiên của đoạn này phát ra `{"page": "interviews"}`. Client đọc
+    `item.target.pathname` nên dựng ra `href="undefined"`: nút hiện ra, bấm vào
+    là điều hướng tới `/undefined`. Lỗi chỉ lộ khi bấm, tsc không bắt vì `target`
+    được khai là object.
     """
-    assert '"type": "INTERVIEW_TODAY"' in DASHBOARD
-    assert '"type": "SCORECARD_OVERDUE"' in DASHBOARD
-    assert DASHBOARD.count('"target": {"page": "interviews"}') == 2
+    assert '"target": {"pathname": "/interviews", "search": ""}' in DASHBOARD
+    assert '"page": "interviews"' not in DASHBOARD
+
+
+def test_interview_work_is_not_mixed_into_position_items():
+    """Hai việc này là việc của NGƯỜI DÙNG, không phải của một vị trí.
+
+    `items` được dùng ở nhiều chỗ với giả định "mỗi phần tử có position_id":
+    `positions_needing_attention` đếm `len({item["position_id"] ...})`. Nhét một
+    item có `position_id: None` vào làm con số đó tăng thêm 1 — "1 vị trí cần
+    chú ý" thành "2" chỉ vì hôm nay có buổi phỏng vấn. Đã kiểm bằng số: trước khi
+    sửa, tập position_id từ 1 phần tử thành 2.
+    """
+    body = DASHBOARD[DASHBOARD.index("interview_work = []"):DASHBOARD.index("priority_rank = {")]
+    assert "items.append" not in body, "việc của người dùng không được vào `items`"
+    assert "interview_work.append" in body
+    assert '"interview_work": interview_work,' in DASHBOARD
+
+
+def test_positions_needing_attention_ignores_items_without_position():
+    """Phòng thủ: dù sau này ai đó thêm item không gắn vị trí, số đếm vẫn đúng."""
+    assert 'if item.get("position_id")' in DASHBOARD
 
 
 def test_summary_keys_are_additive():

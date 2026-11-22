@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Alert, Box, Button, Card, CardActionArea, CardContent, Chip, Grid, LinearProgress, Skeleton,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography,
+  Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography,
 } from '@mui/material';
 import WorkOutlineIcon from '@mui/icons-material/WorkOutline';
 import PeopleOutlineIcon from '@mui/icons-material/PeopleOutline';
@@ -18,7 +18,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { authApi, dashboardApi } from '@/lib/api';
 import { clearUxEvents, readUxEvents, summarizeUxImpact, type UxEvent } from '@/lib/uxMetrics';
 import { increasesSince, readWorkQueueSnapshot, snapshotWorkQueue, totalNewWork, writeWorkQueueSnapshot, type WorkQueueIncrease } from '@/lib/workQueueDigest';
-import { workQueueTypeLabel } from '@/lib/workQueueLabels';
+import { workQueueTypeAction, workQueueTypeLabel } from '@/lib/workQueueLabels';
 import { APPLICATION_STATUSES, type ApplicationStatus } from '@/lib/applicationStatus';
 import StatusBadge from '@/components/common/StatusBadge';
 import PageHeader from '@/components/common/PageHeader';
@@ -206,6 +206,41 @@ export default function DashboardPage() {
             {/* Việc đã kiểm xong nằm trong cụm "Đã quyết" của danh sách: nếu chỉ
                 hiện "cần xác minh" thì con số nhỏ đi mỗi lần HR làm việc, và không
                 ai phân biệt được "đã xử lý" với "dữ liệu biến mất". */}
+            {/* Việc của chính người dùng (buổi hôm nay, phiếu quá hạn) đứng trên
+                danh sách theo vị trí: nếu có buổi chiều nay thì đó là việc gấp
+                nhất trong ngày, không phải một dòng nằm lẫn giữa việc của vị trí.
+                Đây là danh sách riêng chứ không phải item của `items` — xem
+                `WorkQueueResponse.interview_work` để biết vì sao. */}
+            {(workQueue?.interview_work?.length ?? 0) > 0 && (
+              <Stack spacing={1} sx={{ mb: 2 }}>
+                {workQueue!.interview_work!.map(item => (
+                  <Card key={item.item_id} variant="outlined" sx={{ borderColor: '#E4EAF2' }}>
+                    <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap', py: 1.5 }}>
+                      <Box sx={{ minWidth: 220, flex: 1 }}>
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <Chip size="small" variant="outlined"
+                            label={t(item.priority === 'HIGH' ? 'Cao' : 'Trung bình')}
+                            color={item.priority === 'HIGH' ? 'error' : 'warning'} />
+                          <Typography variant="body1" fontWeight={700} color="#0A2B57">
+                            {t(workQueueTypeLabel({ type: item.type }))}
+                          </Typography>
+                        </Box>
+                        <Typography variant="body2" color="text.secondary">
+                          {t('Gắn với chính bạn, không thuộc vị trí nào')}
+                        </Typography>
+                      </Box>
+                      <Typography variant="h3" sx={{ fontSize: 24, minWidth: 48, textAlign: 'center', color: item.priority === 'HIGH' ? '#B42318' : '#0A2B57' }}>
+                        {item.count}
+                      </Typography>
+                      <Button component={Link} href={`${item.target.pathname}${item.target.search ? `?${item.target.search}` : ''}`}
+                        variant={item.priority === 'HIGH' ? 'contained' : 'outlined'} size="small">
+                        {t(workQueueTypeAction({ type: item.type }))}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                ))}
+              </Stack>
+            )}
             {workQueue
               ? <WorkQueueList items={workQueue.items} doneCount={workQueue.summary.applications_verification_complete ?? 0} />
               : !queueError ? <Skeleton variant="rounded" height={180} /> : null}

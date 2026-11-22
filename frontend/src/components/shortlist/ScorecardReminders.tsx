@@ -6,7 +6,40 @@ import Link from 'next/link';
 import { useI18n } from '@/i18n/I18nProvider';
 import { scorecardsApi } from '@/lib/api';
 
-type Reminder = { share_id: string; position_title: string; position_code: string; overdue_count: number; due_soon_count: number; earliest_due_at: string };
+/**
+ * Một dòng nhắc hạn. `share_id` và `interview_id` loại trừ nhau: phiếu đến từ
+ * shortlist hoặc từ buổi phỏng vấn (xem `reminders` ở backend, gộp hai nguồn
+ * bằng UNION ALL).
+ *
+ * Trước khi sửa, component này giả định mọi dòng đều có `share_id`. Nhánh buổi
+ * phỏng vấn trả `share_id: null` nên hai thứ cùng hỏng một lúc: `key` React
+ * thành null và nút "Xem shortlist" trỏ tới `/shortlist?share=null` — một nút
+ * hiện ra nhưng không mở được gì.
+ */
+type Reminder = {
+  share_id: string | null;
+  interview_id: string | null;
+  position_title: string;
+  position_code: string;
+  overdue_count: number;
+  due_soon_count: number;
+  earliest_due_at: string;
+};
+
+/** Đích của một dòng nhắc: mở đúng màn chấm của nguồn tương ứng. */
+function reminderHref(reminder: Reminder): string {
+  if (reminder.interview_id) return `/interviews/${encodeURIComponent(reminder.interview_id)}`;
+  if (reminder.share_id) return `/shortlist?share=${encodeURIComponent(reminder.share_id)}`;
+  // Backend luôn trả một trong hai; nếu không, về danh sách lịch thay vì
+  // dựng ra một link chắc chắn chết.
+  return '/interviews';
+}
+
+function reminderKey(reminder: Reminder): string {
+  return reminder.interview_id
+    ? `interview:${reminder.interview_id}`
+    : `share:${reminder.share_id ?? ''}`;
+}
 export default function ScorecardReminders({ refreshKey = 0 }: { refreshKey?: number }) {
   const { t, dateLocale } = useI18n();
   const [reminders, setReminders] = useState<Reminder[]>([]);
@@ -31,11 +64,11 @@ export default function ScorecardReminders({ refreshKey = 0 }: { refreshKey?: nu
       </>
     )}
     {loading ? <Typography variant="body2">{t('Đang tải nhắc hạn…')}</Typography> : error ? <Alert severity="warning" action={<Button color="inherit" onClick={load}>{t('Thử lại')}</Button>}>{t('Không thể tải nhắc hạn scorecard.')}</Alert> : !hasReminders ? <Typography variant="caption" color="text.secondary">{t('Không có scorecard quá hạn hoặc đến hạn trong 24 giờ.')}</Typography> :
-      <Stack spacing={1}>{reminders.map(r => <Card key={r.share_id} variant="outlined"><CardContent><Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} spacing={1}>
+      <Stack spacing={1}>{reminders.map(r => <Card key={reminderKey(r)} variant="outlined"><CardContent><Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} spacing={1}>
         <Box sx={{ flex: 1 }}><Typography fontWeight={600}>{r.position_title} · {r.position_code}</Typography><Typography variant="caption">{t('Hạn gần nhất')}: {new Date(r.earliest_due_at).toLocaleString(dateLocale)}</Typography></Box>
         {r.overdue_count > 0 && <Chip color="error" size="small" label={t('Quá hạn: {0}', r.overdue_count)} />}
         {r.due_soon_count > 0 && <Chip color="warning" size="small" label={t('Đến hạn trong 24 giờ: {0}', r.due_soon_count)} />}
-        <Button component={Link} href={`/shortlist?share=${encodeURIComponent(r.share_id)}`} size="small">{t('Xem shortlist')}</Button>
+        <Button component={Link} href={reminderHref(r)} size="small">{t(r.interview_id ? 'Chấm điểm' : 'Xem shortlist')}</Button>
       </Stack></CardContent></Card>)}</Stack>}
   </Box>;
 }

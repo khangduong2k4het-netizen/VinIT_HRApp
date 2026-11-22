@@ -59,7 +59,9 @@ export type WorkQueueItemType =
   | 'NOT_ASSESSED'
   | 'SHARE_WITHOUT_FEEDBACK'
   | 'POSITION_DEADLINE_PASSED'
-  | 'POSITION_DEADLINE_SOON';
+  | 'POSITION_DEADLINE_SOON'
+  | 'INTERVIEW_TODAY'
+  | 'SCORECARD_OVERDUE';
 
 export interface WorkQueueItem {
   item_id: string;
@@ -109,6 +111,24 @@ export interface WorkQueueResponse {
     median_waiting_days?: number | null;
   };
   items: WorkQueueItem[];
+  /**
+   * Việc của **chính người dùng**, không thuộc vị trí nào: hôm nay có buổi
+   * phỏng vấn, hoặc có phiếu chấm quá hạn.
+   *
+   * Tách khỏi `items` vì `items` là "việc của từng vị trí": mọi phần tử ở đó có
+   * `position_id` và được đếm vào `positions_needing_attention`. Trộn hai loại
+   * vào một danh sách từng làm con số đó sai (1 vị trí → 2) và làm nút điều
+   * hướng có `href="undefined"`.
+   */
+  interview_work?: InterviewWorkItem[];
+}
+
+export interface InterviewWorkItem {
+  item_id: string;
+  type: 'INTERVIEW_TODAY' | 'SCORECARD_OVERDUE';
+  priority: 'HIGH' | 'MEDIUM' | 'LOW';
+  count: number;
+  target: { pathname: string; search?: string };
 }
 
 export type WorkflowStepCode = 'JD' | 'CRITERIA' | 'CV_INTAKE' | 'HR_REVIEW' | 'SHORTLIST';

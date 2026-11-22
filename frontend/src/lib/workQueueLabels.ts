@@ -18,6 +18,8 @@ const TYPE_LABELS: Record<WorkQueueItem['type'], string> = {
   SHARE_WITHOUT_FEEDBACK: 'Shortlist chưa có phản hồi',
   POSITION_DEADLINE_PASSED: 'Vị trí đã quá hạn ứng tuyển',
   POSITION_DEADLINE_SOON: 'Vị trí sắp hết hạn ứng tuyển',
+  INTERVIEW_TODAY: 'Buổi phỏng vấn hôm nay',
+  SCORECARD_OVERDUE: 'Phiếu chấm đã quá hạn',
 };
 
 const TYPE_ACTIONS: Record<WorkQueueItem['type'], string> = {
@@ -33,6 +35,8 @@ const TYPE_ACTIONS: Record<WorkQueueItem['type'], string> = {
   SHARE_WITHOUT_FEEDBACK: 'Mở Shortlist',
   POSITION_DEADLINE_PASSED: 'Xem vị trí',
   POSITION_DEADLINE_SOON: 'Xem vị trí',
+  INTERVIEW_TODAY: 'Mở lịch phỏng vấn',
+  SCORECARD_OVERDUE: 'Chấm điểm',
 };
 
 /** Một loại việc mới từ backend chưa có trong bản build này không được hiện "undefined". */
