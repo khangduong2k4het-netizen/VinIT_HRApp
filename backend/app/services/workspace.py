@@ -607,3 +607,44 @@ def build_work_queue_items(
 
     items.sort(key=lambda item: (_PRIORITY_RANK[item["priority"]], -item["count"], item["position_title"] or ""))
     return items
+
+# ---------------------------------------------------------------------------
+# Lịch phỏng vấn trong hàng đợi việc (B4)
+# ---------------------------------------------------------------------------
+
+def summarize_interview_work(
+    interviews: Iterable[Mapping[str, Any]],
+    *,
+    now: datetime,
+) -> dict[str, int]:
+    """Đếm hai loại việc phát sinh từ lịch phỏng vấn.
+
+    * **``interviews_today``** — buổi hôm nay còn ``SCHEDULED``. HR cần thấy nó
+      ngay sáng nay, không phải mở trang lịch trước.
+    * **``scorecards_overdue``** — phiếu chấm chưa nộp và đã quá hạn.
+
+    Cố ý **không** tính buổi đã ``DONE``/``CANCELLED``/``NO_SHOW`` vào mục thứ
+    nhất, và không tính phiếu đã ``SUBMITTED`` vào mục thứ hai — nếu tính, con
+    số sẽ không bao giờ về 0 và người dùng học cách bỏ qua nó.
+
+    "Hôm nay" tính theo **giờ Việt Nam**, không theo UTC: 23:00 UTC hôm trước là
+    06:00 hôm nay ở Việt Nam, và buổi sáng sớm đó phải hiện trong việc hôm nay.
+    """
+    from zoneinfo import ZoneInfo
+    vn_today = now.astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date()
+    interviews_today = 0
+    scorecards_overdue = 0
+    for row in interviews:
+        starts_at = row.get("starts_at")
+        if isinstance(starts_at, str):
+            starts_at = datetime.fromisoformat(starts_at.replace("Z", "+00:00"))
+        if row.get("status") == "SCHEDULED" and isinstance(starts_at, datetime):
+            if starts_at.astimezone(ZoneInfo("Asia/Ho_Chi_Minh")).date() == vn_today:
+                interviews_today += 1
+        due_at = row.get("scorecard_due_at")
+        if isinstance(due_at, str):
+            due_at = datetime.fromisoformat(due_at.replace("Z", "+00:00"))
+        if (row.get("scorecard_status") and row["scorecard_status"] != "SUBMITTED"
+                and isinstance(due_at, datetime) and due_at < now):
+            scorecards_overdue += 1
+    return {"interviews_today": interviews_today, "scorecards_overdue": scorecards_overdue}

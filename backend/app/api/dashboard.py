@@ -271,12 +271,39 @@ def load_position_application_counts(user_id: str, position_id: UUID) -> dict[st
         db.close()
 
 
+_INTERVIEW_WORK_QUERY = """
+    -- Buổi phỏng vấn mà người dùng này có trách nhiệm: người tham gia, hoặc HR
+    -- của vị trí. Một dòng một buổi; scorecard của chính người dùng (nếu có) được
+    -- gắn kèm để đếm phiếu quá hạn mà không cần truy vấn thứ hai.
+    SELECT i.interview_id, i.status, i.starts_at,
+           sc.status AS scorecard_status, sc.due_at AS scorecard_due_at
+    FROM app_private.interviews i
+    JOIN app_private.applications a ON a.application_id = i.application_id
+    LEFT JOIN app_private.shortlist_scorecards sc
+           ON sc.interview_id = i.interview_id AND sc.reviewer_user_id = :user_id
+    WHERE i.status IN ('SCHEDULED', 'DONE')
+      AND (
+        EXISTS (SELECT 1 FROM app_private.interview_participants ip
+                 WHERE ip.interview_id = i.interview_id AND ip.user_id = :user_id)
+        OR EXISTS (SELECT 1 FROM app_private.user_role_assignments ur
+                    WHERE ur.user_id = :user_id AND ur.revoked_at IS NULL
+                      AND ur.role_code IN ('ADMIN','HR_LEAD'))
+        OR EXISTS (SELECT 1 FROM app_private.position_assignments pa
+                    WHERE pa.user_id = :user_id AND pa.position_id = a.position_id
+                      AND pa.revoked_at IS NULL
+                      AND pa.position_role IN ('HR_RECRUITER','HR_LEAD'))
+      )
+    LIMIT 500
+"""
+
+
 def _load_work_queue(user_id: str) -> dict:
     params = {"user_id": user_id, "position_id": None}
     db = SessionLocal()
     try:
         positions = db.execute(text(_WORK_QUEUE_POSITIONS_QUERY), params).mappings().all()
         applications = db.execute(text(_APPLICATIONS_QUERY), params).mappings().all()
+        interview_rows = db.execute(text(_INTERVIEW_WORK_QUERY), {"user_id": user_id}).mappings().all()
         # Read once per request, while the session is still open: two thresholds,
         # one query, and every row below uses the same numbers even if someone
         # edits Settings mid-request.
@@ -352,6 +379,28 @@ def _load_work_queue(user_id: str) -> dict:
         criteria_pending_positions += any(item["type"] in ("CRITERIA_PENDING_HR", "CRITERIA_PENDING_HM", "POSITION_SETUP") for item in position_items)
         shares_without_feedback += int(row.get("shares_without_feedback") or 0)
 
+    # Việc phát sinh từ lịch phỏng vấn. Cố ý thêm dưới dạng ITEM riêng chứ không
+    # trộn vào item của vị trí: item của vị trí mở trang vị trí, còn hai việc này
+    # mở đúng trang lịch — gộp vào sẽ cho ra nút dẫn sai chỗ.
+    from app.services.workspace import summarize_interview_work
+    interview_counts = summarize_interview_work(interview_rows, now=datetime.now(timezone.utc))
+    if interview_counts["interviews_today"]:
+        items.append({
+            "item_id": "INTERVIEW_TODAY:mine", "type": "INTERVIEW_TODAY", "priority": "HIGH",
+            "count": interview_counts["interviews_today"],
+            "position_id": None, "position_code": None, "position_title": None,
+            "position_status": None,
+            "target": {"page": "interviews"},
+        })
+    if interview_counts["scorecards_overdue"]:
+        items.append({
+            "item_id": "SCORECARD_OVERDUE:mine", "type": "SCORECARD_OVERDUE", "priority": "MEDIUM",
+            "count": interview_counts["scorecards_overdue"],
+            "position_id": None, "position_code": None, "position_title": None,
+            "position_status": None,
+            "target": {"page": "interviews"},
+        })
+
     priority_rank = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
     items.sort(key=lambda item: (priority_rank[item["priority"]], -item["count"], item["position_title"] or ""))
     # Age figures are plain numbers; missing data stays None rather than posing as
@@ -385,6 +434,9 @@ def _load_work_queue(user_id: str) -> dict:
             "waiting_attention_days": thresholds["waiting_attention_days"],
             "oldest_waiting_days": waiting["oldest_waiting_days"],
             "median_waiting_days": waiting["median_waiting_days"],
+            # Khoản bổ sung: client cũ không biết hai key này vẫn chạy bình thường.
+            "interviews_today": interview_counts["interviews_today"],
+            "scorecards_overdue": interview_counts["scorecards_overdue"],
         },
         "items": items,
     }
