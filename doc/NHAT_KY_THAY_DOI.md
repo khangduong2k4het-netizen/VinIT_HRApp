@@ -9,6 +9,62 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-21 — Mở hồ sơ: cắt/hoãn request không cần cho màn hình đầu
+
+**Đo lại trước khi sửa.** Mở hồ sơ (deep link `?queue=…&sort=…`) gọi 12 request: hồ sơ,
+`/profile`, `/private-notes`, `/status-events`, rubric, ranking + toàn bộ danh sách ứng viên
+(để dựng prev/next và bộ đếm "hồ sơ k/n"), `auth/me` (layout và trang), badge `work-queue`,
+và prefetch RSC hồ sơ kế. Trong đó `/profile` và `/status-events` là hai khối accordion **đang
+đóng**, chưa ai đọc.
+
+**Đã làm.**
+
+- **Profile ứng viên**: chỉ tải ở lần mở accordion đầu tiên, sau đó giữ nguyên; đóng rồi mở
+  lại không tải lại. Panel không còn tự tải khi mount.
+- **Lịch sử trạng thái**: tải khi mở accordion (có spinner trong lúc chờ), không tải trong
+  `loadData` nữa.
+- **Ghi chú nội bộ**, **auth/me của trang** (chỉ để hiện người phụ trách + nút nhận hồ sơ),
+  **badge work-queue trên header**, và **prefetch hồ sơ kế** đều chạy khi trình duyệt rảnh
+  (`runWhenIdle` trong `src/lib/idle.ts`, có hàm huỷ khi rời trang).
+- **Prev/next và bộ đếm hàng đợi**: danh sách ứng viên đã để lại thứ tự id trong
+  sessionStorage, nên đi từ danh sách sang hồ sơ không cần gọi lại ranking + danh sách nữa
+  (0 request thay vì 2). Deep link lạnh vẫn dựng lại như cũ — nếu không, bộ đếm "hồ sơ 1/3"
+  xuất hiện muộn và test prev/next cũ đỏ.
+
+**Đo lại** (script baseline, 3 lần, trung vị; thêm mốc `profileFirstPaintMs` = lúc hồ sơ dùng
+được, không chờ mạng lắng):
+
+| Số đo | Trước | Sau | Đổi |
+|---|---|---|---|
+| Request lúc mở hồ sơ | 12 | **9** | −3 |
+| — `GET …/profile` lúc mở | 1 | **0** | chỉ tải khi mở accordion |
+| — `GET …/status-events` lúc mở | 1 | **0** | chỉ tải khi mở accordion |
+| Tổng request cả vòng | 27 | **21** | −6 |
+| Mở tới lúc dùng được | 522 ms | **444 ms** | −15% |
+| Mở tới khi mọi request xong | 1135 ms | **1067 ms** | −6% |
+| Số phím cả vòng | 7 | 7 | không đổi |
+| 6 lần xác nhận | 512 ms | 465 ms | −9% |
+| Sang hồ sơ kế | 148 ms | 137 ms | −7% |
+
+**Đọc số cho đúng.** Con số "1,7 s" của lần đo đầu là mốc *mạng lắng* (networkidle), không
+phải lúc HR dùng được: đo riêng thì hồ sơ dùng được sau ~500 ms cả trước và sau khi sửa, vì
+các request kia chạy song song chứ không chặn. Vì vậy giá trị thật của lần này là **ít request
+hơn** (27 → 21, mở trang 12 → 9) và **không tải dữ liệu cho khối đang đóng** — không phải
+màn hình nhanh hơn 1,7 s. Mốc networkidle gần như không đổi (1135 → 1067 ms) đúng vì việc
+hoãn vẫn hoàn tất trong cửa sổ đó.
+
+**Kiểm.** `tsc` sạch, `eslint` sạch, `next build` OK, unit **131/131**, i18n **3/3**. E2E mới
+`tests/profile-lazy-panels.e2e.cjs`: mở hồ sơ không gọi `/profile` hay `/status-events`; mở
+profile tải đúng 1 lần, đóng/mở lại không tải lại; mở lịch sử tải đúng 1 lần. Các e2e cũ chạy
+lại đều pass: `review-auto-advance`, `sticky-review-actions`, `finish-application`,
+`verify-only`, `capabilities`, `duplicate-compare`, `criterion-queue`, `ranking-context-mock`,
+`ranking-compact-mock`, `duplicate-warning`.
+
+**Chưa kiểm.** Chưa thử backend thật. Số request của đường "đi từ danh sách" (bỏ được 2 request
+ranking + danh sách) chưa đo riêng bằng script — script chỉ đo deep link lạnh. Còn 2 request
+`auth/me` mỗi lần điều hướng (layout + trang) — gộp được nhưng cần chia sẻ state người dùng qua
+context, chưa làm.
+
 ## 2026-11-21 — Sửa: mỗi lần xác nhận kéo theo tải lại `/profile` (16 → 1)
 
 **Triệu chứng.** Baseline ghi 16 lần `GET /v1/applications/app-0/profile` cho một hồ sơ 6 tiêu
