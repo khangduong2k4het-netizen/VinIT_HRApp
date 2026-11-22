@@ -444,6 +444,11 @@ export default function ApplicantDetailPage() {
   }, []);
 
   const [reviewSaving, setReviewSaving] = useState<string | null>(null);
+  // Khoá đồng bộ cho một lần ghi. `reviewSaving` chỉ đổi sau khi React vẽ lại,
+  // nên hai cú bấm sát nhau vẫn cùng đọc "chưa lưu" và cùng gửi một review —
+  // mỗi review là một dòng append-only, nên đó là hai quyết định trùng trong
+  // lịch sử. Ref đổi ngay trong lần gọi đầu tiên.
+  const reviewSavingRef = useRef<string | null>(null);
 
   // Một lần xác nhận chỉ thêm đúng một review vào một tiêu chí; không có phần
   // nào khác của hồ sơ đổi theo. Tải lại cả hồ sơ (hồ sơ + lịch sử trạng thái +
@@ -487,6 +492,10 @@ export default function ApplicantDetailPage() {
   // application_status. Xác nhận xong thì con trỏ nhảy sang tiêu chí còn chờ kế
   // tiếp, nên HR bấm `1` liên tiếp thay vì tự dò tiêu chí bằng j/k.
   const handleReview = async (resultId: string, decision: 'CONFIRMED' | 'REJECTED', comment?: string) => {
+    // Đang lưu thì cú bấm thứ hai (phím `1` hay nút) là cùng một quyết định,
+    // không phải quyết định mới — bỏ qua thay vì ghi thêm một dòng nữa.
+    if (reviewSavingRef.current !== null) return;
+    reviewSavingRef.current = resultId;
     setReviewSaving(resultId);
     try {
       const response = await assessmentsApi.reviewCriterionResult(resultId, decision, comment);
@@ -497,6 +506,7 @@ export default function ApplicantDetailPage() {
         if (nextCriterionId) focusCriterion(criteriaResults.find(result => result.criterion_id === nextCriterionId));
       }
     } finally {
+      reviewSavingRef.current = null;
       setReviewSaving(null);
     }
   };
@@ -680,10 +690,15 @@ export default function ApplicantDetailPage() {
   reviewKeyHandler.current = (event: KeyboardEvent) => {
     // Hộp thoại đang mở thì phím thuộc về hộp thoại (nhập lý do, xác nhận hoàn tất).
     if (document.querySelector('[role="dialog"]')) return;
+    // Đang lưu thì phím xác nhận không có nghĩa: tiêu chí chỉ hết "chờ HR" sau
+    // khi backend trả lời, nên lần bấm thứ hai trong lúc chờ sẽ ghi thêm một
+    // review CONFIRMED nữa cho đúng tiêu chí đó. Nút chuột đã bị disable vì
+    // `reviewSaving`, đường bàn phím phải chặn cùng một điều kiện.
+    const reviewInFlight = reviewSavingRef.current !== null;
     const shortcut = reviewShortcut(
       event,
       {
-        canConfirm: activeAwaitingReview,
+        canConfirm: activeAwaitingReview && !reviewInFlight,
         canReject: activeAwaitingReview,
         canOpenPage: Boolean(isPdf && activePage),
         hasNextApplication: Boolean(nextApplicantId),
