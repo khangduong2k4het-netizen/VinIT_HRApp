@@ -9,6 +9,51 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-22 — Thanh dính trên hồ sơ gọn lại ở màn hẹp: 400px → 152px
+
+**Vấn đề.** Ở 390px mọi thứ trên thanh dính nằm trong một hàng flex `wrap`: ngữ cảnh hàng
+đợi (ba dòng), bộ đếm, tên tiêu chí, Xác nhận, Đánh dấu sai, Hoàn tất, Hồ sơ trước, Hồ sơ tiếp
+theo. Mỗi nút cao ~44px (theme đặt `padding: 10px 20px`), nhãn dài như "Đã xử lý xong hồ sơ
+này" chiếm gần trọn một hàng → mỗi thứ một hàng, thanh cao **400px, 47,4% chiều cao màn hình**
+(844px).
+
+**Thay đổi.** Dưới 600px thanh là ba hàng có chủ đích thay vì để flex tự xuống dòng:
+1. ngữ cảnh hàng đợi (một dòng, cắt ellipsis) + bộ đếm tiêu chí chờ;
+2. tên tiêu chí (co lại được) + **Xác nhận và Đánh dấu sai cùng một hàng**;
+3. Hoàn tất + Hồ sơ trước + Hồ sơ tiếp theo.
+
+Nhãn chỉ đổi ở màn hẹp, từ 600px trở lên vẫn là chữ đầy đủ: `Đúng`/`Sai` (Xác nhận/Đánh dấu
+sai), `Hoàn tất`, `Trước`/`Tiếp`. Icon của ba nút điều hướng ẩn dưới 600px — nhờ vậy ba nút
+vẫn nằm chung một hàng mà nhãn không phải đổi. Hai khoá mới `Đúng`/`Sai` đã thêm vào
+`en.json` ("Correct"/"Wrong"); các nhãn còn lại dùng khoá có sẵn.
+
+**Một lỗi tự gây ra, đã sửa.** Ban đầu hàng ngoài giữ `flexWrap: 'wrap'` trong khi dưới 600px
+nó là `flex-direction: column` — wrap theo hướng cột biến ba hàng thành ba *cột* cạnh nhau:
+thanh rộng 565px trong khổ 390px (đo được, nút Xác nhận rơi ra ngoài màn hình). Sửa bằng
+`flexWrap: { xs: 'nowrap', sm: 'wrap' }`.
+
+**Đo** — `tests/sticky-bar-height.e2e.cjs` đo chiều cao thanh, số hàng (gom theo tâm dọc, vì
+chip 24px và nút 45px cùng hàng lệch `top`), và hai nút quyết định có cùng hàng không; in một
+dòng `STICKY {json}`.
+
+| Khổ | Trước | Sau |
+| --- | --- | --- |
+| 390×844 | 400px — 47,4% màn hình | **152px — 18,0%** |
+| 1440×900 | 128px — 14,2% | 120px — 13,3% |
+
+Xác nhận và Đánh dấu sai cùng hàng ở 390px: **không → có**. Không tràn ngang ở cả hai khổ.
+Đặt `HRA_E2E_STICKY_MAX_XS=170` để chốt trần chiều cao ở màn hẹp.
+
+**Kiểm.** `tsc --noEmit`, `eslint`, `npm run test:i18n` (3/3), `npm run test:unit` (131/131),
+`npm run build`. E2E trên bản production: `sticky-bar-height`, `sticky-review-actions`,
+`review-auto-advance`, `review-double-confirm`, `criterion-queue`, `mandatory-fail-finish`,
+`prefetch-next-profile`, `finish-application` đều pass. Ảnh: `artifacts/sticky-bar-390.png` và
+`artifacts/sticky-bar-1440.png` (đã xem: ba hàng, không cắt chữ, không tràn).
+
+**Chưa kiểm.** Chưa đo trên điện thoại thật (chỉ Chromium ở 390×844). Chiều cao mỗi hàng
+không thể giảm thêm nếu không đổi `padding: 10px 20px` của theme cho nút — nay thanh đã đúng
+ba hàng, muốn thấp nữa phải bỏ bớt phần tử chứ không phải xếp lại.
+
 ## 2026-11-22 — Tải trước dữ liệu hồ sơ kế tiếp: mở hồ sơ kế 704 ms → 100 ms
 
 **Vấn đề.** `PrefetchProfile` chỉ gọi `router.prefetch(href)` — đúng việc mà chính
