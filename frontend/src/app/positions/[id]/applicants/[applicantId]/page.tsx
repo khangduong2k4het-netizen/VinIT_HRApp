@@ -47,6 +47,7 @@ import Link from 'next/link';
 import { applicationsApi, assessmentsApi, authApi, criteriaApi, listAllApplications, operationsApi } from '@/lib/api';
 import { recordUxEvent } from '@/lib/uxMetrics';
 import { runWhenIdle } from '@/lib/idle';
+import { prefetchApplication, takePrefetchedApplication } from '@/lib/profilePrefetch';
 import { isTypingTarget, moveCriterionIndex, nextPendingCriterionId, reviewShortcut } from '@/lib/reviewKeyboard';
 import { suggestFinishStatus, type FinishSuggestionReason } from '@/lib/finishSuggestion';
 import { criterionReasonCandidates, readRecentReasons, rememberReason } from '@/lib/rejectionReasons';
@@ -89,16 +90,20 @@ interface StatusEvent {
 /**
  * Tải trước hồ sơ kế tiếp trong hàng đợi.
  *
- * Hồ sơ kế tiếp thường được mở ngay sau khi xác nhận xong tiêu chí cuối, nên
- * route của nó được tải từ lúc hồ sơ hiện tại còn đang mở. Link trong thanh dính
- * cũng prefetch, nhưng chỉ khi nó nằm trong khung nhìn; gọi rõ ở đây để việc tải
- * trước không phụ thuộc vào bố cục màn hình.
+ * Link trong thanh dính đã tự prefetch route khi nó nằm trong khung nhìn, nên
+ * prefetch route ở đây không thêm gì đo được. Thứ thật sự chặn lần mở hồ sơ kế là
+ * `GET /applications/{id}` — trang hiện spinner cho tới khi request đó xong — nên
+ * component này tải trước dữ liệu, và trang hồ sơ dùng nó để vẽ ngay.
  */
-function PrefetchProfile({ href }: { href: string }) {
+function PrefetchProfile({ applicantId, href }: { applicantId: string; href: string }) {
   const router = useRouter();
-  // Prefetch hồ sơ kế hữu ích cho lần bấm `n`, nhưng không phải việc của màn
-  // hình đầu: để trình duyệt rảnh rồi mới tải thay vì chen vào lúc mở hồ sơ.
-  useEffect(() => runWhenIdle(() => router.prefetch(href)), [href, router]);
+  // Hữu ích cho lần bấm `n`, nhưng không phải việc của màn hình đầu: để trình
+  // duyệt rảnh rồi mới tải thay vì chen vào lúc mở hồ sơ.
+  useEffect(() => runWhenIdle(() => {
+    prefetchApplication(applicantId);
+    // Route vẫn được gọi rõ: link có thể nằm ngoài khung nhìn (màn hình hẹp).
+    router.prefetch(href);
+  }), [applicantId, href, router]);
   return null;
 }
 
@@ -178,7 +183,19 @@ export default function ApplicantDetailPage() {
   const loadData = useCallback(async (initial = false) => {
     const currentRequest = ++requestId.current;
     try {
-      if (initial) setLoading(true);
+      if (initial) {
+        // Dữ liệu hồ sơ đã được trang trước tải trước (xem `PrefetchProfile`):
+        // vẽ ngay bằng nó thay vì spinner, rồi vẫn gọi lại API bên dưới để không
+        // hiển thị bản cũ nếu hồ sơ vừa đổi ở nơi khác.
+        const prefetched = takePrefetchedApplication(applicantId);
+        if (prefetched && prefetched.position_id === positionId) {
+          setApplication(prefetched);
+          setError(null);
+          setLoading(false);
+        } else {
+          setLoading(true);
+        }
+      }
       const res = await applicationsApi.getById(applicantId);
       if (currentRequest !== requestId.current) return;
       if (res.data.position_id !== positionId) throw new Error(t("Hồ sơ không thuộc vị trí này"));
@@ -802,7 +819,7 @@ export default function ApplicantDetailPage() {
 
   return (
     <Box>
-      {nextApplicantId && <PrefetchProfile href={keepContext(nextApplicantId)} />}
+      {nextApplicantId && <PrefetchProfile applicantId={nextApplicantId} href={keepContext(nextApplicantId)} />}
       {/* Back button */}
       <Button
         component={Link}
