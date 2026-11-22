@@ -9,6 +9,64 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-21 — Sửa: mỗi lần xác nhận kéo theo tải lại `/profile` (16 → 1)
+
+**Triệu chứng.** Baseline ghi 16 lần `GET /v1/applications/app-0/profile` cho một hồ sơ 6 tiêu
+chí, thêm 1–2 lần sau mỗi lần xác nhận.
+
+**Nguyên nhân.** Không phải hiệu ứng của panel tải lại. Đo trực tiếp trên trang (log tạm
+`PANEL%MOUNT`, đếm `.MuiAccordion-root`):
+`PAGE%MOUNT 1` rồi mỗi lần trang render lại, `CandidateProfilePanel` **mount thêm một lần
+nữa** — sau khi mở trang có 4 khung "Profile ứng viên" nằm cạnh nhau trong DOM, bấm `j` thành
+5. Mỗi bản là một instance thật, tự gọi `/profile` khi mount, bản cũ không bị gỡ.
+
+Lý do là **hai children anh em trùng `key`**:
+
+```jsx
+{caps.viewCv && <CandidateProfilePanel key={applicantId} … />}
+{caps.manageHrNotes && <HRNotesPanel key={applicantId} … />}
+```
+
+Hai panel cùng key `app-0` trong cùng một children array. React gặp key trùng thì không
+reconcile được hai fiber đó với nhau và mount thêm bản mới thay vì cập nhật bản cũ; bản cũ
+vẫn nằm trong DOM. Panel hồ sơ ứng viên là bản duy nhất tự tải dữ liệu khi mount nên mọi
+request thừa đều rơi vào nó.
+
+**Sửa.** Đổi key theo loại panel, vẫn giữ `applicantId` để panel được dựng lại khi đổi hồ sơ:
+`key={`profile-${applicantId}`}` và `key={`notes-${applicantId}`}` (kèm chú thích trong code).
+Không đổi dữ liệu, không thêm endpoint, không sửa cách ghi review.
+
+**Đo lại bằng đúng script baseline** (3 lần, trung vị):
+
+| Số đo | Trước | Sau | Đổi |
+|---|---|---|---|
+| Khung "Profile ứng viên" trong DOM | 4–5 | **1** | hết trùng lặp |
+| `GET …/profile` mỗi hồ sơ | 16 | **1** | −15 |
+| Tổng request trong vòng | 43 | **27** | −16 |
+| — GET | 37 | **21** | −16 |
+| — POST review | 6 | 6 | không đổi |
+| Request để mở hồ sơ | 15 | **12** | −3 |
+| Request sau mỗi lần xác nhận | ~4,7 | **~2,5** | −2,2 |
+| Số phím cả vòng | 7 | 7 | không đổi |
+| 6 lần xác nhận | 926 ms | **505 ms** | −45% |
+| Mỗi lần xác nhận | 154 ms | **84 ms** | −45% |
+| Sang hồ sơ kế | 257 ms | **141 ms** | −45% |
+| Mở hồ sơ tới dùng được | 1704 ms | **1160 ms** | −32% |
+| Thời gian ở trong hồ sơ | 2157 ms | **1490 ms** | −31% |
+
+Request còn lại: `GET …/profile` 1, `status-events` 1, `private-notes` 1, `applications/app-0`
+1, `criteria` 2, `ranking` 2, `auth/me` 4 (mỗi lần điều hướng một lần — layout), 6 POST review,
+và 4 request của hồ sơ kế khi bấm `n`. Không còn request nào lặp theo số tiêu chí.
+
+**Kiểm.** `tsc --noEmit` sạch, `eslint` sạch trên hai file; `next build` OK. E2E chạy lại đều
+pass: `review-auto-advance`, `sticky-review-actions`, `finish-application`, `verify-only`,
+`capabilities`, `duplicate-compare`, `criterion-queue`, và script đo baseline (assert đúng 6
+POST, không có request lạ).
+
+**Chưa kiểm.** Chưa thử trên backend thật; số thời gian phụ thuộc máy nên so theo trung vị
+3 lần. Việc bấm `n` vẫn kéo 4 request của hồ sơ kế (`applications`, `status-events`,
+`private-notes`, `profile`) — đó là lần tải đầu của hồ sơ mới, không phải tải lại.
+
 ## 2026-11-21 — Baseline: vòng duyệt một hồ sơ 6 tiêu chí
 
 **Đo trước khi sửa gì.** Ba lần chạy `frontend/tests/measure-review-loop.e2e.cjs` trên mock
