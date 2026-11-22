@@ -545,6 +545,52 @@ function installMockApi(context, overrides = {}) {
         },
       });
     }
+    // Hồ sơ trượt tiêu chí bắt buộc: c1 là MUST_HAVE nhưng kết luận NO_MATCH.
+    // Đây là đường dẫn tới nhánh "loại ở vòng sàng lọc" khi hoàn tất — trước đây
+    // chỉ có unit test cho suggestFinishStatus, chưa có giao diện nào chạy qua.
+    if (p === '/v1/applications/app-must-fail' && r.request().method() === 'GET') {
+      const failedResultId = 'app-must-fail:r-c1';
+      return json({
+        ...detail,
+        application_id: 'app-must-fail',
+        candidate_name: 'Trượt Bắt Buộc',
+        identity: { display_name: 'Trượt Bắt Buộc', email: 'truot.batbuoc@example.com', phone: '09xx xxx 999' },
+        application_status: 'IN_REVIEW',
+        has_duplicate_warning: false,
+        latest_assessment: {
+          ...detail.latest_assessment,
+          application_id: 'app-must-fail',
+          matching_status: 'POSSIBLE_MISMATCH',
+          matching_score: 41,
+          evidence_coverage: 0.52,
+          summary: 'Trượt tiêu chí bắt buộc về kinh nghiệm Python cho dịch vụ production.',
+          criterion_results: [
+            {
+              ...CRITERIA[0],
+              result_id: failedResultId,
+              outcome: 'NO_MATCH',
+              score: 0,
+              confidence: 0.79,
+              decision_source: 'AI',
+              evidence_strength: 0.55,
+              // Vẫn chờ HR xác minh: một tiêu chí bắt buộc bị kết luận trượt thì
+              // càng phải để HR đối chiếu trước khi loại hồ sơ.
+              requires_verification: true,
+              page_number: null,
+              reasoning: 'Không có dòng nào trong CV mô tả dịch vụ Python chạy production, chỉ có script xử lý dữ liệu một lần.',
+              verbatim_quote: null,
+              evidence: [],
+              hr_reviews: reviews[failedResultId] || [],
+            },
+            { ...CRITERIA[1], result_id: 'app-must-fail:r-c2', requires_verification: false, hr_reviews: [] },
+          ],
+        },
+      });
+    }
+    if (p === '/v1/applications/app-must-fail/status' && r.request().method() === 'PATCH') {
+      const body = JSON.parse(r.request().postData() || '{}');
+      return json({ ...detail, application_id: 'app-must-fail', application_status: body.new_status });
+    }
     // Any other application row from the ranking can be opened too: finishing a
     // profile advances to the next one, and that page must load in the mock.
     const applicationMatch = p.match(/^\/v1\/applications\/(app-\d+)$/);
