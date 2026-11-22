@@ -9,6 +9,23 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-21 — Link "Mở hồ sơ" từ màn duyệt theo tiêu chí không kèm hàng đợi lạ
+
+**Vấn đề.** Trên màn duyệt một tiêu chí, mỗi dòng có nút "Mở hồ sơ", nhưng href bị
+gắn cứng `?queue=NEEDS_VERIFICATION&sort=REVIEW_PRIORITY`. Mở ra thì hồ sơ hiện bộ đếm
+"hồ sơ k/n trong hàng đợi đang xem" của một hàng đợi HR không hề mở, và prev/next nhảy
+theo hàng đợi đó — sang những hồ sơ không liên quan tới tiêu chí đang duyệt.
+
+**Sửa.** `profileHref` giờ là đường dẫn hồ sơ thuần cộng đúng tiêu chí:
+`/positions/{id}/applicants/{appId}#criterion-{criterionId}`. Bỏ import
+`applicantProfileHref`/`ApplicantQueue`/`ApplicantSort` không còn dùng. Anchor vẫn trỏ
+vào `id="criterion-…"` của `EvidenceCard` nên sang đó là đứng ngay tiêu chí đang duyệt;
+không còn hàng đợi, hồ sơ hiện "Đang xem chi tiết hồ sơ" thay vì số thứ tự của hàng đợi sai.
+
+**Kiểm.** `tsc` sạch, `eslint` sạch, `next build` OK. `tests/criterion-queue.e2e.cjs` nay
+assert đúng `href` là `/positions/p1/applicants/app-1#criterion-c2` và không chứa
+`queue=`/`sort=`; pass. `profile-lazy-panels` pass lại (không hồi quy ở trang hồ sơ).
+
 ## 2026-11-21 — Mở hồ sơ: cắt/hoãn request không cần cho màn hình đầu
 
 **Đo lại trước khi sửa.** Mở hồ sơ (deep link `?queue=…&sort=…`) gọi 12 request: hồ sơ,
