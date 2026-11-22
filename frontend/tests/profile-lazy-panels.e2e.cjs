@@ -56,6 +56,23 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
   await page.waitForTimeout(500);
   assert.equal(requests.filter(path => path.endsWith('/status-events')).length, 1, 'mở lịch sử tải đúng một lần');
 
+  // Hồ sơ đổi state liên tục (xác nhận tiêu chí, đổi tiêu chí, mở hộp thoại, mở ghi chú):
+  // panel đã có dữ liệu thì không được gọi lại /profile lần nào nữa.
+  const before = requests.filter(path => path.endsWith('/profile')).length;
+  for (let index = 0; index < 3; index += 1) {
+    await page.keyboard.press('1');
+    await page.waitForTimeout(700);
+  }
+  await page.keyboard.press('j');
+  await page.waitForTimeout(400);
+  await page.locator('.MuiAccordionSummary-content', { hasText: 'Ghi chú nội bộ HR' }).first().click();
+  await page.waitForTimeout(700);
+  assert.equal(
+    requests.filter(path => path.endsWith('/profile')).length,
+    before,
+    'xác nhận tiêu chí / đổi tiêu chí / mở ghi chú không được tải lại profile',
+  );
+
   assert.deepEqual(unexpected, [], `không có request lạ: ${unexpected.join(', ')}`);
   await browser.close();
   console.log('Profile lazy panels: không tải khi đóng, tải đúng một lần khi mở, không tải lại khi đóng/mở: OK');
