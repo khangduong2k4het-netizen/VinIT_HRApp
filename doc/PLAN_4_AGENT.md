@@ -1,6 +1,7 @@
 # Kế hoạch phối hợp 4 coding agent — rà soát thực tế và phân công
 
-> Lập ngày 2026-11-30. Branch `arena/ea6e2570-vinit-hrapp`, HEAD `74bbe7b`.
+> Lập ngày 2026-11-30, cập nhật cùng ngày sau khi người dùng chốt 4 quyết định.
+> Branch `arena/ea6e2570-vinit-hrapp`, HEAD khi cập nhật `47cef64`.
 > Mọi trạng thái dưới đây **đọc từ code**, không lấy từ tài liệu kế hoạch (các doc
 > đó mô tả mục tiêu, và một số đã lệch thực tế). Chỗ nào doc nói khác code, tôi ghi
 > rõ và tin code.
@@ -51,22 +52,22 @@ Nguyên nhân và việc đã làm:
 | **82 test tích hợp + 92 test khác chưa từng chạy 11 ngày** | bị che bởi lỗi migration | Chạy lại → lộ 1 bug thật + 2 test lỗi thời, đã sửa |
 | **BUG THẬT:** duyệt bộ tiêu chí thứ hai → 500 | `criteria.py` đọc `cv["version_number"]` nhưng SELECT không có cột đó | Thêm cột + test khoá (đã kiểm ngược) |
 
-Sau khi sửa: **CI xanh cả 3 job** tại `5c939df`. Đây là mốc M0 đã đạt phần CI.
+Sau khi sửa: **CI xanh cả 3 job** tại `47cef64`. Đây là mốc M0 đã đạt phần CI.
 
 Bài học đưa vào `AGENTS.md`: **một job đỏ thì mọi thứ sau nó là vô nghĩa.** CI đỏ
 11 ngày nghĩa là 11 ngày không ai biết code có chạy không, trong khi vẫn có 8 commit
 được push.
 
-### 1.2. Ba mâu thuẫn cần người quyết, không phải agent tự quyết
+### 1.2. Hai mâu thuẫn còn mở (câu về F3.05 đã được trả lời)
 
-1. **F3.05 chưa có, nhưng người dùng đã chốt "email để sau"** cho lịch phỏng vấn.
-   Vậy F3.05 = đúng hướng, chưa làm. Cần chốt: khi làm thì làm cho **ứng viên**
-   (F3.05) hay chỉ mở rộng thông báo **nội bộ** sang email? Hai phạm vi rất khác nhau.
+1. **[ĐÃ CHỐT 2026-11-30]** F3.05 = gửi **email cho ứng viên**, không phải chỉ mở
+   rộng thông báo nội bộ. Hệ quả: đây là việc lớn nhất của luồng B — xem §8.
 2. **F2.05 doc nói "phát hiện trùng chéo vị trí", code chỉ làm trong một vị trí.**
-   Đây là thiếu sót thật, và vá nó đụng quyền riêng tư (phải so ứng viên giữa các
-   vị trí). Cần Privacy/HR quyết trước khi code.
+   Thiếu sót thật, và vá nó đụng quyền riêng tư (phải so ứng viên giữa các vị trí).
+   **Chưa giao cho agent nào** — cần Privacy/HR quyết trước.
 3. **Deploy chưa từng chạy.** Mọi thứ đã xây (kể cả 4 đợt vừa rồi) chưa từng chạy
-   trên môi trường đích. Đây là rủi ro lớn hơn mọi hạng mục chưa code.
+   trên môi trường đích. Đây là rủi ro lớn hơn mọi hạng mục chưa code — và là mốc
+   M4, tức điều kiện để coi 2 tuần tới là xong (§7.3).
 
 ---
 
@@ -76,18 +77,22 @@ Bài học đưa vào `AGENTS.md`: **một job đỏ thì mọi thứ sau nó l�
   thông báo, purge.
 - **Thêm 3 agent** ⇒ tổng 4.
 - Hạ tầng sẵn có: CI chạy `pytest backend/tests` + `test:i18n` + `test:unit` +
-  `type-check` + `lint` + `build`; 66 file test backend; 164 test FE.
+  `type-check` + `lint` + `build`, cộng job `backend-integration` dựng PostgreSQL
+  cục bộ + pgvector và áp toàn bộ migration.
+- Test hiện tại: backend **671 passed / 174 skipped**; FE **163** (`test:unit`) +
+  3 (i18n). **CI xanh cả 3 job** lần đầu sau 11 ngày, tại `47cef64`.
 
 ### 2.1. Nút thắt thật khi có 4 agent (không phải thiếu người)
 
 | Nút thắt | Vì sao | Ai chịu |
 |---|---|---|
 | **Một migration tại một thời điểm** | Số thứ tự `00042` là tài nguyên tuần tự; hai agent cùng tạo ⇒ trùng số, phải sửa tay | Người điều phối (A) |
-| **Không có môi trường chạy chung** | Chỉ Supabase test `myrymlqdbyqmpynesiwk`, mọi agent cùng áp migration vào **một** DB | A + DevOps |
+| **Chỉ một Supabase, một người áp migration** | `myrymlqdbyqmpynesiwk`; mọi thay đổi lược đồ đi qua một cửa | Người điều phối |
 | **`backend/app/api/__init__.py`, `types/index.ts`, `en.json` là file nóng** | Ai cũng phải sửa; merge conflict gần như chắc chắn | Quy ước: sửa muộn, commit nhỏ |
 | **`pytest` hệ thống không dùng được** | Phải `/tmp/venv/bin/pytest`; agent mới sẽ mất thời gian phát hiện | Ghi vào `AGENTS.md` |
 | **Test tích hợp không chạy được trên Supabase** | conftest từ chối + fixture TRUNCATE CASCADE | Mỗi agent dựng PostgreSQL cục bộ (§7.1) |
-| **Chưa có `AGENTS.md`** | 3 agent mới sẽ tự đoán quy ước (i18n phải dịch thật, test phải kiểm ngược, không sửa migration đã áp) | A viết trước khi mời |
+| **Test có thể nằm trong repo mà không chạy** | Đã xảy ra thật: 37 test FE không có trong `test:unit`; 174 test backend bị skip 11 ngày | `test-manifest.test.cjs` canh phần FE; CI xanh là cổng phần backend |
+| ~~Chưa có `AGENTS.md`~~ | **Đã xong** — `AGENTS.md` ở gốc repo, 140 dòng, gồm bẫy đã gặp thật | A (đã làm) |
 
 ---
 
@@ -98,14 +103,15 @@ không chia theo tầng ngang (người làm DB, người làm API) — cách đ
 chéo và agent phải chờ nhau.
 
 ### Luồng A — Nền tảng & phát hành (agent hiện tại giữ)
-- Viết `AGENTS.md` (quy ước, bẫy, cách chạy test) — **làm trước tiên, chặn 3 luồng kia**.
+- ~~Viết `AGENTS.md`~~ — **đã xong**, ở gốc repo. Đây là thứ duy nhất từng chặn 3 luồng kia, nay hết chặn.
 - Giữ cổng migration: cấp số `00042+`, review mọi migration.
 - Dọn `-demo` (F3.01/F3.03 còn bản demo song song) — quyết định giữ hay bỏ.
 - **Deploy lần đầu** + chạy E2E trên môi trường đích.
 - Chủ sở hữu `api/__init__.py`, `types/index.ts`, `en.json`, `Sidebar.tsx`.
 
 ### Luồng B — Ứng viên & tiếp nhận
-- **F3.05** thông báo cho ứng viên (sau khi người dùng chốt phạm vi — xem §1.2).
+- **F3.05 gửi email cho ứng viên** (đã chốt — xem §1.2, §8). Đây là việc lớn nhất
+  của luồng: repo chưa có hạ tầng gửi thư nào.
 - **F3.03** hoàn thiện đa kênh: Gmail test → thật.
 - **F2.06** OCR ảnh rời / ảnh nhúng DOCX.
 - Chủ sở hữu `careers*`, `gmail*`, `notifications*`, `document_processing*`.
@@ -172,7 +178,7 @@ tầng dọc ở §3. Hai ngoại lệ duy nhất là `api/__init__.py`, `types/
 3. **Test phải kiểm ngược:** gỡ dòng sửa, test phải đỏ. Đã có 3 lần bắt được lỗi thật nhờ vậy.
 4. **i18n phải dịch thật**, không `"X": "X"`. Test i18n chỉ kiểm key tồn tại, không kiểm giá trị.
 5. **File nóng sửa sau cùng, commit nhỏ:** `api/__init__.py`, `types/index.ts`, `en.json`.
-6. **Mỗi agent một nhánh**, PR nhỏ, không push thẳng.
+6. **Mỗi agent một fork** (đã chốt), nhánh riêng, commit nhỏ. Gộp bằng cherry-pick — §7.2.
 7. **Không thêm cột "đã gửi/đã thông báo" khi chưa có cơ chế gửi** — đã có test khoá.
 8. **Đo trước khi tối ưu.** Lần tối ưu scorecard: 8 truy vấn/phiếu đo được trước khi sửa.
 
@@ -201,6 +207,10 @@ theo **4 mốc đồng bộ**, mỗi mốc trả lời một câu: *cái vừa v
 ---
 
 ## 7. Bốn điều chỉnh bắt buộc trước khi mời 3 agent
+
+> Trạng thái: §7.1 và §7.2 là **quy ước đã chốt**; §7.3 thay lịch 8 tuần; §7.4
+> là phân công sau khi chốt. Mục 7.1 không phải đề nghị — nó là điều conftest
+> đã cưỡng chế sẵn.
 
 ### 7.1. Test KHÔNG được chạy trên Supabase `myrymlqdbyqmpynesiwk`
 
