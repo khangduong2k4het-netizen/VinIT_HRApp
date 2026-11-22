@@ -108,7 +108,112 @@ def _access(db, card_id, actor, lock=False):
     return row, hr, hm
 
 
-def _detail(db, row, hr, hm):
+
+def _access_batch(db, rows, actor):
+    """`_access` cho nhiều scorecard, đọc phần dùng chung **một lần**.
+
+    Vì sao cần: đo trên mã cũ, mỗi scorecard tốn 8 truy vấn (7 ở `_access` + 1 ở
+    `_detail`). Buổi họp 5 người = 40 truy vấn cho một lần mở trang, và con số đó
+    tăng tuyến tính theo số người. Bốn truy vấn dưới đây không phụ thuộc scorecard
+    nào: trạng thái tài khoản, vai trò toàn cục, phân công theo vị trí, và tư cách
+    người tham gia. Đọc một lần rồi dùng cho cả danh sách.
+
+    Cố ý **không** gộp luôn phần phụ thuộc từng dòng (share ACTIVE, buổi chưa
+    huỷ, `shared_with`) vào SQL phức tạp: phần đó đã có test riêng cho cả hai
+    đường, viết lại thành một câu `JOIN` lớn là đổi đúng chỗ dễ sai nhất mà không
+    có lợi ích đo được. Ở đây chỉ bỏ phần **lặp vô ích**.
+
+    Trả `(rows, hr)`; mỗi dòng là `(row, hm)`.
+    """
+    if not rows:
+        return [], False
+    profile = db.execute(text(
+        'SELECT account_status FROM app_private.user_profiles WHERE user_id=:actor'
+    ), {'actor': actor}).scalar_one_or_none()
+    if profile != 'ACTIVE':
+        raise HTTPException(403, 'Tài khoản không hoạt động')
+    roles = set(db.execute(text(
+        'SELECT role_code FROM app_private.user_role_assignments WHERE user_id=:actor AND revoked_at IS NULL'
+    ), {'actor': actor}).scalars())
+    position_ids = sorted({str(row['position_id']) for row in rows})
+    assignments = set(db.execute(text(
+        'SELECT DISTINCT position_role FROM app_private.position_assignments '
+        'WHERE user_id=:actor AND revoked_at IS NULL AND position_id = ANY(CAST(:positions AS uuid[]))'
+    ), {'actor': actor, 'positions': '{' + ','.join(position_ids) + '}'}).scalars())
+    hr = bool(roles.intersection({'ADMIN', 'HR_LEAD'}) or assignments.intersection({'HR_RECRUITER', 'HR_LEAD'}))
+
+    interview_ids = sorted({str(row['interview_id']) for row in rows if row.get('interview_id')})
+    my_interviews = set()
+    if interview_ids:
+        my_interviews = {str(x) for x in db.execute(text(
+            'SELECT DISTINCT interview_id FROM app_private.interview_participants '
+            'WHERE user_id=:actor AND interview_id = ANY(CAST(:ids AS uuid[]))'
+        ), {'actor': actor, 'ids': '{' + ','.join(interview_ids) + '}'}).scalars()}
+
+    shared_with_me = set()
+    share_ids = sorted({str(row['share_id']) for row in rows if row.get('share_id')})
+    if share_ids:
+        # Một truy vấn cho "share nào đang active và share cho tôi", thay vì đọc
+        # `share_status`/`shared_with` riêng từng dòng.
+        shared_with_me = {str(x) for x in db.execute(text(
+            "SELECT share_id FROM app_private.shortlist_shares "
+            "WHERE share_id = ANY(CAST(:ids AS uuid[])) AND status='ACTIVE' AND shared_with=:actor"
+        ), {'ids': '{' + ','.join(share_ids) + '}', 'actor': actor}).scalars()}
+
+    decided = []
+    for row in rows:
+        if row['source_kind'] == 'INTERVIEW':
+            hm = (str(row['reviewer_user_id']) == actor
+                  and row['interview_status'] in ('SCHEDULED', 'DONE')
+                  and str(row['interview_id']) in my_interviews)
+        else:
+            hm = (str(row['reviewer_user_id']) == actor
+                  and str(row['share_id']) in shared_with_me
+                  and 'HIRING_MANAGER' in assignments)
+        decided.append((row, hm))
+    return decided, hr
+
+
+def _criteria_by_scorecard(db, scorecard_ids):
+    """Tiêu chí của nhiều phiếu trong **một** truy vấn, gom theo scorecard."""
+    if not scorecard_ids:
+        return {}
+    grouped = {str(card): [] for card in scorecard_ids}
+    for row in db.execute(text("""
+        SELECT r.scorecard_id, ci.criterion_id, ci.name, ci.description, ci.category,
+               ci.display_order, r.rating, r.insufficient_evidence, r.comment
+        FROM app_private.shortlist_scorecard_criteria r
+        JOIN app_private.criteria_items ci ON ci.criterion_id=r.criterion_id
+        WHERE r.scorecard_id = ANY(CAST(:ids AS uuid[]))
+        ORDER BY ci.display_order, ci.criterion_id
+    """), {'ids': '{' + ','.join(str(c) for c in scorecard_ids) + '}'}).mappings():
+        grouped[str(row['scorecard_id'])].append(dict(row))
+    return grouped
+
+
+def _detail_batch(db, rows, actor):
+    """Như ``_detail`` nhưng cho cả danh sách: 4 truy vấn nền + 1 cho tiêu chí."""
+    decided, hr = _access_batch(db, rows, actor)
+    criteria = _criteria_by_scorecard(db, [row['scorecard_id'] for row, _hm in decided])
+    out = []
+    for row, hm in decided:
+        if not hr and not hm:
+            # Cùng luật với `_access`: người ngoài bị chặn ở chính phiếu đó. Ném
+            # 403 chứ không lặng lẽ bỏ dòng — im lặng sẽ khiến client tưởng
+            # buổi chỉ có 2 phiếu trong khi thật ra có 5.
+            raise HTTPException(403, 'Không có quyền xem scorecard')
+        out.append(_detail_from_row(db, row, hr, hm, criteria.get(str(row['scorecard_id']), [])))
+    return out
+
+
+def _detail_from_row(db, row, hr, hm, criteria=None):
+    """Dựng dữ liệu trả về từ một dòng đã đọc.
+
+    `criteria` cho phép truyền sẵn danh sách tiêu chí đã đọc theo lô; `None` thì
+    đọc lẻ. Tách ra để đường một-phiếu và đường nhiều-phiếu dùng **cùng** logic
+    quyền (`can_edit`, `can_reopen`, …) — chép đôi chỗ này thì hai màn hình sẽ
+    nói khác nhau về cùng một phiếu sau lần sửa đầu tiên.
+    """
     data = dict(row)
     # `share_status` là NULL với scorecard của buổi phỏng vấn. Điều kiện "share còn
     # ACTIVE" chỉ có nghĩa ở đường share; ở đường buổi, điều kiện tương đương là
@@ -120,10 +225,16 @@ def _detail(db, row, hr, hm):
                  'can_view_history': hr,
                  'waiting_for_assessment': row['criteria_version_id'] is None,
                  'overdue': row['status'] != 'SUBMITTED' and row['due_at'] < datetime.now(timezone.utc)})
-    data['criteria'] = [dict(r) for r in db.execute(text('''SELECT ci.criterion_id,ci.name,ci.description,ci.category,ci.display_order,
+    if criteria is None:
+        criteria = [dict(r) for r in db.execute(text('''SELECT ci.criterion_id,ci.name,ci.description,ci.category,ci.display_order,
         r.rating,r.insufficient_evidence,r.comment FROM app_private.shortlist_scorecard_criteria r
         JOIN app_private.criteria_items ci ON ci.criterion_id=r.criterion_id WHERE r.scorecard_id=:id ORDER BY ci.display_order,ci.criterion_id'''), {'id': row['scorecard_id']}).mappings()]
+    data['criteria'] = criteria
     return data
+
+
+def _detail(db, row, hr, hm):
+    return _detail_from_row(db, row, hr, hm)
 
 
 def _is_active_source(row) -> bool:
@@ -144,49 +255,48 @@ def _audit(db, actor, row, action, metadata=None):
 def for_interview(interview_id: UUID, user: dict = Depends(get_current_user)):
     """Scorecard của một buổi phỏng vấn, đúng dạng ``_detail`` mà màn chấm cần.
 
-    Vì sao cần route riêng thay vì dùng ``GET /interviews/{id}/scorecards``:
-    route kia trả **bảng tóm tắt** (ai nộp, ai chưa) để HR nhìn một dòng một
-    người. Màn chấm cần **nội dung** từng tiêu chí kèm cờ ``can_edit``. Dùng bảng
-    tóm tắt để dựng màn chấm thì phải gọi thêm từng scorecard một — N+1, và cờ
-    quyền lại do client tự suy, đúng thứ đã gây lỗi ở chỗ khác.
+    Lọc ngay trong SQL theo người xem: người phỏng vấn bình thường chỉ cần phiếu
+    của mình, và trước đây code vẫn đọc **toàn bộ** phiếu của buổi rồi mới từ chối
+    từng cái một — 5 người thì 4 lần đọc vô ích, mỗi lần 8 truy vấn.
 
-    Quyền do ``_access`` quyết từng phiếu: HR thấy cả buổi, người phỏng vấn chỉ
-    thấy phiếu của mình, người ngoài 403 ngay phiếu đầu tiên.
+    Quyền: HR thấy cả buổi; người tham gia thấy phiếu của mình; người ngoài 403.
 
-    Đường dẫn có tiền tố số nhiều ``/interview/`` để không đụng
-    ``/{card_id}``: FastAPI khớp theo thứ tự khai báo, và ``interview`` không
-    phải UUID nên lọt xuống ``/{card_id}`` sẽ ra 422 thay vì 404 dễ hiểu.
+    Đường dẫn có tiền tố ``/interview/`` để không đụng ``/{card_id}``: FastAPI
+    khớp theo thứ tự khai báo, và ``interview`` không phải UUID nên lọt xuống
+    ``/{card_id}`` sẽ ra 422 thay vì 404 dễ hiểu.
     """
     db = SessionLocal()
     try:
-        ids = db.execute(text("""
-            SELECT sc.scorecard_id FROM app_private.shortlist_scorecards sc
-            WHERE sc.interview_id = :id ORDER BY sc.created_at, sc.scorecard_id
-        """), {"id": str(interview_id)}).scalars().all()
-        if not ids:
-            # Phân biệt "buổi không tồn tại" với "buổi chưa có phiếu nào": cái
-            # đầu là 404, cái sau là danh sách rỗng. Gộp làm một thì màn hình
-            # không biết nên báo "không có quyền" hay "chưa sinh phiếu".
-            exists = db.execute(text(
-                "SELECT EXISTS (SELECT 1 FROM app_private.interviews WHERE interview_id = :id)"
-            ), {"id": str(interview_id)}).scalar_one()
-            if not exists:
-                raise HTTPException(404, "Không tìm thấy buổi phỏng vấn")
-            # Buổi có thật nhưng chưa sinh phiếu: vẫn phải kiểm quyền, nếu không
-            # người ngoài dò được sự tồn tại của buổi qua mã 200 + [].
-            row = db.execute(text("""
-                SELECT i.application_id FROM app_private.interviews i WHERE i.interview_id = :id
-            """), {"id": str(interview_id)}).mappings().first()
-            from app.api.interviews import _actor_position_access
-            _, is_hr = _actor_position_access(db, user["user_id"], str(row["application_id"]))
-            is_participant = bool(db.execute(text("""
-                SELECT EXISTS (SELECT 1 FROM app_private.interview_participants
-                                WHERE interview_id = :id AND user_id = :actor)
-            """), {"id": str(interview_id), "actor": user["user_id"]}).scalar_one())
-            if not is_hr and not is_participant:
-                raise HTTPException(403, "Không có quyền xem scorecard của buổi này")
-            return []
-        return [_detail(db, *_access(db, item, user["user_id"])) for item in ids]
+        actor = user["user_id"]
+        if db.execute(text(
+            "SELECT account_status FROM app_private.user_profiles WHERE user_id=:actor"
+        ), {"actor": actor}).scalar_one_or_none() != "ACTIVE":
+            raise HTTPException(403, "Tài khoản không hoạt động")
+        row = db.execute(text("""
+            SELECT i.application_id, a.position_id FROM app_private.interviews i
+            JOIN app_private.applications a ON a.application_id = i.application_id
+            WHERE i.interview_id = :id
+        """), {"id": str(interview_id)}).mappings().first()
+        if not row:
+            raise HTTPException(404, "Không tìm thấy buổi phỏng vấn")
+        from app.api.interviews import _actor_position_access
+        _, is_hr = _actor_position_access(db, actor, str(row["application_id"]))
+        is_participant = bool(db.execute(text("""
+            SELECT EXISTS (SELECT 1 FROM app_private.interview_participants
+                            WHERE interview_id = :id AND user_id = :actor)
+        """), {"id": str(interview_id), "actor": actor}).scalar_one())
+        if not is_hr and not is_participant:
+            # 403 kể cả khi buổi chưa có phiếu nào: nếu trả `200 []` thì ai đăng
+            # nhập cũng dò được sự tồn tại của buổi bằng cách so 200 với 404, mà
+            # lịch phỏng vấn gắn với một ứng viên cụ thể.
+            raise HTTPException(403, "Không có quyền xem scorecard của buổi này")
+        rows = db.execute(text(_SCORECARD_SELECT + """
+            WHERE sc.interview_id = :interview
+              AND (:see_all OR sc.reviewer_user_id = :actor)
+            ORDER BY sc.created_at, sc.scorecard_id
+        """), {"interview": str(interview_id), "see_all": is_hr,
+               "actor": actor}).mappings().all()
+        return _detail_batch(db, rows, actor)
     finally:
         db.close()
 
@@ -197,10 +307,16 @@ def for_share(share_id: UUID, user: dict = Depends(get_current_user)):
     try:
         from app.api.shortlist import _get_share
         _get_share(db, str(share_id), user['user_id'])
-        ids = db.execute(text('''SELECT sc.scorecard_id FROM app_private.shortlist_scorecards sc
-            JOIN app_private.shortlist_share_items si ON si.share_item_id=sc.share_item_id
-            WHERE si.share_id=:id ORDER BY sc.created_at,sc.scorecard_id'''), {'id': str(share_id)}).scalars().all()
-        return [_detail(db, *_access(db, item, user['user_id'])) for item in ids]
+        # Một truy vấn lấy đủ cột cho cả danh sách, thay vì N lần
+        # `_access` + N lần đọc tiêu chí. Cùng dữ liệu, cùng luật quyền
+        # (`_detail_batch` dùng chung `_detail_from_row`).
+        rows = db.execute(text(_SCORECARD_SELECT + '''
+            WHERE sc.scorecard_id IN (
+                SELECT sc2.scorecard_id FROM app_private.shortlist_scorecards sc2
+                JOIN app_private.shortlist_share_items si ON si.share_item_id=sc2.share_item_id
+                WHERE si.share_id=:id)
+            ORDER BY sc.created_at, sc.scorecard_id'''), {'id': str(share_id)}).mappings().all()
+        return _detail_batch(db, rows, user['user_id'])
     finally: db.close()
 
 

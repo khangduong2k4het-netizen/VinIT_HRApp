@@ -12,6 +12,7 @@ import KeyIcon from '@mui/icons-material/Key';
 import LogoutIcon from '@mui/icons-material/Logout';
 import { useRouter } from 'next/navigation';
 import { DRAWER_WIDTH } from './Sidebar';
+import NotificationBell from './NotificationBell';
 
 const APPBAR_HEIGHT = 64;
 
@@ -55,6 +56,7 @@ export default function Header({ onOpenMenu, profile, workCount }: HeaderProps) 
             </IconButton>
           </Tooltip>
         )}
+        <NotificationBell />
         <LanguageSwitcher light />
         <Tooltip title={t("Tài khoản")}>
           <IconButton onClick={event => setAnchor(event.currentTarget)} aria-label={t("Mở menu tài khoản")} aria-haspopup="menu" aria-expanded={!!anchor}>

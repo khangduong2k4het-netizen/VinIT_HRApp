@@ -279,6 +279,14 @@ export const interviewsApi = {
     apiClient.post(`/interviews/${id}/status`, { status }),
   scorecards: (id: string) => apiClient.get(`/interviews/${id}/scorecards`),
   createScorecards: (id: string) => apiClient.post(`/interviews/${id}/scorecards`),
+  // Thay toàn bộ danh sách: gửi trạng thái cuối cùng, không gửi hiệu thêm/bớt.
+  replaceParticipants: (id: string, participants: Array<{ user_id: string; participant_role: string }>) =>
+    apiClient.put(`/interviews/${id}/participants`, { participants }),
+};
+
+export const notificationsApi = {
+  list: (unreadOnly = false) => apiClient.get('/notifications', { params: unreadOnly ? { unread_only: true } : {} }),
+  markRead: (ids: string[] = []) => apiClient.post('/notifications/read', { notification_ids: ids }),
 };
 
 export const scorecardsApi = {

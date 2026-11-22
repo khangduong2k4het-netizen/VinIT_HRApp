@@ -25,6 +25,10 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import { useI18n } from '@/i18n/I18nProvider';
 import { interviewsApi, usersApi } from '@/lib/api';
+import { validateInterviewForm, vietnamLocalToUtc } from '@/lib/interviewTime';
+import { buildInterviewIcs } from '@/lib/interviewIcs';
+import { countdownLabel } from '@/lib/relativeTime';
+import InterviewParticipantsDialog from './InterviewParticipantsDialog';
 
 export type Interview = {
   interview_id: string;
@@ -38,6 +42,11 @@ export type Interview = {
   participant_count: number;
   submitted_scorecards: number;
   total_scorecards: number;
+  // `_INTERVIEW_SELECT` đã trả hai trường này từ B1; kiểu thiếu nên trước đó
+  // không chỗ nào dùng được (cùng loại lỗi đã sửa ở trang /interviews).
+  candidate_name?: string | null;
+  position_code?: string | null;
+  position_title?: string | null;
   participants?: Array<{ user_id: string; participant_role: string; display_name?: string | null }>;
 };
 
@@ -67,14 +76,6 @@ export function formatVietnamTime(iso: string): string {
   return `${formatted} (GMT+7)`;
 }
 
-/** `<input type="datetime-local">` cho giờ Việt Nam → ISO UTC để gửi máy chủ. */
-export function vietnamLocalToUtc(local: string): string {
-  // Chuỗi dạng "2026-12-01T14:00" — Việt Nam là UTC+7 cố định, không có DST,
-  // nên cộng 7 giờ là đủ và không cần thư viện múi giờ.
-  const withSeconds = local.length === 16 ? `${local}:00` : local;
-  return `${withSeconds}+07:00`;
-}
-
 export default function InterviewPanel({ applicationId }: { applicationId: string }) {
   const { t } = useI18n();
   const router = useRouter();
@@ -95,6 +96,8 @@ export default function InterviewPanel({ applicationId }: { applicationId: strin
   // nếu không nút "Đặt lịch" sẽ luôn trả 400.
   const [people, setPeople] = useState<Array<{ user_id: string; display_name: string }>>([]);
   const [reviewers, setReviewers] = useState<Array<{ user_id: string; display_name: string }>>([]);
+  // Sửa người của buổi đã có — khác với dialog đặt lịch mới.
+  const [editingParticipants, setEditingParticipants] = useState<Interview | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -124,15 +127,24 @@ export default function InterviewPanel({ applicationId }: { applicationId: strin
   };
 
   const submit = async () => {
-    if (!startsAt || !endsAt) { setFormError(t('Cần nhập giờ bắt đầu và kết thúc.')); return; }
-    if (!reviewers.length) { setFormError(t('Cần chọn ít nhất một người phỏng vấn.')); return; }
+    // Mọi luật về thời gian nằm ở `validateInterviewForm` (test được không cần
+    // render). Dialog chỉ hiển thị kết quả.
+    const invalid = validateInterviewForm({
+      startsAt, endsAt, locationKind, locationText, reviewerCount: reviewers.length,
+    });
+    if (invalid) { setFormError(t(invalid)); return; }
+    const starts = vietnamLocalToUtc(startsAt);
+    const ends = vietnamLocalToUtc(endsAt);
+    // `validateInterviewForm` đã loại chuỗi hỏng; đây là chốt kiểu cho TypeScript
+    // chứ không phải một nhánh nghiệp vụ mới.
+    if (!starts || !ends) { setFormError(t('Giờ không hợp lệ.')); return; }
     setSaving(true); setFormError(null);
     try {
       await interviewsApi.create({
         application_id: applicationId,
         round_number: Number(round),
-        starts_at: vietnamLocalToUtc(startsAt),
-        ends_at: vietnamLocalToUtc(endsAt),
+        starts_at: starts,
+        ends_at: ends,
         location_kind: locationKind,
         location_text: locationText.trim() || null,
         participants: reviewers.map(person => ({ user_id: person.user_id, participant_role: 'INTERVIEWER' as const })),
@@ -143,6 +155,22 @@ export default function InterviewPanel({ applicationId }: { applicationId: strin
     } catch (err: any) {
       setFormError(err.response?.data?.detail || t('Không đặt được lịch.'));
     } finally { setSaving(false); }
+  };
+
+  const downloadIcs = (item: Interview) => {
+    // Blob + objectURL: không cần một route mới, và file luôn khớp dữ liệu đang
+    // hiện trên màn hình (kể cả khi vừa sửa giờ mà chưa tải lại trang).
+    const blob = new Blob([buildInterviewIcs(item)], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `phong-van-vong-${item.round_number}.ics`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    // Thu hồi sau khi trình duyệt đã bắt đầu tải; thu hồi ngay có thể cắt file
+    // trên Safari.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   const setStatus = async (item: Interview, status: Interview['status']) => {
@@ -189,6 +217,11 @@ export default function InterviewPanel({ applicationId }: { applicationId: strin
             color={item.status === 'SCHEDULED' ? 'info' : item.status === 'DONE' ? 'success' : 'default'}
             variant="outlined" />
           <Typography variant="body2">{formatVietnamTime(item.starts_at)}</Typography>
+          {/* Giờ tuyệt đối ở trên, khoảng cách ở đây: trong ngày thì "còn 2 giờ"
+              dễ đọc hơn "14:00 01/12", nhưng chỉ hiện khi thật sự gần. */}
+          {item.status === 'SCHEDULED' && countdownLabel(item.starts_at) && (
+            <Chip size="small" variant="outlined" label={t(countdownLabel(item.starts_at)!)} />
+          )}
           <Typography variant="caption" color="text.secondary">
             {t(LOCATION_LABEL[item.location_kind])}{item.location_text ? ` · ${item.location_text}` : ''}
           </Typography>
@@ -198,6 +231,8 @@ export default function InterviewPanel({ applicationId }: { applicationId: strin
         </Typography>}
         <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
           {item.status === 'SCHEDULED' && <>
+            {/* Trước đây đổi người phải huỷ cả buổi. Đây là đường đúng. */}
+            <Button size="small" onClick={() => setEditingParticipants(item)}>{t('Đổi người phỏng vấn')}</Button>
             <Button size="small" onClick={() => void setStatus(item, 'DONE')}>{t('Đã diễn ra')}</Button>
             <Button size="small" color="warning" onClick={() => void setStatus(item, 'CANCELLED')}>{t('Huỷ buổi')}</Button>
             <Button size="small" color="warning" onClick={() => void setStatus(item, 'NO_SHOW')}>{t('Ứng viên không đến')}</Button>
@@ -207,6 +242,10 @@ export default function InterviewPanel({ applicationId }: { applicationId: strin
           )}
           {/* Trước đây bấm "Tạo phiếu chấm điểm" xong là hết đường: phiếu đã có
               trong DB nhưng không nút nào mở ra được. Nút này là lối đi tiếp. */}
+          {/* .ics ở client: không cần endpoint, không cần quyền mới. Đây là
+              đường ngắn nhất để người phỏng vấn có buổi trong lịch riêng của họ
+              thay vì tự gõ lại giờ. */}
+          <Button size="small" onClick={() => downloadIcs(item)}>{t('Thêm vào lịch')}</Button>
           {item.total_scorecards > 0 && (
             <Button size="small" variant="contained"
               onClick={() => router.push(`/interviews/${item.interview_id}`)}>
@@ -218,6 +257,13 @@ export default function InterviewPanel({ applicationId }: { applicationId: strin
       {items.length > 0 && <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
         {t('Giờ hẹn hiện theo giờ Việt Nam (GMT+7).')}
       </Typography>}
+
+      <InterviewParticipantsDialog
+        interview={editingParticipants}
+        open={!!editingParticipants}
+        onClose={() => setEditingParticipants(null)}
+        onSaved={message => { setSuccess(message); void load(); }}
+      />
 
       <Dialog open={open} onClose={() => !saving && setOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{t('Đặt lịch phỏng vấn')}</DialogTitle>

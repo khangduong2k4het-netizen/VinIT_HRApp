@@ -89,6 +89,21 @@ class InterviewUpdate(BaseModel):
     expected_updated_at: datetime | None = None
 
 
+class ParticipantsReplace(BaseModel):
+    """Thay toàn bộ người tham gia của một buổi **chưa diễn ra**.
+
+    Vì sao là thay-toàn-bộ chứ không phải thêm/bớt từng người: người dùng sửa
+    một danh sách, và danh sách đó là trạng thái cuối cùng họ thấy. Hai endpoint
+    add/remove thì client phải tự tính hiệu, và hai client bấm cùng lúc sẽ ra
+    kết quả phụ thuộc thứ tự.
+
+    Danh sách rỗng bị chặn: một buổi không có người phỏng vấn thì không ai
+    chấm, tức là buổi không thể kết thúc đúng cách. Muốn bỏ hết thì huỷ buổi.
+    """
+
+    participants: list[ParticipantIn] = Field(min_length=1, max_length=30)
+
+
 class StatusChange(BaseModel):
     status: str
 
@@ -129,6 +144,25 @@ def _actor_position_access(db, actor: str, application_id: str) -> tuple[dict, b
     return dict(row), is_hr
 
 
+def _is_hr_for_position(db, actor: str, position_id: str) -> bool:
+    """HR của vị trí? Chỉ câu quyền, không đọc lại hồ sơ.
+
+    Tách khỏi ``_require_hr_write`` vì các route ghi đã có sẵn dòng buổi phỏng vấn
+    (đọc kèm ``FOR UPDATE``). Gọi ``_actor_position_access`` ở đó là đọc lại đúng
+    hồ sơ vừa đọc — 2 truy vấn thừa mỗi lần ghi, và tệ hơn: nó đọc **ngoài** khoá,
+    nên câu trả lời có thể đến từ một trạng thái khác với dòng đang giữ.
+    """
+    return bool(db.execute(text("""
+        SELECT EXISTS (SELECT 1 FROM app_private.user_role_assignments ur
+                        WHERE ur.user_id = :actor AND ur.revoked_at IS NULL
+                          AND ur.role_code IN ('ADMIN','HR_LEAD'))
+            OR EXISTS (SELECT 1 FROM app_private.position_assignments pa
+                        WHERE pa.user_id = :actor AND pa.position_id = :position
+                          AND pa.revoked_at IS NULL
+                          AND pa.position_role IN ('HR_RECRUITER','HR_LEAD'))
+    """), {"actor": actor, "position": str(position_id)}).scalar_one())
+
+
 def _require_hr_write(db, actor: str, application_id: str) -> dict:
     row, is_hr = _actor_position_access(db, actor, application_id)
     if not is_hr:
@@ -152,6 +186,80 @@ def _audit(db, actor, action, interview_id, position_id, metadata=None):
         VALUES (:actor, :action, 'INTERVIEW', :id, :position, 'SUCCESS', CAST(:metadata AS jsonb))
     """), {"actor": actor, "action": action, "id": str(interview_id),
            "position": str(position_id), "metadata": json.dumps(metadata or {})})
+
+
+# ---------------------------------------------------------------------------
+# Thông báo trong ứng dụng
+# ---------------------------------------------------------------------------
+
+def _notify(db, *, interview_id: str, recipients: set[str], kind: str, actor: str,
+            payload: dict | None = None) -> int:
+    """Ghi thông báo cho những người cần biết. Trả số dòng đã tạo.
+
+    Ba quyết định ở đây:
+
+    * **Không tự báo cho người vừa thao tác.** Họ vừa bấm nút, đã biết chuyện gì
+      xảy ra; thêm một dòng "bạn vừa đổi lịch" chỉ làm badge tăng mà không ai
+      cần đọc.
+    * **Người nhận do nơi gọi tự chọn**, không suy từ bảng người tham gia tại
+      đây: khi bớt một người khỏi buổi, người đó phải nhận thông báo *trước khi*
+      bị xoá khỏi `interview_participants`. Suy muộn sẽ mất đúng người cần biết.
+    * **Không chép nội dung buổi.** `payload` chỉ nói cái gì đổi; màn hình mở
+      buổi để đọc giờ/nơi hiện tại.
+    """
+    recipients = {str(user) for user in recipients if str(user) != str(actor)}
+    if not recipients:
+        return 0
+    for user_id in sorted(recipients):
+        db.execute(text("""
+            INSERT INTO app_private.interview_notifications
+                (user_id, interview_id, kind, actor_user_id, payload)
+            VALUES (:user, :interview, :kind, :actor, CAST(:payload AS jsonb))
+        """), {"user": user_id, "interview": str(interview_id), "kind": kind,
+               "actor": str(actor), "payload": json.dumps(payload or {})})
+    return len(recipients)
+
+
+def _participant_ids(db, interview_id: str) -> set[str]:
+    return {str(x) for x in db.execute(text(
+        "SELECT user_id FROM app_private.interview_participants WHERE interview_id = :id"
+    ), {"id": str(interview_id)}).scalars()}
+
+
+def _conflicting_interviews(db, *, user_ids: list[str], starts_at, ends_at,
+                            exclude_interview: str | None, exclude_application: str | None = None) -> list[dict]:
+    """Buổi đang hiệu lực mà một trong những người này đã có, chồng giờ.
+
+    Vì sao kiểm theo **người**, không theo phòng: hai người khác nhau họp hai
+    phòng cùng lúc là bình thường; một người ở hai phòng cùng lúc là không thể.
+    Hệ thống chưa quản lý phòng nên chỉ kiểm được chỗ chắc chắn sai.
+
+    Buổi `CANCELLED`/`NO_SHOW` không tính — giờ đó của người ta đã trống lại.
+    """
+    if not user_ids:
+        return []
+    clauses = ["i.status IN ('SCHEDULED', 'DONE')",
+               "i.starts_at < :ends_at", "i.ends_at > :starts_at",
+               "ip.user_id = ANY(CAST(:users AS uuid[]))"]
+    params = {"starts_at": starts_at, "ends_at": ends_at,
+              "users": "{" + ",".join(user_ids) + "}"}
+    if exclude_interview:
+        clauses.append("i.interview_id <> :self")
+        params["self"] = str(exclude_interview)
+    if exclude_application:
+        # Cùng một hồ sơ: hai vòng khác nhau vẫn có thể liền nhau, nhưng báo
+        # "trùng" giữa hai vòng của cùng ứng viên là nhiễu — đó là cùng một
+        # buổi theo nghĩa lịch của ứng viên.
+        clauses.append("i.application_id <> :app")
+        params["app"] = str(exclude_application)
+    rows = db.execute(text(f"""
+        SELECT DISTINCT i.interview_id, i.round_number, i.starts_at, i.ends_at
+        FROM app_private.interviews i
+        JOIN app_private.interview_participants ip ON ip.interview_id = i.interview_id
+        WHERE {' AND '.join(clauses)}
+        ORDER BY i.starts_at LIMIT 5
+    """), params).mappings().all()
+    return [dict(row) for row in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +409,19 @@ def create_interview(payload: InterviewCreate, user: dict = Depends(get_current_
         if int(active) != len(ids):
             raise HTTPException(400, "Có người tham gia không tồn tại hoặc tài khoản đã đóng")
 
+        # Chồng lấn: một người không thể ở hai buổi cùng lúc. Chặn ở đây thay vì
+        # để người ta phát hiện lúc đã ngồi trong phòng. Cố ý là **409 kèm tên
+        # các buổi trùng**, không phải 400 im lặng: người đặt cần biết trùng với
+        # buổi nào để chọn giờ khác.
+        conflicts = _conflicting_interviews(
+            db, user_ids=ids, starts_at=payload.starts_at, ends_at=payload.ends_at,
+            exclude_interview=None)
+        if conflicts:
+            first = conflicts[0]
+            raise HTTPException(409,
+                f"Người tham gia đã có buổi phỏng vấn trùng giờ (vòng {first['round_number']}, "
+                f"{first['starts_at'].isoformat()}). Chọn giờ khác hoặc đổi người.")
+
         try:
             interview_id = db.execute(text("""
                 INSERT INTO app_private.interviews
@@ -329,6 +450,13 @@ def create_interview(payload: InterviewCreate, user: dict = Depends(get_current_
             """), {"id": str(interview_id), "user": str(participant.user_id),
                    "role": participant.participant_role, "actor": actor})
 
+        # Báo cho những người vừa được gán: họ không bấm nút nào nên nếu im lặng
+        # họ chỉ biết nếu tự mở lịch. Người vừa tạo thì không tự báo (xem _notify).
+        _notify(db, interview_id=interview_id, recipients=set(ids),
+                kind="INTERVIEW_CREATED", actor=actor,
+                payload={"round_number": payload.round_number,
+                         "starts_at": payload.starts_at.astimezone(timezone.utc).isoformat()})
+
         _audit(db, actor, "CREATE_INTERVIEW", interview_id, app_row["position_id"],
                {"round_number": payload.round_number,
                 "participants": len(ids),
@@ -356,14 +484,18 @@ def update_interview(interview_id: UUID, payload: InterviewUpdate,
         _require_active(db, actor)
         row = db.execute(text("""
             SELECT i.interview_id, i.application_id, i.status, i.starts_at, i.ends_at,
-                   i.round_number, i.updated_at, a.position_id
+                   i.round_number, i.updated_at, i.location_kind, i.location_text,
+                   a.position_id
             FROM app_private.interviews i
             JOIN app_private.applications a ON a.application_id = i.application_id
             WHERE i.interview_id = :id FOR UPDATE OF i
         """), {"id": str(interview_id)}).mappings().first()
         if not row:
             raise HTTPException(404, "Không tìm thấy buổi phỏng vấn")
-        _require_hr_write(db, actor, str(row["application_id"]))
+        # Dòng đã khoá ở trên có sẵn position_id: kiểm quyền trực tiếp thay vì
+        # đọc lại hồ sơ (xem _is_hr_for_position).
+        if not _is_hr_for_position(db, actor, row["position_id"]):
+            raise HTTPException(403, "Chỉ HR phụ trách vị trí hoặc HR Lead được thao tác trên lịch phỏng vấn")
         if row["status"] in ("DONE", "CANCELLED", "NO_SHOW"):
             raise HTTPException(409, "Buổi đã kết thúc hoặc đã huỷ, không sửa được nữa")
         # Optimistic lock: hai HR cùng mở form sửa thì người sau không ghi đè
@@ -394,16 +526,26 @@ def update_interview(interview_id: UUID, payload: InterviewUpdate,
         ends = values.get("ends_at", row["ends_at"])
         if ends <= starts:
             raise HTTPException(400, "Kết thúc phải sau bắt đầu")
-        kind = values.get("location_kind", None)
-        if kind is None:
-            kind = db.execute(text("SELECT location_kind FROM app_private.interviews WHERE interview_id = :id"),
-                              {"id": str(interview_id)}).scalar_one()
-        text_value = values.get("location_text", "giữ nguyên")
-        if text_value == "giữ nguyên":
-            text_value = db.execute(text("SELECT location_text FROM app_private.interviews WHERE interview_id = :id"),
-                                    {"id": str(interview_id)}).scalar_one()
+        # Đọc từ dòng đã khoá ở trên thay vì hai truy vấn phụ: cùng một dòng,
+        # cùng transaction, và không có khe giữa hai lần đọc để người khác sửa.
+        kind = values.get("location_kind", row["location_kind"])
+        text_value = values.get("location_text", row["location_text"])
         if kind != "ONSITE" and not (text_value or "").strip():
             raise HTTPException(400, "Hẹn online hoặc qua điện thoại cần link hoặc số liên hệ")
+
+        # Đổi giờ thì phải kiểm lại chồng lấn. Chỉ kiểm khi thời gian thật sự đổi:
+        # sửa mỗi phòng họp không thể tạo ra trùng giờ, và báo lỗi trùng lúc đó là
+        # chặn một việc vô hại.
+        if "starts_at" in values or "ends_at" in values:
+            conflicts = _conflicting_interviews(
+                db, user_ids=sorted(_participant_ids(db, str(interview_id))),
+                starts_at=starts, ends_at=ends, exclude_interview=str(interview_id),
+                exclude_application=str(row["application_id"]))
+            if conflicts:
+                first = conflicts[0]
+                raise HTTPException(409,
+                    f"Người tham gia đã có buổi phỏng vấn trùng giờ (vòng {first['round_number']}, "
+                    f"{first['starts_at'].isoformat()}). Chọn giờ khác.")
 
         sets = ", ".join(f"{key} = :{key}" for key in values)
         try:
@@ -415,8 +557,126 @@ def update_interview(interview_id: UUID, payload: InterviewUpdate,
             db.rollback()
             raise HTTPException(409, "Vòng này đã có buổi khác đang hiệu lực") from None
 
+        # Ai bị ảnh hưởng thì báo. Đổi giờ là loại thay đổi dễ làm người ta đi sai
+        # giờ nhất, nên payload mang theo cả giờ cũ để câu thông báo nói được
+        # "14:00 → 15:30" chứ không chỉ "đã đổi".
+        _notify(db, interview_id=interview_id,
+                recipients=_participant_ids(db, str(interview_id)),
+                kind="INTERVIEW_UPDATED", actor=actor,
+                payload={"fields": sorted(values),
+                         "starts_at_from": row["starts_at"].astimezone(timezone.utc).isoformat(),
+                         "starts_at_to": starts.astimezone(timezone.utc).isoformat()})
+
         _audit(db, actor, "UPDATE_INTERVIEW", interview_id, row["position_id"],
                {"fields": sorted(values)})
+        result = _detail(db, str(interview_id))
+        db.commit()
+        return result
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+@router.put("/{interview_id}/participants")
+def replace_participants(interview_id: UUID, payload: ParticipantsReplace,
+                         user: dict = Depends(get_current_user)):
+    """Đặt lại danh sách người phỏng vấn của buổi **chưa diễn ra**.
+
+    Vì sao cần: trước endpoint này, tình huống thường gặp nhất — sáng mai phỏng
+    vấn, một người báo ốm — chỉ có một cách là **huỷ buổi rồi tạo lại**. Cách đó
+    xoá mất lịch sử "buổi này đã từng có ai", và nếu buổi đang ``DONE`` thì không
+    tạo lại được cùng vòng (unique index chỉ miễn CANCELLED/NO_SHOW).
+
+    Ba chốt:
+    * Chỉ buổi ``SCHEDULED``. Buổi đã diễn ra thì danh sách người là **sự thật
+      lịch sử** — scorecard của họ đã tồn tại, sửa danh sách sẽ làm scorecard mồ
+      côi khỏi người được phân công.
+    * Không cho bỏ người **đã có scorecard**: phiếu của họ đã gắn với buổi, xoá
+      người không xoá phiếu, và người đó mất quyền đọc chính phiếu mình đã viết.
+      Trả 409 và nói rõ tên.
+    * Người bị bỏ **vẫn nhận thông báo** — họ cần biết mình không còn dự buổi.
+      Đó là lý do `_notify` nhận danh sách người do nơi gọi chọn, không tự suy.
+    """
+    db = SessionLocal()
+    try:
+        actor = user["user_id"]
+        _require_active(db, actor)
+        row = db.execute(text("""
+            SELECT i.interview_id, i.application_id, i.status, a.position_id
+            FROM app_private.interviews i
+            JOIN app_private.applications a ON a.application_id = i.application_id
+            WHERE i.interview_id = :id FOR UPDATE OF i
+        """), {"id": str(interview_id)}).mappings().first()
+        if not row:
+            raise HTTPException(404, "Không tìm thấy buổi phỏng vấn")
+        # Dòng đã khoá ở trên có sẵn position_id: kiểm quyền trực tiếp thay vì
+        # đọc lại hồ sơ (xem _is_hr_for_position).
+        if not _is_hr_for_position(db, actor, row["position_id"]):
+            raise HTTPException(403, "Chỉ HR phụ trách vị trí hoặc HR Lead được thao tác trên lịch phỏng vấn")
+        if row["status"] != "SCHEDULED":
+            raise HTTPException(409, "Chỉ đổi người tham gia của buổi chưa diễn ra")
+
+        ids = sorted({str(p.user_id) for p in payload.participants})
+        roles = {str(p.user_id): p.participant_role for p in payload.participants}
+        active = db.execute(text("""
+            SELECT count(*) FROM app_private.user_profiles
+            WHERE user_id = ANY(CAST(:ids AS uuid[])) AND account_status = 'ACTIVE'
+        """), {"ids": "{" + ",".join(ids) + "}"}).scalar_one()
+        if int(active) != len(ids):
+            raise HTTPException(400, "Có người tham gia không tồn tại hoặc tài khoản đã đóng")
+
+        before = _participant_ids(db, str(interview_id))
+        removed = before - set(ids)
+        added = set(ids) - before
+        if removed:
+            # Phiếu đã tồn tại thì người đó không thể bị bỏ: xoá người không xoá
+            # phiếu, và họ mất quyền đọc chính đánh giá mình đã viết.
+            with_cards = {str(x) for x in db.execute(text("""
+                SELECT reviewer_user_id FROM app_private.shortlist_scorecards
+                WHERE interview_id = :id AND reviewer_user_id = ANY(CAST(:users AS uuid[]))
+            """), {"id": str(interview_id),
+                   "users": "{" + ",".join(sorted(removed)) + "}"}).scalars()}
+            if with_cards:
+                names = db.execute(text("""
+                    SELECT display_name FROM app_private.user_profiles
+                    WHERE user_id = ANY(CAST(:users AS uuid[]))
+                """), {"users": "{" + ",".join(sorted(with_cards)) + "}"}).scalars().all()
+                shown = ", ".join(n for n in names if n) or f"{len(with_cards)} người"
+                raise HTTPException(
+                    409, f"Không bỏ được người đã có phiếu chấm điểm: {shown}")
+
+        if removed:
+            db.execute(text("""
+                DELETE FROM app_private.interview_participants
+                WHERE interview_id = :id AND user_id = ANY(CAST(:users AS uuid[]))
+            """), {"id": str(interview_id), "users": "{" + ",".join(sorted(removed)) + "}"})
+        for user_id in ids:
+            # ON CONFLICT để đổi vai trò của người đã có (INTERVIEWER ↔ OBSERVER)
+            # mà không phải xoá rồi thêm lại — xoá/thêm sẽ mất `created_at`, tức
+            # là thứ tự người trong danh sách nhảy lung tung sau mỗi lần sửa.
+            db.execute(text("""
+                INSERT INTO app_private.interview_participants
+                    (interview_id, user_id, participant_role, added_by)
+                VALUES (:id, :user, :role, :actor)
+                ON CONFLICT (interview_id, user_id)
+                DO UPDATE SET participant_role = EXCLUDED.participant_role
+            """), {"id": str(interview_id), "user": user_id,
+                   "role": roles[user_id], "actor": actor})
+
+        changed = added | removed
+        if changed:
+            # Báo cả người mới (cần biết có buổi) lẫn người bị bỏ (cần biết không
+            # còn dự) — hai nhóm này ngược nhau nên không gộp vào một câu được.
+            _notify(db, interview_id=str(interview_id), recipients=changed,
+                    kind="PARTICIPANTS_CHANGED", actor=actor,
+                    payload={"added": len(added), "removed": len(removed)})
+        _audit(db, actor, "REPLACE_INTERVIEW_PARTICIPANTS", interview_id, row["position_id"],
+               {"added": len(added), "removed": len(removed)})
         result = _detail(db, str(interview_id))
         db.commit()
         return result
@@ -455,7 +715,10 @@ def change_status(interview_id: UUID, payload: StatusChange,
         """), {"id": str(interview_id)}).mappings().first()
         if not row:
             raise HTTPException(404, "Không tìm thấy buổi phỏng vấn")
-        _require_hr_write(db, actor, str(row["application_id"]))
+        # Dòng đã khoá ở trên có sẵn position_id: kiểm quyền trực tiếp thay vì
+        # đọc lại hồ sơ (xem _is_hr_for_position).
+        if not _is_hr_for_position(db, actor, row["position_id"]):
+            raise HTTPException(403, "Chỉ HR phụ trách vị trí hoặc HR Lead được thao tác trên lịch phỏng vấn")
         if payload.status == row["status"]:
             # Idempotent: bấm hai lần không phải lỗi, nhưng cũng không ghi audit lần hai.
             return _detail(db, str(interview_id))
@@ -513,7 +776,10 @@ def create_scorecards(interview_id: UUID, user: dict = Depends(get_current_user)
         """), {"id": str(interview_id)}).mappings().first()
         if not row:
             raise HTTPException(404, "Không tìm thấy buổi phỏng vấn")
-        _require_hr_write(db, actor, str(row["application_id"]))
+        # Dòng đã khoá ở trên có sẵn position_id: kiểm quyền trực tiếp thay vì
+        # đọc lại hồ sơ (xem _is_hr_for_position).
+        if not _is_hr_for_position(db, actor, row["position_id"]):
+            raise HTTPException(403, "Chỉ HR phụ trách vị trí hoặc HR Lead được thao tác trên lịch phỏng vấn")
         if row["status"] != "DONE":
             raise HTTPException(409, "Chỉ chấm điểm sau khi buổi phỏng vấn đã diễn ra (trạng thái DONE)")
 

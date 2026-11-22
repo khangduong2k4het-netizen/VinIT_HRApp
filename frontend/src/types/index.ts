@@ -415,4 +415,26 @@ export interface RosterItem {
   hm_notes?: string;
 }
 
+/** Thông báo lịch phỏng vấn trong ứng dụng. Cố ý không có trường email. */
+export interface InterviewNotification {
+  notification_id: string;
+  interview_id: string;
+  kind: 'INTERVIEW_CREATED' | 'INTERVIEW_UPDATED' | 'INTERVIEW_CANCELLED'
+      | 'PARTICIPANTS_CHANGED' | 'SCORECARD_DUE_SOON';
+  /** Chỉ mô tả thay đổi ({from,to}, {added,removed}); nội dung buổi đọc từ interview. */
+  payload: Record<string, unknown>;
+  read_at: string | null;
+  created_at: string;
+  actor_user_id?: string | null;
+  actor_name?: string | null;
+  round_number?: number | null;
+  starts_at?: string | null;
+  interview_status?: string | null;
+  position_code?: string | null;
+  position_title?: string | null;
+}
 
+export interface NotificationFeed {
+  unread_count: number;
+  items: InterviewNotification[];
+}

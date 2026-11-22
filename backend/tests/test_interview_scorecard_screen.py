@@ -14,6 +14,7 @@ Ba thứ được khoá ở đây:
 """
 import re
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -92,7 +93,10 @@ def test_route_returns_full_detail_not_summary():
     thì phải gọi thêm N lần và client tự suy quyền — đúng kiểu đã gây lỗi trước.
     """
     body = SOURCE.split("def for_interview", 1)[1].split("@router.get", 1)[0]
-    assert "_detail(db, *_access(db, item" in body
+    # Trả `_detail` (đầy đủ tiêu chí + cờ quyền), không trả bảng tóm tắt; đi qua
+    # bản hàng loạt để không phải N lần đọc cho N phiếu.
+    assert "_detail_batch(db, rows, actor)" in body
+    assert "_SCORECARD_SELECT" in body
 
 
 def test_reminders_no_longer_inner_joins_share_items():
@@ -129,22 +133,48 @@ def _detail_row(**kwargs):
     return {**base, **kwargs}
 
 
-def test_reviewer_gets_their_own_card(use_fake_db, monkeypatch):
-    """Người phỏng vấn mở được phiếu của mình: `_access` cho qua, `_detail` trả nội dung."""
+def _row(**kwargs):
+    base = {
+        "scorecard_id": CARD_ID, "reviewer_user_id": ACTOR, "status": "IN_PROGRESS",
+        # `due_at` là NOT NULL trên DB thật (đã kiểm information_schema). Fixture
+        # trước đây để None — không làm sai kết quả, nhưng không đại diện: nếu
+        # sau này ai bỏ NOT NULL thì test vẫn xanh trong khi production vỡ.
+        "due_at": datetime.now(timezone.utc), "revision": 1, "share_item_id": None,
+        "share_id": None, "share_status": None, "shared_with": None,
+        "application_id": str(uuid.uuid4()), "position_id": str(uuid.uuid4()),
+        "assessment_id": None, "interview_id": INTERVIEW_ID, "interview_status": "DONE",
+        "interview_round": 2, "interview_starts_at": None, "source_kind": "INTERVIEW",
+        "criteria_version_id": str(uuid.uuid4()),
+    }
+    return {**base, **kwargs}
+
+
+def test_reviewer_gets_their_own_card(use_fake_db):
+    """Người phỏng vấn mở được phiếu của mình và nhận đủ dữ liệu để chấm."""
     db = FakeDB([
-        _Result(all_=[CARD_ID]),                       # danh sách scorecard của buổi
-        _Result(first=_detail_row()),                  # _access đọc scorecard
-        _Result(scalar="ACTIVE"),                      # trạng thái tài khoản
-        _Result(all_=[]),                              # vai trò toàn cục
-        _Result(all_=[]),                              # phân công vị trí
-        _Result(scalar=True),                          # có tên trong buổi
-        _Result(all_=[]),                              # tiêu chí của phiếu
+        _Result(scalar="ACTIVE"),                         # tài khoản còn hoạt động
+        _Result(first={"application_id": str(uuid.uuid4()),
+                       "position_id": str(uuid.uuid4())}),
+        _Result(first={"application_id": str(uuid.uuid4()),
+                       "position_id": str(uuid.uuid4()), "application_status": "SHORTLIST"}),
+        _Result(scalar=False),                            # không phải HR phụ trách
+        _Result(scalar=True),                             # có tên trong buổi
+        _Result(all_=[_row()]),                           # phiếu của chính mình
+        # _detail_batch: đọc nền một lần
+        _Result(scalar="ACTIVE"),                         # trạng thái tài khoản
+        _Result(all_=[]),                                 # vai trò toàn cục
+        _Result(all_=[]),                                 # phân công theo vị trí
+        _Result(all_=[INTERVIEW_ID]),                     # tư cách người tham gia
+        _Result(all_=[{"scorecard_id": CARD_ID, "criterion_id": str(uuid.uuid4()),
+                       "name": "Kinh nghiệm", "rating": None, "insufficient_evidence": False,
+                       "comment": None, "category": "SKILL", "display_order": 1}]),
     ])
     use_fake_db(db)
-    # _detail dựng dữ liệu từ dòng đã đọc; `due_at` None là hợp lệ với phiếu chưa hạn.
-    monkeypatch.setattr(module, "_detail", lambda _db, row, _hr, _hm: {"scorecard_id": row["scorecard_id"]})
     result = module.for_interview(uuid.UUID(INTERVIEW_ID), {"user_id": ACTOR})
-    assert result == [{"scorecard_id": CARD_ID}]
+    assert len(result) == 1
+    assert result[0]["scorecard_id"] == CARD_ID
+    assert result[0]["can_edit"] is True
+    assert result[0]["criteria"][0]["name"] == "Kinh nghiệm"
 
 
 def test_outsider_is_refused_even_when_no_cards_exist(use_fake_db):
@@ -155,10 +185,9 @@ def test_outsider_is_refused_even_when_no_cards_exist(use_fake_db):
     phỏng vấn, vốn là thông tin gắn với một ứng viên cụ thể.
     """
     db = FakeDB([
-        _Result(all_=[]),                              # chưa có phiếu nào
-        _Result(scalar=True),                          # buổi tồn tại
-        _Result(first={"application_id": str(uuid.uuid4())}),
-        # _actor_position_access: đọc hồ sơ, rồi kiểm HR
+        _Result(scalar="ACTIVE"),
+        _Result(first={"application_id": str(uuid.uuid4()),
+                       "position_id": str(uuid.uuid4())}),
         _Result(first={"application_id": str(uuid.uuid4()), "position_id": str(uuid.uuid4()),
                        "application_status": "SHORTLIST"}),
         _Result(scalar=False),                          # không phải HR
@@ -173,8 +202,8 @@ def test_outsider_is_refused_even_when_no_cards_exist(use_fake_db):
 def test_unknown_interview_is_404_not_empty_list(use_fake_db):
     """Buổi không tồn tại phải là 404, để màn hình phân biệt được hai ca."""
     db = FakeDB([
-        _Result(all_=[]),
-        _Result(scalar=False),      # EXISTS interviews -> false
+        _Result(scalar="ACTIVE"),
+        _Result(first=None),        # không có dòng interviews nào
     ])
     use_fake_db(db)
     with pytest.raises(HTTPException) as exc:
@@ -185,13 +214,14 @@ def test_unknown_interview_is_404_not_empty_list(use_fake_db):
 def test_participant_with_no_cards_sees_empty_list(use_fake_db):
     """Người có tên trong buổi, buổi chưa sinh phiếu: danh sách rỗng, không lỗi."""
     db = FakeDB([
-        _Result(all_=[]),
-        _Result(scalar=True),
-        _Result(first={"application_id": str(uuid.uuid4())}),
+        _Result(scalar="ACTIVE"),
+        _Result(first={"application_id": str(uuid.uuid4()),
+                       "position_id": str(uuid.uuid4())}),
         _Result(first={"application_id": str(uuid.uuid4()), "position_id": str(uuid.uuid4()),
                        "application_status": "SHORTLIST"}),
         _Result(scalar=False),                          # không phải HR
         _Result(scalar=True),                           # có tên trong buổi
+        _Result(all_=[]),                               # không phiếu nào
     ])
     use_fake_db(db)
     assert module.for_interview(uuid.UUID(INTERVIEW_ID), {"user_id": ACTOR}) == []

@@ -173,6 +173,9 @@ def test_participants_are_required():
 def test_duplicate_round_is_a_conflict_not_a_500(use_fake_db):
     """Hai HR đặt cùng vòng: DB phân xử bằng unique index, API dịch thành 409."""
     db = use_fake_db(FakeDB(ACTIVE + [_app_row()] + [*HR, _Result(scalar=1),
+        # Truy vấn chồng lấn chạy trước INSERT và trả rỗng: không phải trùng
+        # NGƯỜI, mà trùng VÒNG — hai chuyện khác nhau, và đây là ca thứ hai.
+        _Result(all_=[]),
         IntegrityError("INSERT", {}, Exception("uq_interviews_active_round")),
     ]))
     with pytest.raises(HTTPException) as excinfo:
@@ -233,8 +236,10 @@ def test_cannot_schedule_before_shortlist(use_fake_db):
 @pytest.mark.parametrize("status", ["SHORTLIST", "INTERVIEW", "OFFERED"])
 def test_shortlisted_and_later_stages_can_be_scheduled(use_fake_db, status):
     db = use_fake_db(FakeDB(ACTIVE + [_app_row(status)] + [
-        *HR, _Result(scalar=1), _Result(scalar=INTERVIEW_ID)] +
-        [_Result()] * 2 +                       # participant + audit
+        *HR, _Result(scalar=1),
+        _Result(all_=[]),                       # không có buổi nào trùng giờ
+        _Result(scalar=INTERVIEW_ID)] +
+        [_Result()] * 3 +                       # participant + notify + audit
         _detail_results()))
     result = module.create_interview(module.InterviewCreate(
         application_id=uuid.UUID(APP_ID), starts_at=T0, ends_at=T0 + timedelta(hours=1),
@@ -262,7 +267,8 @@ def test_inactive_participant_is_rejected(use_fake_db):
 def test_create_writes_an_audit_entry_without_candidate_data(use_fake_db):
     """Audit ghi id và thời điểm, không ghi tên ứng viên hay nội dung trao đổi."""
     db = use_fake_db(FakeDB(ACTIVE + [_app_row()] + [
-        *HR, _Result(scalar=1), _Result(scalar=INTERVIEW_ID), _Result(), _Result()] + _detail_results()))
+        *HR, _Result(scalar=1), _Result(all_=[]), _Result(scalar=INTERVIEW_ID),
+        _Result(), _Result(), _Result()] + _detail_results()))
     module.create_interview(module.InterviewCreate(
         application_id=uuid.UUID(APP_ID), starts_at=T0, ends_at=T0 + timedelta(hours=1),
         location_kind="ONLINE", location_text="https://meet.example.test/abc",
@@ -281,7 +287,7 @@ def _status_db(current, target):
     return FakeDB(ACTIVE + [
         _Result(first={"interview_id": INTERVIEW_ID, "application_id": APP_ID,
                        "status": current, "position_id": POS_ID}),
-        _app_row(), *HR,               # _require_hr_write: hồ sơ + là HR
+        *HR,                           # kiểm quyền trực tiếp trên position_id (1 truy vấn)
         _Result(),                     # UPDATE
         _Result(),                     # audit
     ] + _detail_results())
@@ -308,7 +314,7 @@ def test_same_status_is_idempotent_and_writes_no_audit(use_fake_db):
     db = use_fake_db(FakeDB(ACTIVE + [
         _Result(first={"interview_id": INTERVIEW_ID, "application_id": APP_ID,
                        "status": "CANCELLED", "position_id": POS_ID}),
-        _app_row(), *HR] + _detail_results()))
+        *HR] + _detail_results()))
     module.change_status(uuid.UUID(INTERVIEW_ID), module.StatusChange(status="CANCELLED"), USER)
     assert not [sql for sql, _ in db.issued if "audit_events" in sql]
     assert not [sql for sql, _ in db.issued if sql.strip().startswith("UPDATE")]
@@ -328,8 +334,7 @@ def test_cancelled_interview_cannot_be_edited(use_fake_db):
         _Result(first={"interview_id": INTERVIEW_ID, "application_id": APP_ID,
                        "status": "CANCELLED", "position_id": POS_ID, "starts_at": T0,
                        "ends_at": T0 + timedelta(hours=1), "round_number": 1,
-                       "updated_at": T0}),
-        _app_row(), *HR]))
+                       "updated_at": T0}), *HR]))
     with pytest.raises(HTTPException) as excinfo:
         module.update_interview(uuid.UUID(INTERVIEW_ID),
                                 module.InterviewUpdate(round_number=2), USER)
@@ -342,8 +347,7 @@ def test_stale_updated_at_is_rejected(use_fake_db):
         _Result(first={"interview_id": INTERVIEW_ID, "application_id": APP_ID,
                        "status": "SCHEDULED", "position_id": POS_ID, "starts_at": T0,
                        "ends_at": T0 + timedelta(hours=1), "round_number": 1,
-                       "updated_at": T0}),
-        _app_row(), *HR]))
+                       "updated_at": T0}), *HR]))
     with pytest.raises(HTTPException) as excinfo:
         module.update_interview(uuid.UUID(INTERVIEW_ID),
                                 module.InterviewUpdate(round_number=2,

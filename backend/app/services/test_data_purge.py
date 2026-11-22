@@ -72,6 +72,7 @@ DELETE_ORDER: list[tuple[str, str]] = [
     # khỏi thứ tự xoá, PostgreSQL vẫn xoá ngầm chúng qua CASCADE — nghĩa là một
     # bảng nằm trong PROTECTED_TABLES vẫn mất dữ liệu, đúng kiểu âm thầm nguy
     # hiểm nhất. Vì vậy chúng nằm trong phạm vi CV và xoá tường minh.
+    ("CV", "interview_notifications"),
     ("CV", "interview_participants"),
     ("CV", "interviews"),
     ("CV", "shortlist_scorecard_criteria"),

@@ -263,3 +263,41 @@ xoá được khi xoá hồ sơ (cascade), và **không** nằm trong protected.
 - Không đổi ma trận trạng thái hồ sơ: lịch phỏng vấn là **dữ liệu bổ sung**,
   không phải điều kiện mới để chuyển `SHORTLIST → INTERVIEW`. Nếu biến nó thành
   điều kiện, mọi hồ sơ đang ở `INTERVIEW` sẽ thành dữ liệu không hợp lệ.
+
+---
+
+## 8. Đợt cải tiến sau B1–B4 (2026-11-30)
+
+Sáu việc, đều xuất phát từ chỗ luồng đang **sai** hoặc **hụt**, không phải thẩm mỹ:
+
+| # | Việc | Vì sao |
+|---|---|---|
+| 1 | `PUT /interviews/{id}/participants` | Trước đó, một người báo ốm là phải **huỷ cả buổi**. Không bỏ được người đã có phiếu chấm; buổi đã `DONE` thì danh sách là lịch sử, không sửa. |
+| 2 | Chặn chồng lấn lịch | Trước đó một người được gán 2 buổi cùng giờ vẫn lưu được; họ phát hiện khi đã ngồi trong phòng. Kiểm theo **người**, khoảng nửa mở `<`/`>`, bỏ qua buổi đã huỷ. |
+| 3 | Thông báo trong ứng dụng (`00041`) | Trước đó đổi giờ xong không báo cho ai. |
+| 4 | Gộp truy vấn scorecard | Đo được: 8 truy vấn cho **mỗi** phiếu. Buổi 5 người = 40 truy vấn. Nay 6 truy vấn cố định cho cả danh sách. |
+| 5 | `.ics` + "còn bao lâu" | Người phỏng vấn phải tự gõ lại giờ sang lịch riêng. |
+| 6 | Tách `interviewTime.ts`, `interviewIcs.ts`, `relativeTime.ts` | Logic dễ sai ra khỏi JSX để test được. Kiểm giờ trước đây chỉ nối `+07:00`: chuỗi hỏng thành `"abc+07:00"` và máy chủ trả 422 khó hiểu. |
+
+### Thông báo: trong app trước, **email để sau** (quyết định 2026-11-30)
+
+Đã làm: bảng `interview_notifications`, chuông trên header, 5 loại sự kiện, đánh dấu
+đã đọc (một dòng hoặc tất cả).
+
+**Cố ý KHÔNG có**: cột `email`, `sent_at`, `delivered`, hay bất kỳ trạng thái "đã
+gửi". Có test khoá điều này (`test_notifications.py::test_migration_has_no_email_columns`)
+vì lý do giống Q4: một cột "đã gửi" sẽ bị đọc như bằng chứng hệ thống đã gửi thư,
+trong khi nó chưa gửi gì.
+
+Khi làm email, việc cần thêm:
+1. Cột `delivery_channel` + `sent_at` (đặt tên nói rõ kênh, không đặt `sent_at` trần).
+2. Hàng đợi gửi + thử lại, vì SMTP hỏng không được làm hỏng thao tác đặt lịch.
+3. Tôn trọng lựa chọn của người nhận — người ta có thể không muốn email.
+4. Với **ứng viên** vẫn là quyết định riêng (Q4 hiện tại: chưa gửi).
+
+### Một chỗ tôi nói sai trước đó
+
+Trong bản đề xuất cải tiến, tôi viết `InterviewPanel.tsx` "dài 466 dòng". Đo lại:
+**272 dòng** trước đợt này. Con số 466 là bịa. Đợt này đã tách thêm
+`InterviewParticipantsDialog.tsx`, `interviewTime.ts`, `interviewIcs.ts`,
+`relativeTime.ts`.

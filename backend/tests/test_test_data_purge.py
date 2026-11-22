@@ -515,3 +515,14 @@ def test_interview_tables_are_counted_and_previewed():
     protected = {t.split(".", 1)[1] for t in PROTECTED_TABLES if t.startswith("app_private.")}
     assert not (in_scope & protected)
     assert {"interviews", "interview_participants"} <= in_scope
+
+def test_interview_notifications_are_deleted_first():
+    """Thông báo trỏ tới interviews bằng CASCADE — nhưng vẫn xoá tường minh.
+
+    Cùng lý do với `interviews`: một bảng nằm ngoài thứ tự xoá mà vẫn mất dữ
+    liệu qua CASCADE là bảng "không ai thấy đã bị xoá". Và thông báo chứa vòng
+    phỏng vấn + mã vị trí, tức là thông tin về ứng viên.
+    """
+    order = [t for _s, t in DELETE_ORDER]
+    assert order.index("interview_notifications") < order.index("interviews")
+    assert "app_private.interview_notifications" not in PROTECTED_TABLES
