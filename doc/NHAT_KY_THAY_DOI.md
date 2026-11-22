@@ -9,6 +9,36 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-21 — E2E cho nhánh hồ sơ trượt tiêu chí bắt buộc khi hoàn tất
+
+**Vì sao cần.** Quy tắc "có tiêu chí MUST_HAVE kết luận NO_MATCH → chọn sẵn Loại vòng sàng
+lọc" mới chỉ có unit test cho `suggestFinishStatus()`. Phần giao diện — hộp thoại có thật sự
+chọn sẵn trạng thái đó, nút hoàn tất có bị chặn khi thiếu lý do, và có PATCH nào lọt ra trước
+đó không — chưa có test nào chạy qua.
+
+**Fixture mới.** `app-must-fail`: hồ sơ `IN_REVIEW`, tiêu chí c1 là MUST_HAVE nhưng kết luận
+`NO_MATCH` (không có bằng chứng Python cho dịch vụ production) và vẫn chờ HR xác minh; c2 là
+tiêu chí ưu tiên, không cần xác minh. Thêm route PATCH `/v1/applications/app-must-fail/status`
+để ghi lại thân request. Các route cũ không đổi: `app-must-fail` không nằm trong danh sách
+xếp hạng nên bộ đếm và prev/next của những test khác giữ nguyên.
+
+**Test mới `tests/mandatory-fail-finish.e2e.cjs`.**
+1. Mở hộp thoại hoàn tất → ô trạng thái hiện sẵn **Loại vòng sàng lọc**, dòng đề xuất nói rõ
+   "Có tiêu chí bắt buộc chưa đạt… lý do vẫn cần bạn nhập", cảnh báo còn 1 tiêu chí chờ.
+2. Nút hoàn tất **bị chặn**; nhập toàn khoảng trắng vẫn chặn.
+3. Trước đó **không có PATCH trạng thái** và không có POST review nào; bấm cưỡng bức vào nút
+   đang chặn cũng không gửi gì.
+4. Nhập lý do → nút mở → gửi đúng một PATCH `REJECTED_SCREENING` kèm lý do, và một POST
+   `CONFIRMED` cho tiêu chí bắt buộc; sau đó rời hồ sơ.
+
+**Kiểm.** Test mới pass. Chạy lại không hồi quy: `finish-application`, `review-auto-advance`,
+`sticky-review-actions`, `criterion-queue`, `capabilities`, `verify-only`, `duplicate-compare`,
+`ranking-compact-mock`, `profile-lazy-panels`; unit **131/131**.
+
+**Chưa kiểm.** Chưa chạy với backend thật (transition matrix và gate quyền là của mock, dựng
+theo `APPLICATION_TRANSITIONS` trong `src/lib/applicationStatus.ts`). `ranking-context-mock`
+vẫn flaky sẵn từ trước, lần này không chạy lại.
+
 ## 2026-11-21 — Thanh dính: hiện tên tiêu chí đang chọn, không phụ thuộc tooltip
 
 **Vấn đề.** Trên thanh dính của hồ sơ, hai nút "Xác nhận"/"Đánh dấu sai" chỉ nói đang quyết
