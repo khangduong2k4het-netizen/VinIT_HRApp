@@ -264,6 +264,23 @@ export const adminApi = {
   getAiOptions: () => apiClient.get('/admin/ai/options'),
 };
 
+export const interviewsApi = {
+  // `mine` cho màn "Lịch của tôi"; thiếu nó thì phải là HR của vị trí.
+  list: (params: { position_id?: string; from_at?: string; to_at?: string; mine?: boolean }) =>
+    apiClient.get('/interviews', { params }),
+  get: (id: string) => apiClient.get(`/interviews/${id}`),
+  create: (data: {
+    application_id: string; round_number?: number; starts_at: string; ends_at: string;
+    location_kind: 'ONSITE' | 'ONLINE' | 'PHONE'; location_text?: string | null;
+    participants: Array<{ user_id: string; participant_role?: 'INTERVIEWER' | 'OBSERVER' }>;
+  }) => apiClient.post('/interviews', data),
+  update: (id: string, data: Record<string, unknown>) => apiClient.patch(`/interviews/${id}`, data),
+  changeStatus: (id: string, status: 'SCHEDULED' | 'DONE' | 'CANCELLED' | 'NO_SHOW') =>
+    apiClient.post(`/interviews/${id}/status`, { status }),
+  scorecards: (id: string) => apiClient.get(`/interviews/${id}/scorecards`),
+  createScorecards: (id: string) => apiClient.post(`/interviews/${id}/scorecards`),
+};
+
 export const scorecardsApi = {
   reminders: () => apiClient.get('/scorecards/reminders'),
   reopenHistory: (id: string) => apiClient.get(`/scorecards/${id}/reopen-history`),

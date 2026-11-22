@@ -3,6 +3,7 @@
 import { useI18n } from '@/i18n/I18nProvider';
 import { extractDocxBlocks, type DocxBlock } from '@/lib/docxText';
 import { localizeServerMessage } from '@/i18n/serverMessages';
+import InterviewPanel from '@/components/positions/InterviewPanel';
 
 import * as React from 'react';
 import {
@@ -794,6 +795,14 @@ export default function ApplicantDetailPage() {
               </>
             )}
             {statusLabel && <StatusBadge type={statusLabel.badge} label={t(statusLabel.label)} />}
+            {/* Lịch phỏng vấn đặt ngay trong hồ sơ: HR đang đứng ở đây khi quyết
+                định mời phỏng vấn, bắt họ sang màn khác rồi tìm lại đúng ứng
+                viên là thêm hai bước cho một quyết định đã có trong đầu. */}
+            {caps.updateStatus && (
+              <Box sx={{ width: '100%', mt: 1 }}>
+                <InterviewPanel applicationId={application.application_id} />
+              </Box>
+            )}
             {/* Ai đang giữ hồ sơ: không có dòng này thì hai HR cùng vị trí không
                 biết mình có đang làm trùng việc của nhau hay không. */}
             <Chip

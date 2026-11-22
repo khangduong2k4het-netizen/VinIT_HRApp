@@ -12,6 +12,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import ManageAccountsIcon from '@mui/icons-material/ManageAccounts';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import ApartmentIcon from '@mui/icons-material/Apartment';
+import EventIcon from '@mui/icons-material/Event';
 import CategoryIcon from '@mui/icons-material/Category';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
@@ -29,6 +30,7 @@ const menuGroups = [
       { text: 'Talent Pool (demo)', icon: <PeopleIcon />, href: '/talent-pool-demo', hrOnly: true },
       { text: 'Thư viện rubric', icon: <LibraryBooksIcon />, href: '/rubrics', hrOnly: true },
       { text: 'Shortlist & phản hồi', icon: <PeopleIcon />, href: '/shortlist' },
+      { text: 'Lịch phỏng vấn', icon: <EventIcon />, href: '/interviews' },
       { text: 'Dữ liệu & lưu trữ', icon: <DeleteSweepIcon />, href: '/data-retention', hrOnly: true },
     ],
   },
