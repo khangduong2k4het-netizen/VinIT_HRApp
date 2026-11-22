@@ -2805,20 +2805,33 @@ def test_change_hm_multiple_assignments_revokes_all_old_shares(client, seed):
 
 
 def test_position_jd_v1_language_deadline_and_validation_in_real_db(client, seed):
+    """Ngôn ngữ JD suy ra từ nội dung, KHÔNG lấy từ ô gửi lên.
+
+    Ô "ngôn ngữ JD" đã bị bỏ ở commit 0e1c35f vì giá trị của nó không điều
+    khiển gì. Trường vẫn nhận trong payload để client cũ không vỡ, nhưng bị
+    bỏ qua. Test cũ khẳng định `language_code` bằng giá trị gửi lên, nên đỏ
+    ngay khi hành vi đổi — đúng là test lỗi thời, không phải sản phẩm hỏng.
+    """
     department_id = create_test_department()
     payload = {"department_id": department_id, "title": "UX synthetic", "jd_content": "Mô tả công việc giả", "hiring_manager_user_id": seed['hm']}
-    for language in ('vi', 'en'):
-        result = client.post('/v1/positions', headers=headers(seed['hr']), json={**payload, 'jd_language_code': language, 'application_deadline_at': '2031-01-01T03:00:00+07:00'})
+    english_jd = "Synthetic job description for a synthetic position"
+    cases = [("vi", payload['jd_content'], 'vi'), ("en", english_jd, 'en')]
+    for sent_language, jd_content, expected in cases:
+        result = client.post('/v1/positions', headers=headers(seed['hr']), json={
+            **payload, 'jd_content': jd_content, 'jd_language_code': sent_language,
+            'application_deadline_at': '2031-01-01T03:00:00+07:00'})
         assert result.status_code == 201, result.text
         with engine.connect() as conn:
             row = conn.execute(text('''SELECT j.version_number,j.language_code,j.content_text,p.application_deadline_at
                 FROM app_private.jd_versions j JOIN app_private.positions p ON p.position_id=j.position_id WHERE j.position_id=:p'''), {'p': result.json()['position_id']}).one()
-        assert row.version_number == 1 and row.language_code == language and row.content_text == payload['jd_content']
+        assert row.version_number == 1 and row.language_code == expected and row.content_text == jd_content
         assert row.application_deadline_at.isoformat() == '2030-12-31T20:00:00+00:00'
-    legacy = client.post('/v1/positions', headers=headers(seed['hr']), json=payload)
-    assert legacy.status_code == 201, legacy.text
+    # Gửi ngôn ngữ SAI so với nội dung: phải theo nội dung, không theo ô gửi lên.
+    mismatch = client.post('/v1/positions', headers=headers(seed['hr']), json={
+        **payload, 'jd_content': 'Mô tả tiếng Việt nhưng khai tiếng Anh', 'jd_language_code': 'en'})
+    assert mismatch.status_code == 201, mismatch.text
     with engine.connect() as conn:
-        assert conn.execute(text('SELECT language_code FROM app_private.jd_versions WHERE position_id=:p'), {'p': legacy.json()['position_id']}).scalar_one() == 'en'
+        assert conn.execute(text('SELECT language_code FROM app_private.jd_versions WHERE position_id=:p'), {'p': mismatch.json()['position_id']}).scalar_one() == 'vi'
     assert client.post('/v1/positions', headers=headers(seed['hr']), json={**payload, 'jd_content': '   '}).status_code == 400
     assert client.post('/v1/positions', headers=headers(seed['hr']), json={**payload, 'jd_language_code': 'fr'}).status_code == 422
     assert client.post('/v1/positions', headers=headers(seed['hr']), json={**payload, 'application_deadline_at': '2031-01-01T03:00:00'}).status_code == 400

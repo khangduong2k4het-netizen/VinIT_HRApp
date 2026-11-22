@@ -23,10 +23,18 @@ def _open_intake(monkeypatch):
 
 
 def _approve_rubric_for_latest_jd(conn, position_id):
-    """Duyệt rubric cho đúng phiên bản JD mới nhất của vị trí."""
+    """Duyệt rubric cho đúng phiên bản JD mới nhất của vị trí.
+
+    Số phiên bản phải tự tăng: vị trí đã có bộ APPROVED (bộ do seed tạo, hoặc
+    lần gọi trước trong cùng test) thì ghi cứng 1 sẽ vi phạm
+    UNIQUE(position_id, version_number). Lỗi này chỉ lộ khi job integration
+    chạy lại sau 11 ngày đỏ; trước đó không ai thấy vì test bị skip.
+    """
     conn.execute(text("""
         INSERT INTO app_private.criteria_versions(position_id, jd_version_id, version_number, status)
-        SELECT :p, jd.jd_version_id, 1, 'APPROVED'
+        SELECT :p, jd.jd_version_id,
+               (SELECT COALESCE(MAX(version_number), 0) FROM app_private.criteria_versions WHERE position_id = :p) + 1,
+               'APPROVED'
         FROM (SELECT jd_version_id FROM app_private.jd_versions
               WHERE position_id=:p ORDER BY version_number DESC LIMIT 1) jd
     """), {'p': position_id})

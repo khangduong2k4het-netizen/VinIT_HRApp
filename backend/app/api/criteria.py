@@ -333,7 +333,7 @@ async def approve_criteria(
         if not position or not db.execute(text("SELECT 1 FROM app_private.positions WHERE position_id = :id FOR UPDATE"), {"id": str(position)}).first():
             raise NotFoundError("Criteria version")
         cv = db.execute(text("""
-            SELECT position_id, jd_version_id, status, mandatory_weight_total, nice_to_have_weight_total, approved_by_hr
+            SELECT position_id, jd_version_id, status, version_number, mandatory_weight_total, nice_to_have_weight_total, approved_by_hr
             FROM app_private.criteria_versions WHERE criteria_version_id = :cv_id FOR UPDATE
         """), {"cv_id": cv_id_str}).mappings().first()
         if not cv:
