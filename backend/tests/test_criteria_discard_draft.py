@@ -14,7 +14,6 @@ Bài học đã trả giá một lần trong repo này: test đọc mã nguồn 
 đúng **thứ tự** thực thi, nếu không thì chỉ cần một dòng comment chứa cùng từ
 khoá là test xanh trong khi logic đã đảo.
 """
-import re
 from pathlib import Path
 
 SOURCE = (Path(__file__).resolve().parents[1] / "app" / "api" / "criteria.py").read_text()

@@ -12,7 +12,6 @@ Ba thứ được khoá ở đây:
 3. `/scorecards/reminders` không còn `JOIN` trong vào share — nếu còn, phiếu của
    buổi phỏng vấn không bao giờ được nhắc dù đã quá hạn.
 """
-import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path

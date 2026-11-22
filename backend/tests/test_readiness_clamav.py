@@ -12,7 +12,6 @@ hệ thống" — đổi một lỗi im lặng lấy một lỗi to hơn.
 import socket
 from pathlib import Path
 
-import pytest
 
 from app import main as main_module
 from app.core.config import settings

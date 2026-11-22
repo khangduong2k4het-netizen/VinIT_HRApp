@@ -158,9 +158,20 @@ jobs:
           CREATE FUNCTION auth.uid() RETURNS UUID LANGUAGE sql STABLE AS $$ SELECT NULL::UUID $$;
           SQL
 
-      - name: Apply migrations in filename order
+      - name: Apply schema migrations (one-off data purge excluded)
         run: |
+          # 00035 là migration xoá dữ liệu MỘT LẦN cho môi trường demo, không phải
+          # thay đổi lược đồ: nó đòi schema sao lưu app_backup_20261119 (không
+          # migration nào tạo) và tự RAISE EXCEPTION khi không thấy. Trên DB trắng
+          # của CI nó luôn hỏng, làm cả job integration đỏ từ 2026-11-19 và che
+          # mất lỗi integration thật. Bỏ đúng file này khi dựng schema test; việc
+          # nó đã chạy hay chưa thuộc về môi trường demo, không thuộc CI.
           for migration in supabase/migrations/*.sql; do
+            case "$migration" in
+              *00035_purge_test_cv_jd_data.sql)
+                echo "Skipping ${migration} (one-off data purge, requires app_backup_20261119)"
+                continue ;;
+            esac
             echo "Applying ${migration}"
             psql -h 127.0.0.1 -U postgres -d hra_phase1_test -v ON_ERROR_STOP=1 -f "${migration}"
           done

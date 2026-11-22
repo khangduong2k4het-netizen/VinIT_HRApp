@@ -89,8 +89,6 @@ def test_filenames_are_deliberately_messy():
     """
     names = [target_filename(c) for c in CANDIDATES]
     assert len(names) == len(set(names))
-    shapes = {name.replace(str(i), "N") for i, name in
-              zip([c.number for c in CANDIDATES], names)}
     assert len({name.split(".")[0].count("_") for name in names}) > 1
     assert any(" " in name for name in names)
     assert any(name.endswith(".pdf") for name in names)

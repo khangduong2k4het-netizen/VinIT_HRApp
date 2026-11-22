@@ -135,7 +135,6 @@ def test_every_notification_query_is_scoped_to_the_actor():
 def test_marking_read_cannot_touch_someone_elses_rows():
     """Truyền id của người khác thì chỉ dòng của mình đổi — điều kiện actor chặn."""
     db = FakeDB([_Result(scalar="ACTIVE"), _Result(rowcount=0)])
-    use = lambda: None
     import app.api.notifications as n
     original = module.SessionLocal
     module.SessionLocal = lambda: db
@@ -182,8 +181,6 @@ def test_inactive_account_is_refused():
 
 def test_actor_is_not_notified_about_their_own_action():
     """Người vừa bấm nút đã biết chuyện gì xảy ra; báo lại chỉ làm badge tăng."""
-    from app.api import interviews
-    body = interviews.SOURCE if hasattr(interviews, "SOURCE") else ""
     src = (BACKEND / "app" / "api" / "interviews.py").read_text()
     notify = src[src.index("def _notify"):src.index("def _participant_ids")]
     assert 'if str(user) != str(actor)' in notify.replace("user)", "user)") or "!= str(actor)" in notify

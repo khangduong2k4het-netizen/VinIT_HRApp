@@ -6,8 +6,6 @@ Storage giả, không cần Supabase thật.
 """
 from datetime import datetime, timedelta, timezone
 
-import pytest
-from sqlalchemy import text
 
 from app.services import storage_purge as sp
 
