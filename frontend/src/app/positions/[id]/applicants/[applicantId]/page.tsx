@@ -826,6 +826,28 @@ export default function ApplicantDetailPage() {
                   fontWeight: 700,
                 }}
               />
+              {/* Tên tiêu chí phải đọc được ngay trên thanh, không chỉ trong tooltip:
+                  trên điện thoại không có hover, nên HR chỉ thấy hai nút mà không biết
+                  đang quyết định cho tiêu chí nào. Cắt bằng ellipsis để vẫn gọn ở 390px. */}
+              {activeResult && (
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  data-testid="sticky-criterion"
+                  label={t('Đang chọn: {0}', activeResult.criterion_name)}
+                  sx={{
+                    maxWidth: { xs: 200, sm: 360 },
+                    borderColor: '#D0D5DD',
+                    backgroundColor: '#F9FAFB',
+                    '& .MuiChip-label': {
+                      display: 'block',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    },
+                  }}
+                />
+              )}
               <Tooltip title={activeResult ? t('Đang chọn: {0}', activeResult.criterion_name) : ''}>
                 <span>
                   <Button

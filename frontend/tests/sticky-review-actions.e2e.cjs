@@ -60,6 +60,21 @@ const progressText = page => page.evaluate(() => {
     }
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false, `${viewport.label}: no horizontal overflow`);
 
+    // --- Đang quyết định cho tiêu chí nào, đọc được trên thanh --------------
+    // Tooltip không hiện trên điện thoại, nên tên tiêu chí phải nằm sẵn trên thanh.
+    const criterionChip = page.getByTestId('sticky-criterion');
+    assert.equal(await criterionChip.isVisible(), true, `${viewport.label}: criterion name is on the bar`);
+    assert.match((await criterionChip.innerText()).trim(), /^Đang chọn: Kinh nghiệm dẫn dắt|^Đang chọn: Thiết kế/, `${viewport.label}: criterion name text`);
+    const chipBox = await criterionChip.boundingBox();
+    assert.ok(chipBox.x >= 0 && chipBox.x + chipBox.width <= viewport.width, `${viewport.label}: criterion name fits the width`);
+    assert.ok(chipBox.height <= 30, `${viewport.label}: criterion name stays on one line (h=${Math.round(chipBox.height)})`);
+    assert.equal(
+      await criterionChip.evaluate(el => getComputedStyle(el.querySelector('.MuiChip-label')).textOverflow),
+      'ellipsis',
+      `${viewport.label}: long names are cut with an ellipsis, not wrapped`,
+    );
+    const activeBeforeConfirm = (await criterionChip.innerText()).trim();
+
     // --- Xác nhận từ thanh dính: ghi nhận và chuyển tiêu chí ---------------
     assert.equal(await page.getByTestId('sticky-confirm').isDisabled(), false, `${viewport.label}: active criterion can be confirmed`);
     await page.getByTestId('sticky-confirm').click();
@@ -67,6 +82,9 @@ const progressText = page => page.evaluate(() => {
     assert.equal((await page.getByTestId('sticky-pending').innerText()).trim(), 'Còn 1/2 tiêu chí chờ');
     assert.equal(await progressText(page), '1/2');
     assert.equal(reviewPosts.length, 1, `${viewport.label}: one recorded review`);
+    const activeAfterConfirm = (await page.getByTestId('sticky-criterion').innerText()).trim();
+    assert.notEqual(activeAfterConfirm, activeBeforeConfirm, `${viewport.label}: the bar follows the next criterion`);
+    assert.match(activeAfterConfirm, /^Đang chọn: /, `${viewport.label}: next criterion is named too`);
 
     // --- Đánh dấu sai từ thanh dính: mở đúng hộp thoại lý do ---------------
     assert.equal(await page.getByTestId('sticky-reject').isDisabled(), false);
