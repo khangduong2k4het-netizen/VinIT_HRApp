@@ -1147,10 +1147,16 @@ export default function ApplicantDetailPage() {
         </Grid>
       </Grid>
 
-      {caps.viewCv && <CandidateProfilePanel key={applicantId} applicationId={applicantId} canEdit={caps.editProfile} onSaved={() => { loadData(); }} />}
+      {/* Hai panel anh em phải có key khác nhau: trước đây cả hai cùng key
+          {applicantId}, và React gặp hai children trùng key đã mount thêm một bản
+          "Profile ứng viên" sau mỗi lần trang render — bản cũ không được gỡ, mỗi
+          bản lại tự tải /profile của hồ sơ. Một hồ sơ 6 tiêu chí vì thế gọi
+          /profile 16 lần. Key theo loại panel để mỗi panel vẫn được dựng lại khi
+          đổi hồ sơ (dữ liệu cũ không dính sang hồ sơ mới) mà không đụng nhau. */}
+      {caps.viewCv && <CandidateProfilePanel key={`profile-${applicantId}`} applicationId={applicantId} canEdit={caps.editProfile} onSaved={() => { loadData(); }} />}
       {caps.manageHrNotes && (
         <HRNotesPanel
-          key={applicantId}
+          key={`notes-${applicantId}`}
           notes={generalNotes(notes)}
           loading={notesLoading}
           error={notesError}
