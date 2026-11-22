@@ -53,29 +53,53 @@ class Reopen(Revision):
     reason: str = Field(min_length=1, max_length=2000)
 
 
+# Scorecard có hai nguồn, loại trừ nhau (CHECK trong migration 00040):
+#   - đường share shortlist cũ  -> share_item_id NOT NULL
+#   - đường buổi phỏng vấn (B2) -> interview_id NOT NULL
+# Cả hai được chuẩn hoá về cùng một bộ cột để mọi route bên dưới không phải
+# biết mình đang đọc đường nào. `source_kind` chỉ để báo lỗi cho đúng ngữ cảnh.
+_SCORECARD_SELECT = """
+    SELECT sc.*,
+        si.share_id, s.status AS share_status, s.shared_with,
+        COALESCE(si.application_id, ia.application_id) AS application_id,
+        COALESCE(si.position_id, ia.position_id) AS position_id,
+        si.assessment_id,
+        i.status AS interview_status, i.round_number AS interview_round,
+        i.starts_at AS interview_starts_at,
+        CASE WHEN sc.interview_id IS NOT NULL THEN 'INTERVIEW' ELSE 'SHARE' END AS source_kind
+    FROM app_private.shortlist_scorecards sc
+    LEFT JOIN app_private.shortlist_share_items si ON si.share_item_id = sc.share_item_id
+    LEFT JOIN app_private.shortlist_shares s ON s.share_id = si.share_id
+    LEFT JOIN app_private.interviews i ON i.interview_id = sc.interview_id
+    LEFT JOIN app_private.applications ia ON ia.application_id = i.application_id
+"""
+
+
 def _access(db, card_id, actor, lock=False):
-    row = db.execute(text('''SELECT sc.*,si.share_id,si.application_id,si.position_id,si.assessment_id,
-        s.status AS share_status,s.shared_with
-        FROM app_private.shortlist_scorecards sc
-        JOIN app_private.shortlist_share_items si ON si.share_item_id=sc.share_item_id
-        JOIN app_private.shortlist_shares s ON s.share_id=si.share_id WHERE sc.scorecard_id=:id'''), {'id': str(card_id)}).mappings().first()
+    row = db.execute(text(_SCORECARD_SELECT + ' WHERE sc.scorecard_id=:id'), {'id': str(card_id)}).mappings().first()
     if not row: raise HTTPException(404, 'Không tìm thấy scorecard')
     if lock:
         db.execute(text('SELECT 1 FROM app_private.positions WHERE position_id=:id FOR UPDATE'), {'id': row['position_id']})
         # Re-read after the position lock: assignment, share, or purge may have changed.
-        row = db.execute(text('''SELECT sc.*,si.share_id,si.application_id,si.position_id,si.assessment_id,
-            s.status AS share_status,s.shared_with FROM app_private.shortlist_scorecards sc
-            JOIN app_private.shortlist_share_items si ON si.share_item_id=sc.share_item_id
-            JOIN app_private.shortlist_shares s ON s.share_id=si.share_id
-            WHERE sc.scorecard_id=:id FOR UPDATE OF sc'''), {'id': str(card_id)}).mappings().first()
+        row = db.execute(text(_SCORECARD_SELECT + ' WHERE sc.scorecard_id=:id FOR UPDATE OF sc'), {'id': str(card_id)}).mappings().first()
         if not row: raise HTTPException(404, 'Không tìm thấy scorecard')
     profile = db.execute(text('SELECT account_status FROM app_private.user_profiles WHERE user_id=:actor' + (' FOR SHARE' if lock else '')), {'actor': actor}).scalar_one_or_none()
     if profile != 'ACTIVE': raise HTTPException(403, 'Tài khoản không hoạt động')
     roles = set(db.execute(text('SELECT role_code FROM app_private.user_role_assignments WHERE user_id=:actor AND revoked_at IS NULL' + (' FOR SHARE' if lock else '')), {'actor': actor}).scalars())
     assignments = set(db.execute(text('SELECT position_role FROM app_private.position_assignments WHERE position_id=:position AND user_id=:actor AND revoked_at IS NULL' + (' FOR SHARE' if lock else '')), {'position': row['position_id'], 'actor': actor}).scalars())
     hr = bool(roles.intersection({'ADMIN','HR_LEAD'}) or assignments.intersection({'HR_RECRUITER','HR_LEAD'}))
-    hm = (str(row['reviewer_user_id']) == actor and str(row['shared_with']) == actor
-          and row['share_status'] == 'ACTIVE' and 'HIRING_MANAGER' in assignments)
+    if row['source_kind'] == 'INTERVIEW':
+        # Người chấm của một buổi là người có tên trong buổi đó. Không đòi
+        # `shared_with`/`share_status`: buổi phỏng vấn không đi qua share, và đòi
+        # một share ACTIVE sẽ khoá scorecard của chính người được phân công.
+        # Trạng thái buổi phải còn hiệu lực — buổi đã huỷ thì không chấm.
+        hm = (str(row['reviewer_user_id']) == actor
+              and row['interview_status'] in ('SCHEDULED', 'DONE')
+              and bool(db.execute(text("SELECT EXISTS (SELECT 1 FROM app_private.interview_participants WHERE interview_id=:i AND user_id=:a)"),
+                                  {'i': str(row['interview_id']), 'a': actor}).scalar_one()))
+    else:
+        hm = (str(row['reviewer_user_id']) == actor and str(row['shared_with']) == actor
+              and row['share_status'] == 'ACTIVE' and 'HIRING_MANAGER' in assignments)
     if not hr and not hm: raise HTTPException(403, 'Không có quyền xem scorecard')
     if lock:
         from app.services.retention import position_has_inflight_purge
@@ -86,8 +110,13 @@ def _access(db, card_id, actor, lock=False):
 
 def _detail(db, row, hr, hm):
     data = dict(row)
-    data.update({'can_edit': bool(hm and row['status'] != 'SUBMITTED'), 'can_reopen': bool(hr and row['status'] == 'SUBMITTED' and row['share_status'] == 'ACTIVE'),
-                 'can_change_due': bool(hr and row['status'] != 'SUBMITTED' and row['share_status'] == 'ACTIVE'),
+    # `share_status` là NULL với scorecard của buổi phỏng vấn. Điều kiện "share còn
+    # ACTIVE" chỉ có nghĩa ở đường share; ở đường buổi, điều kiện tương đương là
+    # buổi chưa bị huỷ.
+    active = (row['share_status'] == 'ACTIVE' if row['source_kind'] == 'SHARE'
+              else row['interview_status'] in ('SCHEDULED', 'DONE'))
+    data.update({'can_edit': bool(hm and row['status'] != 'SUBMITTED'), 'can_reopen': bool(hr and row['status'] == 'SUBMITTED' and active),
+                 'can_change_due': bool(hr and row['status'] != 'SUBMITTED' and active),
                  'can_view_history': hr,
                  'waiting_for_assessment': row['criteria_version_id'] is None,
                  'overdue': row['status'] != 'SUBMITTED' and row['due_at'] < datetime.now(timezone.utc)})
@@ -95,6 +124,13 @@ def _detail(db, row, hr, hm):
         r.rating,r.insufficient_evidence,r.comment FROM app_private.shortlist_scorecard_criteria r
         JOIN app_private.criteria_items ci ON ci.criterion_id=r.criterion_id WHERE r.scorecard_id=:id ORDER BY ci.display_order,ci.criterion_id'''), {'id': row['scorecard_id']}).mappings()]
     return data
+
+
+def _is_active_source(row) -> bool:
+    """Scorecard còn hiệu lực để thao tác: share ACTIVE, hoặc buổi chưa huỷ."""
+    if row['source_kind'] == 'INTERVIEW':
+        return row['interview_status'] in ('SCHEDULED', 'DONE')
+    return row['share_status'] == 'ACTIVE'
 
 
 def _audit(db, actor, row, action, metadata=None):
@@ -218,7 +254,7 @@ def reopen(card_id: UUID, request: Reopen, user: dict = Depends(get_current_user
         row, hr, hm = _access(db,card_id,user['user_id'],lock=True)
         if not hr: raise HTTPException(403, 'Chỉ HR được mở lại scorecard')
         if not request.reason.strip(): raise HTTPException(400, 'Cần lý do mở lại')
-        if row['share_status'] != 'ACTIVE' or row['status'] != 'SUBMITTED' or row['revision'] != request.expected_revision: raise HTTPException(409, 'Share hoặc scorecard đã thay đổi')
+        if not _is_active_source(row) or row['status'] != 'SUBMITTED' or row['revision'] != request.expected_revision: raise HTTPException(409, 'Share hoặc scorecard đã thay đổi')
         db.execute(text("UPDATE app_private.shortlist_scorecards SET status='IN_PROGRESS',submitted_at=NULL,updated_at=now(),revision=revision+1 WHERE scorecard_id=:id"), {'id': str(card_id)})
         # Reason is stored in a dedicated event table, not the shared audit chain or logs.
         db.execute(text('INSERT INTO app_private.scorecard_reopen_events(scorecard_id,actor_user_id,reason) VALUES (:id,:actor,:reason)'), {'id': str(card_id), 'actor': user['user_id'], 'reason': request.reason.strip()})
@@ -247,7 +283,7 @@ def change_due_date(card_id: UUID, request: DueDate, user: dict = Depends(get_cu
         row, hr, hm = _access(db, card_id, user['user_id'], lock=True)
         if not hr:
             raise HTTPException(403, 'Chỉ HR được đổi hạn phản hồi')
-        if row['share_status'] != 'ACTIVE' or row['status'] == 'SUBMITTED' or row['revision'] != request.expected_revision:
+        if not _is_active_source(row) or row['status'] == 'SUBMITTED' or row['revision'] != request.expected_revision:
             raise HTTPException(409, 'Share hoặc scorecard đã thay đổi')
         db.execute(text('''UPDATE app_private.shortlist_scorecards SET due_at=:due, revision=revision+1,
             updated_at=now() WHERE scorecard_id=:id'''), {'id': str(card_id), 'due': request.due_at})

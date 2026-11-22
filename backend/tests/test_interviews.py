@@ -399,3 +399,104 @@ def test_migration_restricts_rls_like_other_private_tables():
 def test_migration_cascades_from_application():
     """Xoá hồ sơ thì lịch của nó là dữ liệu chết — cascade là đúng."""
     assert "REFERENCES app_private.applications(application_id) ON DELETE CASCADE" in MIGRATION
+
+
+# ---------------------------------------------------------------------------
+# B2 — scorecard theo buổi, và đường share cũ không được vỡ
+# ---------------------------------------------------------------------------
+
+SCORECARDS = (BACKEND / "app" / "api" / "scorecards.py").read_text()
+MIG40 = (BACKEND.parent / "supabase" / "migrations" / "00040_interview_scorecards.sql").read_text()
+
+
+def test_scorecard_select_handles_both_sources():
+    """Mọi route scorecard đi qua một câu SELECT chung, nên cả hai nguồn phải
+    được chuẩn hoá về cùng bộ cột — nếu không, mỗi route phải tự rẽ nhánh và
+    sẽ có route quên."""
+    assert "LEFT JOIN app_private.interviews i ON i.interview_id = sc.interview_id" in SCORECARDS
+    assert "CASE WHEN sc.interview_id IS NOT NULL THEN 'INTERVIEW' ELSE 'SHARE' END AS source_kind" in SCORECARDS
+
+
+def test_share_path_conditions_are_kept():
+    """Đường share giữ nguyên điều kiện cũ: reviewer + shared_with + ACTIVE + vai trò HM.
+
+    Đây là chốt chống hồi quy quan trọng nhất của B2: 8 route cũ đang chạy, và
+    nới rào cho đường mới mà vô tình nới luôn đường cũ là mở quyền cho HM khác
+    không được share.
+    """
+    assert "str(row['shared_with']) == actor" in SCORECARDS
+    assert "row['share_status'] == 'ACTIVE' and 'HIRING_MANAGER' in assignments" in SCORECARDS
+
+
+def test_interview_path_does_not_require_a_share():
+    """Đường buổi không đòi `shared_with`/`share_status` — buổi không đi qua share.
+
+    Đòi share ACTIVE sẽ khoá scorecard của chính người được phân công phỏng vấn,
+    vì họ chưa từng được share shortlist.
+    """
+    body = SCORECARDS[SCORECARDS.index("if row['source_kind'] == 'INTERVIEW':"):]
+    block = body[:body.index("else:")]
+    # Bỏ comment: đoạn giải thích nói về `shared_with` để cảnh báo đúng điều
+    # đang kiểm, nên so khớp thô sẽ đỏ vì chính lời giải thích.
+    code = "\n".join(line for line in block.splitlines()
+                     if not line.strip().startswith("#"))
+    assert "interview_participants" in code
+    assert "shared_with" not in code
+    assert "share_status" not in code
+
+
+def test_interview_scorecard_requires_an_active_interview():
+    """Buổi đã huỷ thì người chấm không mở được scorecard của buổi đó."""
+    assert "row['interview_status'] in ('SCHEDULED', 'DONE')" in SCORECARDS
+
+
+def test_active_source_helper_covers_both_branches():
+    assert "def _is_active_source(row)" in SCORECARDS
+    helper = SCORECARDS[SCORECARDS.index("def _is_active_source"):SCORECARDS.index("def _audit(")]
+    assert "share_status" in helper and "interview_status" in helper
+
+
+def test_generation_requires_done_interview():
+    """Chấm trước khi phỏng vấn là chấm dự đoán."""
+    assert 'if row["status"] != "DONE":' in SOURCE
+    assert "Chỉ chấm điểm sau khi buổi phỏng vấn đã diễn ra" in SOURCE
+
+
+def test_generation_pins_the_approved_rubric_for_the_current_jd():
+    """Cùng định nghĩa `APPROVED cho đúng JD mới nhất` với /careers và criteria.py."""
+    gen = SOURCE[SOURCE.index('@router.post("/{interview_id}/scorecards"'):]
+    assert "c.status = 'APPROVED'" in gen
+    assert "ORDER BY version_number DESC LIMIT 1" in gen
+
+
+def test_only_interviewers_get_scorecards():
+    """OBSERVER dự buổi để nghe, không cho điểm."""
+    gen = SOURCE[SOURCE.index('@router.post("/{interview_id}/scorecards"'):]
+    assert "ip.participant_role = 'INTERVIEWER'" in gen
+
+
+def test_generation_is_idempotent():
+    """Gọi lại không tạo bản trùng: lọc người đã có scorecard trước khi chèn.
+
+    DB có unique index chặn, nhưng nếu code không lọc thì lần gọi thứ hai sẽ
+    nổ IntegrityError thành 500 thay vì trả "không còn ai cần tạo".
+    """
+    gen = SOURCE[SOURCE.index('@router.post("/{interview_id}/scorecards"'):]
+    assert "NOT EXISTS (SELECT 1 FROM app_private.shortlist_scorecards sc" in gen
+    assert 'raise HTTPException(409, "Không còn người phỏng vấn nào cần tạo scorecard")' in gen
+
+
+def test_migration_keeps_old_rows_valid():
+    """DROP NOT NULL chỉ nới; dòng cũ vẫn có share_item_id nên vẫn thoả CHECK."""
+    assert "ALTER COLUMN share_item_id DROP NOT NULL" in MIG40
+    assert "CHECK ((share_item_id IS NOT NULL)::int + (interview_id IS NOT NULL)::int = 1)" in MIG40
+
+
+def test_migration_prevents_duplicate_reviewer_cards():
+    assert "CREATE UNIQUE INDEX uq_scorecard_interview_reviewer" in MIG40
+
+
+def test_reviewers_see_only_their_own_cards():
+    """HR xem tất cả để biết ai chưa nộp; người phỏng vấn chỉ thấy của mình."""
+    listing = SOURCE[SOURCE.index('@router.get("/{interview_id}/scorecards"'):]
+    assert "(:see_all OR sc.reviewer_user_id = :actor)" in listing

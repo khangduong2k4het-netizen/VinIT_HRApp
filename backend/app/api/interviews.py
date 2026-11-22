@@ -24,7 +24,7 @@ Múi giờ: nhận ISO-8601 **bắt buộc có offset**, lưu UTC, trả nguyên
 ``+00:00``. Giao diện tự hiện theo giờ máy người dùng.
 """
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -477,5 +477,133 @@ def change_status(interview_id: UUID, payload: StatusChange,
     except Exception:
         db.rollback()
         raise
+    finally:
+        db.close()
+
+# ---------------------------------------------------------------------------
+# Scorecard theo buổi (B2)
+# ---------------------------------------------------------------------------
+
+@router.post("/{interview_id}/scorecards", status_code=201)
+def create_scorecards(interview_id: UUID, user: dict = Depends(get_current_user)):
+    """Sinh scorecard cho từng người phỏng vấn của buổi, từ rubric đã duyệt.
+
+    Ba điều cố ý:
+
+    * **Chỉ sinh khi buổi đã ``DONE``.** Chấm trước khi phỏng vấn là chấm dự
+      đoán; và nếu sinh sớm, người chấm mở ra thấy ô điểm cho một buổi chưa xảy
+      ra — họ sẽ điền, và dữ liệu đó không phản ánh buổi nào cả.
+    * **Rubric lấy theo đúng ``jd_version_id`` mới nhất của vị trí**, cùng định
+      nghĩa với `/careers` và `criteria.py`. Nếu rubric đổi giữa lúc đặt lịch và
+      lúc chấm, scorecard vẫn gắn bản rubric tại thời điểm sinh — không tự đổi
+      tiêu chí dưới chân người chấm.
+    * **Gọi lại không tạo bản trùng.** Unique index `(interview_id, reviewer)`
+      chặn ở DB, và ở đây lọc người đã có scorecard trước khi chèn.
+    """
+    db = SessionLocal()
+    try:
+        actor = user["user_id"]
+        _require_active(db, actor)
+        row = db.execute(text("""
+            SELECT i.interview_id, i.status, i.application_id, a.position_id,
+                   a.status AS application_status
+            FROM app_private.interviews i
+            JOIN app_private.applications a ON a.application_id = i.application_id
+            WHERE i.interview_id = :id FOR UPDATE OF i
+        """), {"id": str(interview_id)}).mappings().first()
+        if not row:
+            raise HTTPException(404, "Không tìm thấy buổi phỏng vấn")
+        _require_hr_write(db, actor, str(row["application_id"]))
+        if row["status"] != "DONE":
+            raise HTTPException(409, "Chỉ chấm điểm sau khi buổi phỏng vấn đã diễn ra (trạng thái DONE)")
+
+        criteria_version = db.execute(text("""
+            SELECT c.criteria_version_id FROM app_private.criteria_versions c
+            WHERE c.position_id = :position AND c.status = 'APPROVED'
+              AND c.jd_version_id = (SELECT jd_version_id FROM app_private.jd_versions
+                                      WHERE position_id = :position
+                                      ORDER BY version_number DESC LIMIT 1)
+            ORDER BY c.version_number DESC LIMIT 1
+        """), {"position": str(row["position_id"])}).scalar_one_or_none()
+        if not criteria_version:
+            raise HTTPException(409, "Vị trí chưa có bộ tiêu chí được duyệt cho JD hiện tại")
+
+        # Chỉ INTERVIEWER chấm; OBSERVER dự buổi để nghe, không cho điểm.
+        reviewer_ids = [str(x) for x in db.execute(text("""
+            SELECT ip.user_id FROM app_private.interview_participants ip
+            WHERE ip.interview_id = :id AND ip.participant_role = 'INTERVIEWER'
+              AND NOT EXISTS (SELECT 1 FROM app_private.shortlist_scorecards sc
+                               WHERE sc.interview_id = :id AND sc.reviewer_user_id = ip.user_id)
+            ORDER BY ip.created_at
+        """), {"id": str(interview_id)}).scalars().all()]
+        if not reviewer_ids:
+            raise HTTPException(409, "Không còn người phỏng vấn nào cần tạo scorecard")
+
+        due_at = datetime.now(timezone.utc) + timedelta(days=3)
+        created = 0
+        for reviewer in reviewer_ids:
+            card_id = db.execute(text("""
+                INSERT INTO app_private.shortlist_scorecards
+                    (share_item_id, interview_id, reviewer_user_id, criteria_version_id, due_at)
+                VALUES (NULL, :interview, :reviewer, :criteria, :due)
+                RETURNING scorecard_id
+            """), {"interview": str(interview_id), "reviewer": reviewer,
+                   "criteria": str(criteria_version), "due": due_at}).scalar_one()
+            db.execute(text("""
+                INSERT INTO app_private.shortlist_scorecard_criteria(scorecard_id, criterion_id)
+                SELECT :card, ci.criterion_id FROM app_private.criteria_items ci
+                WHERE ci.criteria_version_id = :criteria
+            """), {"card": card_id, "criteria": str(criteria_version)})
+            created += 1
+
+        _audit(db, actor, "CREATE_INTERVIEW_SCORECARDS", interview_id, row["position_id"],
+               {"reviewers": created, "criteria_version_id": str(criteria_version)})
+        db.commit()
+        return {"interview_id": str(interview_id), "created": created,
+                "criteria_version_id": str(criteria_version)}
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+@router.get("/{interview_id}/scorecards")
+def list_scorecards(interview_id: UUID, user: dict = Depends(get_current_user)):
+    """Danh sách scorecard của buổi, kèm trạng thái nộp của từng người.
+
+    HR xem được tất cả (để biết ai chưa nộp); người phỏng vấn chỉ thấy của mình.
+    """
+    db = SessionLocal()
+    try:
+        actor = user["user_id"]
+        _require_active(db, actor)
+        row = db.execute(text("""
+            SELECT i.application_id, a.position_id FROM app_private.interviews i
+            JOIN app_private.applications a ON a.application_id = i.application_id
+            WHERE i.interview_id = :id
+        """), {"id": str(interview_id)}).mappings().first()
+        if not row:
+            raise HTTPException(404, "Không tìm thấy buổi phỏng vấn")
+        _, is_hr = _actor_position_access(db, actor, str(row["application_id"]))
+        is_participant = bool(db.execute(text("""
+            SELECT EXISTS (SELECT 1 FROM app_private.interview_participants
+                            WHERE interview_id = :id AND user_id = :actor)
+        """), {"id": str(interview_id), "actor": actor}).scalar_one())
+        if not is_hr and not is_participant:
+            raise HTTPException(403, "Không có quyền xem scorecard của buổi này")
+        return [dict(r) for r in db.execute(text("""
+            SELECT sc.scorecard_id, sc.reviewer_user_id, sc.status, sc.due_at,
+                   sc.submitted_at, sc.revision, sc.overall_recommendation,
+                   up.display_name AS reviewer_name
+            FROM app_private.shortlist_scorecards sc
+            LEFT JOIN app_private.user_profiles up ON up.user_id = sc.reviewer_user_id
+            WHERE sc.interview_id = :id
+              AND (:see_all OR sc.reviewer_user_id = :actor)
+            ORDER BY sc.created_at, sc.scorecard_id
+        """), {"id": str(interview_id), "see_all": is_hr, "actor": actor}).mappings()]
     finally:
         db.close()
