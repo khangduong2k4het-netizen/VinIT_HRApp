@@ -9,6 +9,55 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-21 — Baseline: vòng duyệt một hồ sơ 6 tiêu chí
+
+**Đo trước khi sửa gì.** Ba lần chạy `frontend/tests/measure-review-loop.e2e.cjs` trên mock
+e2e sẵn có (`installMockApi`), hồ sơ app-0 được nối thêm c5/c6 ngay trong response của mock
+để có đúng 6 tiêu chí đều đang chờ — không sửa fixture dùng chung, không thêm endpoint.
+Cùng một kịch bản mỗi lần: mở hồ sơ trong hàng đợi `NEEDS_VERIFICATION` → bấm `1` cho tới
+khi hết tiêu chí chờ → bấm `n` sang hồ sơ kế → đọc event `recordUxEvent` trong
+`localStorage['hra-ux-events']`. Đếm request bằng `page.on('request')` chỉ trên trang đo.
+
+| Số đo | Lần 1 | Lần 2 | Lần 3 | Trung vị |
+|---|---|---|---|---|
+| Số phím cho cả vòng | 7 | 7 | 7 | **7** |
+| — phím xác nhận (`1`) | 6 | 6 | 6 | 6 |
+| — phím sang hồ sơ kế (`n`) | 1 | 1 | 1 | 1 |
+| — phím thừa | 0 | 0 | 0 | 0 |
+| Tổng request trong vòng | 44 | 43 | 42 | **43** |
+| — GET | 38 | 37 | 36 | 37 |
+| — POST (ghi review) | 6 | 6 | 6 | 6 |
+| Request để mở hồ sơ | 15 | 15 | 13 | 15 |
+| Request phát sinh sau mỗi lần xác nhận | 4,8 | 4,7 | 4,8 | ~4,7 |
+| 6 lần xác nhận (ms) | 1132 | 926 | 744 | **926** |
+| Mỗi lần xác nhận (ms) | 189 | 154 | 124 | **154** |
+| Từ hồ sơ này sang hồ sơ kế (ms), đồng hồ script | 294 | 247 | 257 | **257** |
+| Khoảng lặng `PROFILE_CLOSED` → `PROFILE_OPENED` (ms) | 7 | 3 | 4 | 4 |
+| Mở hồ sơ tới lúc dùng được (ms) | 1809 | 1506 | 1704 | 1704 |
+| Thời gian ở trong hồ sơ (`duration_ms`) | 2526 | 2157 | 2064 | 2157 |
+
+**Đọc số.**
+
+- Vòng 6 tiêu chí tốn **7 phím**: mỗi tiêu chí một phím, không có phím thừa — vì xác nhận
+  tự nhảy sang tiêu chí chờ kế tiếp, và `n` sang hồ sơ sau. Đây là mức sàn cho kịch bản
+  "mỗi tiêu chí một quyết định riêng"; muốn ít hơn nữa thì phải gộp quyết định, không phải
+  bớt phím điều hướng.
+- **43 request cho một hồ sơ 6 tiêu chí** là chỗ còn nhiều: chỉ 6 request là ghi thật
+  (một POST mỗi tiêu chí). Trong 37 GET, `GET /v1/applications/app-0/profile` bị gọi **16
+  lần** — 1–2 lần lúc mở và thêm 1–2 lần sau *mỗi* lần xác nhận, tức khoảng 2,3 request
+  thừa cho mỗi tiêu chí. Hồ sơ (`/v1/applications/app-0`), ghi chú riêng và lịch sử trạng
+  thái thì **không** bị gọi lại sau khi xác nhận — phần bỏ tải lại toàn hồ sơ vẫn giữ.
+- Thời gian **từ hồ sơ này sang hồ sơ kế là ~257 ms** (đồng hồ script, tới khi hồ sơ mới
+  dựng xong). Khoảng lặng giữa hai event `recordUxEvent` chỉ 4 ms vì `PROFILE_OPENED` bắn
+  ngay khi component mount, trước khi dữ liệu về — nên số dùng để so là 257 ms, còn 4 ms
+  chỉ nói rằng điều hướng nội bộ không có quãng trắng.
+- Mở một hồ sơ tốn ~1,7 s và HR ở trong hồ sơ ~2,2 s: với hồ sơ 6 tiêu chí, phần lớn thời
+  gian là chờ mở, không phải ra quyết định.
+
+**Cách đo lại.** `HRA_E2E_BASE_URL=… node tests/measure-review-loop.e2e.cjs` in ra một dòng
+`BASELINE {json}` (thêm `HRA_MEASURE_DEBUG=1` để in request phát sinh sau từng lần xác nhận).
+Số phụ thuộc máy chạy nên so theo trung vị của 3 lần, không so một lần.
+
 ## 2026-11-21 — Duyệt một tiêu chí trên nhiều hồ sơ
 
 **Vấn đề.** Khi một tiêu chí bị nghi trên cả loạt hồ sơ (ví dụ "thiết kế cơ sở dữ
