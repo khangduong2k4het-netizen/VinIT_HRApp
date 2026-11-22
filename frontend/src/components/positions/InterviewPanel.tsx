@@ -17,6 +17,7 @@
  *    "đã huỷ rồi xếp lại" thay vì che mất lần huỷ.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Alert, Autocomplete, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent,
   DialogTitle, MenuItem, TextField, Typography,
@@ -76,6 +77,7 @@ export function vietnamLocalToUtc(local: string): string {
 
 export default function InterviewPanel({ applicationId }: { applicationId: string }) {
   const { t } = useI18n();
+  const router = useRouter();
   const [items, setItems] = useState<Interview[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -202,6 +204,14 @@ export default function InterviewPanel({ applicationId }: { applicationId: strin
           </>}
           {item.status === 'DONE' && item.total_scorecards === 0 && (
             <Button size="small" onClick={() => void createScorecards(item)}>{t('Tạo phiếu chấm điểm')}</Button>
+          )}
+          {/* Trước đây bấm "Tạo phiếu chấm điểm" xong là hết đường: phiếu đã có
+              trong DB nhưng không nút nào mở ra được. Nút này là lối đi tiếp. */}
+          {item.total_scorecards > 0 && (
+            <Button size="small" variant="contained"
+              onClick={() => router.push(`/interviews/${item.interview_id}`)}>
+              {item.submitted_scorecards < item.total_scorecards ? t('Chấm điểm') : t('Xem phiếu chấm')}
+            </Button>
           )}
         </Box>
       </Box>)}

@@ -18,6 +18,7 @@ import {
 } from '@mui/material';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import { useRouter } from 'next/navigation';
 import { useI18n } from '@/i18n/I18nProvider';
 import { interviewsApi } from '@/lib/api';
 import { formatVietnamTime } from '@/components/positions/InterviewPanel';
@@ -32,6 +33,10 @@ type Interview = {
   round_number: number;
   status: 'SCHEDULED' | 'DONE' | 'CANCELLED' | 'NO_SHOW';
   starts_at: string;
+  // Hai trường này API đã trả từ B1 (_INTERVIEW_SELECT) nhưng kiểu ở đây thiếu,
+  // nên trước đó không màn nào dùng được chúng dù dữ liệu vẫn về.
+  total_scorecards: number;
+  submitted_scorecards: number;
   ends_at: string;
   location_kind: 'ONSITE' | 'ONLINE' | 'PHONE';
   location_text: string | null;
@@ -45,6 +50,7 @@ const STATUS_LABEL: Record<Interview['status'], string> = {
 
 export default function MyInterviewsPage() {
   const { t } = useI18n();
+  const router = useRouter();
   const [weekStart, setWeekStart] = useState(() => mondayOf(new Date()));
   const [items, setItems] = useState<Interview[]>([]);
   const [loading, setLoading] = useState(true);
@@ -104,6 +110,7 @@ export default function MyInterviewsPage() {
           <TableCell>{t('Vòng')}</TableCell>
           <TableCell>{t('Hình thức')}</TableCell>
           <TableCell>{t('Trạng thái')}</TableCell>
+          <TableCell>{t('Phiếu chấm')}</TableCell>
         </TableRow></TableHead>
         <TableBody>
           {days.map(day => {
@@ -115,7 +122,12 @@ export default function MyInterviewsPage() {
               </TableCell>
               <TableCell colSpan={6} sx={{ color: 'text.disabled' }}>{t('Không có buổi nào')}</TableCell>
             </TableRow>;
-            return dayItems.map((item, index) => <TableRow key={item.interview_id} hover>
+            // Cả dòng bấm được: người phỏng vấn vào đây để mở phiếu chấm của
+            // mình. Không có lối này thì họ biết lịch nhưng không có đường tới
+            // việc phải làm.
+            return dayItems.map((item, index) => <TableRow key={item.interview_id} hover
+              onClick={() => router.push(`/interviews/${item.interview_id}`)}
+              sx={{ cursor: 'pointer' }}>
               <TableCell>
                 {index === 0 && new Intl.DateTimeFormat('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', weekday: 'short', day: '2-digit', month: '2-digit' }).format(day)}
               </TableCell>
@@ -129,6 +141,15 @@ export default function MyInterviewsPage() {
               <TableCell>
                 <Chip size="small" variant="outlined" label={t(STATUS_LABEL[item.status])}
                   color={item.status === 'SCHEDULED' ? 'info' : item.status === 'DONE' ? 'success' : 'default'} />
+              </TableCell>
+              <TableCell>
+                {/* Chỉ hiện khi buổi đã có phiếu: buổi chưa tới mà hiện "0/3" thì
+                    trông như đang trễ hạn trong khi chưa ai phải làm gì. */}
+                {item.total_scorecards > 0 && (
+                  <Typography variant="caption" color={item.submitted_scorecards < item.total_scorecards ? 'warning.main' : 'text.secondary'}>
+                    {t('Đã nộp {0}/{1}').replace('{0}', String(item.submitted_scorecards)).replace('{1}', String(item.total_scorecards))}
+                  </Typography>
+                )}
               </TableCell>
             </TableRow>);
           })}

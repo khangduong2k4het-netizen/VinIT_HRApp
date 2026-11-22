@@ -285,6 +285,9 @@ export const scorecardsApi = {
   reminders: () => apiClient.get('/scorecards/reminders'),
   reopenHistory: (id: string) => apiClient.get(`/scorecards/${id}/reopen-history`),
   forShare: (shareId: string) => apiClient.get(`/scorecards/share/${shareId}`),
+  // Cùng dạng dữ liệu với forShare, nhưng nguồn là buổi phỏng vấn: HR thấy cả
+  // buổi, người phỏng vấn chỉ thấy phiếu của mình.
+  forInterview: (interviewId: string) => apiClient.get(`/scorecards/interview/${interviewId}`),
   save: (id: string, data: unknown) => apiClient.put(`/scorecards/${id}`, data),
   submit: (id: string, expectedRevision: number) => apiClient.post(`/scorecards/${id}/submit`, { expected_revision: expectedRevision }),
   reopen: (id: string, expectedRevision: number, reason: string) => apiClient.post(`/scorecards/${id}/reopen`, { expected_revision: expectedRevision, reason }),

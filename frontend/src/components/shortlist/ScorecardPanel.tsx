@@ -14,7 +14,29 @@ type Criterion = { criterion_id: string; name: string; description: string; rati
 type Card = { scorecard_id: string; application_id: string; criteria_version_id: string | null; assessment_id: string | null; status: string; revision: number; due_at: string; overdue: boolean; waiting_for_assessment: boolean; can_edit: boolean; can_reopen: boolean; can_change_due: boolean; can_view_history: boolean; overall_recommendation: string | null; strengths: string | null; concerns: string | null; criteria: Criterion[] };
 type Candidate = { application_id: string; candidate_name?: string; display_name?: string };
 
-export default function ScorecardPanel({ shareId, candidates, selectedApplicationId, onAccessLost, onDirtyChange, onProgress }: { shareId: string; candidates: Candidate[]; selectedApplicationId?: string; onAccessLost?: () => void; onDirtyChange?: (dirty: boolean) => void; onProgress?: (completed: Record<string, number>) => void }) {
+/**
+ * Nguồn scorecard. Hai đường tồn tại song song và **khác nhau ở một chỗ duy
+ * nhất**: gọi API nào để lấy danh sách.
+ *
+ * - `{ kind: 'share', shareId }` — đường shortlist cũ: HM nhận share rồi chấm.
+ * - `{ kind: 'interview', interviewId }` — buổi phỏng vấn: người có tên trong
+ *   buổi chấm, không đi qua share.
+ *
+ * Gộp thành một tham số thay vì hai prop rời (`shareId?`, `interviewId?`) để
+ * không bao giờ có trạng thái "cả hai" hoặc "không cái nào" — kiểu sai đó bắt
+ * buộc mọi chỗ dùng phải kiểm tra null, và chỗ nào quên là một lỗi runtime.
+ */
+export type ScorecardSource = { kind: 'share'; shareId: string } | { kind: 'interview'; interviewId: string };
+
+/** Khoá gốc cho nháp và cho việc xoá nháp khi mất quyền. */
+function sourceKey(source: ScorecardSource): string {
+  return source.kind === 'share' ? source.shareId : `interview:${source.interviewId}`;
+}
+
+export default function ScorecardPanel({ source, candidates, selectedApplicationId, onAccessLost, onDirtyChange, onProgress }: { source: ScorecardSource; candidates: Candidate[]; selectedApplicationId?: string; onAccessLost?: () => void; onDirtyChange?: (dirty: boolean) => void; onProgress?: (completed: Record<string, number>) => void }) {
+  // `shareId` cũ đổi tên thành `draftScope`: nó không còn là share trong đường
+  // buổi phỏng vấn, và giữ tên cũ sẽ khiến người đọc sau tưởng vẫn phải có share.
+  const draftScope = sourceKey(source);
   const { t, dateLocale } = useI18n();
   const [cards, setCards] = useState<Card[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,20 +55,23 @@ export default function ScorecardPanel({ shareId, candidates, selectedApplicatio
   useEffect(() => {
     let live = true;
     setLoading(true); setCards([]); setDirty({}); setHistory({}); setError(''); setRestored({}); setDraftNotice('');
-    scorecardsApi.forShare(shareId).then(res => {
+    const load = source.kind === 'share'
+      ? () => scorecardsApi.forShare(source.shareId)
+      : () => scorecardsApi.forInterview(source.interviewId);
+    load().then(res => {
       if (!live) return;
       const restoredAt: Record<string, number> = {};
       const withDrafts = (res.data as Card[]).map(card => {
-        const draft = readDraft<{ revision: number; card: Partial<Card> }>(scorecardDraftKey(shareId, card.scorecard_id));
+        const draft = readDraft<{ revision: number; card: Partial<Card> }>(scorecardDraftKey(draftScope, card.scorecard_id));
         if (!draft) return card;
         if (draft.revision !== card.revision || !card.can_edit) {
-          removeDraft(scorecardDraftKey(shareId, card.scorecard_id));
+          removeDraft(scorecardDraftKey(draftScope, card.scorecard_id));
           return card;
         }
         restoredAt[card.scorecard_id] = draft.revision;
         const merged = { ...card, ...draft.card, scorecard_id: card.scorecard_id, application_id: card.application_id, revision: card.revision } as Card;
         // A draft that no longer differs from the server copy is not worth restoring.
-        if (JSON.stringify(merged) === JSON.stringify(card)) { removeDraft(scorecardDraftKey(shareId, card.scorecard_id)); return card; }
+        if (JSON.stringify(merged) === JSON.stringify(card)) { removeDraft(scorecardDraftKey(draftScope, card.scorecard_id)); return card; }
         return merged;
       });
       setCards(withDrafts);
@@ -57,12 +82,13 @@ export default function ScorecardPanel({ shareId, candidates, selectedApplicatio
     })
       .catch((err: any) => {
         if (!live) return;
-        if ([403, 404].includes(err.response?.status)) { purgeShareDrafts(shareId); onAccessLost?.(); }
+        if ([403, 404].includes(err.response?.status)) { purgeShareDrafts(draftScope); onAccessLost?.(); }
         else setError(t('Không thể tải scorecard.'));
       })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
-  }, [shareId, t, onAccessLost]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- `source` là object mới mỗi render
+  }, [sourceKey(source), t, onAccessLost]);
 
   const persistTimer = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const update = (id: string, patch: Partial<Card>) => {
@@ -74,7 +100,7 @@ export default function ScorecardPanel({ shareId, candidates, selectedApplicatio
         // Debounce so typing does not hit localStorage on every keystroke.
         if (persistTimer.current[id]) clearTimeout(persistTimer.current[id]);
         persistTimer.current[id] = setTimeout(() => {
-          const ok = writeDraft(scorecardDraftKey(shareId, id), { revision: card.revision, card: {
+          const ok = writeDraft(scorecardDraftKey(draftScope, id), { revision: card.revision, card: {
             overall_recommendation: card.overall_recommendation, strengths: card.strengths,
             concerns: card.concerns, criteria: card.criteria,
           } });
@@ -100,7 +126,7 @@ export default function ScorecardPanel({ shareId, candidates, selectedApplicatio
       setDirty(current => ({ ...current, [result.data.scorecard_id]: false }));
       // The server accepted the work, so the local copy is no longer needed.
       clearTimer(result.data.scorecard_id);
-      removeDraft(scorecardDraftKey(shareId, result.data.scorecard_id));
+      removeDraft(scorecardDraftKey(draftScope, result.data.scorecard_id));
       setRestored(current => { const next = { ...current }; delete next[result.data.scorecard_id]; return next; });
       setDraftNotice('');
       // Previously a successful save was silent: the spinner stopped and nothing
@@ -112,14 +138,14 @@ export default function ScorecardPanel({ shareId, candidates, selectedApplicatio
   };
   const discardDraft = async (card: Card) => {
     clearTimer(card.scorecard_id);
-    removeDraft(scorecardDraftKey(shareId, card.scorecard_id));
+    removeDraft(scorecardDraftKey(draftScope, card.scorecard_id));
     setRestored(current => { const next = { ...current }; delete next[card.scorecard_id]; return next; });
     setDraftNotice('');
     // Refetch this share so the screen shows the saved server values again
     // without throwing away edits pending on other scorecards.
     try {
       setBusy(true);
-      const res = await scorecardsApi.forShare(shareId);
+      const res = source.kind === 'share' ? await scorecardsApi.forShare(source.shareId) : await scorecardsApi.forInterview(source.interviewId);
       const fresh = (res.data as Card[]).find(c => c.scorecard_id === card.scorecard_id);
       if (fresh) setCards(current => current.map(c => c.scorecard_id === card.scorecard_id ? fresh : c));
       setDirty(current => ({ ...current, [card.scorecard_id]: false }));
@@ -154,7 +180,7 @@ export default function ScorecardPanel({ shareId, candidates, selectedApplicatio
     {draftNotice && <Alert severity="info" sx={{ my: 1 }} onClose={() => setDraftNotice('')}>{t(draftNotice)}</Alert>}
     {storageBlocked && <Alert severity="warning" sx={{ my: 1 }}>{t('Trình duyệt không cho lưu nháp trên máy này. Nháp scorecard chỉ tồn tại đến khi rời trang hoặc tải lại.')}</Alert>}
     {loading && <CircularProgress size={22} />}
-    {!loading && !error && !cards.length && <Typography variant="body2">{t('Share cũ không có scorecard.')}</Typography>}
+    {!loading && !error && !cards.length && <Typography variant="body2">{t(source.kind === 'share' ? 'Share cũ không có scorecard.' : 'Buổi phỏng vấn chưa có phiếu chấm điểm. Người phụ trách cần bấm "Tạo phiếu chấm điểm" sau khi buổi đã diễn ra.')}</Typography>}
     {cards.map(card => <Paper key={card.scorecard_id} variant="outlined" sx={{ p: 2, my: 2, display: selectedApplicationId && card.application_id !== selectedApplicationId ? 'none' : undefined }}>
       <Stack spacing={1.5}>
         <Typography fontWeight={700}>{candidates.find(c => c.application_id === card.application_id)?.candidate_name || candidates.find(c => c.application_id === card.application_id)?.display_name || t('Ứng viên')}</Typography>

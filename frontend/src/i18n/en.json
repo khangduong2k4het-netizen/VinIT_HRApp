@@ -1900,5 +1900,13 @@
   "Huỷ buổi": "Huỷ buổi",
   "Tạo phiếu chấm điểm": "Tạo phiếu chấm điểm",
   "Giờ hẹn hiện theo giờ Việt Nam (GMT+7).": "Giờ hẹn hiện theo giờ Việt Nam (GMT+7).",
-  "Đặt lịch phỏng vấn": "Đặt lịch phỏng vấn"
+  "Đặt lịch phỏng vấn": "Đặt lịch phỏng vấn",
+  "Không tải được buổi phỏng vấn.": "Không tải được buổi phỏng vấn.",
+  "Buổi này đã bị huỷ nên không chấm điểm được. Nếu cần phỏng vấn lại, tạo buổi mới cùng vòng trong hồ sơ ứng viên.": "Buổi này đã bị huỷ nên không chấm điểm được. Nếu cần phỏng vấn lại, tạo buổi mới cùng vòng trong hồ sơ ứng viên.",
+  "Phiếu chấm": "Phiếu chấm",
+  "Đã nộp {0}/{1}": "Đã nộp {0}/{1}",
+  "Chấm điểm": "Chấm điểm",
+  "Xem phiếu chấm": "Xem phiếu chấm",
+  "Không có quyền xem buổi phỏng vấn này, hoặc buổi đã bị xoá.": "Không có quyền xem buổi phỏng vấn này, hoặc buổi đã bị xoá.",
+  "Buổi phỏng vấn chưa có phiếu chấm điểm. Người phụ trách cần bấm \"Tạo phiếu chấm điểm\" sau khi buổi đã diễn ra.": "Buổi phỏng vấn chưa có phiếu chấm điểm. Người phụ trách cần bấm \"Tạo phiếu chấm điểm\" sau khi buổi đã diễn ra."
 }

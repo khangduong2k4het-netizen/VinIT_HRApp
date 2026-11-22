@@ -140,6 +140,57 @@ def _audit(db, actor, row, action, metadata=None):
         {'actor': actor, 'action': action, 'id': row['scorecard_id'], 'position': row['position_id'], 'metadata': json.dumps(metadata or {})})
 
 
+@router.get('/interview/{interview_id}')
+def for_interview(interview_id: UUID, user: dict = Depends(get_current_user)):
+    """Scorecard của một buổi phỏng vấn, đúng dạng ``_detail`` mà màn chấm cần.
+
+    Vì sao cần route riêng thay vì dùng ``GET /interviews/{id}/scorecards``:
+    route kia trả **bảng tóm tắt** (ai nộp, ai chưa) để HR nhìn một dòng một
+    người. Màn chấm cần **nội dung** từng tiêu chí kèm cờ ``can_edit``. Dùng bảng
+    tóm tắt để dựng màn chấm thì phải gọi thêm từng scorecard một — N+1, và cờ
+    quyền lại do client tự suy, đúng thứ đã gây lỗi ở chỗ khác.
+
+    Quyền do ``_access`` quyết từng phiếu: HR thấy cả buổi, người phỏng vấn chỉ
+    thấy phiếu của mình, người ngoài 403 ngay phiếu đầu tiên.
+
+    Đường dẫn có tiền tố số nhiều ``/interview/`` để không đụng
+    ``/{card_id}``: FastAPI khớp theo thứ tự khai báo, và ``interview`` không
+    phải UUID nên lọt xuống ``/{card_id}`` sẽ ra 422 thay vì 404 dễ hiểu.
+    """
+    db = SessionLocal()
+    try:
+        ids = db.execute(text("""
+            SELECT sc.scorecard_id FROM app_private.shortlist_scorecards sc
+            WHERE sc.interview_id = :id ORDER BY sc.created_at, sc.scorecard_id
+        """), {"id": str(interview_id)}).scalars().all()
+        if not ids:
+            # Phân biệt "buổi không tồn tại" với "buổi chưa có phiếu nào": cái
+            # đầu là 404, cái sau là danh sách rỗng. Gộp làm một thì màn hình
+            # không biết nên báo "không có quyền" hay "chưa sinh phiếu".
+            exists = db.execute(text(
+                "SELECT EXISTS (SELECT 1 FROM app_private.interviews WHERE interview_id = :id)"
+            ), {"id": str(interview_id)}).scalar_one()
+            if not exists:
+                raise HTTPException(404, "Không tìm thấy buổi phỏng vấn")
+            # Buổi có thật nhưng chưa sinh phiếu: vẫn phải kiểm quyền, nếu không
+            # người ngoài dò được sự tồn tại của buổi qua mã 200 + [].
+            row = db.execute(text("""
+                SELECT i.application_id FROM app_private.interviews i WHERE i.interview_id = :id
+            """), {"id": str(interview_id)}).mappings().first()
+            from app.api.interviews import _actor_position_access
+            _, is_hr = _actor_position_access(db, user["user_id"], str(row["application_id"]))
+            is_participant = bool(db.execute(text("""
+                SELECT EXISTS (SELECT 1 FROM app_private.interview_participants
+                                WHERE interview_id = :id AND user_id = :actor)
+            """), {"id": str(interview_id), "actor": user["user_id"]}).scalar_one())
+            if not is_hr and not is_participant:
+                raise HTTPException(403, "Không có quyền xem scorecard của buổi này")
+            return []
+        return [_detail(db, *_access(db, item, user["user_id"])) for item in ids]
+    finally:
+        db.close()
+
+
 @router.get('/share/{share_id}')
 def for_share(share_id: UUID, user: dict = Depends(get_current_user)):
     db=SessionLocal()
@@ -155,30 +206,68 @@ def for_share(share_id: UUID, user: dict = Depends(get_current_user)):
 
 @router.get('/reminders')
 def reminders(user: dict = Depends(get_current_user)):
-    """Return only active, authorized share-level deadline counts, never feedback."""
+    """Nhắc hạn scorecard, gộp **cả hai nguồn**: share và buổi phỏng vấn.
+
+    Trước đây câu này ``JOIN`` vào ``shortlist_share_items`` nên scorecard sinh
+    từ buổi phỏng vấn **không bao giờ** xuất hiện, dù đã quá hạn: ``JOIN`` trong
+    loại mọi dòng có ``share_item_id IS NULL``. Hậu quả: dashboard (đọc thẳng
+    bảng) báo "2 phiếu quá hạn" còn màn này im lặng — hai chỗ nói khác nhau, và
+    người phỏng vấn không nhận được nhắc nào đúng lúc.
+
+    Hai nguồn có "vị trí" và "quyền xem" khác nhau, nên phải ``UNION`` hai nhánh
+    đã lọc riêng thay vì một ``LEFT JOIN``: gộp bằng ``LEFT JOIN`` rồi lọc quyền
+    sẽ phải viết điều kiện kiểu "hoặc share ACTIVE, hoặc buổi chưa huỷ" ở ba chỗ,
+    và mỗi chỗ là một cơ hội đặt sai dấu ngoặc.
+    """
     db = SessionLocal()
     try:
         actor = user['user_id']
         if db.execute(text('SELECT account_status FROM app_private.user_profiles WHERE user_id=:actor'), {'actor': actor}).scalar_one_or_none() != 'ACTIVE':
             raise HTTPException(403, 'Tài khoản không hoạt động')
         rows = db.execute(text("""
-            SELECT s.share_id, s.position_id, p.position_code, p.title AS position_title,
-                COUNT(*) FILTER (WHERE sc.due_at < now()) AS overdue_count,
-                COUNT(*) FILTER (WHERE sc.due_at >= now()) AS due_soon_count,
-                MIN(sc.due_at) AS earliest_due_at
-            FROM app_private.shortlist_scorecards sc
-            JOIN app_private.shortlist_share_items si ON si.share_item_id=sc.share_item_id
-            JOIN app_private.shortlist_shares s ON s.share_id=si.share_id
-            JOIN app_private.positions p ON p.position_id=s.position_id
-            WHERE s.status='ACTIVE' AND sc.status <> 'SUBMITTED' AND sc.due_at <= now() + interval '24 hours'
-            AND (
-                EXISTS (SELECT 1 FROM app_private.user_role_assignments ur WHERE ur.user_id=:actor AND ur.revoked_at IS NULL AND ur.role_code IN ('ADMIN','HR_LEAD'))
-                OR EXISTS (SELECT 1 FROM app_private.position_assignments pa WHERE pa.position_id=s.position_id AND pa.user_id=:actor AND pa.revoked_at IS NULL AND pa.position_role IN ('HR_RECRUITER','HR_LEAD'))
-                OR (s.shared_with=:actor AND sc.reviewer_user_id=:actor AND EXISTS
-                    (SELECT 1 FROM app_private.position_assignments pa WHERE pa.position_id=s.position_id AND pa.user_id=:actor AND pa.position_role='HIRING_MANAGER' AND pa.revoked_at IS NULL))
+            WITH nhac AS (
+                -- Nguồn 1: share shortlist
+                SELECT s.share_id, NULL::uuid AS interview_id, s.position_id,
+                       p.position_code, p.title AS position_title,
+                       COALESCE(sc.due_at, now()) AS due_at
+                FROM app_private.shortlist_scorecards sc
+                JOIN app_private.shortlist_share_items si ON si.share_item_id=sc.share_item_id
+                JOIN app_private.shortlist_shares s ON s.share_id=si.share_id
+                JOIN app_private.positions p ON p.position_id=s.position_id
+                WHERE s.status='ACTIVE' AND sc.status <> 'SUBMITTED' AND sc.due_at <= now() + interval '24 hours'
+                AND (
+                    EXISTS (SELECT 1 FROM app_private.user_role_assignments ur WHERE ur.user_id=:actor AND ur.revoked_at IS NULL AND ur.role_code IN ('ADMIN','HR_LEAD'))
+                    OR EXISTS (SELECT 1 FROM app_private.position_assignments pa WHERE pa.position_id=s.position_id AND pa.user_id=:actor AND pa.revoked_at IS NULL AND pa.position_role IN ('HR_RECRUITER','HR_LEAD'))
+                    OR (s.shared_with=:actor AND sc.reviewer_user_id=:actor AND EXISTS
+                        (SELECT 1 FROM app_private.position_assignments pa WHERE pa.position_id=s.position_id AND pa.user_id=:actor AND pa.position_role='HIRING_MANAGER' AND pa.revoked_at IS NULL))
+                )
+                UNION ALL
+                -- Nguồn 2: buổi phỏng vấn. Buổi đã huỷ/không đến thì không nhắc.
+                SELECT NULL::uuid AS share_id, i.interview_id, a.position_id,
+                       p.position_code, p.title AS position_title,
+                       COALESCE(sc.due_at, now()) AS due_at
+                FROM app_private.shortlist_scorecards sc
+                JOIN app_private.interviews i ON i.interview_id=sc.interview_id
+                JOIN app_private.applications a ON a.application_id=i.application_id
+                JOIN app_private.positions p ON p.position_id=a.position_id
+                WHERE i.status IN ('SCHEDULED','DONE') AND sc.status <> 'SUBMITTED'
+                  AND sc.due_at <= now() + interval '24 hours'
+                AND (
+                    -- HR phụ trách vị trí thấy mọi phiếu của buổi
+                    EXISTS (SELECT 1 FROM app_private.user_role_assignments ur WHERE ur.user_id=:actor AND ur.revoked_at IS NULL AND ur.role_code IN ('ADMIN','HR_LEAD'))
+                    OR EXISTS (SELECT 1 FROM app_private.position_assignments pa WHERE pa.position_id=a.position_id AND pa.user_id=:actor AND pa.revoked_at IS NULL AND pa.position_role IN ('HR_RECRUITER','HR_LEAD'))
+                    -- người chấm thấy phiếu của chính mình
+                    OR (sc.reviewer_user_id=:actor AND EXISTS
+                        (SELECT 1 FROM app_private.interview_participants ip WHERE ip.interview_id=i.interview_id AND ip.user_id=:actor))
+                )
             )
-            GROUP BY s.share_id,s.position_id,p.position_code,p.title
-            ORDER BY MIN(sc.due_at),s.share_id LIMIT 100
+            SELECT share_id, interview_id, position_id, position_code, position_title,
+                COUNT(*) FILTER (WHERE due_at < now()) AS overdue_count,
+                COUNT(*) FILTER (WHERE due_at >= now()) AS due_soon_count,
+                MIN(due_at) AS earliest_due_at
+            FROM nhac
+            GROUP BY share_id, interview_id, position_id, position_code, position_title
+            ORDER BY MIN(due_at), position_id LIMIT 100
         """), {'actor': actor}).mappings().all()
         return [dict(row) for row in rows]
     finally:

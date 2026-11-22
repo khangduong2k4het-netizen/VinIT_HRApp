@@ -163,7 +163,7 @@ export default function ShareWorkspace() {
           <Button component={Link} href={`/positions/${share.position_id}/applicants/${candidate.application_id}?share=${encodeURIComponent(shareId)}`} sx={{ ml: 1, mb: 1 }} size="small">{t('Xem hồ sơ ứng viên')}</Button><br />
           <Chip size="small" sx={{ mb: 1 }} label={matchingLabel(candidate.matching_status)} />
         </>}
-        <ScorecardPanel shareId={shareId} candidates={share.applications || []} selectedApplicationId={selected} onAccessLost={accessLost} onDirtyChange={setDirty}
+        <ScorecardPanel source={{ kind: 'share', shareId }} candidates={share.applications || []} selectedApplicationId={selected} onAccessLost={accessLost} onDirtyChange={setDirty}
           onProgress={(progress) => setScorecardProgress(current => {
             const keys = Object.keys(progress);
             return keys.length === Object.keys(current).length && keys.every(key => current[key] === progress[key]) ? current : progress;
