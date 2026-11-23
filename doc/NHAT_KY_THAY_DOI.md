@@ -256,6 +256,14 @@ nghĩa quyết định, trùng từ với hộp thoại, và không phải học
 120px. Nhãn đầy đủ vốn đã vừa một hàng ở 390px vì hai nút này không có icon — bản rút gọn không
 cần thiết cho bố cục, chỉ cho cách gọi tên.
 
+**Bổ sung cùng ngày — phép kiểm nay phủ bốn khổ.** `sticky-review-actions` trước chỉ chạy 390px và
+1440px, tức hai đầu; khoảng giữa không ai kiểm. Nay chạy 390×844, 768×1024, 1024×768, 1440×900 với
+ba điều kiện cho mỗi khổ: nhãn đúng `Xác nhận` / `Đánh dấu sai` và **giống bộ từ của 390px**, hai nút
+cùng hàng (so đường tâm dọc, lệch ≤ 2px — nút viền `Đánh dấu sai` cao hơn nút đặc 2px do đường
+viền, nên so mép trên sẽ báo sai), và không tràn ngang. Đo được ở bốn khổ: nhãn giống nhau, lệch tâm
+0px (390: tâm 206,5; 768: 182,5; 1024: 182,5; 1440: 190,5), không tràn ngang. Bản thân giao diện
+không phải sửa — chỉ phép kiểm thiếu khổ.
+
 **Hai khoá i18n `Đúng`/`Sai` đã xoá** khỏi `en.json` vì không còn chỗ dùng. Nhãn của Hoàn tất và
 Trước/Tiếp vẫn có bản ngắn ở màn hẹp: đó là cùng một từ viết gọn (`Hoàn tất` = `Đã xử lý xong hồ sơ
 này`), không phải hai khái niệm, và cần bản ngắn để hàng cuối vẫn đủ ba nút trong 390px.

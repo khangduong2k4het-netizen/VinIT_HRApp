@@ -6,7 +6,10 @@
  * đã trôi khỏi màn hình (trên điện thoại càng rõ), muốn xác nhận phải cuộn
  * ngược lên đúng thẻ.
  *
- * Kiểm ở cả 390px và 1440px, vì đây là thay đổi dành cho màn hẹp.
+ * Kiểm ở 390, 768, 1024 và 1440px. Hai đầu là màn hẹp/desktop; hai khổ giữa
+ * (máy tính bảng dọc và ngang) là chỗ dễ lọt bản rút gọn nhãn hoặc rơi mất một
+ * nút xuống hàng dưới, nên chúng nằm trong cùng phép kiểm: cùng một bộ từ và
+ * hai nút cùng hàng ở mọi khổ.
  */
 const { chromium } = require('playwright-core');
 const assert = require('node:assert/strict');
@@ -30,7 +33,14 @@ const progressText = page => page.evaluate(() => {
   });
 
   const labelSets = {};
-  for (const viewport of [{ width: 390, height: 844, label: '390' }, { width: 1440, height: 900, label: '1440' }]) {
+  const viewports = [
+    { width: 390, height: 844, label: '390' },
+    { width: 768, height: 1024, label: '768' },
+    { width: 1024, height: 768, label: '1024' },
+    { width: 1440, height: 900, label: '1440' },
+  ];
+  const buttonRows = {};
+  for (const viewport of viewports) {
     const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
     await context.addInitScript(() => {
       localStorage.setItem('hra_access_token', 'sticky');
@@ -51,6 +61,7 @@ const progressText = page => page.evaluate(() => {
     assert.equal((await page.getByTestId('sticky-pending').innerText()).trim(), 'Còn 2/2 tiêu chí chờ', `${viewport.label}: pending count`);
 
     // --- Hai nút nằm trong khung nhìn, không phải cuộn ---------------------
+    const buttonBoxes = {};
     for (const testId of ['sticky-confirm', 'sticky-reject']) {
       const button = page.getByTestId(testId);
       assert.equal(await button.isVisible(), true, `${viewport.label}: ${testId} visible`);
@@ -58,7 +69,17 @@ const progressText = page => page.evaluate(() => {
       assert.ok(box, `${viewport.label}: ${testId} has a box`);
       assert.ok(box.y >= 0 && box.y + box.height <= viewport.height, `${viewport.label}: ${testId} is on screen (y=${Math.round(box.y)})`);
       assert.ok(box.x >= 0 && box.x + box.width <= viewport.width, `${viewport.label}: ${testId} is inside the width`);
+      buttonBoxes[testId] = box;
     }
+    // Hai nút quyết định phải cùng một hàng: so đường tâm chứ không so mép trên,
+    // vì nút viền (Đánh dấu sai) cao hơn nút đặc một hai pixel do đường viền.
+    const centerY = box => box.y + box.height / 2;
+    const rowOffset = Math.abs(centerY(buttonBoxes['sticky-confirm']) - centerY(buttonBoxes['sticky-reject']));
+    assert.ok(
+      rowOffset <= 2,
+      `${viewport.label}: hai nút cùng hàng (lệch tâm ${rowOffset.toFixed(1)}px)`,
+    );
+    buttonRows[viewport.label] = { center: centerY(buttonBoxes['sticky-confirm']), offset: rowOffset };
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false, `${viewport.label}: no horizontal overflow`);
 
     // --- Cùng một bộ từ ở mọi khổ -------------------------------------------
@@ -119,7 +140,18 @@ const progressText = page => page.evaluate(() => {
     await context.close();
   }
 
-  assert.deepEqual(labelSets['390'], labelSets['1440'], 'hai khổ màn hình dùng cùng một bộ từ cho Xác nhận / Đánh dấu sai');
-  console.log('Sticky review bar: pending count, one label set, confirm/reject reachable at 390px and 1440px: OK');
+  for (const viewport of viewports) {
+    assert.deepEqual(
+      labelSets[viewport.label],
+      labelSets['390'],
+      `${viewport.label}px phải dùng cùng bộ từ như 390px cho Xác nhận / Đánh dấu sai`,
+    );
+  }
+  assert.deepEqual(
+    Object.keys(buttonRows),
+    viewports.map(viewport => viewport.label),
+    'đo được hàng của hai nút ở mọi khổ',
+  );
+  console.log(`Sticky review bar: pending count, one label set, confirm/reject on one row at ${viewports.map(v => `${v.label}px`).join(', ')}: OK`);
   await browser.close();
 })().catch(err => { console.error(err); process.exit(1); });
