@@ -8,7 +8,8 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
 import Sidebar from './Sidebar';
 import Header, { APPBAR_HEIGHT } from './Header';
-import { authApi, dashboardApi } from '@/lib/api';
+import { dashboardApi } from '@/lib/api';
+import { getCurrentUser } from '@/lib/meCache';
 import { runWhenIdle } from '@/lib/idle';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -36,11 +37,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       if (!token) { router.replace('/'); return; }
       try {
         if (!authenticated) setIsLoading(true);
-        const response = await authApi.me();
-        if (active && response.data.must_change_password) {
+        // Dùng bản dùng chung: trang hồ sơ cũng hỏi đúng câu này trong cùng
+        // một lần chuyển, nên hai request thay vì một (xem `lib/meCache.ts`).
+        const me = await getCurrentUser();
+        if (active && me.must_change_password) {
           setAuthenticated(false); router.replace('/change-password'); return;
         }
-        if (active) { setProfile(response.data); setSystemRoles(response.data.system_roles || []); setCanAccessRubrics((response.data.system_roles || []).some((r: string) => ['ADMIN', 'HR_LEAD', 'HR_RECRUITER'].includes(r)) || (response.data.position_assignments || []).some((p: { position_role: string }) => ['HR_RECRUITER', 'HR_LEAD'].includes(p.position_role))); setAuthenticated(true); setAuthError(null); }
+        if (active) { setProfile(me); setSystemRoles(me.system_roles || []); setCanAccessRubrics((me.system_roles || []).some((r: string) => ['ADMIN', 'HR_LEAD', 'HR_RECRUITER'].includes(r)) || (me.position_assignments || []).some((p: { position_role: string }) => ['HR_RECRUITER', 'HR_LEAD'].includes(p.position_role))); setAuthenticated(true); setAuthError(null); }
       } catch (err: any) {
         if (active && err.response?.status !== 401) {
           setAuthenticated(false);

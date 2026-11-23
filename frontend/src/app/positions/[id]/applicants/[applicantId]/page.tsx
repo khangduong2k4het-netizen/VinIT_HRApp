@@ -44,7 +44,8 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { applicationsApi, assessmentsApi, authApi, criteriaApi, listAllApplications, operationsApi } from '@/lib/api';
+import { applicationsApi, assessmentsApi, criteriaApi, listAllApplications, operationsApi } from '@/lib/api';
+import { getCurrentUser } from '@/lib/meCache';
 import { recordUxEvent } from '@/lib/uxMetrics';
 import { runWhenIdle } from '@/lib/idle';
 import { prefetchApplication, takePrefetchedApplication } from '@/lib/profilePrefetch';
@@ -377,8 +378,10 @@ export default function ApplicantDetailPage() {
     // Chỉ để hiển thị "người phụ trách" và nút nhận hồ sơ: để trình duyệt rảnh
     // rồi mới hỏi, không tranh với hồ sơ + tiêu chí của màn hình đầu.
     return runWhenIdle(() => {
-      authApi.me()
-        .then(response => setCurrentUserId(response.data?.user_id || null))
+      // Khung trang vừa hỏi đúng câu này khi `pathname` đổi; dùng chung bản đó
+      // thay vì request thứ hai cho cùng một câu trả lời (`lib/meCache.ts`).
+      getCurrentUser()
+        .then(me => setCurrentUserId(me.user_id || null))
         .catch(() => { /* người phụ trách chỉ là hiển thị; không có id vẫn xem được hồ sơ */ });
     });
   }, []);

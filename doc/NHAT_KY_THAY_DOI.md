@@ -9,6 +9,53 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-23 — Mỗi lần bấm `n` bớt hai `GET /v1/auth/me`
+
+**Vấn đề.** Mỗi lần chuyển hồ sơ phát sinh **2** `GET /v1/auth/me`, trong tổng 4/4/3 `GET` của
+ba lần chuyển — tức 6/11 request của cả vòng. Đo lại trên bản production trước khi sửa:
+`auth/me` = 2, 2, 2.
+
+**Nguyên nhân (đo, không đoán).** Thử đọc call stack qua CDP trước: chỉ ra được frame axios đã
+minify, không phân biệt được chỗ gọi. Nên gắn tạm một tham số `?__me=…` cho từng chỗ gọi
+`authApi.me` rồi đọc URL thật của request. Kết quả: hai request đến từ **hai chỗ khác nhau**,
+cách nhau 40–60 ms, cùng một câu trả lời:
+
+- `AppLayout` hỏi lại mỗi khi `pathname` đổi (effect phụ thuộc `pathname`, để làm mới quyền);
+- trang hồ sơ hỏi **một lần khi mount** — nhưng Next gắn lại trang theo từng `applicantId`, nên
+  "một lần khi mount" hoá ra là một lần cho mỗi hồ sơ.
+
+**Sửa.** `lib/meCache.ts`: một bản dùng chung ngắn hạn, cùng kiểu với `rubricCache` — cửa sổ
+**30 giây**, request đang bay dùng chung, lỗi thì bỏ khỏi bộ nhớ. Bản ghi gắn với **token** trong
+`localStorage`, nên đăng xuất rồi đăng nhập tài khoản khác không đọc nhầm hồ sơ người trước; đổi
+mật khẩu cũng xoá token nên cờ `must_change_password` không bị giữ lại. `AppLayout` và trang hồ sơ
+cùng đọc qua `getCurrentUser()`.
+
+**Đo lại** (`tests/profile-transition-requests.cjs`, cùng ba lần chuyển, bản production):
+
+| | Trước | Sau |
+| --- | --- | --- |
+| `auth/me` mỗi lần chuyển | 2 / 2 / 2 | **0 / 0 / 0** |
+| Tổng `GET` ba lần chuyển | 4 / 4 / 3 = **11** | 2 / 2 / 1 = **5** |
+| `auth/me` khi mở hồ sơ đầu tiên | 4 | 2 |
+| danh sách → hồ sơ (trung vị) | 6 | **4** |
+| đối chứng tab mới (trung vị) | 9 | 8 |
+
+**Đối chứng.** Bỏ đúng một dòng dùng chung trong `meCache` rồi build lại: test trả
+`authPerTransition: [2,2,2]`, `fullLoopGetRequests: 11`, và **fail** ở dòng
+`mỗi lần chuyển chỉ được hỏi auth/me tối đa một lần`. Phép kiểm mới không phải assert trang trí.
+
+**Chốt chặn.** Assert `≤ 1` có thể xanh giả nếu danh tính không bao giờ được tải, nên test mở
+menu tài khoản và chờ tên `Nguyễn Thu Hằng` lấy từ `auth/me`.
+
+**Kiểm.** `next build` (typecheck); `profile-transition-requests` (pass); `list-to-profile-requests`
+(ranking và danh sách vẫn 0; trung vị 6 → 4 và 9 → 8); `account-ui` (đăng xuất, đổi mật khẩu) pass.
+
+**Chưa kiểm.** Chưa đo với backend thật — mock trả lời tức thì, nên số mili-giây sẽ khác còn số
+request thì không. Chưa thử quyền bị thu hồi giữa phiên: với cửa sổ 30 giây, trang có thể dùng
+quyền cũ tối đa 30 giây. Các màn khác (dashboard, danh sách ứng viên, danh sách vị trí) vẫn gọi
+`authApi.me` trực tiếp — ngoài phạm vi phép đo lần này; `auth/me` còn 2 khi mở hồ sơ chính là lần
+gọi riêng của trang danh sách.
+
 ## 2026-11-23 — Thanh dính dùng một bộ từ cho Xác nhận / Đánh dấu sai ở mọi khổ
 
 **Vấn đề.** Dưới 600px hai nút quyết định ghi `Đúng` / `Sai`, từ 600px trở lên lại là

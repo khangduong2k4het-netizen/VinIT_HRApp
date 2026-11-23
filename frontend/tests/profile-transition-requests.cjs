@@ -7,8 +7,13 @@
  * trong cả vòng duyệt.
  *
  * Script: mở danh sách → mở hồ sơ đầu tiên → bấm `n` ba lần, mỗi lần đếm `GET`
- * vào `/v1/`, tách riêng rubric / chi tiết hồ sơ / các path khác. Cửa sổ đếm chỉ
- * mở trong lúc chuyển, không tính request của lần mở đầu tiên.
+ * vào `/v1/`, tách riêng rubric / chi tiết hồ sơ / `auth/me` / các path khác.
+ * Cửa sổ đếm chỉ mở trong lúc chuyển, không tính request của lần mở đầu tiên.
+ *
+ * `auth/me`: mỗi lần bấm `n` từng hỏi hai lần (khung trang kiểm tra lại quyền
+ * khi `pathname` đổi + trang hồ sơ tự hỏi mình là ai sau mỗi lần được gắn lại),
+ * hai request cách nhau 40–60 ms cho cùng một câu trả lời. Từ khi có
+ * `lib/meCache.ts`, cả hai dùng chung một bản trong 30 giây.
  *
  * Chạy: HRA_E2E_BASE_URL=http://127.0.0.1:3000 node tests/profile-transition-requests.cjs
  * In một dòng `TRANSITIONS {json}`.
@@ -78,6 +83,7 @@ const profileName = page => page.evaluate(() => {
       to: await profileName(page),
       totalGet: during.length,
       rubric: during.filter(path => path === RUBRIC_PATH).length,
+      auth: during.filter(path => path === '/v1/auth/me').length,
       detail: during.filter(path => /^\/v1\/applications\/app-\d+$/.test(path)).length,
       paths: during.reduce((acc, path) => ({ ...acc, [path]: (acc[path] || 0) + 1 }), {}),
     });
@@ -101,12 +107,27 @@ const profileName = page => page.evaluate(() => {
   console.log(`TRANSITIONS ${JSON.stringify({
     transitions,
     rubricPerTransition,
+    authPerTransition: transitions.map(transition => transition.auth),
     totalGetPerTransition: transitions.map(transition => transition.totalGet),
     fullLoopGetRequests: transitions.reduce((sum, transition) => sum + transition.totalGet, 0),
   })}`);
 
   const cached = rubricPerTransition.slice(1).every(count => count === 0);
   assert.ok(cached, `rubric phải được dùng lại giữa các lần chuyển, thấy ${JSON.stringify(rubricPerTransition)}`);
+
+  // Danh tính cũng dùng chung: tối đa một lần hỏi `auth/me` cho mỗi lần chuyển
+  // (0 khi bản dùng chung còn hiệu lực, 1 khi đã quá 30 giây). Hai lần là lỗi
+  // cũ quay lại.
+  const authPerTransition = transitions.map(transition => transition.auth);
+  assert.ok(
+    authPerTransition.every(count => count <= 1),
+    `mỗi lần chuyển chỉ được hỏi auth/me tối đa một lần, thấy ${JSON.stringify(authPerTransition)}`,
+  );
+  // Chốt chặn cho phép kiểm trên: số request đẹp không được vì danh tính không
+  // bao giờ được tải. Menu tài khoản phải hiện đúng tên lấy từ `auth/me`.
+  await page.getByRole('button', { name: 'Mở menu tài khoản' }).click();
+  await page.getByText('Nguyễn Thu Hằng').first().waitFor({ timeout: 5000 });
+  await page.keyboard.press('Escape');
 
   await page.close();
   await context.close();
