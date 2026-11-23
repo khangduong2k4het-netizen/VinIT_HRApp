@@ -69,8 +69,8 @@ const progress = page => page.evaluate(() => {
     });
   };
   const unexpected = await installMockApi(context, {
-    '/v1/assessments/results/r-c2/review': slowReview,
-    '/v1/assessments/results/r-c3/review': slowReview,
+    '/v1/assessments/results/app-2:r-c2/review': slowReview,
+    '/v1/assessments/results/app-2:r-c3/review': slowReview,
   });
 
   const page = await context.newPage();
@@ -93,7 +93,7 @@ const progress = page => page.evaluate(() => {
   );
   await page.waitForTimeout(200);
   assert.equal(reviewRequests.length, 1, 'vẫn đúng một review sau khi request đầu xong');
-  assert.equal(reviewRequests[0].resultId, 'r-c2', 'review được ghi cho tiêu chí đang chọn');
+  assert.equal(reviewRequests[0].resultId, 'app-2:r-c2', 'review được ghi cho tiêu chí đang chọn');
   assert.equal(await progress(page), '1/2', 'tiến độ chỉ cộng một lần, không phải hai');
   assert.equal(await activeCriterion(page), 'c3', 'con trỏ nhảy đúng một lần, sang tiêu chí còn chờ');
 
@@ -131,7 +131,7 @@ const progress = page => page.evaluate(() => {
   assert.equal(reviewRequests.length, 2, 'chỉ thêm đúng một review cho tiêu chí thứ hai');
   assert.deepEqual(
     reviewRequests.map(request => request.resultId),
-    ['r-c2', 'r-c3'],
+    ['app-2:r-c2', 'app-2:r-c3'],
     'mỗi tiêu chí đúng một review, không có dòng trùng',
   );
   assert.equal(await progress(page), '2/2');

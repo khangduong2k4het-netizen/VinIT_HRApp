@@ -64,6 +64,16 @@ export default function ReviewByCriterionPage() {
   const [rejectTarget, setRejectTarget] = useState<{ applicationId: string; resultId: string } | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectError, setRejectError] = useState<string | null>(null);
+  // "Xác nhận tất cả dòng đang hiện": danh sách mục tiêu chốt tại lúc mở hộp
+  // thoại, để danh sách HR nhìn thấy đúng là danh sách sẽ ghi.
+  const [confirmAllOpen, setConfirmAllOpen] = useState(false);
+  const [confirmAllTargets, setConfirmAllTargets] = useState<{ applicationId: string; resultId: string; name: string }[]>([]);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null);
+  // Cùng lý do với `reviewInFlight`: state `bulkProgress` chỉ đổi sau lần render
+  // kế tiếp, nên hai cú bấm sát nhau đều thấy "chưa chạy" và cùng ghi N dòng.
+  const bulkInFlight = useRef(false);
   const requested = useRef<Set<string>>(new Set());
   // Khoá một-lần-ghi giống trang hồ sơ: `saving` là state nên chỉ đổi sau khi
   // React vẽ lại — hai cú bấm sát nhau đều thấy "chưa lưu" và cùng gửi POST.
@@ -121,7 +131,7 @@ export default function ReviewByCriterionPage() {
       .finally(() => setLoadingRows(false));
   }, [visibleRows, details, positionId]);
 
-  useEffect(() => { setVisibleCount(PAGE_SIZE); }, [criterionId]);
+  useEffect(() => { setVisibleCount(PAGE_SIZE); setBulkNotice(null); setBulkError(null); }, [criterionId]);
 
   const stateOf = useCallback((row: { applicationId: string; requiresVerification: boolean }) => {
     const application = details[row.applicationId];
@@ -136,6 +146,16 @@ export default function ReviewByCriterionPage() {
   }, [details, criterionId]);
 
   const progress = useMemo(() => countCriterionProgress(rows, stateOf), [rows, stateOf]);
+
+  // Những dòng mà "xác nhận tất cả" sẽ ghi: chỉ dòng **đang hiện**, đang chờ xác
+  // minh và có `result_id`. Quyền xác minh đã nằm trong `stateOf`, nên dòng mà
+  // HR không có quyền ghi không bao giờ lọt vào danh sách này.
+  const confirmableRows = useMemo(() => visibleRows.flatMap(row => {
+    const application = details[row.applicationId];
+    const result = application ? lookupResult(application, criterionId) : undefined;
+    if (stateOf(row) !== 'PENDING' || !result?.result_id) return [];
+    return [{ applicationId: row.applicationId, resultId: result.result_id, name: row.candidateName }];
+  }), [visibleRows, details, criterionId, stateOf]);
 
   const applyReview = (applicationId: string, criterionIdToUpdate: string, review: { review_id: string; decision: 'CONFIRMED' | 'REJECTED'; comment?: string | null; reviewer_user_id: string; reviewer_name?: string | null; created_at: string }) => {
     setDetails(previous => {
@@ -192,6 +212,46 @@ export default function ReviewByCriterionPage() {
     }
   };
 
+  const openConfirmAll = () => {
+    setBulkError(null);
+    setBulkNotice(null);
+    setConfirmAllTargets(confirmableRows);
+    setConfirmAllOpen(true);
+  };
+
+  /**
+   * Một cú bấm, N dòng: vẫn là N quyết định riêng của HR, mỗi hồ sơ một POST,
+   * ghi lần lượt để lịch sử append-only giữ nguyên một dòng cho mỗi hồ sơ.
+   */
+  const submitConfirmAll = async () => {
+    if (bulkInFlight.current || confirmAllTargets.length === 0) return;
+    bulkInFlight.current = true;
+    const total = confirmAllTargets.length;
+    setBulkError(null);
+    setBulkNotice(null);
+    setBulkProgress({ done: 0, total });
+    let done = 0;
+    try {
+      for (const target of confirmAllTargets) {
+        const outcome = await review(target.applicationId, target.resultId, 'CONFIRMED');
+        if (outcome !== 'saved') throw new Error('review not saved');
+        done += 1;
+        setBulkProgress({ done, total });
+      }
+      setConfirmAllOpen(false);
+      setConfirmAllTargets([]);
+      setBulkNotice(t('Đã xác nhận {0} hồ sơ. Mỗi hồ sơ vẫn là một dòng riêng trong lịch sử.', done));
+    } catch {
+      // Các dòng trước đã ghi thật (append-only), nên bỏ chúng khỏi danh sách
+      // còn lại: bấm lại chỉ ghi phần chưa xong, không ghi trùng.
+      setConfirmAllTargets(previous => previous.slice(done));
+      setBulkError(t('Đã xác nhận {0}/{1} hồ sơ; phần còn lại chưa ghi được.', done, total));
+    } finally {
+      bulkInFlight.current = false;
+      setBulkProgress(null);
+    }
+  };
+
   // Mở hồ sơ từ đây không kèm hàng đợi. Hàng đợi "cần xác minh / ưu tiên duyệt"
   // không phải ngữ cảnh HR đang xem — họ đang duyệt theo một tiêu chí — nên mở
   // ra kèm hàng đợi đó chỉ làm bộ đếm "hồ sơ k/n" và prev/next trỏ sang những hồ
@@ -218,6 +278,7 @@ export default function ReviewByCriterionPage() {
       </Typography>
 
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{t(error)}</Alert>}
+      {bulkNotice && <Alert severity="success" sx={{ mb: 2 }} data-testid="criterion-confirm-all-done" onClose={() => setBulkNotice(null)}>{bulkNotice}</Alert>}
 
       {criteria.length === 0 ? (
         <Alert severity="info">{t('Vị trí chưa có tiêu chí nào được duyệt.')}</Alert>
@@ -246,6 +307,20 @@ export default function ReviewByCriterionPage() {
                 label={t('Đã xác minh {0}/{1} hồ sơ theo tiêu chí này', progress.verified, progress.flagged)}
                 sx={{ backgroundColor: progress.verified === progress.flagged ? '#ECFDF3' : '#FFFAEB', color: progress.verified === progress.flagged ? '#067647' : '#B54708', fontWeight: 700 }}
               />
+              {/* Một hành động cho đúng những dòng đang hiện: HR vẫn là người quyết
+                  định, nhưng không phải bấm lại cùng một quyết định N lần. */}
+              <Button
+                size="small"
+                variant="contained"
+                color="secondary"
+                startIcon={<CheckCircleOutlineIcon fontSize="small" />}
+                data-testid="criterion-confirm-visible"
+                disabled={confirmableRows.length === 0 || saving !== null || bulkProgress !== null}
+                onClick={openConfirmAll}
+              >
+                {t('Xác nhận tất cả dòng đang hiện')}
+              </Button>
+              {bulkProgress && <CircularProgress size={18} />}
               <Typography variant="caption" color="text.secondary" data-testid="criterion-queue-count">
                 {t('Hiển thị {0}/{1} hồ sơ', visibleRows.length, rows.length)}
               </Typography>
@@ -406,6 +481,45 @@ export default function ReviewByCriterionPage() {
             onClick={() => void submitReject()}
           >
             {saving ? t('Đang lưu…') : t('Ghi lại')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={confirmAllOpen} onClose={() => { if (!bulkProgress) setConfirmAllOpen(false); }} maxWidth="xs" fullWidth data-testid="criterion-confirm-all-dialog">
+        <DialogTitle sx={{ fontSize: 16 }}>{t('Xác nhận tất cả dòng đang hiện')}</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ fontSize: 13, mb: 1 }}>
+            {t('Sẽ ghi xác nhận cho {0} hồ sơ sau, mỗi hồ sơ một dòng riêng trong lịch sử:', confirmAllTargets.length)}
+          </DialogContentText>
+          <Box component="ul" sx={{ m: 0, pl: 2.5 }} data-testid="criterion-confirm-all-list">
+            {confirmAllTargets.slice(0, 10).map(target => (
+              <li key={target.applicationId}>
+                <Typography variant="body2" data-testid={`criterion-confirm-all-item-${target.applicationId}`}>{target.name}</Typography>
+              </li>
+            ))}
+            {confirmAllTargets.length > 10 && (
+              <li>
+                <Typography variant="body2" color="text.secondary">{t('… và {0} hồ sơ khác', confirmAllTargets.length - 10)}</Typography>
+              </li>
+            )}
+          </Box>
+          {bulkError && <Alert severity="error" sx={{ mt: 1.5 }} data-testid="criterion-confirm-all-error">{bulkError}</Alert>}
+          {bulkProgress && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }} data-testid="criterion-confirm-all-progress">
+              {t('Đang ghi {0}/{1} hồ sơ…', bulkProgress.done, bulkProgress.total)}
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmAllOpen(false)} disabled={Boolean(bulkProgress)}>{t('Hủy')}</Button>
+          <Button
+            variant="contained"
+            color="secondary"
+            data-testid="criterion-confirm-all-submit"
+            disabled={confirmAllTargets.length === 0 || Boolean(bulkProgress)}
+            onClick={() => void submitConfirmAll()}
+          >
+            {t('Xác nhận {0} hồ sơ', confirmAllTargets.length)}
           </Button>
         </DialogActions>
       </Dialog>

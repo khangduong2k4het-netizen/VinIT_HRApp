@@ -441,10 +441,14 @@ function installMockApi(context, overrides = {}) {
         ...detail,
         latest_assessment: {
           ...detail.latest_assessment,
-          criterion_results: (detail.latest_assessment?.criterion_results || CRITERIA).map(c => ({
-            ...c,
-            hr_reviews: reviews[c.result_id] || [],
-          })),
+          // Mỗi hồ sơ một result_id riêng, như bảng thật. Bản cũ trả id trần
+          // (`r-c2`) nên nhiều hồ sơ dùng chung một id: xác nhận ở hồ sơ này sẽ
+          // hiện thành "đã kiểm" ở hồ sơ khác, và không thể kiểm được "mỗi dòng
+          // một POST".
+          criterion_results: (detail.latest_assessment?.criterion_results || CRITERIA).map(c => {
+            const resultId = `app-2:${c.result_id}`;
+            return { ...c, result_id: resultId, hr_reviews: reviews[resultId] || [] };
+          }),
         },
       });
     }
@@ -531,15 +535,18 @@ function installMockApi(context, overrides = {}) {
           criterion_results: CRITERIA.map(item => {
             const override = spec.results[item.criterion_id];
             const page = override.page;
+            // Như trên: kết quả thuộc về từng hồ sơ, nên id phải mang mã hồ sơ.
+            const resultId = `${compareId}:${item.result_id}`;
             return {
               ...item,
+              result_id: resultId,
               outcome: override.outcome,
               score: override.score,
               page_number: page,
               evidence: page
                 ? [{ evidence_id: `e-${compareId}-${item.criterion_id}`, verbatim_quote: item.verbatim_quote || item.reasoning, page_number: page, verification_status: 'UNVERIFIED' }]
                 : [],
-              hr_reviews: reviews[item.result_id] || [],
+              hr_reviews: reviews[resultId] || [],
             };
           }),
         },

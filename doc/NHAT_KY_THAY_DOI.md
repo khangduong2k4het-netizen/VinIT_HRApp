@@ -9,6 +9,49 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-23 — "Xác nhận tất cả dòng đang hiện" ở màn duyệt theo tiêu chí
+
+**Vấn đề.** Màn `by-criterion` gom nhiều hồ sơ cho **một** tiêu chí, nhưng mỗi dòng vẫn một cú bấm:
+8 dòng đang hiện = 8 cú bấm cho cùng một quyết định giống nhau.
+
+**Sửa.** Nút `Xác nhận tất cả dòng đang hiện` ở thanh trên. Bấm vào mở hộp thoại liệt kê đúng những
+hồ sơ sẽ ghi (tên ứng viên; tối đa 10 dòng, quá thì "… và N hồ sơ khác"), rồi nút `Xác nhận N hồ sơ`.
+Mỗi dòng vẫn là một `POST /assessments/results/{id}/review` riêng, ghi lần lượt, nên lịch sử
+append-only giữ nguyên một dòng cho mỗi hồ sơ. Danh sách chỉ gồm dòng **đang hiện**, đang chờ xác
+minh, có `result_id` và người xem có quyền xác minh — cùng điều kiện với nút của từng dòng. Khoá
+một-lần-ghi dùng ref (`bulkInFlight`), không dùng state: state chỉ đổi sau lần render kế tiếp. Một
+POST lỗi thì dừng, báo "đã xác nhận X/N", và bỏ các dòng đã ghi khỏi danh sách còn lại để bấm lại
+không ghi trùng.
+
+**Đo** (`tests/by-criterion-confirm-all.e2e.cjs`, 8 dòng đang hiện, bản production):
+
+| | Từng dòng (đối chứng) | Xác nhận tất cả |
+| --- | --- | --- |
+| Cú bấm | **8** | **2** (mở danh sách + xác nhận) |
+| POST | 8 | 8 |
+| Danh sách xem trước | — | đúng 8 hồ sơ sẽ ghi; chưa ghi gì trước khi bấm |
+| Bấm đúp nút xác nhận (một tác vụ JS) | — | 8 POST, không phải 16 |
+
+Số cú bấm đếm bằng listener `click` pha capture trên `window` (cú bấm thật của người dùng), không
+phải số lần gọi hàm.
+
+**Đối chứng.** Build lại từ `HEAD` (bản không có nút): test **fail** vì không tìm thấy
+`criterion-confirm-visible`. Bản có tính năng: pass.
+
+**Sửa dữ liệu mock — lỗi thật của bộ test.** Lần chạy đầu, test bắt được `result_id` trùng: hồ sơ
+`app-2` và `app-3` (nhóm so sánh trùng) cùng trả `r-c2`, tức hai hồ sơ khác nhau dùng chung một kết
+quả. Hệ quả không chỉ ở test này: xác nhận ở hồ sơ này sẽ hiện "đã kiểm" ở hồ sơ kia. Đã sửa fixture
+để mỗi hồ sơ có id riêng (`app-2:r-c2`, `app-3:r-c2`), đúng như handler chung đã ghi; cập nhật
+`review-double-confirm` theo id mới, assertion giữ nguyên độ chặt.
+
+**Kiểm.** `next build`; `npm run test:i18n` (khoá mới đã có trong `en.json`);
+`by-criterion-confirm-all` (pass, số ở trên); `review-double-confirm`, `criterion-queue`,
+`by-criterion-double-confirm`, `duplicate-compare` — đều pass.
+
+**Chưa kiểm.** Chưa đo trên backend thật: mock trả tức thì nên 8 POST gần nhau về thời gian, dù vẫn
+gửi tuần tự. Chưa thử nhánh "… và N hồ sơ khác" (cần > 10 dòng đang hiện, tức bấm "Tải thêm" hai
+lần). Chưa thử trường hợp một POST lỗi giữa vòng: nhánh đó có xử lý nhưng chưa có test.
+
 ## 2026-11-23 — Rời hồ sơ là huỷ luôn request ghi chú đang bay
 
 **Đính chính số đo trước.** Mục đề xuất ghi "mỗi lần chuyển gọi `private-notes` của hồ sơ **vừa
