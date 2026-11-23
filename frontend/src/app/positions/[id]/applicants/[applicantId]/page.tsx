@@ -940,7 +940,12 @@ export default function ApplicantDetailPage() {
                     sx={{ whiteSpace: 'nowrap' }}
                     onClick={() => { if (activeResult?.result_id) void handleReview(activeResult.result_id, 'CONFIRMED'); }}
                   >
-                    <CompactLabel compact={t('Đúng')} full={t('Xác nhận')} />
+                    {/* Một bộ từ cho cả hai khổ: `Đúng`/`Sai` ở màn hẹp đọc như
+                        kết luận về tiêu chí, trong khi nút này nói về trích dẫn —
+                        và từ 600px lại đổi thành `Xác nhận`/`Đánh dấu sai` cùng
+                        một hành động. Hai nhãn đầy đủ vẫn vừa một hàng ở 390px,
+                        nên không cần bản rút gọn. */}
+                    {t('Xác nhận')}
                   </Button>
                 </Box>
               </Tooltip>
@@ -953,7 +958,7 @@ export default function ApplicantDetailPage() {
                 sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
                 onClick={() => { if (activeResult) setRejectRequest({ criterionId: activeResult.criterion_id, token: Date.now() }); }}
               >
-                <CompactLabel compact={t('Sai')} full={t('Đánh dấu sai')} />
+                {t('Đánh dấu sai')}
               </Button>
             </Box>
           )}

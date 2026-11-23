@@ -29,6 +29,7 @@ const progressText = page => page.evaluate(() => {
     args: JSON.parse(process.env.HRA_E2E_CHROMIUM_ARGS || '[]'),
   });
 
+  const labelSets = {};
   for (const viewport of [{ width: 390, height: 844, label: '390' }, { width: 1440, height: 900, label: '1440' }]) {
     const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
     await context.addInitScript(() => {
@@ -59,6 +60,17 @@ const progressText = page => page.evaluate(() => {
       assert.ok(box.x >= 0 && box.x + box.width <= viewport.width, `${viewport.label}: ${testId} is inside the width`);
     }
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth), false, `${viewport.label}: no horizontal overflow`);
+
+    // --- Cùng một bộ từ ở mọi khổ -------------------------------------------
+    // `Đúng`/`Sai` ở màn hẹp đọc như kết luận về tiêu chí, và đổi sang
+    // `Xác nhận`/`Đánh dấu sai` từ 600px là hai bộ từ cho cùng một hành động.
+    // Nhãn đầy đủ vừa một hàng ở 390px nên không cần bản rút gọn nào.
+    const labels = {
+      confirm: (await page.getByTestId('sticky-confirm').innerText()).trim(),
+      reject: (await page.getByTestId('sticky-reject').innerText()).trim(),
+    };
+    assert.deepEqual(labels, { confirm: 'Xác nhận', reject: 'Đánh dấu sai' }, `${viewport.label}: nhãn hành động đầy đủ`);
+    labelSets[viewport.label] = labels;
 
     // --- Đang quyết định cho tiêu chí nào, đọc được trên thanh --------------
     // Tooltip không hiện trên điện thoại, nên tên tiêu chí phải nằm sẵn trên thanh.
@@ -107,6 +119,7 @@ const progressText = page => page.evaluate(() => {
     await context.close();
   }
 
-  console.log('Sticky review bar: pending count and confirm/reject reachable at 390px and 1440px: OK');
+  assert.deepEqual(labelSets['390'], labelSets['1440'], 'hai khổ màn hình dùng cùng một bộ từ cho Xác nhận / Đánh dấu sai');
+  console.log('Sticky review bar: pending count, one label set, confirm/reject reachable at 390px and 1440px: OK');
   await browser.close();
 })().catch(err => { console.error(err); process.exit(1); });
