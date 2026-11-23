@@ -9,6 +9,34 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-23 — Thanh dính dùng một bộ từ cho Xác nhận / Đánh dấu sai ở mọi khổ
+
+**Vấn đề.** Dưới 600px hai nút quyết định ghi `Đúng` / `Sai`, từ 600px trở lên lại là
+`Xác nhận` / `Đánh dấu sai` — cùng một hành động mà hai bộ từ. `Đúng`/`Sai` còn dễ đọc như kết luận
+về **tiêu chí**, trong khi nút này nói về **trích dẫn** đang hiện.
+
+**Đã cân nhắc.** Đổi cặp ngắn sang `Khớp`/`Không khớp` cho khỏi lẫn tiêu chí — nhưng như vậy vẫn
+là hai bộ từ, và hai từ đó không khớp với câu trong hộp thoại ("Vì sao trích dẫn này không
+đúng?") hay phần còn lại của màn hình. Chọn giữ `Xác nhận` / `Đánh dấu sai` ở **cả hai khổ**: đúng
+nghĩa quyết định, trùng từ với hộp thoại, và không phải học hai cách gọi.
+
+**Đo lại sau khi bỏ nhãn rút gọn** (`tests/sticky-bar-height.e2e.cjs`, 4 khổ): 390×844 vẫn
+**152px, ba hàng**, Xác nhận và Đánh dấu sai vẫn cùng hàng, không tràn ngang; 768/1024/1440 vẫn
+120px. Nhãn đầy đủ vốn đã vừa một hàng ở 390px vì hai nút này không có icon — bản rút gọn không
+cần thiết cho bố cục, chỉ cho cách gọi tên.
+
+**Hai khoá i18n `Đúng`/`Sai` đã xoá** khỏi `en.json` vì không còn chỗ dùng. Nhãn của Hoàn tất và
+Trước/Tiếp vẫn có bản ngắn ở màn hẹp: đó là cùng một từ viết gọn (`Hoàn tất` = `Đã xử lý xong hồ sơ
+này`), không phải hai khái niệm, và cần bản ngắn để hàng cuối vẫn đủ ba nút trong 390px.
+
+**Kiểm.** `tsc --noEmit`, `eslint` hai file, `npm run test:i18n` (3/3), `npm run test:unit`
+(131/131), `npm run build`. E2E trên bản production: `sticky-bar-height` (4 khổ),
+`sticky-review-actions` (nay assert hai khổ dùng cùng một bộ từ, và nhãn là `Xác nhận` /
+`Đánh dấu sai`), `review-double-confirm`, `mandatory-fail-finish` đều pass.
+
+**Chưa kiểm.** Chỉ Chromium headless, chưa thử trên thiết bị thật; chưa thử với bản dịch tiếng
+Anh (`Correct`/`Wrong` đã bị xoá, nhãn tiếng Anh nay dùng `Confirm`/`Mark as wrong` sẵn có).
+
 ## 2026-11-23 — Thanh dính ở khổ giữa: 768px và 1024px thấp hơn bản cũ, không cần đổi ngưỡng
 
 **Vì sao đo thêm.** Lần làm gọn trước chỉ đo 390px và 1440px. Khoảng giữa (768/1024) là chỗ khó:
