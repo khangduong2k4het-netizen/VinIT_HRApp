@@ -9,6 +9,36 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-23 — Thanh dính ở khổ giữa: 768px và 1024px thấp hơn bản cũ, không cần đổi ngưỡng
+
+**Vì sao đo thêm.** Lần làm gọn trước chỉ đo 390px và 1440px. Khoảng giữa (768/1024) là chỗ khó:
+nhãn đầy đủ và icon điều hướng đã bật lại (từ 600px trở lên), trong khi thanh vẫn phải wrap — nếu
+nhóm sai thì chính khoảng này lại cao hơn bản cũ.
+
+**Cách đo.** Mở rộng `tests/sticky-bar-height.e2e.cjs` lên bốn khổ: 390×844, 768×1024, 1024×768,
+1440×900; vẫn đo chiều cao, số hàng (gom theo tâm dọc), việc Xác nhận/Đánh dấu sai cùng hàng và
+tràn ngang. Bản "trước" là checkout sạch của commit `5493738` (cha của `a7a3391`), build riêng và
+chạy trên cổng 3100 với **cùng** script đo.
+
+| Khổ | Trước (5493738) | Sau |
+| --- | --- | --- |
+| 390×844 | 400px · 6 hàng · 47,4% | **152px · 3 hàng · 18,0%** |
+| 768×1024 | 168px · 3 hàng · 16,4% | **120px · 2 hàng · 11,7%** |
+| 1024×768 | 168px · 3 hàng · 21,8% | **120px · 2 hàng · 15,6%** |
+| 1440×900 | 128px · 2 hàng · 14,2% | 120px · 2 hàng · 13,3% |
+
+Ở cả hai khổ giữa, thanh nay hai hàng như 1440px thay vì ba hàng, và thấp hơn 48px. Xác nhận /
+Đánh dấu sai cùng hàng ở mọi khổ; không tràn ngang ở khổ nào. **Không phải chỉnh ngưỡng hay cách
+nhóm** — bản mới tốt hơn bản cũ ở chính khoảng đang nghi.
+
+**Chốt chặn.** Test thêm trần cho khổ giữa: 768 và 1024 phải ≤ 128px và không quá hai hàng (bản
+cũ 168px / ba hàng), để lần sau có ai đổi nhóm mà làm thanh cao lại thì fail ngay.
+
+**Kiểm.** `eslint` file test; chạy lại trên bản production hiện tại: cả bốn khổ pass, số y như bảng.
+
+**Chưa kiểm.** Chỉ Chromium headless, chưa thử trên tablet thật; "trước" đo trên bản build tĩnh
+của `5493738` chứ không phải cùng một tiến trình server, nhưng cùng script, cùng mock, cùng khổ.
+
 ## 2026-11-23 — Rubric dùng chung giữa các hồ sơ cùng vị trí: 14 → 11 request cho 3 lần chuyển
 
 **Vấn đề.** Trang hồ sơ gọi `GET /v1/criteria/position/{id}/approved` mỗi lần mở, dù rubric thuộc
