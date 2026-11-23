@@ -9,6 +9,40 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-23 — Rubric dùng chung giữa các hồ sơ cùng vị trí: 14 → 11 request cho 3 lần chuyển
+
+**Vấn đề.** Trang hồ sơ gọi `GET /v1/criteria/position/{id}/approved` mỗi lần mở, dù rubric thuộc
+về **vị trí** chứ không thuộc hồ sơ — bấm `n` sang hồ sơ kế trong cùng vị trí không làm nó đổi.
+Một vòng duyệt 6 tiêu chí chỉ chuyển hồ sơ một lần, nhưng duyệt liên tiếp nhiều hồ sơ thì request
+này lặp y hệt mỗi lần.
+
+**Thay đổi.** Thêm `src/lib/rubricCache.ts`: cache theo `positionId`, TTL 60 giây, request đang bay
+dùng chung, lỗi thì bỏ khỏi bộ nhớ. Trang hồ sơ dùng `getApprovedRubric(positionId)` thay vì gọi
+API trực tiếp. Vẫn là bản ngắn hạn như `profilePrefetch`: rubric sửa ở nơi khác sẽ tới trang sau tối
+đa một phút, và chuyển sang vị trí khác thì khoá cache khác.
+
+**Đo** — `tests/profile-transition-requests.cjs` (mới): mở danh sách → mở hồ sơ đầu → bấm `n` ba
+lần; cửa sổ đếm chỉ mở trong lúc chuyển, không tính lần mở đầu.
+
+| Lần chuyển | Trước: tổng `GET` (rubric) | Sau: tổng `GET` (rubric) |
+| --- | --- | --- |
+| 1 | 5 (1) | 4 (0) |
+| 2 | 5 (1) | 4 (0) |
+| 3 | 4 (1) | 3 (0) |
+| **Cả 3 lần** | **14** | **11** |
+
+Script tự fail nếu lần chuyển thứ hai trở đi còn gọi rubric, và còn mở "Yêu cầu gốc" của thẻ đầu
+tiên để đọc câu mô tả lấy từ rubric — cache rỗng cũng làm số request đẹp, nên phải chứng minh nội
+dung vẫn tới màn hình.
+
+**Kiểm.** `tsc --noEmit`, `eslint` (3 file), `npm run build`. E2E trên bản production:
+`profile-transition-requests` pass, `prefetch-next-profile`, `review-double-confirm`,
+`sticky-review-actions`, `mandatory-fail-finish` đều pass.
+
+**Chưa kiểm.** Chưa chạy với backend thật; TTL 60 giây chưa có test (sẽ cần chờ cả phút). Hai
+request còn lại trong mỗi lần chuyển — `GET /v1/auth/me` hai lần và `private-notes` của hồ sơ vừa
+rời — chưa xử lý trong lần này vì nằm ngoài câu hỏi về rubric.
+
 ## 2026-11-23 — Mở hồ sơ kế: một `GET` hồ sơ thay vì hai
 
 **Vấn đề.** Bản tải trước vẽ được ngay, nhưng `loadData(initial)` vẫn gọi lại
