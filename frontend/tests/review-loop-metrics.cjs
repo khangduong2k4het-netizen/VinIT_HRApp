@@ -9,6 +9,7 @@
  * bộ của app.
  */
 const { chromium } = require('playwright-core');
+const assert = require('node:assert/strict');
 const { installMockApi } = require('./fixtures/hr-screens.cjs');
 
 const base = process.env.HRA_E2E_BASE_URL;
@@ -72,7 +73,7 @@ const cvPageLabel = async page => page.evaluate(() => {
    * Khi một lần bấm không làm tiến độ đổi, HR phải tự chuyển tiêu chí rồi bấm
    * lại — chính số lần đó là thao tác thừa cần đo.
    */
-  const runLoop = async (page, requests, firstKeys) => {
+  const runLoop = async (page, requests, firstKeys, label = 'vòng xác nhận') => {
     const start = requests.length;
     let keys = 0;
     let wasted = 0;
@@ -110,7 +111,7 @@ const cvPageLabel = async page => page.evaluate(() => {
     // lần xác nhận: profile và lịch sử trạng thái không được xuất hiện ở đây.
     const reloadedDuringLoop = during.filter(r => /^\/v1\/applications\/[^/]+\/(profile|status-events)$/.test(r.path));
     if (reloadedDuringLoop.length > 0) {
-      throw Error(`Xác nhận tiêu chí kéo theo tải lại ${[...new Set(reloadedDuringLoop.map(r => r.path))].join(', ')} (${reloadedDuringLoop.length} lần) — đúng lỗi cần chặn`);
+      throw Error(`${label}: xác nhận tiêu chí kéo theo tải lại ${[...new Set(reloadedDuringLoop.map(r => r.path))].join(', ')} (${reloadedDuringLoop.length} lần) — đúng lỗi cần chặn`);
     }
     const countByPath = during
       .filter(r => r.method === 'GET' && r.path.startsWith('/v1/'))
@@ -185,6 +186,44 @@ const cvPageLabel = async page => page.evaluate(() => {
     report.nextProfile.requestsAfterPress = requests
       .filter(r => r.path === '/positions/p1/applicants/app-8' || r.path === '/v1/applications/app-8')
       .map(r => `${r.method} ${r.path}`);
+    await page.close();
+    await context.close();
+  }
+
+  // --- 5. Panel Profile đang mở sẵn rồi xác nhận hết tiêu chí --------------
+  // Đây là cấu hình mà lỗi "mount lại panel sau mỗi lần render" sẽ lộ ra: panel
+  // đang mở, mỗi request /profile phát sinh thêm trong lúc xác nhận là một lần
+  // mount lại. Vì vậy kịch bản này chặn bằng chính chốt chặn của runLoop, với
+  // nhãn nói rõ panel đang mở — nếu panel bị gắn lại, test fail ngay chứ không
+  // âm thầm tăng số request.
+  {
+    const { page, context, requests } = await openPage();
+    const profileGets = () => requests.filter(r => /^\/v1\/applications\/[^/]+\/profile$/.test(r.path));
+    const panelToggle = page.getByRole('button', { name: /^Profile ứng viên/ });
+    const openedProfile = page.waitForResponse(res => /\/profile$/.test(new URL(res.url()).pathname) && res.status() === 200);
+    await panelToggle.click();
+    await openedProfile;
+    // Panel phải thật sự đang mở và đã nạp xong nội dung, không phải chỉ là cú bấm
+    // vừa gửi request: nếu chưa nạp xong thì kịch bản đo nhằm sai thời điểm.
+    assert.equal(await panelToggle.getAttribute('aria-expanded'), 'true', 'panel Profile phải đang mở trước khi xác nhận');
+    await page.locator('.MuiAccordionDetails-root .MuiCircularProgress-root').waitFor({ state: 'detached' });
+    const profileGetsOnOpen = profileGets().length;
+    assert.equal(profileGetsOnOpen, 1, `mở panel Profile đúng một lần tải: ${JSON.stringify(requests.map(r => r.path))}`);
+
+    const loopStart = requests.length;
+    const loop = await runLoop(page, requests, [], 'panel Profile đang mở');
+    const profileDuringConfirm = requests
+      .slice(loopStart)
+      .filter(r => /^\/v1\/applications\/[^/]+\/profile$/.test(r.path)).length;
+    assert.equal(profileDuringConfirm, 0, 'panel đang mở thì xác nhận không được tải lại /profile');
+    assert.equal(await panelToggle.getAttribute('aria-expanded'), 'true', 'panel vẫn mở sau khi xác nhận hết tiêu chí');
+
+    report.withProfilePanelOpen = {
+      profileRequestsOnOpen: profileGetsOnOpen,
+      profileRequestsDuringConfirm: profileDuringConfirm,
+      panelStillExpanded: true,
+      ...loop,
+    };
     await page.close();
     await context.close();
   }
