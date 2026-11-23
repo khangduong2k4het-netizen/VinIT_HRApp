@@ -57,7 +57,14 @@ const barMetrics = page => page.evaluate(() => {
   });
 
   const measured = {};
-  for (const viewport of [{ width: 390, height: 844, label: '390' }, { width: 1440, height: 900, label: '1440' }]) {
+  // Bốn khổ: hai đầu đã đo từ trước, và hai khổ giữa nơi nhãn đầy đủ đã bật lại
+  // nhưng thanh vẫn phải wrap (768: tablet dọc, 1024: tablet ngang).
+  for (const viewport of [
+    { width: 390, height: 844, label: '390' },
+    { width: 768, height: 1024, label: '768' },
+    { width: 1024, height: 768, label: '1024' },
+    { width: 1440, height: 900, label: '1440' },
+  ]) {
     const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
     await context.addInitScript(() => {
       localStorage.setItem('hra_access_token', 'sticky-height');
@@ -80,6 +87,13 @@ const barMetrics = page => page.evaluate(() => {
       assert.ok(box && box.width >= 40 && box.height >= 28, `${viewport.label}: ${testId} vẫn là nút bấm được (${Math.round(box?.width)}×${Math.round(box?.height)})`);
       assert.ok(box.x >= 0 && box.x + box.width <= viewport.width, `${viewport.label}: ${testId} nằm trong khổ ngang`);
     }
+    // Khổ giữa (768/1024) là chỗ nhãn đầy đủ bật lại và icon điều hướng hiện lại,
+    // nhưng thanh vẫn chỉ được hai hàng như 1440px. Trần 128px chốt điều đó: bản
+    // trước khi làm gọn cao 168px (ba hàng) ở cả hai khổ này.
+    if (viewport.label === '768' || viewport.label === '1024') {
+      assert.ok(metrics.height <= 128, `${viewport.label}: thanh dính phải ≤ 128px (đang ${metrics.height}px, bản cũ 168px)`);
+      assert.ok(metrics.rows <= 2, `${viewport.label}: thanh không được quá hai hàng (đang ${metrics.rows})`);
+    }
     assert.deepEqual(unexpected, [], `${viewport.label}: all API calls are accounted for: ${unexpected.join(', ')}`);
     await page.close();
     await context.close();
@@ -92,6 +106,6 @@ const barMetrics = page => page.evaluate(() => {
     assert.equal(measured['390'].confirmRejectSameRow, true, 'Xác nhận và Đánh dấu sai phải cùng một hàng ở 390px');
   }
 
-  console.log('Sticky bar measured on a narrow and a wide viewport: OK');
+  console.log('Sticky bar measured at 390, 768, 1024 and 1440px: OK');
   await browser.close();
 })().catch(err => { console.error(err); process.exit(1); });
