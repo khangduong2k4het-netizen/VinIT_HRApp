@@ -9,6 +9,46 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-23 — "Đã xử lý xong hồ sơ này" đi thẳng khi không còn gì để ghi
+
+**Vấn đề.** Hộp thoại hoàn tất luôn mở, kể cả khi hồ sơ đã xác minh đủ tiêu chí bị gắn cờ và trạng
+thái không đổi. Ở trường hợp đó hộp thoại chỉ để chọn sẵn "giữ nguyên trạng thái" rồi bấm xác nhận:
+hai cú bấm cho một việc đã xong, và một lần dừng không cần thiết trên mỗi hồ sơ.
+
+**Sửa.** Nút `Đã xử lý xong hồ sơ này` gọi `startFinish`: nếu (a) không còn tiêu chí chờ
+(`pendingResults.length === 0`), (b) không có bước trạng thái nào để ghi (không có quyền đổi trạng
+thái, hoặc gợi ý rỗng, hoặc gợi ý bằng đúng trạng thái hiện tại), và (c) có hồ sơ kế trong hàng đợi,
+thì ghi `VERIFICATION_COMPLETED` rồi `router.push(withCompletedFlag(keepContext(nextApplicantId)))`
+— hồ sơ kế nhận cờ `completed=1` nên hiện dòng "Đã xử lý xong hồ sơ trước. Đang xem hồ sơ tiếp
+theo." như khi đi qua hộp thoại, rồi cờ được bỏ khỏi URL. Ngược lại vẫn mở hộp thoại như cũ.
+
+**Phạm vi giữ nguyên.** Còn tiêu chí chờ → hộp thoại (còn việc để ghi). Có đề xuất đổi trạng thái →
+hộp thoại (ở đó mới có lựa chọn trạng thái và lý do). Là hồ sơ cuối hàng đợi → hộp thoại, để HR thấy
+mình đang kết thúc ở đâu. Không tự động hoá quyết định nào: đường tắt chỉ bỏ bước xác nhận cho việc
+không ghi gì.
+
+**Đo** (`tests/finish-direct-advance.e2e.cjs`, bản production, hồ sơ đã xác minh đủ và trạng thái
+`INTERVIEW` — không có gợi ý chuyển tiếp):
+
+| Nhánh | Cú bấm (trước) | Cú bấm (sau) | Ghi dữ liệu | Điều hướng |
+| --- | --- | --- | --- | --- |
+| Không còn gì để ghi | **2** (mở hộp thoại + xác nhận) | **1** | 0 POST, 0 PATCH | sang hồ sơ kế, có dòng xác nhận |
+| Còn 2 tiêu chí chờ | 1 (mở hộp thoại) | 1 | 0 | không đổi |
+| Hết chờ, có đề xuất Shortlist | 1 (mở hộp thoại) | 1 | 0 | không đổi |
+
+Số cú bấm đếm bằng listener `click` pha capture trên `window`, tức cú bấm thật.
+
+**Đối chứng.** Build lại `page.tsx` từ `HEAD` (không có `startFinish`), chạy đúng kịch bản nhánh đầu:
+`OLD_FINISH {"clicksAfterOpen":1,"clicksTotal":2,"advancedTo":"/positions/p1/applicants/app-0",
+"patches":0,"posts":0}` — 2 cú bấm. Test mới trên bản đó **fail** (sau 1 cú bấm hộp thoại mở nên
+không có điều hướng, `waitForURL` hết giờ). Khôi phục bản sửa, build lại: pass.
+
+**Kiểm thử đã chạy.** `finish-direct-advance` (mới, 3 nhánh) pass; `finish-application` pass;
+`mandatory-fail-finish` pass; `review-loop-metrics` pass; `npx next build` pass.
+
+**Chưa kiểm.** Chưa bấm tay trên trình duyệt thật (chỉ Chromium headless qua Playwright); chưa thử
+với hàng đợi có bộ lọc khác `NEEDS_VERIFICATION`; chưa đo trên hồ sơ thật ở backend (mock toàn bộ API).
+
 ## 2026-11-23 — "Xác nhận tất cả dòng đang hiện" ở màn duyệt theo tiêu chí
 
 **Vấn đề.** Màn `by-criterion` gom nhiều hồ sơ cho **một** tiêu chí, nhưng mỗi dòng vẫn một cú bấm:

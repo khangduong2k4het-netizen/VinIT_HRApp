@@ -817,6 +817,20 @@ export default function ApplicantDetailPage() {
     search.set('completed', '1');
     return `${path}?${search.toString()}`;
   };
+  // Không còn tiêu chí chờ và không có bước trạng thái nào để ghi: hộp thoại chỉ
+  // để bấm thêm hai lần cho một việc đã xong, nên nút chuyển thẳng sang hồ sơ kế.
+  // Vẫn mở hộp thoại khi còn tiêu chí chờ, khi có đề xuất đổi trạng thái, hoặc
+  // khi đây là hồ sơ cuối hàng đợi (HR cần thấy mình đang kết thúc ở đâu).
+  const finishHasNothingToWrite = pendingResults.length === 0
+    && (!canUpdateStatus || !finishSuggestion.status || finishSuggestion.status === currentStatus);
+  const startFinish = () => {
+    if (finishHasNothingToWrite && nextApplicantId) {
+      recordUxEvent({ type: 'VERIFICATION_COMPLETED', at: Date.now(), application_id: applicantId });
+      router.push(withCompletedFlag(keepContext(nextApplicantId)));
+      return;
+    }
+    openFinish();
+  };
   const openFinish = () => {
     setFinishStatus(finishSuggestion.status);
     setFinishReason('');
@@ -984,7 +998,7 @@ export default function ApplicantDetailPage() {
                 color="secondary"
                 size="small"
                 startIcon={<CheckCircleOutlineIcon />}
-                onClick={openFinish}
+                onClick={startFinish}
                 data-testid="finish-application"
                 sx={{ whiteSpace: 'nowrap', '& .MuiButton-startIcon': { display: { xs: 'none', sm: 'inline-flex' } } }}
               >
