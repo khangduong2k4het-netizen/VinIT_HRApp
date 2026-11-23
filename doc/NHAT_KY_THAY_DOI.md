@@ -9,6 +9,37 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-23 — Đo vòng duyệt với panel Profile đang mở sẵn, chặn mọi `GET /profile`
+
+**Vì sao cần thêm kịch bản.** `tests/review-loop-metrics.cjs` trước đây đo vòng xác nhận khi panel
+Profile **đóng**. Đó không phải cấu hình làm lỗi "panel bị gắn lại sau mỗi lần render" lộ ra: panel
+đóng thì dù bị mount lại cũng chưa gọi `/profile` (chỉ nạp ở lần mở đầu), nên script vẫn xanh trong
+khi bug quay lại. Cấu hình đúng để thử là panel **đang mở** rồi xác nhận hết tiêu chí.
+
+**Kịch bản 5 (mới).** Mở panel bằng chính accordion `Profile ứng viên`, chờ response `/profile`
+đầu tiên và chờ spinner biến mất (panel đã nạp xong, không phải chỉ vừa gửi request), rồi kiểm:
+- mở panel = đúng **1** `GET …/profile` (không hơn: panel là một lần tải cho cả trang);
+- xác nhận hết tiêu chí = **0** `GET …/profile` và **0** `GET …/status-events`; đây là chốt chặn
+  sẵn có của `runLoop`, nay nhận thêm nhãn "panel Profile đang mở" để thông báo lỗi nói rõ cấu
+  hình nào vừa hỏng;
+- `aria-expanded` của panel **vẫn `true`** sau khi duyệt xong — panel bị mount lại thì tự đóng,
+  nên đây là dấu hiệu trực tiếp của việc gắn lại, không chỉ là số request.
+
+**Kết quả (bản build production, 1440×900).** `profileRequestsOnOpen: 1`,
+`profileRequestsDuringConfirm: 0`, `panelStillExpanded: true`, 2 tiêu chí → 2 phím `1`, 2 POST
+review (`requestsPerConfirm: [1, 1]`), `getRequests: 0` trong vòng xác nhận.
+
+**Đối chứng.** Gắn tạm `key={`profile-${applicantId}-${Math.random()}`}` cho panel (buộc React
+mount lại sau mỗi lần render), build lại và chạy: test **fail** với `panel vẫn mở sau khi xác nhận
+hết tiêu chí — 'false' !== 'true'`. Khôi phục key cũ, build lại: pass. Vậy kịch bản bắt đúng cấu
+hình đó, không phải một assert trang trí.
+
+**Kiểm.** `eslint` file script; chạy trọn script 5 kịch bản trên bản build production (tất cả
+pass), `npm run build` pass sau khi khôi phục nguồn.
+
+**Chưa kiểm.** Chưa chạy với backend thật; số request đo trên mock. Chưa đo thời gian khi panel
+mở (kịch bản này chỉ đếm request và trạng thái panel).
+
 ## 2026-11-23 — Danh sách → hồ sơ: 6 request, 0 lần gọi lại ranking và danh sách
 
 **Vấn đề cần số.** Trang hồ sơ dựng bộ đếm "hồ sơ k/n" và prev/next từ hàng đợi. Trước đây mỗi
