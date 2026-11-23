@@ -21,17 +21,25 @@ Code định danh (tên hàm, biến, route) giữ tiếng Anh theo khuôn sẵn
 | Build | `cd frontend && npm run build` | |
 | Ruff (phạm vi CI) | xem lệnh đầy đủ trong `.github/workflows/ci.yml` | Chỉ một số file, không phải toàn repo |
 
-### 1.1. `174 skipped` là bình thường, không phải lỗi
+### 1.1. `174 skipped` nghĩa là bạn chưa dựng DB — không phải bình thường
 
-Test tích hợp **tự skip** khi không có biến `TEST_DATABASE_URL`. Muốn chạy chúng,
-dựng PostgreSQL cục bộ dùng một lần:
+Test tích hợp **tự skip** khi không có `TEST_DATABASE_URL`. Một dòng là đủ:
 
+```bash
+# cổng riêng cho từng agent để không đụng nhau
+bash scripts/test-db.sh --port 55433 --name hra_agentx_test
+export TEST_DATABASE_URL='postgresql://postgres@127.0.0.1:55433/hra_agentx_test'
+pytest backend/tests -q     # kỳ vọng: 671 passed, 0 skipped
 ```
-pgvector/pgvector:pg17  →  createdb hra_phase1_test
-export TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/hra_phase1_test'
-```
 
-Rồi áp migration **theo thứ tự tên file**, **trừ `00035`** (xem mục 1.2).
+Script này là **nguồn duy nhất** — CI cũng chạy đúng nó, nên máy và CI không
+lệch nhau. Nó tự lo phần dễ sai: tạo role stub, `schema auth`, và **bỏ qua
+`00035`** (xem mục 1.2). Đừng chép tay danh sách migration từ
+`backend/tests/README.md` — danh sách đó đã lỗi thời (dừng ở `00026`).
+
+Nếu vẫn còn `skipped` sau khi export biến: biến chưa vào đúng shell, hoặc tên DB
+không kết thúc `_test` (conftest sẽ từ chối và test skip im lặng — đây là cái bẫy
+đã làm 174 test không chạy suốt 11 ngày).
 
 ### 1.2. TUYỆT ĐỐI không trỏ test vào Supabase
 
@@ -80,12 +88,27 @@ Bẫy đã gặp, đừng lặp lại:
 
 ---
 
-## 4. i18n
+## 4. i18n — chỉ có MỘT file, ánh xạ Việt → Anh
 
+**Không có `vi.json`.** Chỉ có `frontend/src/i18n/en.json`. Tiếng Việt là bản gốc
+và chính là **khoá**:
+
+```json
+{ "Vị trí tuyển dụng": "Recruitment positions" }
+```
+
+`translate('Vị trí tuyển dụng', 'vi')` trả lại khoá; `'en'` trả giá trị. `translate`
+còn dựng bảng nghịch để dịch ngược (Anh → Việt), nên **giá trị tiếng Anh phải
+không trùng nhau** — hai khoá khác nhau cùng một bản dịch sẽ làm dịch ngược ra sai.
+
+Quy ước khi thêm chữ mới:
+- Viết nhãn bằng **tiếng Việt** trong code, bọc `t('...')`.
+- Thêm một dòng vào `en.json`: khoá = đúng chuỗi tiếng Việt, giá trị = tiếng Anh.
 - Dịch **thật**. `"X": "X"` làm test xanh nhưng người dùng thấy tiếng Việt trong
-  giao diện tiếng Anh.
-- Thêm key thì thêm cho **cả `vi` và `en`**.
-- Test i18n chỉ kiểm key tồn tại, nên nó không cứu bạn khỏi việc dịch sai.
+  giao diện tiếng Anh. Test i18n chỉ kiểm **có entry**, không kiểm bản dịch đúng.
+- Chuỗi không có chữ Việt (`IN_REVIEW`, `application/pdf`, mã lỗi) **không** cần dịch.
+- `npm run test:i18n` đọc cây cú pháp TSX nên nó chỉ thấy literal, không thấy chuỗi
+  ghép động. Ghép chuỗi thành nhãn là cách chắc chắn làm mất bản dịch.
 
 ---
 
@@ -118,7 +141,7 @@ Bẫy đã gặp, đừng lặp lại:
 Mỗi luồng sở hữu một tập file (xem §3 của `doc/PLAN_4_AGENT.md`). Ba file **ai
 cũng cần sửa**, nên quy ước:
 
-`backend/app/api/__init__.py` · `frontend/src/types/index.ts` · `frontend/src/i18n/en.json` (+ `vi.json`)
+`backend/app/api/__init__.py` · `frontend/src/types/index.ts` · `frontend/src/i18n/en.json`
 
 → Sửa **sau cùng trong ngày**, **commit riêng**, **nhỏ nhất có thể**. Đừng gộp
 vào commit tính năng.
