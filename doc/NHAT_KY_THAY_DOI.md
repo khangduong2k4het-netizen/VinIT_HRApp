@@ -9,6 +9,71 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-23 — Danh sách → hồ sơ: 6 request, 0 lần gọi lại ranking và danh sách
+
+**Vấn đề cần số.** Trang hồ sơ dựng bộ đếm "hồ sơ k/n" và prev/next từ hàng đợi. Trước đây mỗi
+lần mở hồ sơ từ danh sách là một lần gọi lại `GET /v1/assessments/ranking/latest/{position}`
+và cả danh sách `GET /v1/applications` — hai request lớn, chỉ để biết thứ tự những hồ sơ mà
+trang trước vừa hiển thị. Nay danh sách để lại thứ tự đó trong `sessionStorage`
+(`hra-applicant-navigation:{position}`) và trang hồ sơ dùng luôn, chỉ deep link lạnh mới dựng lại.
+
+**Script đo `tests/list-to-profile-requests.cjs`.** Mở danh sách
+`/positions/p1/applicants?queue=NEEDS_VERIFICATION&sort=REVIEW_PRIORITY`, chờ bảng dựng xong,
+rồi **mới** bật cửa sổ đếm và bấm dòng đầu tiên — nhờ vậy chỉ đếm request do việc mở hồ sơ sinh
+ra. Đếm `GET` vào `/v1/`, tách riêng hai path cần theo dõi. Chạy 3 lần mỗi nhánh, in một dòng
+`LIST_TO_PROFILE {json}`.
+
+**Đối chứng.** Xoá `sessionStorage` rồi bấm link trong cùng tab **không** phải đối chứng:
+`onClick` của link ghi lại ngữ cảnh ngay trước khi điều hướng, nên tab vẫn có đủ thứ tự (đã thử,
+đo được 0 request ranking — tức là phép đo không chứng minh gì). Đối chứng đúng là mở **cùng URL
+hồ sơ đó ở tab mới**: `sessionStorage` rỗng như một link gửi cho đồng nghiệp, trang buộc phải
+dựng lại hàng đợi từ ranking + danh sách. Trong nhánh này script **bắt buộc** thấy đúng 1 request
+mỗi path, nếu không thì tự fail.
+
+| Nhánh | 3 lần | Trung vị tổng `GET /v1` | ranking | danh sách | Bỏ request của khung |
+| --- | --- | --- | --- | --- | --- |
+| Từ danh sách (có `sessionStorage`) | 6, 6, 6 | **6** | **0** | **0** | **4** |
+| Đối chứng: tab mới (rỗng `sessionStorage`) | 9, 9, 9 | 9 | 1 | 1 | 6 |
+
+Chênh lệch 2 request đúng bằng ranking + danh sách. Con số 9 của đối chứng có thêm một request
+`/v1/dashboard/work-queue` vì tab mới dựng lại cả khung ứng dụng (huy hiệu việc cần làm); đây
+không phải request của hồ sơ, nên bảng tách riêng cột "bỏ request của khung" (`/v1/auth/me`,
+`/v1/dashboard/work-queue`) — 4 so với 6, vẫn đúng chênh 2. Các request còn lại của một lần mở
+hồ sơ: chi tiết hồ sơ, bộ tiêu chí đã duyệt, ghi chú riêng, và một lần tải trước dữ liệu hồ sơ
+kế (app-0 khi hồ sơ đang mở là app-5).
+
+**Kiểm.** `eslint` hai file test; script pass 3/3 lần ở cả hai nhánh với số y hệt nhau. Chạy trên
+bản build production (`next start`), Chromium headless 1440×900.
+
+**Chưa kiểm.** Chưa chạy với backend thật: số request là số *lần gọi*, không phải độ trễ; mock
+trả lời tức thì nên không đo được thời gian tiết kiệm. Chưa đo trên mạng chậm hay thiết bị thật.
+
+## 2026-11-23 — ranking-context-mock hết chập chờn: chờ đúng hồ sơ kế, không chờ thẻ h1 có sẵn
+
+**Triệu chứng.** Chạy 3 lần thì 1–2 lần fail với `Unexpected GET /v1/applications/app-2`. Trước
+đây ghi nhận là "flaky sẵn từ trước" và bỏ qua — nay tìm ra nguyên nhân, không phải nhiễu mạng.
+
+**Nguyên nhân thật.** Mục 10 bấm "Hồ sơ tiếp theo" để sang app-2, nhưng mock chỉ có dữ liệu cho
+app-0. Hai lỗi cộng lại:
+1. Bước đó chờ `getByRole('heading', { level: 1 })` — một thẻ **đã có sẵn từ trang trước**, nên
+   điều hướng client-side vừa đổi URL là test chạy tiếp trong khi hồ sơ app-2 còn đang tải;
+2. request `GET /v1/applications/app-2` (và request tải trước hồ sơ kế tiếp theo) rơi vào nhánh
+   "Unexpected", được đẩy vào mảng lỗi **sau** khi test đã kiểm tra mảng đó ở cuối — mục 11 đã
+   điều hướng sang danh sách và có thể huỷ request trước khi nó tới route handler. Vì vậy cùng
+   một lỗi lúc hiện lúc không.
+
+**Sửa.** (a) Dựng dữ liệu cho mọi hồ sơ `app-N` trong hàng đợi (chi tiết, lịch sử trạng thái,
+profile) từ chính danh sách xếp hạng, để trang hồ sơ mở bình thường thay vì rơi vào nhánh lỗi;
+(b) chờ đúng **tên ứng viên của app-2** ("Ứng viên 3") thay vì thẻ h1 chung, và assert thêm URL
+là `/applicants/app-2`. Không nới assertion nào: mục 10 vẫn kiểm đủ bộ đếm, prev/next, queue
+trong URL; chỉ thay điểm chờ sai bằng điểm chờ đúng.
+
+**Kiểm.** `ranking-context-mock` chạy **3/3 pass** sau khi sửa (trước khi sửa: 3/3 fail trên máy
+này — lỗi chỉ chập chờn khi máy nhanh hơn). `eslint` pass.
+
+**Chưa kiểm.** Chưa chạy lặp nhiều chục lần để khẳng định "không bao giờ flaky"; 3/3 là mức đã
+đo. Chưa chạy với backend thật.
+
 ## 2026-11-22 — Thanh dính trên hồ sơ gọn lại ở màn hẹp: 400px → 152px
 
 **Vấn đề.** Ở 390px mọi thứ trên thanh dính nằm trong một hàng flex `wrap`: ngữ cảnh hàng
