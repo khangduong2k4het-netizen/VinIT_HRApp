@@ -9,6 +9,44 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-23 — Mở hồ sơ kế: một `GET` hồ sơ thay vì hai
+
+**Vấn đề.** Bản tải trước vẽ được ngay, nhưng `loadData(initial)` vẫn gọi lại
+`GET /v1/applications/{id}` ngay sau đó để "xác nhận". Với hồ sơ vừa tải trước xong vài trăm ms,
+lần gọi đó chỉ lặp lại đúng dữ liệu vừa nhận — mỗi lần mở hồ sơ kế tốn hai request hồ sơ, cả vòng
+duyệt tốn gấp đôi phần này.
+
+**Sửa.** `profilePrefetch.ts` thêm `PREFETCH_REUSE_MS = 5 giây`; `takePrefetchedApplication` trả
+`{ data, fresh }`. Trang hồ sơ vẽ ngay bằng `data` như cũ, nhưng chỉ đọc lại API khi `fresh` là
+`false` — tức bản đã cũ hơn cửa sổ 5 giây. Bản cũ hơn 60 giây vẫn bị bỏ hẳn như trước. Phần áp
+dụng dữ liệu (quyền, lịch sử, CV) được tách thành một hàm dùng chung cho cả hai đường, nên
+đường không đọc lại vẫn đủ quyền và trạng thái như đường đọc lại.
+
+**Đo** — `tests/prefetch-next-profile.e2e.cjs`, mock giữ request hồ sơ kế 600 ms, 3 lần lấy
+trung vị. Test nay khẳng định **đúng một** `GET` hồ sơ cho mỗi lần mở (trước là "ít nhất hai").
+
+| Bản | 3 lần (ms) | Trung vị | `GET` hồ sơ mỗi lần mở |
+| --- | --- | --- | --- |
+| Trước (luôn xác nhận lại) | 94, 100, 104 | 100 ms | 2 |
+| Sau (chỉ đọc lại khi đã cũ) | 86, 87, 96 | **87 ms** | **1** |
+
+Thời gian mở gần như không đổi — request thứ hai vốn không chặn lần vẽ đầu, nên thứ giảm được
+là số request, không phải độ trễ. Nói cách khác: cùng một màn hình, nửa số request hồ sơ.
+
+**Kịch bản thứ hai (mới) cho chiều ngược lại.** Chờ quá cửa sổ 5 giây rồi mới bấm `n`: đo được
+`staleUsableMs: 84` (vẫn vẽ ngay từ bản tải trước, không quay lại spinner) và `detailRequests: 2`
+(bản đã cũ nên có đọc lại API). Như vậy cửa sổ `fresh` thật sự có tác dụng, không phải bỏ luôn
+lần xác nhận.
+
+**Kiểm.** `tsc --noEmit`, `eslint` ba file, `npm run build`. E2E trên bản production:
+`prefetch-next-profile` pass (cả hai kịch bản), `review-loop-metrics` pass (`withoutSelection`:
+`getRequests: 0`, `requestsPerConfirm: [1,1]`; panel Profile mở sẵn: 0 `GET /profile`),
+`review-double-confirm` pass.
+
+**Chưa kiểm.** Chưa chạy với backend thật; 600 ms là độ trễ do mock dựng nên và 5 giây là cửa sổ
+do mình chọn, chưa đo trên mạng thật. Test chép lại con số 5 giây thay vì import hằng số TS, nên
+nếu đổi cửa sổ trong `profilePrefetch.ts` phải sửa cả test (nó sẽ fail rõ ràng, không im lặng).
+
 ## 2026-11-23 — Phép kiểm đường chuột của `review-double-confirm` không còn xanh giả
 
 **Vấn đề.** Mục 2 của `tests/review-double-confirm.e2e.cjs` bấm `click({ force: true })` hai lần
