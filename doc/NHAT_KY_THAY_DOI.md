@@ -9,6 +9,29 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-23 — Phép kiểm đường chuột của `review-double-confirm` không còn xanh giả
+
+**Vấn đề.** Mục 2 của `tests/review-double-confirm.e2e.cjs` bấm `click({ force: true })` hai lần
+vào nút Xác nhận trên thanh dính. Cú thứ hai rơi vào lúc React đã disable nút, nên trình duyệt
+không phát sự kiện click: test vẫn xanh dù không có khoá nào. Phần đó chưa từng chứng minh đường
+chuột bị chặn.
+
+**Sửa.** Hai cú bấm nay xảy ra trong **cùng một tác vụ JS** (`button.click(); button.click();`),
+ngay trong `page.evaluate`, và test đọc lại `disabled` **trước cú thứ hai**. Nếu React đã kịp
+disable thì cú bấm đó bị trình duyệt chặn, phép kiểm vô nghĩa — nên test fail ngay với thông điệp
+"cú bấm thứ hai phải tới được handler" thay vì lặng lẽ pass. Thêm một mốc 120ms để kiểm số POST
+khi request đầu (700ms) còn đang bay.
+
+**Đối chứng.** Bỏ dòng chặn `if (reviewSavingRef.current !== null) return;` ở trang hồ sơ, build
+lại rồi chạy một probe tạm (chỉ đường chuột, để mục 1 không che mất kết quả):
+`{"enabledBefore":true,"enabledForSecond":true}, posts: ["r-c2","r-c3","r-c3"]` — hai cú bấm đều
+tới handler và ghi **hai** review cho `r-c3`. Khôi phục khoá, build lại: `["r-c2","r-c3"]`.
+
+**Kiểm.** `review-double-confirm` pass trên bản production sau khi khôi phục nguồn; `eslint` pass;
+`npm run build` pass; `git status` không còn thay đổi trong `src/`.
+
+**Chưa kiểm.** Chưa chạy với backend thật; 700ms là độ trễ của mock.
+
 ## 2026-11-23 — Màn duyệt theo tiêu chí cũng chỉ ghi một review cho mỗi cú bấm
 
 **Vấn đề.** `by-criterion/page.tsx` cũng gọi `reviewCriterionResult`, nhưng chỉ chặn bằng state:
