@@ -9,6 +9,68 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-23 — Nguyên nhân thật của hai request còn thừa mỗi lần chuyển hồ sơ
+
+**Vấn đề nêu ra.** Mỗi lần chuyển hồ sơ còn 2 request thừa: `GET /v1/auth/me` hai lần và
+`private-notes` của hồ sơ vừa rời.
+
+**Đo trước khi sửa** (`tests/profile-transition-requests.cjs`, bản production, mock API):
+
+| Lần chuyển | `auth/me` | `work-queue` | `private-notes` | Tổng `GET /v1/` |
+| --- | --- | --- | --- | --- |
+| Chuyển nhanh, 3 lần liên tiếp | 0 / 0 / 0 | 0 | của hồ sơ **đang mở** (app-0, app-2, app-8) | 2 / 2 / 1 |
+| Ở lại hồ sơ 32 giây rồi chuyển | **1** | **1** | của hồ sơ đang mở | **5** |
+
+Vậy "hai request thừa" là `auth/me` + `dashboard/work-queue`, không phải hai lần `auth/me`. Chúng
+chỉ hiện khi HR ở lại một hồ sơ lâu hơn 30 giây — đúng nhịp làm việc thật, nên lần đo nhanh trước
+đây (0/0/0) đã che mất.
+
+**Nguyên nhân thật, từng cái.**
+
+1. `auth/me`: `AppLayout` kiểm tra lại danh tính theo `pathname`, mà `pathname` có cả mã hồ sơ
+   (`/positions/p1/applicants/app-5` → `app-0`). Mỗi lần bấm `n` là một "đổi trang" theo nghĩa đó.
+   Trong 30 giây đầu, `lib/meCache.ts` che được lần hỏi này; quá 30 giây thì nó thành request thật.
+   Thêm vào đó trang hồ sơ được gắn lại theo `applicantId` và tự gọi `getCurrentUser()` khi trình
+   duyệt rảnh — cùng một câu hỏi, chỉ khác chỗ hỏi. Trước khi có `meCache`, hai chỗ này là hai
+   request cách nhau 40–60 ms; sau khi có, chúng chỉ còn lộ ra khi bản dùng chung đã hết hạn.
+2. `work-queue`: cùng effect đó (có giãn cách 30 giây) nên cũng chạy lại mỗi lần đổi `pathname`.
+   Badge số việc không đổi khi chỉ chuyển giữa các hồ sơ của một vị trí.
+3. `private-notes` của hồ sơ vừa rời: **không tái hiện được** trên nhánh này. Ở bốn mốc bấm `n`
+   liền nhau (cách 0 / 10 / 30 / 70 ms), request ghi chú luôn mang id hồ sơ **đang hiển thị**
+   (app-0 hoặc app-2), không có id hồ sơ đã rời; request đang bay thì đã bị huỷ (`ERR_ABORTED`,
+   sửa ở `4bc87f1`). Còn một đường hở thật: ghi chú đang `POST` dở mà HR bấm sang hồ sơ khác thì
+   bước tải lại sau `POST` hỏi ghi chú của hồ sơ vừa rời.
+
+**Sửa.**
+
+- `AppLayout`: khoá xác thực là **phạm vi** `/positions/{id}` (bỏ phần sau), không phải cả
+  `pathname`. Đổi vị trí vẫn kiểm tra lại (vai trò gắn theo vị trí); chuyển hồ sơ trong cùng vị trí
+  thì không. Badge `work-queue` dùng cùng khoá.
+- `page.tsx`: bỏ lần tự gọi `auth/me`; đọc danh tính khung trang đã tải qua `getCachedUser()` /
+  `subscribeCurrentUser()` (mới trong `lib/meCache.ts`), nên mở hồ sơ nào cũng không hỏi lại.
+- `page.tsx`: nhịp rảnh nạp ghi chú thoát ngay nếu đã rời hồ sơ hoặc signal đã huỷ (không mở
+  request để rồi huỷ), và `addNote` không tải lại ghi chú nếu URL đã sang hồ sơ khác.
+
+**Đo sau khi sửa** (cùng script, cùng kịch bản):
+
+| Lần chuyển | `auth/me` | `work-queue` | Tổng `GET /v1/` |
+| --- | --- | --- | --- |
+| Chuyển nhanh, 3 lần liên tiếp | 0 / 0 / 0 | 0 | 2 / 2 / 1 (không đổi) |
+| Ở lại hồ sơ 32 giây rồi chuyển | **0** | **0** | **3** (`app-0`, tải trước `app-2`, ghi chú `app-0`) |
+| Bấm `n` liền hai lần (0–70 ms) | 0 | 0 | ghi chú chỉ của hồ sơ đang hiển thị |
+
+Tức mỗi lần chuyển bớt 2 request (5 → 3 khi ở lại lâu; 0 → 0 khi chuyển nhanh), và `auth/me` giờ
+chỉ còn một lần cho mỗi lần đổi vị trí.
+
+**Kiểm thử đã chạy.** `profile-transition-requests` (thêm 2 phép đo + 3 assert mới: `auth/me` = 0
+sau 32 giây, `work-queue` = 0, không có ghi chú ngoài hồ sơ đang xem) pass; `profile-lazy-panels`,
+`list-to-profile-requests`, `finish-direct-advance`, `review-loop-metrics`, `review-double-confirm`
+pass; `npx next build` pass.
+
+**Chưa kiểm.** Chưa đo riêng trước/sau cho đường `POST` ghi chú chậm rồi rời hồ sơ (chỉ thêm chốt
+chặn, chưa có số "trước"); chưa thử trên backend thật; `auth/me` vẫn được hỏi lại khi đổi vị trí
+theo thiết kế.
+
 ## 2026-11-23 — "Đã xử lý xong hồ sơ này" đi thẳng khi không còn gì để ghi
 
 **Vấn đề.** Hộp thoại hoàn tất luôn mở, kể cả khi hồ sơ đã xác minh đủ tiêu chí bị gắn cờ và trạng

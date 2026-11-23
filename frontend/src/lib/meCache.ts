@@ -20,6 +20,28 @@ import { authApi } from '@/lib/api';
  */
 export const ME_TTL_MS = 30_000;
 
+// Danh tính đã tải gần nhất, để nơi khác đọc mà không phải hỏi lại. Khung trang
+// là nơi duy nhất gọi `auth/me`; trang hồ sơ chỉ cần `user_id` để hiện người phụ
+// trách, nên đọc bản này thay vì tự hỏi mỗi lần được gắn lại (mỗi hồ sơ).
+type Snapshot = { token: string | null; user: CurrentUser };
+let snapshot: Snapshot | null = null;
+const listeners = new Set<(user: CurrentUser) => void>();
+
+export function getCachedUser(): CurrentUser | null {
+  if (!snapshot || snapshot.token !== readToken()) return null;
+  return snapshot.user;
+}
+
+export function subscribeCurrentUser(listener: (user: CurrentUser) => void): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+
+function publish(token: string | null, user: CurrentUser) {
+  snapshot = { token, user };
+  listeners.forEach(listener => listener(user));
+}
+
 export type CurrentUser = {
   user_id?: string;
   email?: string;
@@ -42,7 +64,11 @@ export function getCurrentUser(): Promise<CurrentUser> {
   if (entry && entry.token === token && Date.now() - entry.at < ME_TTL_MS) return entry.promise;
   const next: Entry = { at: Date.now(), token, promise: Promise.resolve({}) };
   next.promise = authApi.me()
-    .then(response => (response.data || {}) as CurrentUser)
+    .then(response => {
+      const user = (response.data || {}) as CurrentUser;
+      publish(token, user);
+      return user;
+    })
     .catch(error => {
       if (entry === next) entry = null;
       throw error;

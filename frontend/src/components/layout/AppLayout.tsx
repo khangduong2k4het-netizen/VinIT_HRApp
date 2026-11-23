@@ -16,6 +16,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { t } = useI18n();
   const router = useRouter();
   const pathname = usePathname();
+  // Phạm vi xác thực: đổi vị trí mới có thể đổi quyền (vai trò gắn theo vị trí),
+  // còn chuyển giữa các hồ sơ trong cùng một vị trí thì không. `pathname` có cả
+  // mã hồ sơ, nên dùng nó làm khoá khiến mỗi lần bấm `n` lại hỏi `auth/me` (và
+  // cả badge work-queue) sau khi bản dùng chung 30 giây hết hạn.
+  const authScope = pathname.replace(/^(\/positions\/[^/]+).*$/, '$1');
   const [isLoading, setIsLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [systemRoles, setSystemRoles] = useState<string[]>([]);
@@ -56,7 +61,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => { active = false; };
     // Revalidate on navigation but do not include authenticated (would cause a loop).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, router, attempt]);
+  }, [authScope, router, attempt]);
 
   // Đổi trang là lúc hợp lý để cập nhật badge; giãn cách 30 giây để việc đi lại
   // giữa các màn không nhân thành một loạt truy vấn tổng hợp.
@@ -71,7 +76,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       .then(response => setWorkCount(response.data?.items?.length ?? 0))
       .catch(() => { /* badge là phụ trợ; lỗi mạng không được chặn màn hình */ }));
     return cancel;
-  }, [authenticated, pathname]);
+  }, [authenticated, authScope]);
 
   if (['/', '/bootstrap', '/change-password', '/careers-demo', '/careers', '/pool-withdraw', '/demo'].includes(pathname)) return <>{children}</>;
   if (isLoading || (!authenticated && !authError)) return (

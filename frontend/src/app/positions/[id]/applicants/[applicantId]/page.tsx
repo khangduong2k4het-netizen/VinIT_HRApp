@@ -45,7 +45,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { applicationsApi, assessmentsApi, criteriaApi, listAllApplications, operationsApi } from '@/lib/api';
-import { getCurrentUser } from '@/lib/meCache';
+import { getCachedUser, subscribeCurrentUser } from '@/lib/meCache';
 import { recordUxEvent } from '@/lib/uxMetrics';
 import { runWhenIdle } from '@/lib/idle';
 import { prefetchApplication, takePrefetchedApplication } from '@/lib/profilePrefetch';
@@ -375,15 +375,14 @@ export default function ApplicantDetailPage() {
   }, [statusDialogOpen, finishOpen, positionId]);
 
   useEffect(() => {
-    // Chỉ để hiển thị "người phụ trách" và nút nhận hồ sơ: để trình duyệt rảnh
-    // rồi mới hỏi, không tranh với hồ sơ + tiêu chí của màn hình đầu.
-    return runWhenIdle(() => {
-      // Khung trang vừa hỏi đúng câu này khi `pathname` đổi; dùng chung bản đó
-      // thay vì request thứ hai cho cùng một câu trả lời (`lib/meCache.ts`).
-      getCurrentUser()
-        .then(me => setCurrentUserId(me.user_id || null))
-        .catch(() => { /* người phụ trách chỉ là hiển thị; không có id vẫn xem được hồ sơ */ });
-    });
+    // Chỉ để hiển thị "người phụ trách" và nút nhận hồ sơ. Khung trang đã tải
+    // danh tính rồi (`lib/meCache.ts`), nên đọc bản đó; hỏi lại ở đây nghĩa là
+    // mỗi hồ sơ mở ra (trang được gắn lại theo `applicantId`) một `auth/me`
+    // thừa, và nó chỉ được che đi khi bản dùng chung 30 giây còn hiệu lực.
+    const apply = (me: { user_id?: string }) => setCurrentUserId(me.user_id || null);
+    const cached = getCachedUser();
+    if (cached) { apply(cached); return; }
+    return subscribeCurrentUser(apply);
   }, []);
 
   // Quyền ghi chú là một boolean, không phải cả object hồ sơ: phụ thuộc vào object
@@ -403,6 +402,9 @@ export default function ApplicantDetailPage() {
     // Ghi chú chỉ để hiện số ghi chú bên cạnh tiêu chí và panel ghi chú ở dưới:
     // nạp sau khi hồ sơ đã dùng được, không chiếm lượt tải đầu.
     const cancelIdle = runWhenIdle(() => {
+      // Nhịp rảnh có thể chạy sau khi HR đã bấm `n`: không mở request cho hồ sơ
+      // vừa rời (dù nó sẽ bị huỷ ngay, nó vẫn là một request trên mạng).
+      if (cancelled || controller.signal.aborted) return;
       applicationsApi.getPrivateNotes(applicantId, controller.signal)
         .then(response => { if (!cancelled) { setNotes(response.data || []); setNotesError(null); } })
         .catch((err: any) => {
@@ -416,6 +418,9 @@ export default function ApplicantDetailPage() {
 
   const addNote = useCallback(async (content: string, criterionId?: string) => {
     await applicationsApi.addPrivateNote(applicantId, content, criterionId);
+    // Ghi xong mà HR đã sang hồ sơ khác: không tải lại ghi chú của hồ sơ vừa
+    // rời (kết quả cũng không được hiện ở hồ sơ mới).
+    if (!window.location.pathname.includes(`/applicants/${applicantId}`)) return;
     const response = await applicationsApi.getPrivateNotes(applicantId);
     setNotes(response.data || []);
   }, [applicantId]);

@@ -105,6 +105,96 @@ const profileName = page => page.evaluate(() => {
     .first()
     .waitFor({ timeout: 5000 });
 
+  // --- Hai trường hợp còn lại, đo riêng vì cần thời điểm khác nhau -----------
+  // (a) HR ở lại một hồ sơ lâu hơn cửa sổ dùng chung của `auth/me` (30 giây).
+  // (b) HR bấm `n` trước khi việc nạp ghi chú theo nhịp rảnh kịp chạy.
+  // Mỗi lần chỉ đo một lần chuyển, cùng cách đếm `GET /v1/` như trên.
+  const openFresh = async () => {
+    const freshContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await freshContext.addInitScript(() => {
+      localStorage.setItem('hra_access_token', 'transition-requests');
+      localStorage.setItem('hra_locale', 'vi');
+    });
+    const freshUnexpected = await installMockApi(freshContext);
+    const freshPage = await freshContext.newPage();
+    const gets = [];
+    const notesOffProfile = [];
+    freshPage.on('request', request => {
+      const url = new URL(request.url());
+      if (!url.pathname.startsWith('/v1/') || request.method() !== 'GET') return;
+      gets.push(url.pathname);
+      if (url.pathname.endsWith('/private-notes')) {
+        // Hồ sơ đang xem tại đúng thời điểm request được gửi.
+        const viewed = new URL(freshPage.url()).pathname.split('/').pop();
+        const askedFor = url.pathname.split('/')[3];
+        if (askedFor !== viewed) notesOffProfile.push({ askedFor, viewed });
+      }
+    });
+    await freshPage.goto(`${base}/positions/p1/applicants?queue=NEEDS_VERIFICATION`, { waitUntil: 'networkidle' });
+    await freshPage.locator('table tbody tr').first().waitFor();
+    await freshPage.locator('table tbody tr a[href*="/applicants/app-"]').first().click();
+    await freshPage.getByTestId('verification-progress').waitFor();
+    await freshPage.locator('[data-testid="evidence-card"]').first().waitFor();
+    await freshPage.waitForLoadState('networkidle');
+    await freshPage.waitForTimeout(400);
+    return { freshContext, freshPage, gets, notesOffProfile, freshUnexpected };
+  };
+
+  const moveOn = async (freshPage, name) => {
+    await freshPage.waitForFunction(previous => {
+      const heading = document.querySelector('h1');
+      return Boolean(heading && heading.textContent.trim() && heading.textContent.trim() !== previous);
+    }, name, { timeout: 15000 });
+    await freshPage.getByTestId('verification-progress').waitFor();
+    await freshPage.locator('[data-testid="evidence-card"]').first().waitFor();
+    await freshPage.waitForLoadState('networkidle');
+  };
+
+  // (a) Ở lại 32 giây rồi mới chuyển: bản dùng chung `auth/me` đã hết hạn.
+  const dwellArm = await openFresh();
+  const dwellName = await profileName(dwellArm.freshPage);
+  await dwellArm.freshPage.waitForTimeout(32_000);
+  const dwellStart = dwellArm.gets.length;
+  await dwellArm.freshPage.keyboard.press('n');
+  await moveOn(dwellArm.freshPage, dwellName);
+  await dwellArm.freshPage.waitForTimeout(400);
+  const dwellGets = dwellArm.gets.slice(dwellStart);
+  const dwellAuth = dwellGets.filter(path => path === '/v1/auth/me').length;
+
+  // (b) Bấm `n` liền hai lần, trước khi nhịp rảnh kịp nạp ghi chú của hồ sơ vừa mở.
+  const fastArm = await openFresh();
+  const fastFirst = await profileName(fastArm.freshPage);
+  fastArm.notesOffProfile.length = 0;
+  await fastArm.freshPage.keyboard.press('n');
+  await fastArm.freshPage.waitForTimeout(70);
+  await fastArm.freshPage.keyboard.press('n');
+  await moveOn(fastArm.freshPage, fastFirst);
+  await fastArm.freshPage.waitForTimeout(800);
+  const fastNotesOffProfile = fastArm.notesOffProfile.slice();
+
+  await dwellArm.freshContext.close();
+  await fastArm.freshContext.close();
+
+  // Đổi hồ sơ trong cùng một vị trí không đổi quyền của HR: ở lại hồ sơ lâu hơn
+  // 30 giây rồi bấm `n` cũng không được hỏi lại danh tính hay badge công việc.
+  assert.equal(
+    dwellAuth,
+    0,
+    `chuyển hồ sơ trong cùng vị trí không được hỏi lại auth/me (đã ở lại 32 giây), thấy ${JSON.stringify(dwellGets)}`,
+  );
+  assert.equal(
+    dwellGets.filter(path => path === '/v1/dashboard/work-queue').length,
+    0,
+    `chuyển hồ sơ trong cùng vị trí không được tải lại badge công việc, thấy ${JSON.stringify(dwellGets)}`,
+  );
+  // Chuyển nhanh (trước khi nhịp rảnh nạp ghi chú) không được gửi request ghi
+  // chú cho hồ sơ không còn trong tầm nhìn.
+  assert.deepEqual(
+    fastNotesOffProfile,
+    [],
+    `không được hỏi ghi chú của hồ sơ đang không hiển thị, thấy ${JSON.stringify(fastNotesOffProfile)}`,
+  );
+
   // Lần chuyển đầu có thể cần rubric; các lần sau trong cùng vị trí thì không.
   // Nếu cache rubric không hoạt động, mọi lần chuyển đều có đúng 1 request.
   const rubricPerTransition = transitions.map(transition => transition.rubric);
@@ -114,6 +204,8 @@ const profileName = page => page.evaluate(() => {
     authPerTransition: transitions.map(transition => transition.auth),
     totalGetPerTransition: transitions.map(transition => transition.totalGet),
     fullLoopGetRequests: transitions.reduce((sum, transition) => sum + transition.totalGet, 0),
+    dwellAfterSharedAuthExpired: { auth: dwellAuth, paths: dwellGets },
+    fastTransitions: { notesOffProfile: fastNotesOffProfile },
   })}`);
 
   const cached = rubricPerTransition.slice(1).every(count => count === 0);
@@ -215,6 +307,7 @@ const profileName = page => page.evaluate(() => {
     `rời hồ sơ phải huỷ request ghi chú đang bay của ${inFlightPath}, thấy ${JSON.stringify(failedNotes)}`,
   );
   assert.match(aborted[0].error, /ABORTED/i, `request bị huỷ phải là ERR_ABORTED, thấy ${aborted[0].error}`);
+
 
   await page.close();
   await context.close();
