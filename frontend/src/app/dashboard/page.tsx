@@ -15,7 +15,8 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { authApi, dashboardApi } from '@/lib/api';
+import { dashboardApi } from '@/lib/api';
+import { getCurrentUser } from '@/lib/meCache';
 import { clearUxEvents, readUxEvents, summarizeUxImpact, type UxEvent } from '@/lib/uxMetrics';
 import { increasesSince, readWorkQueueSnapshot, snapshotWorkQueue, totalNewWork, writeWorkQueueSnapshot, type WorkQueueIncrease } from '@/lib/workQueueDigest';
 import { workQueueTypeLabel } from '@/lib/workQueueLabels';
@@ -74,10 +75,10 @@ export default function DashboardPage() {
       const [summaryResponse, queueResponse, meResponse] = await Promise.allSettled([
         dashboardApi.getSummary(),
         dashboardApi.getWorkQueue(),
-        authApi.me(),
+        getCurrentUser(),
       ]);
       if (meResponse.status === 'fulfilled') {
-        const me = meResponse.value.data;
+        const me = meResponse.value;
         setHrAccess(Boolean(me.system_roles?.some((role: string) => ['ADMIN', 'HR_LEAD', 'HR_RECRUITER'].includes(role)) || me.position_assignments?.some((a: any) => ['HR_LEAD', 'HR_RECRUITER'].includes(a.position_role))));
       } else setHrAccess(null);
       if (summaryResponse.status === 'fulfilled') {

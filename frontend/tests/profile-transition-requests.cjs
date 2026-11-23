@@ -276,6 +276,34 @@ const profileName = page => page.evaluate(() => {
   const skimOffProfile = skimNotes.filter(entry => entry.askedFor !== entry.viewedAtSend);
   await skimContext.close();
 
+  // --- Mở hồ sơ từ danh sách: tổng số lần hỏi auth/me ------------------------
+  // Trang danh sách ứng viên tự hỏi danh tính để có bộ lọc "Của tôi"; khung
+  // trang cũng hỏi. Hai chỗ cho cùng một câu trả lời, trong cùng một lần mở.
+  const openFromList = await (async () => {
+    const openContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await openContext.addInitScript(() => {
+      localStorage.setItem('hra_access_token', 'open-from-list');
+      localStorage.setItem('hra_locale', 'vi');
+    });
+    const openUnexpected = await installMockApi(openContext);
+    const openPage = await openContext.newPage();
+    const meCalls = [];
+    openPage.on('request', request => {
+      if (new URL(request.url()).pathname === '/v1/auth/me') meCalls.push(Date.now());
+    });
+    await openPage.goto(`${base}/positions/p1/applicants?queue=NEEDS_VERIFICATION`, { waitUntil: 'networkidle' });
+    await openPage.locator('table tbody tr').first().waitFor();
+    await openPage.waitForLoadState('networkidle');
+    const beforeClick = meCalls.length;
+    await openPage.locator('table tbody tr a[href*="/applicants/app-"]').first().click();
+    await openPage.getByTestId('sticky-pending').waitFor({ timeout: 15000 });
+    await openPage.waitForLoadState('networkidle');
+    await openPage.waitForTimeout(500);
+    const total = meCalls.length;
+    await openContext.close();
+    return { beforeClick, total, unexpected: openUnexpected.length };
+  })();
+
   // Lần chuyển đầu có thể cần rubric; các lần sau trong cùng vị trí thì không.
   // Nếu cache rubric không hoạt động, mọi lần chuyển đều có đúng 1 request.
   const rubricPerTransition = transitions.map(transition => transition.rubric);
@@ -287,8 +315,16 @@ const profileName = page => page.evaluate(() => {
     fullLoopGetRequests: transitions.reduce((sum, transition) => sum + transition.totalGet, 0),
     dwellAfterSharedAuthExpired: { auth: dwellAuth, paths: dwellGets },
     fastTransitions: { notesOffProfile: fastNotesOffProfile },
+    openFromList,
     skim: { requests: skimNotes, leftBehind: skimLeftBehind, offProfile: skimOffProfile, stoppedAt: skimStoppedAt },
   })}`);
+
+  // Mở hồ sơ từ danh sách: danh tính chỉ được hỏi một lần cho cả luồng.
+  assert.ok(
+    openFromList.total <= 1,
+    `mở hồ sơ từ danh sách chỉ được hỏi auth/me tối đa một lần, thấy ${openFromList.total}`,
+  );
+  assert.equal(openFromList.unexpected, 0, 'luồng mở từ danh sách không có request lạ');
 
   // Lướt nhanh: chỉ hồ sơ HR dừng lại mới được hỏi ghi chú.
   assert.equal(

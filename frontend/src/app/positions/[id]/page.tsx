@@ -45,7 +45,8 @@ import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { positionsApi, criteriaApi, applicationsApi, operationsApi, authApi, dashboardApi, rubricApi } from '@/lib/api';
+import { positionsApi, criteriaApi, applicationsApi, operationsApi, dashboardApi, rubricApi } from '@/lib/api';
+import { getCurrentUser } from '@/lib/meCache';
 import StatusBadge from '@/components/common/StatusBadge';
 import WorkflowStepper from '@/components/workflow/WorkflowStepper';
 import NextActionCard from '@/components/workflow/NextActionCard';
@@ -223,7 +224,7 @@ export default function PositionDetailPage() {
       const [posRes, criteriaRes, meRes, jdRes] = await Promise.all([
         positionsApi.getById(positionId),
         criteriaApi.listVersions(positionId).catch(() => null),
-        authApi.me().catch(() => null),
+        getCurrentUser().catch(() => null),
         positionsApi.getJdVersions(positionId).catch(() => null),
       ]);
       setPosition(posRes.data);
@@ -232,7 +233,7 @@ export default function PositionDetailPage() {
       setCriteriaVersions(criteria);
       setJdVersions(jdList);
       setSelectedJdId(previous => jdList.some((item: JDVersion) => item.jd_version_id === previous) ? previous : (jdList[0]?.jd_version_id || ''));
-      setMe(meRes?.data ?? null);
+      setMe(meRes ?? null);
       // Nói rõ phần nào không tải được, thay vì một câu chung chung.
       const partial = [
         criteriaRes ? '' : t("không tải được tiêu chí"),
@@ -255,7 +256,7 @@ export default function PositionDetailPage() {
       } catch { setWorkspace(null); }
       // Không đọc được tài khoản thì coi như không phải HR: ẩn phần HR thay vì
       // hiện nút mà bấm vào sẽ bị 403.
-      const me = meRes?.data;
+      const me = meRes;
       const myRoles = me?.position_assignments?.filter((p: any) => p.position_id === positionId).map((p: any) => p.position_role) || [];
       const hr = myRoles.includes('HR_RECRUITER') || myRoles.includes('HR_LEAD') || !!me?.system_roles?.some((r: string) => r === 'ADMIN' || r === 'HR_LEAD');
       // Show workflow statistics only to HR; an HM uses the shared shortlist.

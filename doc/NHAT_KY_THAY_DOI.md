@@ -9,6 +9,36 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-23 — Mở hồ sơ từ danh sách: 2 lần `auth/me` còn 1
+
+**Vấn đề.** `lib/meCache.ts` mới chỉ gom hai chỗ: khung trang (`AppLayout`) và trang hồ sơ. Các trang
+khác vẫn gọi `authApi.me` trực tiếp, nên mở hồ sơ từ danh sách ứng viên tốn **2** `GET /v1/auth/me`
+(danh sách tự hỏi để có bộ lọc "Của tôi" + khung trang hỏi để kiểm quyền) — cùng một câu trả lời.
+
+**Sửa.** Chuyển 5 chỗ sang `getCurrentUser()` (bản dùng chung, 30 giây, gắn token): danh sách ứng
+viên, dashboard, danh sách vị trí, chi tiết vị trí, và quản lý tài khoản (`admin/users`, cùng lỗi).
+Chỗ dùng đổi từ `response.data` sang chính object. `change-password` giữ `authApi.me` trực tiếp vì
+trang đó nằm ngoài khung trang — chỉ một lời gọi, không trùng.
+
+**Đo** (`tests/profile-transition-requests.cjs`, nhánh "Mở hồ sơ từ danh sách", đếm `GET /v1/auth/me`
+từ lúc mở danh sách tới khi hồ sơ dùng được):
+
+| | Trước | Sau |
+| --- | --- | --- |
+| `auth/me` trước khi bấm vào hồ sơ | 2 | **1** |
+| `auth/me` cho cả luồng mở hồ sơ | 2 | **1** |
+| `auth/me` mỗi lần chuyển hồ sơ sau đó | 0 | 0 (không đổi) |
+
+**Đối chứng.** Đưa 5 file về `HEAD` (gọi `authApi.me` trực tiếp), build lại: test **fail** với "mở hồ
+sơ từ danh sách chỉ được hỏi auth/me tối đa một lần, thấy 2". Khôi phục bản sửa, build lại: pass.
+
+**Kiểm thử đã chạy.** `profile-transition-requests` (nhánh mới + toàn bộ assert cũ),
+`ux03-dashboard`, `dashboard-metrics`, `list-to-profile-requests`, `profile-lazy-panels` đều pass;
+`npx next build` pass.
+
+**Chưa kiểm.** Chưa đếm `auth/me` cho trang chi tiết vị trí và `admin/users` bằng số (chỉ sửa cùng
+cách, các test hiện có của hai trang vẫn pass); chưa thử backend thật.
+
 ## 2026-11-23 — Ghi chú: không còn request cho hồ sơ HR đã rời (ý #2, lần hai)
 
 **Vấn đề.** Mỗi lần bấm `n` vẫn còn một `GET /v1/applications/{hồ sơ cũ}/private-notes`. Lần sửa

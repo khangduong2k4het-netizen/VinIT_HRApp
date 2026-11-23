@@ -62,7 +62,8 @@ import Autocomplete from '@mui/material/Autocomplete';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { assessmentsApi, authApi, operationsApi, applicationsApi, listAllApplications, shortlistApi, positionsApi, type DuplicateSignal } from '@/lib/api';
+import { assessmentsApi, operationsApi, applicationsApi, listAllApplications, shortlistApi, positionsApi, type DuplicateSignal } from '@/lib/api';
+import { getCurrentUser } from '@/lib/meCache';
 import { recordUxEvent } from '@/lib/uxMetrics';
 import { APPLICANT_OWNERSHIP_LABELS } from '@/lib/applicantOwnershipLabels';
 import { duplicateCompareHref } from '@/lib/duplicateCompare';
@@ -187,8 +188,8 @@ export default function ApplicantsRankingPage() {
   // Id của chính người đang xem, để "Của tôi" so đúng người. Chỉ dùng cho bộ
   // lọc hiển thị; quyền vẫn do backend quyết định.
   useEffect(() => {
-    authApi.me()
-      .then(response => setCurrentUserId(response.data?.user_id || null))
+    getCurrentUser()
+      .then(me => setCurrentUserId(me.user_id || null))
       .catch(() => { /* không có id thì chỉ ảnh hưởng bộ lọc "Của tôi" */ });
   }, []);
   const [urlInitialized, setUrlInitialized] = useState(false);
