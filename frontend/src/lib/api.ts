@@ -143,7 +143,8 @@ export const applicationsApi = {
   getById: (id: string) => apiClient.get(`/applications/${id}`),
   getProfile: (id: string) => apiClient.get(`/applications/${id}/profile`),
   updateProfile: (id: string, data: any) => apiClient.put(`/applications/${id}/profile`, data),
-  getPrivateNotes: (id: string) => apiClient.get(`/applications/${id}/private-notes`),
+  // `signal` để rời hồ sơ là cắt được request đang bay, không chỉ bỏ câu trả lời.
+  getPrivateNotes: (id: string, signal?: AbortSignal) => apiClient.get(`/applications/${id}/private-notes`, { signal }),
   assign: (id: string, assignedToUserId: string | null) =>
     apiClient.patch(`/applications/${id}/assignment`, { assigned_to_user_id: assignedToUserId }),
   addPrivateNote: (id: string, content: string, criterionId?: string) =>

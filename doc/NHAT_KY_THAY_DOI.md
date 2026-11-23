@@ -9,6 +9,45 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-23 — Rời hồ sơ là huỷ luôn request ghi chú đang bay
+
+**Đính chính số đo trước.** Mục đề xuất ghi "mỗi lần chuyển gọi `private-notes` của hồ sơ **vừa
+rời**". Đo lại bằng nhãn thời gian (console trong effect + `page.on('request')`, mốc là lúc bấm `n`):
+request đó là của hồ sơ **vừa mở** — id trong URL trùng id trong request, gửi ~180 ms sau khi bấm, từ
+`requestIdleCallback`. Id hồ sơ cũ không xuất hiện trong bất kỳ request ghi chú nào. Vậy không có
+request ghi chú "thừa cho trang đã đi khỏi" để bỏ; số request mỗi lần chuyển vẫn là 1 và vẫn cần,
+vì số ghi chú cạnh tiêu chí đọc từ danh sách đó.
+
+**Vấn đề thật.** Vòng đời request sai: cờ `cancelled` chỉ bỏ qua câu trả lời, còn request vẫn chạy
+hết cho một màn hình đã đổi; và trong lúc chờ, `notes` của hồ sơ cũ vẫn nằm trong state nên hồ sơ
+mới hiện số ghi chú của hồ sơ trước.
+
+**Sửa.** `applicationsApi.getPrivateNotes(id, signal)`; effect ghi chú tạo `AbortController`, cleanup
+gọi `controller.abort()` (kèm `cancelIdle` như cũ), và câu trả lời bị huỷ (`ERR_CANCELED`) không bị
+báo thành lỗi. Đầu effect xoá `notes`/`notesError` để hồ sơ mới không hiện ghi chú của hồ sơ cũ.
+Ghi chú vẫn nạp đúng một lần cho mỗi hồ sơ sau khi hồ sơ dùng được; mở panel chỉ hiện bản đã nạp.
+
+**Đo** (`tests/profile-transition-requests.cjs`, mock, bản production):
+
+| | Trước | Sau |
+| --- | --- | --- |
+| `private-notes` mỗi lần chuyển (id) | 1, id = hồ sơ vừa mở | 1, id = hồ sơ vừa mở |
+| Rời hồ sơ khi request đang bay (mock giữ 1,5 s) | hoàn tất `200` sau ~1,5 s cho hồ sơ đã rời | `net::ERR_ABORTED` ~75 ms sau khi rời |
+| Request tải ghi chú khi mở panel | 0 | 0 |
+| Tổng `GET` ba lần chuyển | 5 | 5 |
+
+**Đối chứng.** Bỏ hai dòng `controller.abort()` rồi build lại: test **fail** ở
+`ghi chú của /v1/applications/app-2/private-notes không được hoàn tất sau khi rời hồ sơ, thấy
+["/v1/applications/app-2/private-notes","/v1/applications/app-8/private-notes"]`. Lần chạy đối chứng
+đầu tiên pass vì phần sửa test chưa thực sự nằm trong file — bài học: phải `grep` lại file test sau
+khi sửa, đừng tin "test xanh" khi chưa kiểm nó có chạy assertion mới.
+
+**Kiểm.** `next build`; `profile-transition-requests` (assert id ghi chú từng lần chuyển, mở panel
+không tải lại, huỷ khi rời), `profile-lazy-panels`, `list-to-profile-requests` — đều pass.
+
+**Chưa kiểm.** Chưa đo trên backend thật. Trường hợp bấm `n` nhanh hơn ~180 ms thì request chưa được
+gửi (đã bị `cancelIdle` chặn từ trước), nên không có gì để huỷ — chưa có test riêng cho nhịp đó.
+
 ## 2026-11-23 — Mỗi lần bấm `n` bớt hai `GET /v1/auth/me`
 
 **Vấn đề.** Mỗi lần chuyển hồ sơ phát sinh **2** `GET /v1/auth/me`, trong tổng 4/4/3 `GET` của

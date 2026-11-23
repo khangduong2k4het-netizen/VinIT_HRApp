@@ -391,17 +391,27 @@ export default function ApplicantDetailPage() {
   const mayManageNotes = application ? readApplicationCapabilities(application).manageHrNotes : false;
   useEffect(() => {
     let cancelled = false;
-    if (!mayManageNotes) { setNotes([]); setNotesLoading(false); return; }
+    // Đổi hồ sơ là cắt request ghi chú đang bay. Cờ `cancelled` chỉ bỏ qua câu
+    // trả lời; request vẫn chạy hết trên mạng cho một màn hình đã đổi, và bấm
+    // `n` liên tiếp thì đó là một request thừa mỗi hồ sơ.
+    const controller = new AbortController();
+    if (!mayManageNotes) { setNotes([]); setNotesLoading(false); return () => controller.abort(); }
+    // Ghi chú của hồ sơ vừa rời không được hiện trên hồ sơ mới trong lúc chờ
+    // (số ghi chú cạnh tiêu chí đọc từ danh sách này).
+    setNotes([]); setNotesError(null);
     setNotesLoading(true);
     // Ghi chú chỉ để hiện số ghi chú bên cạnh tiêu chí và panel ghi chú ở dưới:
     // nạp sau khi hồ sơ đã dùng được, không chiếm lượt tải đầu.
     const cancelIdle = runWhenIdle(() => {
-      applicationsApi.getPrivateNotes(applicantId)
+      applicationsApi.getPrivateNotes(applicantId, controller.signal)
         .then(response => { if (!cancelled) { setNotes(response.data || []); setNotesError(null); } })
-        .catch((err: any) => { if (!cancelled) setNotesError(err.response?.data?.detail || t("Không thể tải ghi chú nội bộ.")); })
+        .catch((err: any) => {
+          // Bị huỷ vì đã rời hồ sơ: không phải lỗi để báo cho HR.
+          if (!cancelled && err?.code !== 'ERR_CANCELED') setNotesError(err.response?.data?.detail || t("Không thể tải ghi chú nội bộ."));
+        })
         .finally(() => { if (!cancelled) setNotesLoading(false); });
     });
-    return () => { cancelled = true; cancelIdle(); };
+    return () => { cancelled = true; cancelIdle(); controller.abort(); };
   }, [applicantId, mayManageNotes, t]);
 
   const addNote = useCallback(async (content: string, criterionId?: string) => {

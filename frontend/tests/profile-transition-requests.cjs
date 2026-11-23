@@ -62,6 +62,7 @@ const profileName = page => page.evaluate(() => {
   // Rubric của lần mở đầu tiên không tính vào phép đo chuyển hồ sơ.
   await page.waitForTimeout(400);
 
+  const openedId = new URL(page.url()).pathname.split('/').pop();
   const transitions = [];
   for (let index = 0; index < TRANSITIONS; index += 1) {
     const from = await profileName(page);
@@ -78,9 +79,12 @@ const profileName = page => page.evaluate(() => {
     await page.waitForTimeout(400);
 
     const during = requests.slice(startedAt);
+    const toId = new URL(page.url()).pathname.split('/').pop();
     transitions.push({
       from,
       to: await profileName(page),
+      toId,
+      notes: during.filter(path => path.endsWith('/private-notes')).map(path => path.split('/')[3]),
       totalGet: during.length,
       rubric: during.filter(path => path === RUBRIC_PATH).length,
       auth: during.filter(path => path === '/v1/auth/me').length,
@@ -128,6 +132,89 @@ const profileName = page => page.evaluate(() => {
   await page.getByRole('button', { name: 'Mở menu tài khoản' }).click();
   await page.getByText('Nguyễn Thu Hằng').first().waitFor({ timeout: 5000 });
   await page.keyboard.press('Escape');
+
+  // Ghi chú: mỗi lần chuyển tải ghi chú của hồ sơ **vừa mở** đúng một lần, và
+  // không hỏi ghi chú của hồ sơ vừa rời. Ghi chú tải sau khi hồ sơ dùng được
+  // (~180 ms), nên cửa sổ đo của lần chuyển có đúng request của hồ sơ mới.
+  const leftIds = [openedId, ...transitions.slice(0, -1).map(transition => transition.toId)];
+  transitions.forEach((transition, index) => {
+    assert.deepEqual(
+      transition.notes,
+      [transition.toId],
+      `lần chuyển ${index + 1} phải tải ghi chú của hồ sơ vừa mở (${transition.toId}) đúng một lần, thấy ${JSON.stringify(transition.notes)}`,
+    );
+    assert.ok(
+      !transition.notes.includes(leftIds[index]),
+      `lần chuyển ${index + 1} không được hỏi ghi chú của hồ sơ vừa rời (${leftIds[index]})`,
+    );
+  });
+
+  // Ghi chú tải đúng một lần: mở panel chỉ hiện bản đã tải, không hỏi lại.
+  const notesRequestsBeforePanel = requests.filter(path => path.endsWith('/private-notes')).length;
+  await page.getByRole('button', { name: /Ghi chú nội bộ HR/ }).click();
+  await page.getByText('Chưa có ghi chú nội bộ.').waitFor({ timeout: 5000 });
+  await page.waitForTimeout(300);
+  assert.equal(
+    requests.filter(path => path.endsWith('/private-notes')).length,
+    notesRequestsBeforePanel,
+    'mở panel ghi chú không được phát sinh thêm request tải ghi chú',
+  );
+
+  // Ba lần chuyển đã đi hết hàng đợi; lùi hai hồ sơ để còn hồ sơ kế cho kịch
+  // bản dưới. Lùi bằng history (không tải lại trang) nên ngữ cảnh hàng đợi giữ nguyên.
+  for (let back = 0; back < 2; back += 1) {
+    const beforeBack = await profileName(page);
+    await page.goBack();
+    await page.waitForFunction(name => {
+      const heading = document.querySelector('h1');
+      return Boolean(heading && heading.textContent.trim() && heading.textContent.trim() !== name);
+    }, beforeBack, { timeout: 15000 });
+    await page.getByTestId('verification-progress').waitFor();
+  }
+  // Ghi chú của hồ sơ vừa lùi về phải tải xong trước khi đo request kế tiếp.
+  await page.waitForTimeout(1200);
+
+  // Rời hồ sơ khi request ghi chú còn đang bay: request phải bị huỷ. Mock giữ
+  // câu trả lời 1,5 giây để nó kịp tồn tại; nếu không cắt, nó hoàn tất bình
+  // thường và vẫn mang dữ liệu của hồ sơ đã rời.
+  const noteResponses = [];
+  const failedNotes = [];
+  page.on('response', request => {
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/private-notes')) noteResponses.push(url.pathname);
+  });
+  page.on('requestfailed', request => {
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/private-notes')) failedNotes.push({ path: url.pathname, error: request.failure()?.errorText || '' });
+  });
+  await page.route('**/v1/applications/*/private-notes', async route => {
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }).catch(() => {});
+  });
+  const notesStarted = page.waitForRequest(
+    request => new URL(request.url()).pathname.endsWith('/private-notes'),
+    { timeout: 15000 },
+  );
+  await page.keyboard.press('n');
+  const inFlightPath = new URL((await notesStarted).url()).pathname;
+  const leavingFrom = await profileName(page);
+  await page.keyboard.press('n');
+  await page.waitForFunction(name => {
+    const heading = document.querySelector('h1');
+    return Boolean(heading && heading.textContent.trim() && heading.textContent.trim() !== name);
+  }, leavingFrom, { timeout: 15000 });
+  // Chờ lâu hơn độ trễ của mock: request không bị cắt sẽ trả lời trong khoảng này.
+  await page.waitForTimeout(1900);
+  assert.ok(
+    !noteResponses.includes(inFlightPath),
+    `ghi chú của ${inFlightPath} không được hoàn tất sau khi rời hồ sơ, thấy ${JSON.stringify(noteResponses)}`,
+  );
+  const aborted = failedNotes.filter(entry => entry.path === inFlightPath);
+  assert.ok(
+    aborted.length >= 1,
+    `rời hồ sơ phải huỷ request ghi chú đang bay của ${inFlightPath}, thấy ${JSON.stringify(failedNotes)}`,
+  );
+  assert.match(aborted[0].error, /ABORTED/i, `request bị huỷ phải là ERR_ABORTED, thấy ${aborted[0].error}`);
 
   await page.close();
   await context.close();
