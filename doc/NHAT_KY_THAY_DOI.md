@@ -62,6 +62,17 @@ chỉ hiện khi HR ở lại một hồ sơ lâu hơn 30 giây — đúng nhị
 Tức mỗi lần chuyển bớt 2 request (5 → 3 khi ở lại lâu; 0 → 0 khi chuyển nhanh), và `auth/me` giờ
 chỉ còn một lần cho mỗi lần đổi vị trí.
 
+**Phép kiểm huỷ request nay chờ theo sự kiện, không ngủ.** Kịch bản cũ có ba con số cố định: route
+mock ngủ 1.500 ms trước khi trả lời, rồi test ngủ 1.900 ms sau khi rời hồ sơ và 1.200 ms sau khi lùi
+hồ sơ. Trên máy chậm, 1.900 ms có thể ngắn hơn thời gian trình duyệt kịp báo huỷ (flaky), còn trên
+máy nhanh thì luôn thừa. Nay: route **giữ** mọi request ghi chú trên một cổng, test bấm `n` lần hai
+rồi mới mở cổng, và chờ đúng một trong hai sự kiện — `requestfailed` (đã huỷ) hoặc `response` (vẫn
+được trả lời) — cái nào tới trước; trần chờ **10.000 ms**, chỉ để báo lỗi rõ khi môi trường treo.
+Trạng thái "không còn ghi chú đang bay" cũng chờ theo tập request đang bay, trần **5.000 ms**. Đo
+lại cả script: **46,6 s → 43,5 s** (32 s trong đó là phép đo dwell 32 giây). Đối chứng bỏ
+`controller.abort()`: test fail ngay với thông báo "…nhưng nó vẫn được trả lời (200)" — không phải
+chờ hết trần.
+
 **Kiểm thử đã chạy.** `profile-transition-requests` (thêm 2 phép đo + 3 assert mới: `auth/me` = 0
 sau 32 giây, `work-queue` = 0, không có ghi chú ngoài hồ sơ đang xem) pass; `profile-lazy-panels`,
 `list-to-profile-requests`, `finish-direct-advance`, `review-loop-metrics`, `review-double-confirm`

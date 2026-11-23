@@ -53,6 +53,38 @@ const profileName = page => page.evaluate(() => {
     if (url.pathname.startsWith('/v1/') && request.method() === 'GET') requests.push(url.pathname);
   });
 
+  // Hai trần chờ, chỉ để báo lỗi rõ khi môi trường treo — không dùng để "đoán"
+  // thời điểm. Bình thường mọi sự kiện dưới đây tới trong vài chục mili giây.
+  const NOTES_IDLE_TIMEOUT_MS = 5_000;
+  const EVENT_TIMEOUT_MS = 10_000;
+
+  // Ghi chú đang bay hay chưa, theo đúng sự kiện mạng thay vì một khoảng ngủ.
+  const notesInFlight = new Set();
+  const notePath = url => new URL(url).pathname;
+  const isNote = path => path.endsWith('/private-notes');
+  page.on('request', request => {
+    const path = notePath(request.url());
+    if (isNote(path)) notesInFlight.add(path);
+  });
+  page.on('response', response => {
+    const path = notePath(response.url());
+    if (isNote(path)) notesInFlight.delete(path);
+  });
+  page.on('requestfailed', request => {
+    const path = notePath(request.url());
+    if (isNote(path)) notesInFlight.delete(path);
+  });
+  const waitForNotesIdle = async () => {
+    const deadline = Date.now() + NOTES_IDLE_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if (notesInFlight.size === 0) return;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    throw new Error(
+      `vẫn còn request ghi chú đang bay sau ${NOTES_IDLE_TIMEOUT_MS} ms: ${[...notesInFlight].join(', ')}`,
+    );
+  };
+
   await page.goto(`${base}/positions/p1/applicants?queue=NEEDS_VERIFICATION`, { waitUntil: 'networkidle' });
   await page.locator('table tbody tr').first().waitFor();
   await page.locator('table tbody tr a[href*="/applicants/app-"]').first().click();
@@ -263,50 +295,64 @@ const profileName = page => page.evaluate(() => {
     }, beforeBack, { timeout: 15000 });
     await page.getByTestId('verification-progress').waitFor();
   }
-  // Ghi chú của hồ sơ vừa lùi về phải tải xong trước khi đo request kế tiếp.
-  await page.waitForTimeout(1200);
+  // Ghi chú của hồ sơ vừa lùi về phải tải xong trước khi đo request kế tiếp:
+  // chờ trạng thái "không còn request ghi chú nào đang bay", không ngủ cố định.
+  await waitForNotesIdle();
 
-  // Rời hồ sơ khi request ghi chú còn đang bay: request phải bị huỷ. Mock giữ
-  // câu trả lời 1,5 giây để nó kịp tồn tại; nếu không cắt, nó hoàn tất bình
-  // thường và vẫn mang dữ liệu của hồ sơ đã rời.
-  const noteResponses = [];
-  const failedNotes = [];
-  page.on('response', request => {
-    const url = new URL(request.url());
-    if (url.pathname.endsWith('/private-notes')) noteResponses.push(url.pathname);
-  });
-  page.on('requestfailed', request => {
-    const url = new URL(request.url());
-    if (url.pathname.endsWith('/private-notes')) failedNotes.push({ path: url.pathname, error: request.failure()?.errorText || '' });
-  });
+  // Rời hồ sơ khi request ghi chú còn đang bay: request phải bị huỷ. Không dựa
+  // vào một con số mili giây để biết nó "còn đang bay": route dưới đây giữ mọi
+  // request ghi chú cho tới khi test mở cổng, và cổng chỉ mở sau khi đã rời hồ
+  // sơ. Nhờ vậy thứ tự sự kiện quyết định, không phải tốc độ máy.
+  let openGate;
+  const gate = new Promise(resolve => { openGate = resolve; });
   await page.route('**/v1/applications/*/private-notes', async route => {
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await gate;
+    // Request đã bị huỷ thì fulfill ném lỗi; đó là kết quả mong đợi ở đây.
     await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }).catch(() => {});
   });
   const notesStarted = page.waitForRequest(
-    request => new URL(request.url()).pathname.endsWith('/private-notes'),
-    { timeout: 15000 },
+    request => isNote(notePath(request.url())),
+    { timeout: EVENT_TIMEOUT_MS },
   );
   await page.keyboard.press('n');
-  const inFlightPath = new URL((await notesStarted).url()).pathname;
+  const inFlightPath = notePath((await notesStarted).url());
   const leavingFrom = await profileName(page);
+  // Đăng ký cả hai sự kiện trước cú bấm thứ hai: chúng có thể tới ngay sau đó.
+  // Kết quả nào tới trước là câu trả lời — huỷ, hay vẫn được trả lời.
+  const abortEvent = page.waitForEvent('requestfailed', {
+    predicate: request => notePath(request.url()) === inFlightPath,
+    timeout: EVENT_TIMEOUT_MS,
+  });
+  const answerEvent = page.waitForResponse(
+    response => notePath(response.url()) === inFlightPath,
+    { timeout: EVENT_TIMEOUT_MS },
+  );
   await page.keyboard.press('n');
   await page.waitForFunction(name => {
     const heading = document.querySelector('h1');
     return Boolean(heading && heading.textContent.trim() && heading.textContent.trim() !== name);
   }, leavingFrom, { timeout: 15000 });
-  // Chờ lâu hơn độ trễ của mock: request không bị cắt sẽ trả lời trong khoảng này.
-  await page.waitForTimeout(1900);
-  assert.ok(
-    !noteResponses.includes(inFlightPath),
-    `ghi chú của ${inFlightPath} không được hoàn tất sau khi rời hồ sơ, thấy ${JSON.stringify(noteResponses)}`,
+  // Mở cổng sau khi đã rời hồ sơ: nếu request không bị huỷ, nó hoàn tất ngay và
+  // phép race dưới đây thấy câu trả lời — không cần chờ thêm khoảng nào.
+  openGate();
+  const outcome = await Promise.race([
+    abortEvent.then(request => ({ kind: 'aborted', error: request.failure()?.errorText || '' })),
+    answerEvent.then(response => ({ kind: 'answered', status: response.status() })),
+  ]).catch(error => {
+    throw new Error(
+      `không thấy ghi chú ${inFlightPath} bị huỷ hay được trả lời trong ${EVENT_TIMEOUT_MS} ms: ${error.message}`,
+    );
+  });
+  assert.equal(
+    outcome.kind,
+    'aborted',
+    `rời hồ sơ phải huỷ request ghi chú ${inFlightPath}, nhưng nó vẫn được trả lời (${outcome.status})`,
   );
-  const aborted = failedNotes.filter(entry => entry.path === inFlightPath);
-  assert.ok(
-    aborted.length >= 1,
-    `rời hồ sơ phải huỷ request ghi chú đang bay của ${inFlightPath}, thấy ${JSON.stringify(failedNotes)}`,
+  assert.match(
+    outcome.error,
+    /ABORTED/i,
+    `request bị huỷ phải là ERR_ABORTED, thấy ${outcome.error}`,
   );
-  assert.match(aborted[0].error, /ABORTED/i, `request bị huỷ phải là ERR_ABORTED, thấy ${aborted[0].error}`);
 
 
   await page.close();
