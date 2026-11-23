@@ -98,12 +98,30 @@ const progress = page => page.evaluate(() => {
   assert.equal(await activeCriterion(page), 'c3', 'con trỏ nhảy đúng một lần, sang tiêu chí còn chờ');
 
   // --- 2. Nút chuột cũng chỉ ghi một lần ----------------------------------
-  // Bấm hai lần liên tiếp vào nút xác nhận: lần thứ hai rơi vào lúc đang lưu,
-  // nên không có nghĩa. Bấm thẳng vào nút thay vì chờ nó disable để chắc chắn
-  // đường ghi (không chỉ đường phím) cũng được chốt.
-  const confirmButton = page.getByTestId('sticky-confirm');
-  await confirmButton.click({ force: true });
-  await confirmButton.click({ force: true, timeout: 2000 }).catch(() => {});
+  // Hai cú bấm phải xảy ra trong **cùng một tác vụ JS**, trước lần render kế
+  // tiếp. Bấm `click({ force: true })` hai lần từ ngoài thì không chứng minh
+  // được gì: cú thứ hai rơi vào lúc React đã disable nút, trình duyệt không
+  // phát sự kiện click, nên test vẫn xanh dù không có khoá nào.
+  const clickTwiceInOneTask = await page.evaluate(() => {
+    const button = document.querySelector('[data-testid="sticky-confirm"]');
+    if (!button) throw Error('không thấy nút Xác nhận trên thanh dính');
+    const enabledBefore = !button.disabled;
+    button.click();
+    // Đọc lại ngay trước cú thứ hai: nếu React đã kịp disable thì cú này bị
+    // trình duyệt chặn và phép kiểm không chứng minh được gì — phải báo lỗi.
+    const enabledForSecond = !button.disabled;
+    button.click();
+    return { enabledBefore, enabledForSecond };
+  });
+  assert.equal(clickTwiceInOneTask.enabledBefore, true, 'nút Xác nhận đang bật trước khi bấm đôi');
+  assert.equal(
+    clickTwiceInOneTask.enabledForSecond,
+    true,
+    'cú bấm thứ hai phải tới được handler; nếu nút đã disable thì phép kiểm này vô nghĩa',
+  );
+  // 100ms < 700ms của request đầu, nên chỗ này phải vẫn đúng một review mới.
+  await page.waitForTimeout(120);
+  assert.equal(reviewRequests.length, 2, 'cú bấm chuột thứ hai trong lúc đang lưu không gửi thêm POST');
   await page.waitForFunction(
     () => /Đã xác minh đủ 2\/2/.test(document.querySelector('[data-testid="verification-progress"]')?.textContent || ''),
     undefined,
