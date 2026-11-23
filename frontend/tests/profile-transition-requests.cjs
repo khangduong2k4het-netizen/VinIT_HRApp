@@ -106,12 +106,20 @@ const profileName = page => page.evaluate(() => {
     }, from, { timeout: 15000 });
     await page.getByTestId('verification-progress').waitFor();
     await page.locator('[data-testid="evidence-card"]').first().waitFor();
+    const toId = new URL(page.url()).pathname.split('/').pop();
+    // Ghi chú nạp sau khi HR dừng lại ở hồ sơ (`NOTES_SETTLE_MS`), nên chờ đúng
+    // request của hồ sơ mới thay vì ngủ một khoảng đoán trước. Đọc từ danh sách
+    // đã ghi nhận (không phải `waitForRequest`) để không lỡ request tới sớm.
+    const notesWaited = Date.now() + 5000;
+    while (!requests.includes(`/v1/applications/${toId}/private-notes`)) {
+      if (Date.now() > notesWaited) throw new Error(`hồ sơ ${toId} không tải ghi chú trong 5000 ms`);
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
     // Chờ cả các request phụ (chi tiết hồ sơ kế, tải trước) xong mới chốt số.
     await page.waitForLoadState('networkidle');
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(200);
 
     const during = requests.slice(startedAt);
-    const toId = new URL(page.url()).pathname.split('/').pop();
     transitions.push({
       from,
       to: await profileName(page),
@@ -227,6 +235,47 @@ const profileName = page => page.evaluate(() => {
     `không được hỏi ghi chú của hồ sơ đang không hiển thị, thấy ${JSON.stringify(fastNotesOffProfile)}`,
   );
 
+  // --- Lướt nhanh: không được hỏi ghi chú của hồ sơ vừa rời ------------------
+  // HR thường bấm `n` liền tay khi hồ sơ không có gì để xem. Ghi chú là thông
+  // tin phụ nên được nạp sau; nếu nạp quá sớm, mỗi hồ sơ lướt qua đều phát sinh
+  // một request rồi bị huỷ — trên mạng vẫn là một request cho hồ sơ đã rời.
+  const skimContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await skimContext.addInitScript(() => {
+    localStorage.setItem('hra_access_token', 'notes-skim');
+    localStorage.setItem('hra_locale', 'vi');
+  });
+  const skimUnexpected = await installMockApi(skimContext);
+  const skimPage = await skimContext.newPage();
+  const skimNotes = [];
+  skimPage.on('request', request => {
+    const path = new URL(request.url()).pathname;
+    if (!path.endsWith('/private-notes')) return;
+    skimNotes.push({
+      askedFor: path.split('/')[3],
+      viewedAtSend: new URL(skimPage.url()).pathname.split('/').pop(),
+    });
+  });
+  await skimPage.goto(`${base}/positions/p1/applicants?queue=NEEDS_VERIFICATION`, { waitUntil: 'networkidle' });
+  await skimPage.locator('table tbody tr').first().waitFor();
+  await skimPage.locator('table tbody tr a[href*="/applicants/app-5"]').first().click();
+  await skimPage.getByTestId('sticky-pending').waitFor({ timeout: 15000 });
+  await skimPage.waitForLoadState('networkidle');
+  skimNotes.length = 0;
+  // Ba hồ sơ lướt qua, cách nhau 250 ms — nhanh hơn một lần đọc ghi chú.
+  for (let skip = 0; skip < 3; skip += 1) {
+    await skimPage.keyboard.press('n');
+    await skimPage.waitForTimeout(250);
+  }
+  // Dừng lại đủ lâu để hồ sơ cuối nạp ghi chú của chính nó.
+  await skimPage.waitForLoadState('networkidle');
+  await skimPage.waitForTimeout(1500);
+  const skimStoppedAt = new URL(skimPage.url()).pathname.split('/').pop();
+  // Hồ sơ đã rời = hồ sơ không phải chỗ HR dừng lại. Đây là thứ phải bằng 0:
+  // mỗi hồ sơ lướt qua từng tốn một GET ghi chú rồi bị huỷ.
+  const skimLeftBehind = skimNotes.filter(entry => entry.askedFor !== skimStoppedAt);
+  const skimOffProfile = skimNotes.filter(entry => entry.askedFor !== entry.viewedAtSend);
+  await skimContext.close();
+
   // Lần chuyển đầu có thể cần rubric; các lần sau trong cùng vị trí thì không.
   // Nếu cache rubric không hoạt động, mọi lần chuyển đều có đúng 1 request.
   const rubricPerTransition = transitions.map(transition => transition.rubric);
@@ -238,7 +287,20 @@ const profileName = page => page.evaluate(() => {
     fullLoopGetRequests: transitions.reduce((sum, transition) => sum + transition.totalGet, 0),
     dwellAfterSharedAuthExpired: { auth: dwellAuth, paths: dwellGets },
     fastTransitions: { notesOffProfile: fastNotesOffProfile },
+    skim: { requests: skimNotes, leftBehind: skimLeftBehind, offProfile: skimOffProfile, stoppedAt: skimStoppedAt },
   })}`);
+
+  // Lướt nhanh: chỉ hồ sơ HR dừng lại mới được hỏi ghi chú.
+  assert.equal(
+    skimNotes.length,
+    1,
+    `lướt 3 hồ sơ chỉ được 1 request ghi chú (của hồ sơ dừng lại), thấy ${JSON.stringify(skimNotes)}`,
+  );
+  assert.deepEqual(
+    skimLeftBehind,
+    [],
+    `không được hỏi ghi chú của hồ sơ đã rời, thấy ${JSON.stringify(skimLeftBehind)}`,
+  );
 
   const cached = rubricPerTransition.slice(1).every(count => count === 0);
   assert.ok(cached, `rubric phải được dùng lại giữa các lần chuyển, thấy ${JSON.stringify(rubricPerTransition)}`);
@@ -353,6 +415,7 @@ const profileName = page => page.evaluate(() => {
     /ABORTED/i,
     `request bị huỷ phải là ERR_ABORTED, thấy ${outcome.error}`,
   );
+
 
 
   // --- Ghi chú không mang sang hồ sơ kế -------------------------------------

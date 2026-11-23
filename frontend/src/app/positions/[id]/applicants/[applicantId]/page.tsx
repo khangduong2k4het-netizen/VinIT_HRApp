@@ -125,6 +125,13 @@ function PrefetchProfile({ applicantId, href }: { applicantId: string; href: str
   return null;
 }
 
+/**
+ * HR phải ở lại hồ sơ chừng này thì mới đáng nạp ghi chú. Ngắn hơn nhịp lướt
+ * hồ sơ (`n` liên tay ~250 ms) nên lướt không tốn request; dài hơn một nhịp
+ * đọc tiêu đề, đủ sớm để HR đọc hồ sơ thấy ngay số ghi chú.
+ */
+const NOTES_SETTLE_MS = 600;
+
 export default function ApplicantDetailPage() {
   const { t, dateLocale, locale } = useI18n();
   const params = useParams();
@@ -399,12 +406,15 @@ export default function ApplicantDetailPage() {
     // (số ghi chú cạnh tiêu chí đọc từ danh sách này).
     setNotes([]); setNotesError(null);
     setNotesLoading(true);
-    // Ghi chú chỉ để hiện số ghi chú bên cạnh tiêu chí và panel ghi chú ở dưới:
-    // nạp sau khi hồ sơ đã dùng được, không chiếm lượt tải đầu.
-    const cancelIdle = runWhenIdle(() => {
-      // Nhịp rảnh có thể chạy sau khi HR đã bấm `n`: không mở request cho hồ sơ
-      // vừa rời (dù nó sẽ bị huỷ ngay, nó vẫn là một request trên mạng).
+    // Ghi chú chỉ để hiện số bên cạnh tiêu chí và panel ở dưới, nên chỉ nạp khi
+    // HR thật sự dừng lại ở hồ sơ này. Lướt tiếp trong khoảng đó thì không mở
+    // request nào: trước đây mỗi hồ sơ lướt qua vẫn phát sinh một GET ghi chú
+    // (gửi ngay trước cú bấm `n`) rồi bị huỷ — đo được 3 request cho 3 hồ sơ.
+    const settleTimer = window.setTimeout(() => {
       if (cancelled || controller.signal.aborted) return;
+      // Đổi URL xảy ra trước khi React kịp dọn effect, nên kiểm thêm URL: không
+      // mở request cho hồ sơ đang không hiển thị.
+      if (!window.location.pathname.includes(`/applicants/${applicantId}`)) return;
       applicationsApi.getPrivateNotes(applicantId, controller.signal)
         .then(response => { if (!cancelled) { setNotes(response.data || []); setNotesError(null); } })
         .catch((err: any) => {
@@ -412,8 +422,8 @@ export default function ApplicantDetailPage() {
           if (!cancelled && err?.code !== 'ERR_CANCELED') setNotesError(err.response?.data?.detail || t("Không thể tải ghi chú nội bộ."));
         })
         .finally(() => { if (!cancelled) setNotesLoading(false); });
-    });
-    return () => { cancelled = true; cancelIdle(); controller.abort(); };
+    }, NOTES_SETTLE_MS);
+    return () => { cancelled = true; window.clearTimeout(settleTimer); controller.abort(); };
   }, [applicantId, mayManageNotes, t]);
 
   const addNote = useCallback(async (content: string, criterionId?: string) => {

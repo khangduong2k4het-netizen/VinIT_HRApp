@@ -9,6 +9,44 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-23 — Ghi chú: không còn request cho hồ sơ HR đã rời (ý #2, lần hai)
+
+**Vấn đề.** Mỗi lần bấm `n` vẫn còn một `GET /v1/applications/{hồ sơ cũ}/private-notes`. Lần sửa
+trước (`4bc87f1`) chỉ cắt request đang bay khi rời hồ sơ — tức request **vẫn được gửi**, chỉ không
+dùng kết quả. Trên mạng, đó vẫn là một request cho hồ sơ đã rời.
+
+**Nguyên nhân thật.** Ghi chú được nạp bằng `runWhenIdle` ngay sau khi hồ sơ hiện ra (~180 ms). Nhịp
+lướt hồ sơ của HR (`n` liền tay) chậm hơn thế, nên **hồ sơ nào cũng kịp gửi request trước khi bị
+rời**; cleanup chỉ huỷ nó. Đo bằng cách lướt 3 hồ sơ cách nhau 250 ms: **3** request ghi chú
+(app-0, app-2, app-8), trong đó **2** của hồ sơ đã rời. Chip số ghi chú và panel là thông tin phụ —
+không đáng một request cho mỗi hồ sơ chỉ liếc qua.
+
+**Sửa.** Ghi chú chỉ nạp khi HR **dừng lại** ở hồ sơ: `NOTES_SETTLE_MS = 600` (dài hơn nhịp lướt
+250 ms, ngắn hơn một nhịp đọc tiêu đề). Rời trước mốc đó thì `clearTimeout` — không có request nào.
+Thêm chốt kiểm URL ngay trước khi gọi API, vì đổi URL xảy ra trước khi React kịp dọn effect.
+
+**Đo lại** (`tests/profile-transition-requests.cjs`, nhánh "Lướt nhanh"):
+
+| | Trước (HEAD) | Sau |
+| --- | --- | --- |
+| Request ghi chú khi lướt 3 hồ sơ (250 ms/hồ sơ) | **3** (app-0, app-2, app-8) | **1** (app-8 — nơi HR dừng lại) |
+| Request cho hồ sơ **đã rời** | **2** | **0** |
+| Ghi chú mỗi lần chuyển (dừng lại đọc) | 1, của hồ sơ đang mở | 1, của hồ sơ đang mở (không đổi) |
+| Tổng `GET /v1/` mỗi lần chuyển | 2 / 2 / 1 | 2 / 2 / 1 (không đổi) |
+
+**Đối chứng.** Build lại `page.tsx` từ `HEAD` (không có cửa sổ dừng): test **fail** với "lướt 3 hồ sơ
+chỉ được 1 request ghi chú… thấy app-0, app-2, app-8" (3 ≠ 1). Khôi phục bản sửa, build lại: pass.
+Vòng đo chuyển hồ sơ nay chờ request ghi chú bằng cách **đọc danh sách request đã ghi nhận** thay vì
+`waitForRequest`, để không lỡ request tới trước lúc đăng ký (đúng lỗi gặp ở lần chạy đối chứng đầu).
+
+**Kiểm thử đã chạy.** `profile-transition-requests` (nhánh lướt nhanh + toàn bộ assert cũ: `auth/me`
+= 0, `work-queue` = 0, ghi chú không mang sang hồ sơ kế), `profile-lazy-panels`,
+`finish-direct-advance`, `sticky-review-actions`, `by-criterion-confirm-all` đều pass; `npx next build`
+pass.
+
+**Chưa kiểm.** Chưa đo cảm nhận độ trễ của chip ghi chú (nay hiện sau ~600 ms) trên máy chậm; 600 ms
+là lựa chọn sản phẩm, không phải số đo tối ưu. Chưa thử trên backend thật.
+
 ## 2026-11-23 — Ghi chú không mang sang hồ sơ kế: nay có phép kiểm
 
 **Vấn đề.** Phần xoá `notes` khi đổi hồ sơ không có test nào chứng minh: mock luôn trả mảng rỗng,
