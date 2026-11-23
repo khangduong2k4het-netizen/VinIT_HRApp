@@ -9,6 +9,37 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-23 — Màn duyệt theo tiêu chí cũng chỉ ghi một review cho mỗi cú bấm
+
+**Vấn đề.** `by-criterion/page.tsx` cũng gọi `reviewCriterionResult`, nhưng chỉ chặn bằng state:
+nút Xác nhận / "Ghi lại" trong hộp thoại đánh dấu sai có `disabled={... || saving !== null}`. State
+chỉ đổi **sau** lần render kế tiếp, nên hai cú bấm rơi vào cùng một nhịp (chuột nhanh, hoặc bấm
+bàn phím hai lần) đều thấy "chưa lưu" và cùng gửi POST. Review là bảng append-only, nên đó là
+cùng một quyết định bị ghi thành hai dòng — đúng lỗi đã sửa ở trang hồ sơ (`reviewSavingRef`),
+nhưng màn này chưa có.
+
+**Sửa.** Thêm `reviewInFlight` (ref, đổi ngay trong lần gọi đầu) làm khoá một-lần-ghi; `review()`
+trả `'saved' | 'failed' | 'busy'` thay vì boolean, để chỗ gọi (nút Xác nhận và `submitReject`)
+phân biệt được "bị bỏ qua vì đang lưu" với "lỗi thật" — nếu vẫn trả `false`, cú bấm thứ hai sẽ
+hiện lỗi vô cớ. Hộp thoại chỉ đóng và chỉ báo lỗi khi có kết quả thật. Không đổi UI, không đổi
+endpoint.
+
+**Test mới `tests/by-criterion-double-confirm.e2e.cjs`.** Bấm hai lần **trong cùng một tác vụ JS**
+(`button.click(); button.click();`) — cả hai xảy ra trước lần render đầu, nên nút khi đó vẫn
+enabled: test đo đúng chốt chặn ở ref chứ không phải thuộc tính `disabled`. Mock giữ mỗi POST
+700ms. Kiểm: đúng **1** POST cho `app-0:r-c2`, chip "Đã xác nhận", tiến độ `1/12`; rồi hộp thoại
+đánh dấu sai của `app-1:r-c2` cũng bấm đôi → tổng cộng **2** review (`CONFIRMED`, `REJECTED`),
+không có dòng trùng, hộp thoại đóng sau khi lưu.
+
+**Đối chứng.** Bỏ dòng `if (reviewInFlight.current) return 'busy'` rồi build lại: test **fail** với
+`cú bấm thứ hai trong lúc đang lưu không gửi thêm POST — 2 !== 1`. Khôi phục, build lại: pass.
+
+**Kiểm.** `tsc --noEmit`, `eslint` hai file, `npm run build`. E2E trên bản build production:
+test mới pass, `criterion-queue` pass (không hồi quy luồng xác nhận/đánh dấu sai/đổi tiêu chí).
+
+**Chưa kiểm.** Chưa chạy với backend thật; 700ms là độ trễ do mock dựng nên, còn chốt chặn khoá
+theo thời gian request chứ không theo đồng hồ. Chưa thử trên thiết bị cảm ứng thật.
+
 ## 2026-11-23 — Đo vòng duyệt với panel Profile đang mở sẵn, chặn mọi `GET /profile`
 
 **Vì sao cần thêm kịch bản.** `tests/review-loop-metrics.cjs` trước đây đo vòng xác nhận khi panel
