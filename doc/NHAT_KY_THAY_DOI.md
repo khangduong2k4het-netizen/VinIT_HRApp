@@ -9,6 +9,39 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-23 — Ghi chú không mang sang hồ sơ kế: nay có phép kiểm
+
+**Vấn đề.** Phần xoá `notes` khi đổi hồ sơ không có test nào chứng minh: mock luôn trả mảng rỗng,
+nên "không mang ghi chú sang" và "mang nhưng rỗng" cho ra cùng một màn hình.
+
+**Phép kiểm mới** (trong `tests/profile-transition-requests.cjs`, nhánh "Ghi chú không mang sang hồ
+sơ kế"). Mock trả ghi chú **riêng cho từng hồ sơ** — app-5 có 2 (1 chung + 1 cho tiêu chí `c2`),
+app-0 có 1 (cũng cho `c2`, nên chỉ nội dung phân biệt được) — và **giữ** câu trả lời của app-0 trên
+một cổng cho tới khi test mở. Trong cửa sổ đó:
+
+| Điều kiện | Kỳ vọng |
+| --- | --- |
+| Trước khi chuyển (app-5, ghi chú đã về) | chip `2 ghi chú riêng tư`; chữ ghi chú của app-5 nằm cạnh tiêu chí `c2` |
+| Sau khi bấm `n`, ghi chú app-0 **chưa** về | không còn chip số ghi chú; chữ của app-5 không còn trong `#criterion-c2` |
+| Mở cổng (ghi chú app-0 về) | chip `1 ghi chú riêng tư` (không phải 2, không phải 3) và đúng chữ của app-0 |
+
+**Ba lần đối chứng, để biết dòng nào thật sự giữ cho ghi chú không mang sang.**
+
+1. Bỏ `setNotes([])` ở nhánh chính → test **vẫn pass**. Vì trang được gắn lại theo `applicantId`
+   (Next đổi tham số động là dựng lại nhánh trang), `useState([])` tự đặt lại state.
+2. Thêm "state sống qua lần gắn lại" (biến module giữ `notes`, `useState` đọc từ đó) + bỏ
+   `setNotes([])` → **vẫn pass**. Vì nhánh `if (!mayManageNotes) { setNotes([]); ... }` cũng xoá
+   ngay khi trang mount (lúc đó `application` chưa có nên quyền ghi chú là false).
+3. Bỏ **cả hai** chỗ xoá + state sống qua lần gắn lại → **fail** đúng thông điệp "số ghi chú của hồ
+   sơ cũ không được mang sang hồ sơ kế khi ghi chú mới chưa về". Tức phép kiểm bắt đúng lỗi, và hai
+   chỗ xoá kia là hai lớp bảo vệ độc lập.
+
+**Kiểm thử đã chạy.** `profile-transition-requests` pass trên bản build sạch (nhánh mới + các assert
+cũ: `auth/me` = 0, `work-queue` = 0, ghi chú chỉ của hồ sơ đang mở); `npx next build` pass.
+
+**Chưa kiểm.** Chỉ Chromium headless với mock; chưa thử với ghi chú thật từ backend (nhiều tác giả,
+thời điểm khác nhau) — phép kiểm chỉ quan tâm số lượng và nội dung.
+
 ## 2026-11-23 — Nguyên nhân thật của hai request còn thừa mỗi lần chuyển hồ sơ
 
 **Vấn đề nêu ra.** Mỗi lần chuyển hồ sơ còn 2 request thừa: `GET /v1/auth/me` hai lần và

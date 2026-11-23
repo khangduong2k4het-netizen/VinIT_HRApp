@@ -355,6 +355,102 @@ const profileName = page => page.evaluate(() => {
   );
 
 
+  // --- Ghi chú không mang sang hồ sơ kế -------------------------------------
+  // Mock trả ghi chú riêng cho từng hồ sơ (app-5: 2, app-0: 1) và **giữ** câu
+  // trả lời của app-0 cho tới khi test mở cổng. Nhờ vậy có một cửa sổ chắc chắn
+  // để thấy: nếu state ghi chú không được xoá khi đổi hồ sơ, chip "2 ghi chú
+  // riêng tư" và ghi chú của app-5 vẫn nằm trên app-0 trong lúc chờ dữ liệu mới.
+  const makeNote = (note_id, content, criterion_id) => ({
+    note_id,
+    content,
+    criterion_id,
+    created_at: '2026-11-20T09:00:00Z',
+    author_name: 'Nguyễn Thu Hằng',
+  });
+  const notesByProfile = {
+    'app-5': [makeNote('n-5-1', 'Ghi chú chung của hồ sơ app-5', null), makeNote('n-5-2', 'Ghi chú tiêu chí của hồ sơ app-5', 'c2')],
+    'app-0': [makeNote('n-0-1', 'Ghi chú tiêu chí của hồ sơ app-0', 'c2')],
+  };
+  let openNotesGate;
+  const notesGate = new Promise(resolve => { openNotesGate = resolve; });
+  const notesContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await notesContext.addInitScript(() => {
+    localStorage.setItem('hra_access_token', 'notes-carry');
+    localStorage.setItem('hra_locale', 'vi');
+  });
+  const notesUnexpected = await installMockApi(notesContext, {
+    '/v1/applications/app-5/private-notes': route => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(notesByProfile['app-5']),
+    }),
+    '/v1/applications/app-0/private-notes': async route => {
+      await notesGate;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(notesByProfile['app-0']),
+      }).catch(() => {});
+    },
+  });
+  const notesPage = await notesContext.newPage();
+  await notesPage.goto(`${base}/positions/p1/applicants?queue=NEEDS_VERIFICATION`, { waitUntil: 'networkidle' });
+  await notesPage.locator('table tbody tr').first().waitFor();
+  await notesPage.locator('table tbody tr a[href*="/applicants/app-5"]').first().click();
+  await notesPage.getByTestId('sticky-pending').waitFor({ timeout: 15000 });
+  await notesPage.getByTestId('hr-note-count').waitFor({ timeout: 10000 });
+  assert.match(
+    (await notesPage.getByTestId('hr-note-count').innerText()).trim(),
+    /^2 ghi chú riêng tư/,
+    'hồ sơ app-5 phải hiện 2 ghi chú của chính nó trước khi chuyển',
+  );
+  await notesPage.getByText('Ghi chú tiêu chí của hồ sơ app-5').first().waitFor({ timeout: 5000 });
+
+  const app0NotesStarted = notesPage.waitForRequest(
+    request => new URL(request.url()).pathname === '/v1/applications/app-0/private-notes',
+    { timeout: EVENT_TIMEOUT_MS },
+  );
+  const beforeSwitch = (await notesPage.locator('h1').innerText()).trim();
+  await notesPage.keyboard.press('n');
+  // Request của app-0 đã đi và đang bị cổng giữ: dữ liệu mới chưa thể về.
+  await app0NotesStarted;
+  await notesPage.waitForFunction(name => {
+    const heading = document.querySelector('h1');
+    return Boolean(heading && heading.textContent.trim() && heading.textContent.trim() !== name);
+  }, beforeSwitch, { timeout: 15000 });
+
+  const oldCountGone = await notesPage.waitForFunction(
+    () => document.querySelector('[data-testid="hr-note-count"]') === null,
+    undefined,
+    { timeout: 5000 },
+  ).then(() => true).catch(() => false);
+  assert.ok(oldCountGone, 'số ghi chú của hồ sơ cũ không được mang sang hồ sơ kế khi ghi chú mới chưa về');
+  // Cùng một tiêu chí (c2): nếu ghi chú bị cộng dồn, chữ của hồ sơ cũ sẽ nằm
+  // ngay cạnh tiêu chí trên hồ sơ kế.
+  const oldNoteGone = await notesPage.waitForFunction(
+    () => !document.querySelector('#criterion-c2')?.textContent?.includes('Ghi chú tiêu chí của hồ sơ app-5'),
+    undefined,
+    { timeout: 5000 },
+  ).then(() => true).catch(() => false);
+  assert.ok(oldNoteGone, 'ghi chú của hồ sơ cũ không được hiện cạnh tiêu chí trên hồ sơ kế');
+
+  // Mở cổng: hồ sơ kế hiện đúng ghi chú của chính nó (1), không cộng dồn với 2.
+  openNotesGate();
+  await notesPage.getByTestId('hr-note-count').waitFor({ timeout: 10000 });
+  assert.match(
+    (await notesPage.getByTestId('hr-note-count').innerText()).trim(),
+    /^1 ghi chú riêng tư/,
+    'hồ sơ kế chỉ được hiện ghi chú của chính nó',
+  );
+  await notesPage.locator('#criterion-c2').getByText('Ghi chú tiêu chí của hồ sơ app-0').first().waitFor({ timeout: 5000 });
+  assert.equal(
+    await notesPage.locator('#criterion-c2').getByText('Ghi chú tiêu chí của hồ sơ app-5').count(),
+    0,
+    'tiêu chí c2 của hồ sơ kế không được giữ ghi chú của hồ sơ cũ',
+  );
+  assert.deepEqual(notesUnexpected, [], `nhánh ghi chú có request lạ: ${notesUnexpected.join(', ')}`);
+  await notesContext.close();
+
   await page.close();
   await context.close();
   await browser.close();
