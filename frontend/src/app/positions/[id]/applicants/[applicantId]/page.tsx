@@ -48,6 +48,7 @@ import { applicationsApi, assessmentsApi, authApi, criteriaApi, listAllApplicati
 import { recordUxEvent } from '@/lib/uxMetrics';
 import { runWhenIdle } from '@/lib/idle';
 import { prefetchApplication, takePrefetchedApplication } from '@/lib/profilePrefetch';
+import { getApprovedRubric } from '@/lib/rubricCache';
 import { isTypingTarget, moveCriterionIndex, nextPendingCriterionId, reviewShortcut } from '@/lib/reviewKeyboard';
 import { suggestFinishStatus, type FinishSuggestionReason } from '@/lib/finishSuggestion';
 import { criterionReasonCandidates, readRecentReasons, rememberReason } from '@/lib/rejectionReasons';
@@ -263,18 +264,20 @@ export default function ApplicantDetailPage() {
   }, [applicantId, t]);
 
   // The rubric itself, so the reviewer can check "what did this criterion
-  // actually ask for" without leaving the profile. One request per page, keyed
-  // by criterion_id; the assessment response only carries the name, outcome and
-  // quote, not the requirement the candidate was measured against.
+  // actually ask for" without leaving the profile. Keyed by criterion_id; the
+  // assessment response only carries the name, outcome and quote, not the
+  // requirement the candidate was measured against. Rubric thuộc vị trí chứ
+  // không thuộc hồ sơ, nên nó được dùng chung giữa các lần bấm `n` trong cùng
+  // vị trí thay vì gọi lại y hệt mỗi lần mở hồ sơ (xem `lib/rubricCache.ts`).
   const [criteriaById, setCriteriaById] = useState<Record<string, Criterion>>({});
 
   useEffect(() => {
     let cancelled = false;
-    criteriaApi.getApproved(positionId)
-      .then(res => {
+    getApprovedRubric(positionId)
+      .then(criteria => {
         if (cancelled) return;
         const next: Record<string, Criterion> = {};
-        (res.data?.criteria || []).forEach((item: Criterion) => { next[item.criterion_id] = item; });
+        criteria.forEach(item => { next[item.criterion_id] = item; });
         setCriteriaById(next);
       })
       .catch(() => { if (!cancelled) setCriteriaById({}); });
