@@ -198,26 +198,11 @@ export default function ApplicantDetailPage() {
 
   const loadData = useCallback(async (initial = false) => {
     const currentRequest = ++requestId.current;
-    try {
-      if (initial) {
-        // Dữ liệu hồ sơ đã được trang trước tải trước (xem `PrefetchProfile`):
-        // vẽ ngay bằng nó thay vì spinner, rồi vẫn gọi lại API bên dưới để không
-        // hiển thị bản cũ nếu hồ sơ vừa đổi ở nơi khác.
-        const prefetched = takePrefetchedApplication(applicantId);
-        if (prefetched && prefetched.position_id === positionId) {
-          setApplication(prefetched);
-          setError(null);
-          setLoading(false);
-        } else {
-          setLoading(true);
-        }
-      }
-      const res = await applicationsApi.getById(applicantId);
-      if (currentRequest !== requestId.current) return;
-      if (res.data.position_id !== positionId) throw new Error(t("Hồ sơ không thuộc vị trí này"));
-      setApplication(res.data);
+    const applyLoaded = (data: Awaited<ReturnType<typeof applicationsApi.getById>>['data']) => {
+      if (data.position_id !== positionId) throw new Error(t("Hồ sơ không thuộc vị trí này"));
+      setApplication(data);
       setError(null);
-      const loadedCaps = readApplicationCapabilities(res.data);
+      const loadedCaps = readApplicationCapabilities(data);
       // Lịch sử trạng thái nằm trong một accordion đang đóng: tải khi HR mở nó
       // (xem `loadStatusHistory`) thay vì bắt mọi lần mở hồ sơ trả giá cho một
       // khối chưa ai đọc.
@@ -227,6 +212,27 @@ export default function ApplicantDetailPage() {
         if (blobUrl.current) { URL.revokeObjectURL(blobUrl.current); blobUrl.current = null; }
         setCvUrl(null); setCvError(null); setCvRequested(false);
       }
+    };
+    try {
+      if (initial) {
+        // Dữ liệu hồ sơ đã được trang trước tải trước (xem `PrefetchProfile`):
+        // vẽ ngay bằng nó thay vì spinner.
+        const prefetched = takePrefetchedApplication(applicantId);
+        if (prefetched && prefetched.data.position_id === positionId) {
+          applyLoaded(prefetched.data);
+          setLoading(false);
+          // Bản vừa tải trước xong trong vài giây: đọc lại API ngay sau đó chỉ
+          // lặp lại đúng dữ liệu vừa thấy, nên bỏ lần xác nhận ấy — mỗi lần mở
+          // hồ sơ kế chỉ còn một request hồ sơ thay vì hai. Bản cũ hơn cửa sổ
+          // đó thì vẫn đọc lại bên dưới, vẫn vẽ ngay bằng bản tải trước.
+          if (prefetched.fresh) return;
+        } else {
+          setLoading(true);
+        }
+      }
+      const res = await applicationsApi.getById(applicantId);
+      if (currentRequest !== requestId.current) return;
+      applyLoaded(res.data);
     } catch (err: any) {
       if (currentRequest === requestId.current) {
         if (err.response?.status === 403 || err.response?.status === 404) setApplication(null);
