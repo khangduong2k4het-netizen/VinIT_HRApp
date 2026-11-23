@@ -65,6 +65,9 @@ export default function ReviewByCriterionPage() {
   const [rejectReason, setRejectReason] = useState('');
   const [rejectError, setRejectError] = useState<string | null>(null);
   const requested = useRef<Set<string>>(new Set());
+  // Khoá một-lần-ghi giống trang hồ sơ: `saving` là state nên chỉ đổi sau khi
+  // React vẽ lại — hai cú bấm sát nhau đều thấy "chưa lưu" và cùng gửi POST.
+  const reviewInFlight = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,16 +156,26 @@ export default function ReviewByCriterionPage() {
     });
   };
 
+  /**
+   * Ghi một review. Trả `busy` khi đã có lần ghi đang chạy — chỗ gọi phải phân
+   * biệt với `failed`, nếu không cú bấm thứ hai bị bỏ qua sẽ hiện lỗi vô cớ.
+   */
   const review = async (applicationId: string, resultId: string, decision: 'CONFIRMED' | 'REJECTED', comment?: string) => {
+    // Chốt chặn phải là ref: state `saving` chưa kịp đổi khi hai cú bấm rơi vào
+    // cùng một nhịp render. Review là bảng append-only, nên hai POST là hai dòng
+    // quyết định cho cùng một tiêu chí của cùng một người.
+    if (reviewInFlight.current) return 'busy' as const;
+    reviewInFlight.current = true;
     setSaving(resultId);
     try {
       const response = await assessmentsApi.reviewCriterionResult(resultId, decision, comment);
       applyReview(applicationId, criterionId, response.data);
-      return true;
+      return 'saved' as const;
     } catch (err: any) {
       setError(err.response?.data?.detail || t('Không lưu được đánh dấu. Vui lòng thử lại.'));
-      return false;
+      return 'failed' as const;
     } finally {
+      reviewInFlight.current = false;
       setSaving(null);
     }
   };
@@ -170,11 +183,11 @@ export default function ReviewByCriterionPage() {
   const submitReject = async () => {
     if (!rejectTarget || !rejectReason.trim()) return;
     setRejectError(null);
-    const saved = await review(rejectTarget.applicationId, rejectTarget.resultId, 'REJECTED', rejectReason.trim());
-    if (saved) {
+    const outcome = await review(rejectTarget.applicationId, rejectTarget.resultId, 'REJECTED', rejectReason.trim());
+    if (outcome === 'saved') {
       setRejectTarget(null);
       setRejectReason('');
-    } else {
+    } else if (outcome === 'failed') {
       setRejectError(t('Không lưu được đánh dấu. Vui lòng thử lại.'));
     }
   };
