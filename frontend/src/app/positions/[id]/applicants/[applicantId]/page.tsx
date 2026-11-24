@@ -125,13 +125,6 @@ function PrefetchProfile({ applicantId, href }: { applicantId: string; href: str
   return null;
 }
 
-/**
- * HR phải ở lại hồ sơ chừng này thì mới đáng nạp ghi chú. Ngắn hơn nhịp lướt
- * hồ sơ (`n` liên tay ~250 ms) nên lướt không tốn request; dài hơn một nhịp
- * đọc tiêu đề, đủ sớm để HR đọc hồ sơ thấy ngay số ghi chú.
- */
-const NOTES_SETTLE_MS = 600;
-
 export default function ApplicantDetailPage() {
   const { t, dateLocale, locale } = useI18n();
   const params = useParams();
@@ -166,6 +159,9 @@ export default function ApplicantDetailPage() {
   const [notes, setNotes] = useState<PrivateNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [notesError, setNotesError] = useState<string | null>(null);
+  // Ghi chú chỉ tải khi HR mở panel, không tải khi mở hồ sơ: hồ sơ nào cũng
+  // không tốn request ghi chú cho tới khi có người thật sự đọc chúng.
+  const [notesRequested, setNotesRequested] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [claiming, setClaiming] = useState(false);
   const [selectedPage, setSelectedPage] = useState(1);
@@ -395,36 +391,29 @@ export default function ApplicantDetailPage() {
   // Quyền ghi chú là một boolean, không phải cả object hồ sơ: phụ thuộc vào object
   // khiến mọi thay đổi nhỏ (một lần xác minh) kéo theo một lần tải lại ghi chú.
   const mayManageNotes = application ? readApplicationCapabilities(application).manageHrNotes : false;
+  // Ghi chú là thông tin phụ, chỉ nằm trong panel ở cuối trang: nạp đúng một
+  // lần khi HR mở panel đó. Trước đây trang tự nạp sau 600 ms ở lại hồ sơ, nên
+  // mỗi hồ sơ HR dừng lại tốn một `GET .../private-notes` (và hồ sơ lướt qua
+  // từng tốn thêm một request bị huỷ). Nay lướt hay dừng đều không tốn request
+  // nào; chỉ panel mở ra mới hỏi.
   useEffect(() => {
     let cancelled = false;
-    // Đổi hồ sơ là cắt request ghi chú đang bay. Cờ `cancelled` chỉ bỏ qua câu
-    // trả lời; request vẫn chạy hết trên mạng cho một màn hình đã đổi, và bấm
-    // `n` liên tiếp thì đó là một request thừa mỗi hồ sơ.
     const controller = new AbortController();
     if (!mayManageNotes) { setNotes([]); setNotesLoading(false); return () => controller.abort(); }
-    // Ghi chú của hồ sơ vừa rời không được hiện trên hồ sơ mới trong lúc chờ
-    // (số ghi chú cạnh tiêu chí đọc từ danh sách này).
-    setNotes([]); setNotesError(null);
+    if (!notesRequested) return () => controller.abort();
+    // Đổi hồ sơ là cắt request đang bay: cờ `cancelled` chỉ bỏ qua câu trả lời,
+    // còn request vẫn chạy hết trên mạng cho một màn hình đã đổi.
+    setNotesError(null);
     setNotesLoading(true);
-    // Ghi chú chỉ để hiện số bên cạnh tiêu chí và panel ở dưới, nên chỉ nạp khi
-    // HR thật sự dừng lại ở hồ sơ này. Lướt tiếp trong khoảng đó thì không mở
-    // request nào: trước đây mỗi hồ sơ lướt qua vẫn phát sinh một GET ghi chú
-    // (gửi ngay trước cú bấm `n`) rồi bị huỷ — đo được 3 request cho 3 hồ sơ.
-    const settleTimer = window.setTimeout(() => {
-      if (cancelled || controller.signal.aborted) return;
-      // Đổi URL xảy ra trước khi React kịp dọn effect, nên kiểm thêm URL: không
-      // mở request cho hồ sơ đang không hiển thị.
-      if (!window.location.pathname.includes(`/applicants/${applicantId}`)) return;
-      applicationsApi.getPrivateNotes(applicantId, controller.signal)
-        .then(response => { if (!cancelled) { setNotes(response.data || []); setNotesError(null); } })
-        .catch((err: any) => {
-          // Bị huỷ vì đã rời hồ sơ: không phải lỗi để báo cho HR.
-          if (!cancelled && err?.code !== 'ERR_CANCELED') setNotesError(err.response?.data?.detail || t("Không thể tải ghi chú nội bộ."));
-        })
-        .finally(() => { if (!cancelled) setNotesLoading(false); });
-    }, NOTES_SETTLE_MS);
-    return () => { cancelled = true; window.clearTimeout(settleTimer); controller.abort(); };
-  }, [applicantId, mayManageNotes, t]);
+    applicationsApi.getPrivateNotes(applicantId, controller.signal)
+      .then(response => { if (!cancelled) { setNotes(response.data || []); setNotesError(null); } })
+      .catch((err: any) => {
+        // Bị huỷ vì đã rời hồ sơ: không phải lỗi để báo cho HR.
+        if (!cancelled && err?.code !== 'ERR_CANCELED') setNotesError(err.response?.data?.detail || t("Không thể tải ghi chú nội bộ."));
+      })
+      .finally(() => { if (!cancelled) setNotesLoading(false); });
+    return () => { cancelled = true; controller.abort(); };
+  }, [applicantId, mayManageNotes, notesRequested, t]);
 
   const addNote = useCallback(async (content: string, criterionId?: string) => {
     await applicationsApi.addPrivateNote(applicantId, content, criterionId);
@@ -1360,6 +1349,7 @@ export default function ApplicantDetailPage() {
           loading={notesLoading}
           error={notesError}
           onAdd={content => addNote(content)}
+          onOpen={() => setNotesRequested(true)}
           criterionNoteCount={summarizeCriterionNotes(notes).criteriaWithNotes}
         />
       )}

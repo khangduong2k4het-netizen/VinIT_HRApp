@@ -9,6 +9,44 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-24 — Ghi chú chỉ tải khi mở panel: hồ sơ nào cũng 0 request
+
+**Vấn đề.** Sau khi bỏ request cho hồ sơ đã rời, hồ sơ HR **dừng lại** vẫn tốn một
+`GET /v1/applications/{id}/private-notes` sau 600 ms. Nhưng ghi chú nằm trong accordion ở cuối trang và
+chỉ để đọc khi cần: phần lớn lần mở hồ sơ không ai mở panel đó, nên request vẫn là thừa.
+
+**Sửa.** Bỏ hẳn `NOTES_SETTLE_MS` và effect tự tải. Thêm cờ `notesRequested`, chỉ bật khi `HRNotesPanel`
+báo **mở panel lần đầu** (prop `onOpen`, gọi trong `onChange` của Accordion). Mở lại/đóng panel không hỏi
+lại vì effect chỉ phụ thuộc cờ đó. `change-password` và các chỗ khác không đụng tới.
+
+**Đo** (`tests/profile-transition-requests.cjs`: mở danh sách → mở hồ sơ → bấm `n` ba lần cách 250 ms →
+dừng lại 1,5 s, rồi mở panel ghi chú của hồ sơ đang xem). Cửa sổ đo mỗi lần chuyển chỉ chờ mạng xong
+(+200 ms), ngắn hơn mốc `NOTES_SETTLE_MS = 600` cũ, nên số "trước" cho một hồ sơ đứng yên lấy từ nhánh
+lướt-rồi-dừng (1,5 s), không từ cửa sổ chuyển:
+
+| | Trước | Sau |
+| --- | --- | --- |
+| Ghi chú tải khi lướt 3 hồ sơ **rồi dừng lại** ở hồ sơ cuối | 1 (của hồ sơ dừng lại) | **0** |
+| Ghi chú tải khi mở panel của hồ sơ đang xem | 0 (đã tải sẵn) | **1** (đúng hồ sơ đó) |
+| Ghi chú tải cho hồ sơ đã rời | 0 | 0 |
+| `auth/me`, rubric, badge mỗi lần chuyển | 0 | 0 (không đổi) |
+
+**Đối chứng.** Đưa trang hồ sơ về `HEAD` (còn `NOTES_SETTLE_MS`), build lại: dòng `TRANSITIONS` in
+`skim.beforeOpen: [{askedFor: app-8}]`, rồi test **fail** — "lướt 3 hồ sơ rồi dừng lại không được tải ghi
+chú, thấy [...]". Khôi phục bản sửa, build lại: pass, `skim.beforeOpen: []`, `skim.afterOpen: [app-8]`.
+
+**Hệ quả đã cân nhắc.** Không tải thì không biết số, nên chip "N ghi chú riêng tư" cạnh trạng thái và số
+ghi chú theo tiêu chí chỉ hiện **sau khi mở panel** (trước đây hiện sau 600 ms). Panel "Ghi chú nội bộ HR"
+là lối vào duy nhất và vẫn nằm cuối trang; đây là đánh đổi có chủ ý để đổi lấy 0 request.
+
+**Kiểm thử đã chạy.** `profile-transition-requests` pass toàn bộ (chuyển hồ sơ, ở lại 32 giây, huỷ request
+khi rời, đóng/mở panel, ghi chú không mang sang hồ sơ kế — nhánh này nay mở panel để tải ghi chú),
+`profile-lazy-panels` pass, `npx tsc --noEmit` pass, `npx next build` pass.
+
+**Chưa kiểm.** Chưa chạy trên backend thật (mọi `/v1/` đều mock); chưa đo lại trong 375/768px (panel vẫn là
+accordion như cũ); chưa đo chi phí khi HR **mở panel** rồi chuyển hồ sơ rồi quay lại — mỗi lần mở hồ sơ
+state reset nên panel tải lại (cố ý: ghi chú có thể vừa được thêm bởi HR khác).
+
 ## 2026-11-24 — Quản lý tài khoản và chi tiết vị trí: 2 lần `auth/me` còn 1
 
 **Vấn đề.** Hai trang đã được chuyển sang `getCurrentUser()` ở mục dưới, nhưng chưa có số đo riêng:

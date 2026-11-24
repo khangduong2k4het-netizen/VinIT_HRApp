@@ -35,6 +35,13 @@ const profileName = page => page.evaluate(() => {
   return heading ? heading.textContent.trim() : null;
 });
 
+// Panel ghi chú đóng sẵn và chỉ tải khi mở; mở lần thứ hai sẽ đóng nó.
+const openNotesPanel = async page => {
+  const summary = page.getByRole('button', { name: /Ghi chú nội bộ HR/ }).first();
+  await summary.waitFor({ timeout: 10000 });
+  if ((await summary.getAttribute('aria-expanded')) !== 'true') await summary.click();
+};
+
 (async () => {
   const browser = await chromium.launch({
     executablePath: process.env.HRA_E2E_CHROMIUM_EXECUTABLE,
@@ -107,15 +114,9 @@ const profileName = page => page.evaluate(() => {
     await page.getByTestId('verification-progress').waitFor();
     await page.locator('[data-testid="evidence-card"]').first().waitFor();
     const toId = new URL(page.url()).pathname.split('/').pop();
-    // Ghi chú nạp sau khi HR dừng lại ở hồ sơ (`NOTES_SETTLE_MS`), nên chờ đúng
-    // request của hồ sơ mới thay vì ngủ một khoảng đoán trước. Đọc từ danh sách
-    // đã ghi nhận (không phải `waitForRequest`) để không lỡ request tới sớm.
-    const notesWaited = Date.now() + 5000;
-    while (!requests.includes(`/v1/applications/${toId}/private-notes`)) {
-      if (Date.now() > notesWaited) throw new Error(`hồ sơ ${toId} không tải ghi chú trong 5000 ms`);
-      await new Promise(resolve => setTimeout(resolve, 25));
-    }
-    // Chờ cả các request phụ (chi tiết hồ sơ kế, tải trước) xong mới chốt số.
+    // Ghi chú không còn tự tải khi mở hồ sơ, nên chuyển hồ sơ không phát sinh
+    // request ghi chú nào. Chỉ chờ các request phụ (chi tiết hồ sơ kế, tải
+    // trước) xong rồi mới chốt số.
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(200);
 
@@ -274,6 +275,15 @@ const profileName = page => page.evaluate(() => {
   // mỗi hồ sơ lướt qua từng tốn một GET ghi chú rồi bị huỷ.
   const skimLeftBehind = skimNotes.filter(entry => entry.askedFor !== skimStoppedAt);
   const skimOffProfile = skimNotes.filter(entry => entry.askedFor !== entry.viewedAtSend);
+  // Lướt xong và dừng lại: vẫn chưa được có request nào. Chỉ khi HR mở panel của
+  // hồ sơ đang xem mới có đúng một request — cho chính hồ sơ đó. Chốt lại con số
+  // trước khi mở panel để báo cáo đọc được cả hai mốc, và để assert nằm sau
+  // phần in (một lần chạy trên bản cũ vẫn in được số trước khi fail).
+  const skimNotesBeforeOpen = skimNotes.slice();
+  await openNotesPanel(skimPage);
+  await skimPage.getByText('Chưa có ghi chú nội bộ.').waitFor({ timeout: 5000 });
+  await skimPage.waitForTimeout(300);
+  const skimNotesAfterOpen = skimNotes.slice();
   await skimContext.close();
 
   // --- Mở hồ sơ từ danh sách: tổng số lần hỏi auth/me ------------------------
@@ -316,7 +326,7 @@ const profileName = page => page.evaluate(() => {
     dwellAfterSharedAuthExpired: { auth: dwellAuth, paths: dwellGets },
     fastTransitions: { notesOffProfile: fastNotesOffProfile },
     openFromList,
-    skim: { requests: skimNotes, leftBehind: skimLeftBehind, offProfile: skimOffProfile, stoppedAt: skimStoppedAt },
+    skim: { beforeOpen: skimNotesBeforeOpen, afterOpen: skimNotesAfterOpen, leftBehind: skimLeftBehind, offProfile: skimOffProfile, stoppedAt: skimStoppedAt },
   })}`);
 
   // Mở hồ sơ từ danh sách: danh tính chỉ được hỏi một lần cho cả luồng.
@@ -327,10 +337,15 @@ const profileName = page => page.evaluate(() => {
   assert.equal(openFromList.unexpected, 0, 'luồng mở từ danh sách không có request lạ');
 
   // Lướt nhanh: chỉ hồ sơ HR dừng lại mới được hỏi ghi chú.
-  assert.equal(
-    skimNotes.length,
-    1,
-    `lướt 3 hồ sơ chỉ được 1 request ghi chú (của hồ sơ dừng lại), thấy ${JSON.stringify(skimNotes)}`,
+  assert.deepEqual(
+    skimNotesBeforeOpen,
+    [],
+    `lướt 3 hồ sơ rồi dừng lại không được tải ghi chú, thấy ${JSON.stringify(skimNotesBeforeOpen)}`,
+  );
+  assert.deepEqual(
+    skimNotesAfterOpen,
+    [{ askedFor: skimStoppedAt, viewedAtSend: skimStoppedAt }],
+    `mở panel sau khi lướt chỉ được hỏi ghi chú của hồ sơ đang xem (${skimStoppedAt}) đúng một lần, thấy ${JSON.stringify(skimNotesAfterOpen)}`,
   );
   assert.deepEqual(
     skimLeftBehind,
@@ -355,31 +370,40 @@ const profileName = page => page.evaluate(() => {
   await page.getByText('Nguyễn Thu Hằng').first().waitFor({ timeout: 5000 });
   await page.keyboard.press('Escape');
 
-  // Ghi chú: mỗi lần chuyển tải ghi chú của hồ sơ **vừa mở** đúng một lần, và
-  // không hỏi ghi chú của hồ sơ vừa rời. Ghi chú tải sau khi hồ sơ dùng được
-  // (~180 ms), nên cửa sổ đo của lần chuyển có đúng request của hồ sơ mới.
-  const leftIds = [openedId, ...transitions.slice(0, -1).map(transition => transition.toId)];
+  // Ghi chú: KHÔNG tự tải khi mở hay chuyển hồ sơ. Trước đây hồ sơ HR dừng lại
+  // vẫn tốn một request (sau 600 ms); nay chỉ panel ghi chú — nơi duy nhất đọc
+  // dữ liệu — mới tải.
+  const noteRequests = () => requests.filter(path => path.endsWith('/private-notes'));
   transitions.forEach((transition, index) => {
     assert.deepEqual(
       transition.notes,
-      [transition.toId],
-      `lần chuyển ${index + 1} phải tải ghi chú của hồ sơ vừa mở (${transition.toId}) đúng một lần, thấy ${JSON.stringify(transition.notes)}`,
-    );
-    assert.ok(
-      !transition.notes.includes(leftIds[index]),
-      `lần chuyển ${index + 1} không được hỏi ghi chú của hồ sơ vừa rời (${leftIds[index]})`,
+      [],
+      `lần chuyển ${index + 1} không được tải ghi chú, thấy ${JSON.stringify(transition.notes)}`,
     );
   });
+  assert.deepEqual(noteRequests(), [], `mở/chuyển hồ sơ không được tải ghi chú: ${JSON.stringify(noteRequests())}`);
+  // Số ghi chú chỉ biết được sau khi tải, nên chưa mở panel thì chưa có số.
+  assert.equal(await page.getByTestId('hr-note-count').count(), 0, 'chưa mở panel thì chưa được hiện số ghi chú');
 
-  // Ghi chú tải đúng một lần: mở panel chỉ hiện bản đã tải, không hỏi lại.
-  const notesRequestsBeforePanel = requests.filter(path => path.endsWith('/private-notes')).length;
-  await page.getByRole('button', { name: /Ghi chú nội bộ HR/ }).click();
+  // Mở panel: đúng một request, cho hồ sơ đang xem; đóng/mở lại không hỏi lại.
+  const notesBeforePanel = noteRequests().length;
+  const viewedId = new URL(page.url()).pathname.split('/').pop();
+  await openNotesPanel(page);
   await page.getByText('Chưa có ghi chú nội bộ.').waitFor({ timeout: 5000 });
   await page.waitForTimeout(300);
+  assert.deepEqual(
+    noteRequests().slice(notesBeforePanel),
+    [`/v1/applications/${viewedId}/private-notes`],
+    `mở panel phải tải ghi chú của hồ sơ đang xem (${viewedId}) đúng một lần, thấy ${JSON.stringify(noteRequests())}`,
+  );
+  await page.getByRole('button', { name: /Ghi chú nội bộ HR/ }).click();
+  await page.waitForTimeout(200);
+  await page.getByRole('button', { name: /Ghi chú nội bộ HR/ }).click();
+  await page.waitForTimeout(400);
   assert.equal(
-    requests.filter(path => path.endsWith('/private-notes')).length,
-    notesRequestsBeforePanel,
-    'mở panel ghi chú không được phát sinh thêm request tải ghi chú',
+    noteRequests().length,
+    notesBeforePanel + 1,
+    'đóng/mở lại panel không được tải lại ghi chú',
   );
 
   // Ba lần chuyển đã đi hết hàng đợi; lùi hai hồ sơ để còn hồ sơ kế cho kịch
@@ -412,7 +436,9 @@ const profileName = page => page.evaluate(() => {
     request => isNote(notePath(request.url())),
     { timeout: EVENT_TIMEOUT_MS },
   );
-  await page.keyboard.press('n');
+  // Ghi chú chỉ tải khi mở panel: mở panel để có một request đang bay rồi mới rời
+  // hồ sơ. (Sau các lần lùi trang, trang được gắn lại nên panel đóng sẵn.)
+  await openNotesPanel(page);
   const inFlightPath = notePath((await notesStarted).url());
   const leavingFrom = await profileName(page);
   // Đăng ký cả hai sự kiện trước cú bấm thứ hai: chúng có thể tới ngay sau đó.
@@ -493,10 +519,18 @@ const profileName = page => page.evaluate(() => {
     },
   });
   const notesPage = await notesContext.newPage();
+  const notesPageRequests = [];
+  notesPage.on('request', request => {
+    const path = new URL(request.url()).pathname;
+    if (path.endsWith('/private-notes')) notesPageRequests.push(path);
+  });
   await notesPage.goto(`${base}/positions/p1/applicants?queue=NEEDS_VERIFICATION`, { waitUntil: 'networkidle' });
   await notesPage.locator('table tbody tr').first().waitFor();
   await notesPage.locator('table tbody tr a[href*="/applicants/app-5"]').first().click();
   await notesPage.getByTestId('sticky-pending').waitFor({ timeout: 15000 });
+  // Mở hồ sơ không tự tải ghi chú: chưa mở panel thì chưa có request nào.
+  assert.deepEqual(notesPageRequests, [], `mở hồ sơ app-5 không được tải ghi chú: ${JSON.stringify(notesPageRequests)}`);
+  await openNotesPanel(notesPage);
   await notesPage.getByTestId('hr-note-count').waitFor({ timeout: 10000 });
   assert.match(
     (await notesPage.getByTestId('hr-note-count').innerText()).trim(),
@@ -505,18 +539,18 @@ const profileName = page => page.evaluate(() => {
   );
   await notesPage.getByText('Ghi chú tiêu chí của hồ sơ app-5').first().waitFor({ timeout: 5000 });
 
-  const app0NotesStarted = notesPage.waitForRequest(
-    request => new URL(request.url()).pathname === '/v1/applications/app-0/private-notes',
-    { timeout: EVENT_TIMEOUT_MS },
-  );
   const beforeSwitch = (await notesPage.locator('h1').innerText()).trim();
   await notesPage.keyboard.press('n');
-  // Request của app-0 đã đi và đang bị cổng giữ: dữ liệu mới chưa thể về.
-  await app0NotesStarted;
   await notesPage.waitForFunction(name => {
     const heading = document.querySelector('h1');
     return Boolean(heading && heading.textContent.trim() && heading.textContent.trim() !== name);
   }, beforeSwitch, { timeout: 15000 });
+  // Chuyển hồ sơ không hỏi ghi chú của hồ sơ mới: chỉ app-5 (lúc mở panel) đã hỏi.
+  assert.deepEqual(
+    notesPageRequests,
+    ['/v1/applications/app-5/private-notes'],
+    `chuyển hồ sơ không được tải ghi chú, thấy ${JSON.stringify(notesPageRequests)}`,
+  );
 
   const oldCountGone = await notesPage.waitForFunction(
     () => document.querySelector('[data-testid="hr-note-count"]') === null,
@@ -533,6 +567,19 @@ const profileName = page => page.evaluate(() => {
   ).then(() => true).catch(() => false);
   assert.ok(oldNoteGone, 'ghi chú của hồ sơ cũ không được hiện cạnh tiêu chí trên hồ sơ kế');
 
+  // Mở panel ghi chú của hồ sơ kế: request đi và bị cổng giữ, nên chưa hiện số.
+  const app0NotesStarted = notesPage.waitForRequest(
+    request => new URL(request.url()).pathname === '/v1/applications/app-0/private-notes',
+    { timeout: EVENT_TIMEOUT_MS },
+  );
+  await openNotesPanel(notesPage);
+  await app0NotesStarted;
+  await notesPage.waitForTimeout(300);
+  assert.equal(
+    await notesPage.getByTestId('hr-note-count').count(),
+    0,
+    'ghi chú của hồ sơ mới chưa về thì chưa được hiện số',
+  );
   // Mở cổng: hồ sơ kế hiện đúng ghi chú của chính nó (1), không cộng dồn với 2.
   openNotesGate();
   await notesPage.getByTestId('hr-note-count').waitFor({ timeout: 10000 });
