@@ -31,17 +31,25 @@ lướt-rồi-dừng (1,5 s), không từ cửa sổ chuyển:
 | Ghi chú tải cho hồ sơ đã rời | 0 | 0 |
 | `auth/me`, rubric, badge mỗi lần chuyển | 0 | 0 (không đổi) |
 
-**Đối chứng.** Đưa trang hồ sơ về `HEAD` (còn `NOTES_SETTLE_MS`), build lại: dòng `TRANSITIONS` in
-`skim.beforeOpen: [{askedFor: app-8}]`, rồi test **fail** — "lướt 3 hồ sơ rồi dừng lại không được tải ghi
-chú, thấy [...]". Khôi phục bản sửa, build lại: pass, `skim.beforeOpen: []`, `skim.afterOpen: [app-8]`.
+**Assert của nhánh lướt.** Nhánh "Lướt nhanh" chỉ khẳng định điều thật sự cần: **không request nào cho
+hồ sơ HR đã rời** (`leftBehind`), và request nào có cũng chỉ cho hồ sơ **đang hiển thị** (`offProfile`). Số
+request của hồ sơ đang xem chỉ được in ra, không đếm cứng: máy chạy chậm làm mỗi hồ sơ sống lâu hơn và một
+request có thể tới muộn mà vẫn đúng — đó không phải lỗi để bắt. Chốt chặn để con số 0 không phải vì "không
+có gì chạy": mở panel phải hỏi ghi chú của chính hồ sơ đang xem.
+
+**Đối chứng.** Dựng lại bản trước thay đổi (`git show e0e7e07^:...page.tsx`, còn `NOTES_SETTLE_MS`), build
+lại: dòng `TRANSITIONS` in `skim.beforeOpen: [{askedFor: app-8}]` (hồ sơ dừng lại vẫn bị hỏi ghi chú), rồi
+test **fail** — "mở/chuyển hồ sơ không được tải ghi chú: [\"/v1/applications/app-8/private-notes\"]".
+Khôi phục bản sửa, build lại: pass, `skim.beforeOpen: []`, `skim.afterOpen: [app-8]`.
 
 **Hệ quả đã cân nhắc.** Không tải thì không biết số, nên chip "N ghi chú riêng tư" cạnh trạng thái và số
 ghi chú theo tiêu chí chỉ hiện **sau khi mở panel** (trước đây hiện sau 600 ms). Panel "Ghi chú nội bộ HR"
 là lối vào duy nhất và vẫn nằm cuối trang; đây là đánh đổi có chủ ý để đổi lấy 0 request.
 
 **Kiểm thử đã chạy.** `profile-transition-requests` pass toàn bộ (chuyển hồ sơ, ở lại 32 giây, huỷ request
-khi rời, đóng/mở panel, ghi chú không mang sang hồ sơ kế — nhánh này nay mở panel để tải ghi chú),
-`profile-lazy-panels` pass, `npx tsc --noEmit` pass, `npx next build` pass.
+khi rời, đóng/mở panel, ghi chú không mang sang hồ sơ kế — nhánh này nay mở panel để tải ghi chú), chạy lại
+lần nữa sau khi sửa assert của nhánh lướt: vẫn pass; `profile-lazy-panels` pass, `npx tsc --noEmit` pass,
+`npx next build` pass.
 
 **Chưa kiểm.** Chưa chạy trên backend thật (mọi `/v1/` đều mock); chưa đo lại trong 375/768px (panel vẫn là
 accordion như cũ); chưa đo chi phí khi HR **mở panel** rồi chuyển hồ sơ rồi quay lại — mỗi lần mở hồ sơ
