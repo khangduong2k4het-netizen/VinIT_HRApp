@@ -9,6 +9,41 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-24 — Quản lý tài khoản và chi tiết vị trí: 2 lần `auth/me` còn 1
+
+**Vấn đề.** Hai trang đã được chuyển sang `getCurrentUser()` ở mục dưới, nhưng chưa có số đo riêng:
+chúng chỉ được kiểm gián tiếp qua luồng mở hồ sơ. Mở **thẳng** mỗi trang vẫn có hai nơi cùng hỏi
+`GET /v1/auth/me` — khung trang (`AppLayout`, kiểm quyền) và chính trang (`admin/users` để biết dòng
+nào là "Tài khoản của bạn", `positions/[id]` để biết vai trò theo vị trí) — cùng một câu trả lời,
+gửi hai lần.
+
+**Sửa.** Không thêm gì: hai trang đã đọc bản dùng chung (`lib/meCache.ts`, 30 giây, gắn token) từ mục
+trước. Mục này chỉ thêm phép đo để xác nhận.
+
+**Đo** (`tests/page-auth-me-requests.cjs`, mở thẳng URL trong tab mới, đếm `GET /v1/auth/me` từ lúc
+điều hướng tới khi nội dung thật của trang hiện ra — dòng `Trần Minh HM` ở bảng tài khoản, tiêu đề
+vị trí ở trang chi tiết — rồi đợi thêm 800 ms cho request thứ hai kịp bay; 2 lần mỗi trang):
+
+| Trang | `auth/me` trước | `auth/me` sau | Tổng `GET` trước → sau |
+| --- | --- | --- | --- |
+| Quản lý tài khoản (`/admin/users`) | 2 | **1** | 4 → 3 |
+| Chi tiết vị trí (`/positions/p1`) | 2 | **1** | 9 → 8 |
+
+**Đối chứng.** Đưa `admin/users/page.tsx` và `positions/[id]/page.tsx` về `5543abc` (bản còn
+`authApi.me()`), build lại: test **fail** — "quan-ly-tai-khoan lần 1: mở trang chỉ được hỏi auth/me
+đúng một lần, thấy 2", và dòng `PAGE_AUTH_ME` cho cả hai trang đều `authMe: 2` ở cả 2 lần chạy.
+Khôi phục bản sửa, build lại: pass, `authMe: 1` ở cả 4 lần chạy.
+
+**Chốt chặn trong test.** Ngoài số đếm, test còn chờ nội dung thật của trang hiện ra (không thì con số
+1 chỉ là do danh tính chưa từng được tải), và fail nếu có request `/v1/` nào ngoài danh sách đã mock
+— để phép đo không bỏ sót đường tải mới.
+
+**Kiểm thử đã chạy.** `node tests/page-auth-me-requests.cjs` pass; `npx next build` pass.
+
+**Chưa kiểm.** Chưa chạy trên backend thật (mọi `/v1/` đều được mock); mới đo với một tài khoản
+`ADMIN` + `HR_RECRUITER`; chưa đo `auth/me` cho trang danh sách vị trí và dashboard bằng script riêng
+(số của chúng đã nằm trong nhánh "mở hồ sơ từ danh sách" của `profile-transition-requests`).
+
 ## 2026-11-23 — Mở hồ sơ từ danh sách: 2 lần `auth/me` còn 1
 
 **Vấn đề.** `lib/meCache.ts` mới chỉ gom hai chỗ: khung trang (`AppLayout`) và trang hồ sơ. Các trang
