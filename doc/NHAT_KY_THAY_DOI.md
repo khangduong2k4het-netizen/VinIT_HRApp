@@ -9,6 +9,47 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-25 — Thanh dính ở 390px: ba hàng 152px → hai hàng 110px
+
+**Vấn đề.** Ở 390px thanh dính chiếm ba hàng (ngữ cảnh + bộ đếm / tiêu chí + hai quyết định /
+hoàn tất + điều hướng): **152px**, 18% màn hình 844px. Hai nút điều hướng "Trước"/"Tiếp" tốn
+82px + 71px cho hai từ mà không mang thông tin gì thêm ngoài mũi tên.
+
+**Sửa.** Dưới 600px điều hướng chỉ còn **icon** (40px, `aria-label` đầy đủ "Hồ sơ trước" / "Hồ sơ tiếp theo"),
+và thanh gộp còn **hai hàng**: hàng 1 = ngữ cảnh + bộ đếm + "Hoàn tất" + hai icon; hàng 2 = tiêu chí đang chọn +
+**Xác nhận** + **Đánh dấu sai** với nhãn đầy đủ. Cách làm: ở màn hẹp các Box nhóm chuyển `display: contents`
+và con của chúng xếp bằng `order` (0 ngữ cảnh → 1 bộ đếm → 2 hoàn tất → 3,4 điều hướng → 5 tiêu chí → 6,7
+quyết định); từ 600px trở lên trả lại ba nhóm như cũ. Chip bộ đếm ở màn hẹp viết gọn "2/2" (nhãn đầy đủ vẫn
+là `aria-label`), và `StickyActionBar` bớt đệm dọc 10px → 6px ở màn hẹp.
+
+**Đo** (`tests/sticky-bar-height.e2e.cjs`, Chromium headless, mock API):
+
+| Khổ | Trước | Sau |
+| --- | --- | --- |
+| **390×844** | **152px, 3 hàng, 18% màn hình** | **110px, 2 hàng, 13% màn hình** |
+| 768×1024 | 120px, 2 hàng | 120px, 2 hàng |
+| 1024×768 | 120px, 2 hàng | 120px, 2 hàng |
+| 1440×900 | 120px, 2 hàng | 120px, 2 hàng |
+
+Không tràn ngang ở cả bốn khổ; Xác nhận và Đánh dấu sai cùng một hàng ở cả bốn khổ.
+
+**Assert.** Trước đây test chỉ in số ở 390px (trần phải bật bằng biến môi trường); nay chốt thẳng: **≤ 116px và
+≤ 2 hàng** ở 390px — trần đặt trên số đo 110px và dưới bản cũ 152px. `sticky-review-actions` nay khẳng định nhãn
+bộ đếm **theo từng khổ** ("2/2" / "Còn 2/2 tiêu chí chờ") *và* `aria-label` đầy đủ ở màn hẹp, thay vì một chuỗi
+cho mọi khổ — không nới, thêm một phép kiểm a11y. Nhãn hai nút quyết định vẫn được khẳng định đầy đủ
+("Xác nhận" / "Đánh dấu sai") ở cả bốn khổ.
+
+**Đối chứng.** Build lại HEAD khi chưa sửa: test **fail** — "390: thanh dính phải ≤ 116px (đang 152px, bản ba hàng
+152px)". Khôi phục bản sửa, build lại: pass (`390: 110px, 2 hàng`).
+
+**Kiểm thử đã chạy.** `sticky-bar-height` (4 khổ, exit 0), `sticky-review-actions` (4 khổ), `finish-direct-advance`
+(1/1/1 cú bấm), `profile-lazy-panels`, `ranking-context-mock` (link "Hồ sơ tiếp theo" vẫn tìm được theo tên),
+`npx tsc --noEmit`, `npx next build` — đều pass.
+
+**Chưa kiểm.** Chưa xem ảnh chụp và chưa thử bằng mắt trên máy thật; mới đo DOM trong Chromium headless ở
+390×844 (chưa thử 360px hay 320px). Vùng chạm của hai nút icon là 40×43px — trên ngưỡng 40px nhưng chưa đo bằng
+ngón tay thật. Chip "2/2" không còn chữ "tiêu chí" trên màn hình, chỉ còn trong `aria-label`.
+
 ## 2026-11-25 — Ý #6: lần chuyển đã không GET chi tiết hồ sơ đích, nay có phép kiểm
 
 **Điều cần.** Bấm `n` sang hồ sơ kế không được phát sinh `GET /v1/applications/{id}` cho **chính hồ sơ đích**

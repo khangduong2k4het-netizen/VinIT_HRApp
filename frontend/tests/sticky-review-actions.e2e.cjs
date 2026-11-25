@@ -15,6 +15,14 @@ const { chromium } = require('playwright-core');
 const assert = require('node:assert/strict');
 const { installMockApi } = require('./fixtures/hr-screens.cjs');
 
+// Nhãn chip "còn bao nhiêu tiêu chí chờ": ở 390px chỉ còn "2/2" (thanh phải đủ chỗ
+// cho Hoàn tất và hai nút điều hướng dạng icon), từ 600px là câu đầy đủ như trước.
+const pendingLabel = (width, pending, total) => (width < 600
+  ? `${pending}/${total}`
+  : pending === 0
+    ? `Đủ ${total}/${total} tiêu chí`
+    : `Còn ${pending}/${total} tiêu chí chờ`);
+
 const base = process.env.HRA_E2E_BASE_URL;
 if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostname)) {
   throw Error('Use local Next server only');
@@ -58,7 +66,20 @@ const progressText = page => page.evaluate(() => {
     await page.waitForTimeout(300);
 
     // --- Còn bao nhiêu tiêu chí chờ, ngay trên thanh dính -------------------
-    assert.equal((await page.getByTestId('sticky-pending').innerText()).trim(), 'Còn 2/2 tiêu chí chờ', `${viewport.label}: pending count`);
+    // Ở 390px thanh chỉ còn hai hàng nên nhãn chip viết gọn "2/2"; từ 600px vẫn
+    // là câu đầy đủ. Cả hai khổ đều phải nói đúng con số, và ở màn hẹp nhãn đầy
+    // đủ vẫn là tên đọc được của chip cho trình đọc màn hình.
+    const pendingText = (await page.getByTestId('sticky-pending').innerText()).trim();
+    if (viewport.width < 600) {
+      assert.equal(pendingText, pendingLabel(viewport.width, 2, 2), `${viewport.label}: pending count (nhãn hẹp)`);
+      assert.equal(
+        ((await page.getByTestId('sticky-pending').getAttribute('aria-label')) || '').trim(),
+        'Còn 2/2 tiêu chí chờ',
+        `${viewport.label}: pending count vẫn đủ nghĩa cho trình đọc màn hình`,
+      );
+    } else {
+      assert.equal(pendingText, 'Còn 2/2 tiêu chí chờ', `${viewport.label}: pending count`);
+    }
 
     // --- Hai nút nằm trong khung nhìn, không phải cuộn ---------------------
     const buttonBoxes = {};
@@ -112,7 +133,7 @@ const progressText = page => page.evaluate(() => {
     assert.equal(await page.getByTestId('sticky-confirm').isDisabled(), false, `${viewport.label}: active criterion can be confirmed`);
     await page.getByTestId('sticky-confirm').click();
     await page.waitForFunction(() => /Đã xác minh 1\/2/.test(document.querySelector('[data-testid="verification-progress"]')?.textContent || ''), undefined, { timeout: 8000 });
-    assert.equal((await page.getByTestId('sticky-pending').innerText()).trim(), 'Còn 1/2 tiêu chí chờ');
+    assert.equal((await page.getByTestId('sticky-pending').innerText()).trim(), pendingLabel(viewport.width, 1, 2), `${viewport.label}: pending count sau khi xác nhận`);
     assert.equal(await progressText(page), '1/2');
     assert.equal(reviewPosts.length, 1, `${viewport.label}: one recorded review`);
     const activeAfterConfirm = (await page.getByTestId('sticky-criterion').innerText()).trim();
@@ -131,7 +152,7 @@ const progressText = page => page.evaluate(() => {
     // --- Hết việc thì thanh dính nói đủ, và không còn gì để bấm ------------
     await page.getByTestId('sticky-confirm').click();
     await page.waitForFunction(() => /Đã xác minh đủ 2\/2/.test(document.querySelector('[data-testid="verification-progress"]')?.textContent || ''), undefined, { timeout: 8000 });
-    assert.equal((await page.getByTestId('sticky-pending').innerText()).trim(), 'Đủ 2/2 tiêu chí');
+    assert.equal((await page.getByTestId('sticky-pending').innerText()).trim(), pendingLabel(viewport.width, 0, 2), `${viewport.label}: pending count khi đã đủ`);
     assert.equal(await page.getByTestId('sticky-confirm').isDisabled(), true, `${viewport.label}: nothing left to confirm`);
     assert.equal(await page.getByTestId('sticky-reject').isDisabled(), true, `${viewport.label}: nothing left to reject`);
 

@@ -87,6 +87,12 @@ const barMetrics = page => page.evaluate(() => {
       assert.ok(box && box.width >= 40 && box.height >= 28, `${viewport.label}: ${testId} vẫn là nút bấm được (${Math.round(box?.width)}×${Math.round(box?.height)})`);
       assert.ok(box.x >= 0 && box.x + box.width <= viewport.width, `${viewport.label}: ${testId} nằm trong khổ ngang`);
     }
+    // 390px: điều hướng đã thành icon nên thanh chỉ còn hai hàng. Bản ba hàng cũ
+    // cao 152px; hai hàng hiện tại 112px, trần 116px chừa chỗ cho làm tròn font.
+    if (viewport.label === '390') {
+      assert.ok(metrics.height <= 116, `390: thanh dính phải ≤ 116px (đang ${metrics.height}px, bản ba hàng 152px)`);
+      assert.ok(metrics.rows <= 2, `390: thanh không được quá hai hàng (đang ${metrics.rows}, bản cũ 3)`);
+    }
     // Khổ giữa (768/1024) là chỗ nhãn đầy đủ bật lại và icon điều hướng hiện lại,
     // nhưng thanh vẫn chỉ được hai hàng như 1440px. Trần 128px chốt điều đó: bản
     // trước khi làm gọn cao 168px (ba hàng) ở cả hai khổ này.
