@@ -141,6 +141,19 @@ const openNotesPanel = async page => {
 
   assert.deepEqual(unexpected, [], `không có request lạ: ${unexpected.join(', ')}`);
 
+  // Hồ sơ đích đã được trang trước tải trước xong, nên cửa sổ chuyển không được
+  // còn `GET /v1/applications/{id}` cho chính nó — đó là thứ làm trang mới phải
+  // chờ spinner. Hai mục còn lại của danh sách thì được phép có (tải trước hồ sơ
+  // sau nữa), nên chỉ kiểm đúng đường dẫn của hồ sơ đích.
+  transitions.forEach((transition, index) => {
+    const ownDetail = transition.paths[`/v1/applications/${transition.toId}`] || 0;
+    assert.equal(
+      ownDetail,
+      0,
+      `lần chuyển ${index + 1} không được GET chi tiết hồ sơ đích (${transition.toId}), thấy ${JSON.stringify(transition.paths)}`,
+    );
+  });
+
   // Dùng lại rubric chỉ có nghĩa nếu nội dung rubric vẫn tới màn hình: mở
   // "Yêu cầu gốc" ở thẻ đầu tiên và đọc câu mô tả lấy từ
   // `GET /criteria/position/p1/approved`. Không có bước này thì một cache trả về

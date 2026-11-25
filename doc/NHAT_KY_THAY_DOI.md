@@ -9,6 +9,39 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-25 — Ý #6: lần chuyển đã không GET chi tiết hồ sơ đích, nay có phép kiểm
+
+**Điều cần.** Bấm `n` sang hồ sơ kế không được phát sinh `GET /v1/applications/{id}` cho **chính hồ sơ đích**
+— đó là request làm trang mới phải quay spinner.
+
+**Hiện trạng khi kiểm.** Việc “tải trước hồ sơ kế sớm hơn” đã có từ trước: `PrefetchProfile` gọi
+`prefetchApplication(nextId)` khi trình duyệt rảnh (tối đa 1500 ms), và `takePrefetchedApplication()` trả bản
+vừa xong trong `PREFETCH_REUSE_MS = 5 giây` với `fresh: true`, nên trang đích vẽ bằng bản đó mà không đọc lại
+API. Vì vậy con số “1 `GET`” trong cửa sổ mỗi lần chuyển **không phải** của hồ sơ đích mà là tải trước **hồ sơ
+sau nữa** (đi app-5 → app-0 thì cửa sổ có `app-2`): chi phí bị đẩy lên trước, không lặp lại.
+
+**Thay đổi.** Chỉ thêm phép kiểm, không sửa code sản phẩm: `tests/profile-transition-requests.cjs` nay khẳng
+định mỗi lần chuyển có **0** request cho đường dẫn `/v1/applications/{toId}` của hồ sơ vừa mở (trước đây chỉ
+in ra trong `paths`, không ai kiểm).
+
+**Đo** (`profile-transition-requests`, 3 lần chuyển liên tiếp trong cùng vị trí):
+
+| Bản | `GET` chi tiết của hồ sơ đích | Đường dẫn trong cửa sổ chuyển | Assert mới |
+| --- | --- | --- | --- |
+| Hiện tại (tải trước khi rảnh) | 0 / 0 / 0 | `app-2`, `app-8`, — | **pass** |
+| Đối chứng: bỏ hẳn `prefetchApplication` | 1 ở lần chuyển đầu | `app-0` (đúng hồ sơ đích) | **fail**: "lần chuyển 1 không được GET chi tiết hồ sơ đích (app-0), thấy {\"/v1/applications/app-0\":1}" |
+
+Tổng `GET` mỗi cửa sổ chuyển vẫn là 1 / 1 / 0 như trước — không tăng, không giảm; cái được khoá lại là
+**hồ sơ đích không tự gọi lại**.
+
+**Đã thử và bỏ.** Đổi tải trước sang chạy ngay khi hồ sơ hiện tại có dữ liệu (thay vì đợi rảnh) để “sớm hơn”:
+build lại và đo — `paths` y hệt (`app-2`, `app-8`, —), `detail` 1 / 1 / 0, không có khác biệt nào đo được,
+nên đã trả code về như cũ. Bản tải trước hiện tại đã kịp xong trong nhịp 0,2–0,4 giây mỗi hồ sơ của test.
+
+**Chưa kiểm.** Chỉ mock API + Chromium headless trên máy ảo. Tải trước vẫn đợi rảnh tối đa 1500 ms: nếu máy/mạng
+chậm tới mức 1500 ms mới rảnh thì bản tải trước có thể chưa xong lúc bấm `n`, trang đích sẽ `GET` lại — chưa đo
+kịch bản đó, cũng chưa đo trên mạng thật.
+
 ## 2026-11-25 — Cửa sổ dừng 600 ms có đáng? Đo độ trễ chip số ghi chú
 
 **Câu hỏi.** Cửa sổ dừng 600 ms (nạp ghi chú khi HR ở lại hồ sơ) đổi lấy điều gì? Đo thời gian từ lúc hồ sơ
