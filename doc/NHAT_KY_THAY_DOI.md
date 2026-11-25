@@ -9,6 +9,42 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-25 — Mở panel ghi chú là có dữ liệu ngay, không chờ cửa sổ dừng
+
+**Vấn đề.** Với cửa sổ dừng 600 ms (nạp ghi chú khi HR ở lại hồ sơ), nếu HR mở panel "Ghi chú nội bộ HR"
+ngay khi vào hồ sơ thì panel phải chờ hết cửa sổ mới có dữ liệu — đo trên bản đó: **526 ms** và **579 ms**
+từ cú bấm mở panel tới lúc request ghi chú đi (hai lần đo ở hai hồ sơ).
+
+**Sửa.** Không thêm đường tải thứ hai: mở panel chỉ bật cờ `notesRequested`, và request vẫn do đúng effect cũ
+phát ra, với `AbortController` + cờ `cancelled` cũ (đổi hồ sơ là cắt request đang bay). Mỗi hồ sơ mở panel
+một lần = đúng một `GET .../private-notes`; đóng/mở lại không hỏi lại; hồ sơ kế không tự nạp.
+
+**Đo** (nhánh `immediate` trong `tests/profile-transition-requests.cjs`: mở hồ sơ từ danh sách, bấm mở panel
+ngay khi nút vừa có mặt, đo từ cú bấm tới sự kiện request; lặp lại ở hồ sơ kế và lấy số nhỏ hơn để một lần
+máy chậm không làm fail oan):
+
+| | Trước (`e0e7e07^`, còn cửa sổ dừng) | Sau |
+| --- | --- | --- |
+| Mở panel ngay khi vào hồ sơ → có request ghi chú | 526 / 579 ms | **125 / 104 ms** |
+| Request ghi chú cho hồ sơ đó mỗi lần mở panel | 1, nhưng do hẹn giờ chứ không do cú bấm | **1**, do cú bấm |
+| Đóng rồi mở lại panel | 0 thêm | 0 thêm |
+| Hồ sơ kế khi panel đóng | 0 (trong cửa sổ test) | 0 |
+
+**Assert.** `elapsedMs` = số nhỏ hơn của hai lần mở, phải **< 400 ms** (trần đặt giữa ~100 ms đo được và
+~520–565 ms của bản phải chờ cửa sổ); cộng ba assert cấu trúc: `requestsAfterOpen` đúng
+`['/v1/applications/app-5/private-notes']`, đóng/mở lại vẫn 1 request, `otherProfiles` rỗng.
+
+**Đối chứng.** Build lại `e0e7e07^`: `elapsedFirstMs 526`, `elapsedSecondMs 579` → fail; bản hiện tại
+`elapsedFirstMs 125`, `elapsedSecondMs 104` → pass cả script (`profile-transition-requests` exit 0). Bản cũ
+cũng fail sớm hơn ở assert "mở/chuyển hồ sơ không được tải ghi chú".
+
+**Đã thử và bỏ.** Đóng băng đồng hồ trang (`page.clock.install` + `pauseAt`) để assert không phụ thuộc tốc độ
+máy: kiểm tra riêng cho thấy `setTimeout` tạo trước lúc cài đồng hồ vẫn chạy thật, nên cách này không phân
+biệt được, đã bỏ khỏi test thay vì giữ một assert không đo đúng thứ mình tưởng.
+
+**Chưa kiểm.** Chạy với mock API trong trình duyệt headless trên máy ảo, không phải backend/mạng thật; con số
+~100 ms là của môi trường này. Không đo cảm giác chờ của HR trên mạng chậm.
+
 ## 2026-11-24 — Ghi chú chỉ tải khi mở panel: hồ sơ nào cũng 0 request
 
 **Vấn đề.** Sau khi bỏ request cho hồ sơ đã rời, hồ sơ HR **dừng lại** vẫn tốn một

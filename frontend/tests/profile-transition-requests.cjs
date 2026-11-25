@@ -64,6 +64,11 @@ const openNotesPanel = async page => {
   // thời điểm. Bình thường mọi sự kiện dưới đây tới trong vài chục mili giây.
   const NOTES_IDLE_TIMEOUT_MS = 5_000;
   const EVENT_TIMEOUT_MS = 10_000;
+  // Cửa sổ dừng 600 ms của thiết kế cũ (nạp ghi chú khi HR ở lại hồ sơ). Mở panel
+  // là người dùng chủ động đọc ghi chú, nên dữ liệu phải tới trước mốc đó — nếu
+  // phải chờ hết cửa sổ thì panel đang chờ một thứ không liên quan. Trần đặt ở
+  // 400 ms: đo được ~100 ms khi tải ngay, ~520–565 ms khi phải chờ cửa sổ.
+  const PANEL_LOAD_BUDGET_MS = 400;
 
   // Ghi chú đang bay hay chưa, theo đúng sự kiện mạng thay vì một khoảng ngủ.
   const notesInFlight = new Set();
@@ -287,6 +292,89 @@ const openNotesPanel = async page => {
   const skimOffProfile = skimNotesAfterOpen.filter(entry => entry.askedFor !== entry.viewedAtSend);
   await skimContext.close();
 
+  // --- Mở panel ngay khi vào hồ sơ: ghi chú tải ngay, không chờ cửa sổ --------
+  // Panel là nơi duy nhất HR đọc ghi chú, nên cú bấm mở panel phải là thứ duy
+  // nhất quyết định request — không phải khoảng thời gian đã ở trong hồ sơ. Mở
+  // panel càng sớm càng phải thấy dữ liệu, và mở lại không được hỏi lại.
+  const immediate = await (async () => {
+    const immediateContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    await immediateContext.addInitScript(() => {
+      localStorage.setItem('hra_access_token', 'notes-immediate');
+      localStorage.setItem('hra_locale', 'vi');
+    });
+    const immediateUnexpected = await installMockApi(immediateContext);
+    const immediatePage = await immediateContext.newPage();
+    const seen = [];
+    immediatePage.on('request', request => {
+      const path = new URL(request.url()).pathname;
+      if (path.endsWith('/private-notes')) seen.push({ askedFor: path.split('/')[3], path, at: Date.now() });
+    });
+    await immediatePage.goto(`${base}/positions/p1/applicants?queue=NEEDS_VERIFICATION`, { waitUntil: 'networkidle' });
+    await immediatePage.locator('table tbody tr').first().waitFor();
+    await immediatePage.locator('table tbody tr a[href*="/applicants/app-5"]').first().click();
+    // Mở panel ngay khi nút vừa có mặt: không chờ thêm mốc nào.
+    const summary = immediatePage.getByRole('button', { name: /Ghi chú nội bộ HR/ }).first();
+    await summary.waitFor({ timeout: EVENT_TIMEOUT_MS });
+    // Đăng ký chờ trước khi bấm: request có thể đi ngay trong mili giây đầu, đăng
+    // ký sau là tuột mất sự kiện.
+    const openedRequestPromise = immediatePage
+      .waitForRequest(
+        request => new URL(request.url()).pathname.endsWith('/private-notes'),
+        { timeout: EVENT_TIMEOUT_MS },
+      )
+      .then(request => ({ at: Date.now(), path: new URL(request.url()).pathname }))
+      .catch(() => null);
+    const clickedAt = Date.now();
+    await summary.click();
+    // Sự kiện mạng trước, rồi mới tới nội dung: thời gian đo được là từ cú bấm tới
+    // request, không tính thời gian render.
+    const openedRequest = await openedRequestPromise;
+    const elapsedMs = openedRequest ? openedRequest.at - clickedAt : null;
+    await immediatePage.getByText('Chưa có ghi chú nội bộ.').waitFor({ timeout: EVENT_TIMEOUT_MS });
+    const requestsAfterOpen = seen.filter(entry => entry.at >= clickedAt).map(entry => entry.path);
+    // Mở panel lần nữa (đóng rồi mở) không được hỏi lại.
+    await immediatePage.getByRole('button', { name: /Ghi chú nội bộ HR/ }).click();
+    await immediatePage.getByText('Chưa có ghi chú nội bộ.').waitFor({ state: 'hidden', timeout: EVENT_TIMEOUT_MS }).catch(() => {});
+    await immediatePage.getByRole('button', { name: /Ghi chú nội bộ HR/ }).click();
+    await immediatePage.getByText('Chưa có ghi chú nội bộ.').waitFor({ timeout: EVENT_TIMEOUT_MS });
+    const requestsAfterReopen = seen.filter(entry => entry.at >= clickedAt).length;
+    // Chuyển hồ sơ với panel đóng: khoá "chỉ tải khi mở" phải áp cho từng hồ sơ,
+    // không phải mở một lần là hồ sơ sau tự nạp.
+    const nameBefore = (await immediatePage.locator('h1').innerText()).trim();
+    await immediatePage.keyboard.press('n');
+    await immediatePage.waitForFunction(name => {
+      const heading = document.querySelector('h1');
+      return Boolean(heading && heading.textContent.trim() && heading.textContent.trim() !== name);
+    }, nameBefore, { timeout: EVENT_TIMEOUT_MS });
+    await immediatePage.waitForLoadState('networkidle');
+    const otherProfiles = seen.filter(entry => entry.at >= clickedAt && entry.askedFor !== 'app-5').map(entry => entry.askedFor);
+    // Đo lần thứ hai ở hồ sơ kế, cũng mở panel ngay khi nút vừa có mặt. Lấy số nhỏ
+    // hơn của hai lần: một lần máy chậm đột xuất không làm phép đo "tải ngay" fail
+    // oan, còn bản phải chờ cửa sổ dừng thì lần nào cũng chậm.
+    const secondWait = immediatePage
+      .waitForRequest(
+        request => new URL(request.url()).pathname.endsWith('/private-notes'),
+        { timeout: EVENT_TIMEOUT_MS },
+      )
+      .then(request => ({ at: Date.now(), path: new URL(request.url()).pathname }))
+      .catch(() => null);
+    const secondClickedAt = Date.now();
+    await immediatePage.getByRole('button', { name: /Ghi chú nội bộ HR/ }).first().click();
+    const secondRequest = await secondWait;
+    const elapsedSecondMs = secondRequest ? secondRequest.at - secondClickedAt : null;
+    await immediateContext.close();
+    const measured = [elapsedMs, elapsedSecondMs].filter(value => value !== null);
+    return {
+      elapsedMs: measured.length ? Math.min(...measured) : null,
+      elapsedFirstMs: elapsedMs,
+      elapsedSecondMs,
+      requestsAfterOpen,
+      requestsAfterReopen,
+      otherProfiles,
+      unexpected: immediateUnexpected.length,
+    };
+  })();
+
   // --- Mở hồ sơ từ danh sách: tổng số lần hỏi auth/me ------------------------
   // Trang danh sách ứng viên tự hỏi danh tính để có bộ lọc "Của tôi"; khung
   // trang cũng hỏi. Hai chỗ cho cùng một câu trả lời, trong cùng một lần mở.
@@ -328,6 +416,7 @@ const openNotesPanel = async page => {
     fastTransitions: { notesOffProfile: fastNotesOffProfile },
     openFromList,
     skim: { beforeOpen: skimNotesBeforeOpen, afterOpen: skimNotesAfterOpen, leftBehind: skimLeftBehind, offProfile: skimOffProfile, stoppedAt: skimStoppedAt },
+    immediate,
   })}`);
 
   // Mở hồ sơ từ danh sách: danh tính chỉ được hỏi một lần cho cả luồng.
@@ -357,6 +446,31 @@ const openNotesPanel = async page => {
     skimNotesAfterOpen.some(entry => entry.askedFor === skimStoppedAt),
     `mở panel phải hỏi ghi chú của hồ sơ đang xem (${skimStoppedAt}), thấy ${JSON.stringify(skimNotesAfterOpen)}`,
   );
+
+  // Mở panel ngay khi vào hồ sơ: ghi chú phải tải ngay, không phải chờ hết cửa
+  // sổ dừng rồi mới có dữ liệu.
+  assert.ok(
+    immediate.elapsedMs !== null && immediate.elapsedMs < PANEL_LOAD_BUDGET_MS,
+    `mở panel phải tải ghi chú ngay, dưới ${PANEL_LOAD_BUDGET_MS} ms kể từ cú bấm, thấy ${JSON.stringify(immediate)}`,
+  );
+  assert.deepEqual(
+    immediate.requestsAfterOpen,
+    ['/v1/applications/app-5/private-notes'],
+    `mở panel một lần chỉ được hỏi ghi chú của hồ sơ đó đúng một lần, thấy ${JSON.stringify(immediate.requestsAfterOpen)}`,
+  );
+  assert.equal(
+    immediate.requestsAfterReopen,
+    1,
+    `đóng/mở lại panel không được hỏi lại ghi chú, thấy ${immediate.requestsAfterReopen} request`,
+  );
+  // Khoá "chỉ tải khi mở" áp cho từng hồ sơ: panel đã mở ở hồ sơ trước không
+  // làm hồ sơ sau tự nạp ghi chú.
+  assert.deepEqual(
+    immediate.otherProfiles,
+    [],
+    `hồ sơ kế không được tự tải ghi chú khi panel đang đóng, thấy ${JSON.stringify(immediate.otherProfiles)}`,
+  );
+
 
   const cached = rubricPerTransition.slice(1).every(count => count === 0);
   assert.ok(cached, `rubric phải được dùng lại giữa các lần chuyển, thấy ${JSON.stringify(rubricPerTransition)}`);
