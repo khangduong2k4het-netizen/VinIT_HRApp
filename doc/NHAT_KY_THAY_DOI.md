@@ -9,6 +9,47 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-25 — Cửa sổ dừng 600 ms có đáng? Đo độ trễ chip số ghi chú
+
+**Câu hỏi.** Cửa sổ dừng 600 ms (nạp ghi chú khi HR ở lại hồ sơ) đổi lấy điều gì? Đo thời gian từ lúc hồ sơ
+hiện ra (`verification-progress` dựng xong) tới lúc chip "N ghi chú riêng tư" xuất hiện, trên CPU bình thường
+và khi CPU bị bóp chậm 6 lần, kèm chi phí request của từng phương án.
+
+**Cách đo.** Script mới `frontend/tests/notes-chip-latency.cjs`: mở danh sách → mở hồ sơ (mock trả sẵn 2 ghi
+chú) → đo tới khi chip có mặt, rồi bấm `n` sang hồ sơ kế và đo lần hai; chạy hai lượt, lượt sau bóp CPU bằng
+CDP `Emulation.setCPUThrottlingRate: 6`. Mỗi phương án là một bản build của trang hồ sơ, chỉ khác
+`NOTES_SETTLE_MS` (600 / 250 / 0) hoặc bản hiện tại (không cửa sổ). Chi phí request lấy từ
+`tests/profile-transition-requests.cjs` (lướt 3 hồ sơ cách 250 ms rồi dừng, panel đóng).
+
+**Kết quả** (chip: ms sau khi hồ sơ hiện ra, hai lần đo; request: cho 3 lần lướt + 1 lần dừng):
+
+| Phương án | Chip trên CPU 1x | Chip trên CPU 6x | Request ghi chú (3 lướt) | Ghi chú khi chuyển |
+| --- | --- | --- | --- | --- |
+| Không cửa sổ (hiện tại) | không hiện | không hiện | **0** | 0 |
+| Cửa sổ 600 ms | 792 / 788 | 835 / 370 | 1 (của hồ sơ dừng lại) | 0 / 3 |
+| Cửa sổ 250 ms | **289 / 294** | 422 / 191 | 1 (của hồ sơ dừng lại) | **2 / 3** |
+| Cửa sổ 0 ms (nạp ngay) | **68 / 43** | 340 / 169 | **4** (cả 3 hồ sơ lướt qua) | **3 / 3** |
+
+Hồ sơ hiện ra mất 150–260 ms trên 1x và 700–1600 ms trên 6x, nên bóp CPU có tác dụng thật. Trên 6x, một phần
+cửa sổ dừng đã trôi qua trước khi khung hồ sơ vẽ xong, nên có mẫu chip chỉ còn 370–191 ms.
+
+**Đọc số.** Cửa sổ dừng làm chip hiện muộn đúng bằng phần cửa sổ còn lại: 600 ms → ~790 ms; 250 ms → ~290 ms;
+nạp ngay → 40–70 ms. Về phía request, cả ba phương án đều tối đa **một** request cho mỗi hồ sơ — khác biệt
+chỉ là hồ sơ nào bị hỏi: 600 ms bỏ qua hồ sơ sống dưới 600 ms, 250 ms bỏ qua dưới 250 ms, nạp ngay thì hồ sơ
+nào cũng hỏi. Với nhịp lướt 250 ms/hồ sơ đang đo, 600 ms tiết kiệm 2 request trên 3 lần chuyển so với 250 ms.
+
+**Đề xuất.**
+- Nếu chip trước khi mở panel **không cần**: giữ như hiện tại (0 cửa sổ, chỉ tải khi mở panel) — 0 request, chip
+  và số ghi chú hiện khi panel mở; tiêu đề panel đã có "(2)". Cửa sổ 600 ms khi đó chỉ tốn thêm request.
+- Nếu cần chip: dùng **250 ms** thay cho 600 ms — chip sớm hơn ~500 ms (≈2,7 lần), vẫn không hỏi gì cho hồ sơ
+  lướt dưới 250 ms; cái mất là 2 request/3 lần chuyển trong nhịp lướt 250 ms.
+- Giữ 600 ms chỉ đáng khi biết nhịp lướt thật của HR rơi vào khoảng 250–600 ms/hồ sơ. Hiện **không có dữ liệu
+  thật** cho khoảng này (chỉ có `PROFILE_OPENED`/`PROFILE_CLOSED` trong localStorage của máy HR, chưa thu thập).
+
+**Chưa kiểm.** Toàn bộ là mock API + Chromium headless trên máy ảo; số tuyệt đối phụ thuộc máy, chỉ nên so
+tương đối giữa các phương án. Chưa đo trên mạng thật (request ghi chú đi qua mạng công ty) và chưa có phân bố
+thời gian HR thật ở lại một hồ sơ. Lượt này không đổi code sản phẩm, chỉ thêm script đo và mục nhật ký này.
+
 ## 2026-11-25 — Mở panel ghi chú là có dữ liệu ngay, không chờ cửa sổ dừng
 
 **Vấn đề.** Với cửa sổ dừng 600 ms (nạp ghi chú khi HR ở lại hồ sơ), nếu HR mở panel "Ghi chú nội bộ HR"
