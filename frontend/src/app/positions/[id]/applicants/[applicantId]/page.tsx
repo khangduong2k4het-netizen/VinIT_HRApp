@@ -136,6 +136,9 @@ export default function ApplicantDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  // Bảng phím tắt (`?`): dòng gợi ý ở đầu trang chỉ đọc được một lần, còn HR cần
+  // xem lại giữa lúc duyệt mà không phải rời hồ sơ.
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [newStatus, setNewStatus] = useState('');
   const [statusReason, setStatusReason] = useState('');
   // Lý do HR đã dùng cho vị trí này, đọc lại mỗi lần mở hộp thoại: lý do vừa ghi
@@ -761,6 +764,7 @@ export default function ApplicantDetailPage() {
         canReject: activeAwaitingReview,
         canOpenPage: Boolean(isPdf && activePage),
         hasNextApplication: Boolean(nextApplicantId),
+        canFinish,
       },
       isTypingTarget(event.target),
     );
@@ -784,6 +788,14 @@ export default function ApplicantDetailPage() {
         return;
       case 'next-application':
         if (nextApplicantId) router.push(keepContext(nextApplicantId));
+        return;
+      case 'finish':
+        // Đi đúng đường của nút "Đã xử lý xong": hộp thoại hoàn tất hoặc đi thẳng
+        // sang hồ sơ kế tuỳ `finishHasNothingToWrite`, không thêm đường tắt nào.
+        startFinish();
+        return;
+      case 'show-shortcuts':
+        setShortcutsOpen(true);
         return;
     }
   };
@@ -1052,7 +1064,7 @@ export default function ApplicantDetailPage() {
           có nó thì phím tắt là tính năng ẩn: HR không đoán ra j/k/1/2/n. */}
       {canWorkVerification && !shareContext && (
         <Typography variant="caption" color="text.secondary" data-testid="review-shortcuts" sx={{ display: 'block', mb: 1.5 }}>
-          {t('Phím tắt: j/k chọn tiêu chí · 1 xác nhận (tự sang tiêu chí kế tiếp) · 2 đánh dấu sai · Enter mở trang CV · n hồ sơ tiếp theo')}
+          {t('Phím tắt: j/k chọn tiêu chí · 1 xác nhận (tự sang tiêu chí kế tiếp) · 2 đánh dấu sai · Enter mở trang CV · n hồ sơ tiếp theo · f hoàn tất hồ sơ · ? xem bảng phím tắt')}
         </Typography>
       )}
 
@@ -1406,6 +1418,25 @@ export default function ApplicantDetailPage() {
           </AccordionDetails>
         </Accordion>
       )}
+
+      {/* Bảng phím tắt: mọi phím đang có hiệu lực, ở một chỗ. Trước đây chỉ có
+          một dòng chữ dài ở đầu trang nên HR phải nhớ hoặc cuộn lại. */}
+      <Dialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} maxWidth="xs" fullWidth data-testid="shortcuts-dialog">
+        <DialogTitle>{t('Phím tắt khi duyệt hồ sơ')}</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" sx={{ py: 0.5 }}>{t('j / k — chọn tiêu chí kế tiếp hoặc trước đó')}</Typography>
+          <Typography variant="body2" sx={{ py: 0.5 }}>{t('1 — xác nhận trích dẫn, tự sang tiêu chí kế tiếp')}</Typography>
+          <Typography variant="body2" sx={{ py: 0.5 }}>{t('2 — đánh dấu sai và mở hộp thoại nhập lý do')}</Typography>
+          <Typography variant="body2" sx={{ py: 0.5 }}>{t('Enter — mở trang CV của tiêu chí đang chọn')}</Typography>
+          <Typography variant="body2" sx={{ py: 0.5 }}>{t('n — sang hồ sơ tiếp theo')}</Typography>
+          <Typography variant="body2" sx={{ py: 0.5 }} data-testid="shortcut-finish">{t('f — đã xử lý xong hồ sơ này')}</Typography>
+          <Typography variant="body2" sx={{ py: 0.5 }}>{t('? — mở bảng phím tắt này')}</Typography>
+          <Typography variant="body2" sx={{ py: 0.5 }}>{t('Esc — đóng bảng hoặc hộp thoại')}</Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setShortcutsOpen(false)}>{t('Đóng')}</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Status changes follow the server transition matrix. */}
       <Dialog open={statusDialogOpen} onClose={() => !statusSubmitting && setStatusDialogOpen(false)} maxWidth="sm" fullWidth>

@@ -51,6 +51,10 @@ const cvPageLabel = async page => page.evaluate(() => {
     await context.addInitScript(() => {
       localStorage.setItem('hra_access_token', 'metrics');
       localStorage.setItem('hra_locale', 'vi');
+      // Đếm cú bấm chuột thật: phần đo "một hồ sơ bằng bàn phím" phải chứng minh
+      // không cần chuột, chứ không chỉ đếm phím.
+      window.__clicks = 0;
+      window.addEventListener('click', () => { window.__clicks += 1; }, true);
     });
     await installMockApi(context);
     const page = await context.newPage();
@@ -62,7 +66,8 @@ const cvPageLabel = async page => page.evaluate(() => {
     await page.goto(`${base}/positions/p1/applicants/app-2?queue=NEEDS_VERIFICATION`, { waitUntil: 'networkidle' });
     await page.waitForSelector('[data-testid="evidence-card"]');
     await page.waitForTimeout(400);
-    return { page, context, requests };
+    const clicks = () => page.evaluate(() => window.__clicks || 0);
+    return { page, context, requests, clicks };
   };
 
   const report = {};
@@ -228,6 +233,77 @@ const cvPageLabel = async page => page.evaluate(() => {
     await context.close();
   }
 
+  // --- 6. Một hồ sơ trọn vẹn bằng bàn phím: `1` cho tiêu chí, `f` hoàn tất ---
+  // Trước đây bàn phím dừng ở tiêu chí cuối: muốn "Đã xử lý xong" phải rời bàn
+  // phím sang chuột. Đo đúng chỗ đó — số phím, số cú bấm chuột, và `?` có mở
+  // được bảng phím tắt hay không.
+  {
+    const { page, context, clicks } = await openPage();
+    let keys = 0;
+    let progress = await pendingOf(page);
+    while (progress && progress.done < progress.total) {
+      await page.keyboard.press('1');
+      keys += 1;
+      await page.waitForTimeout(900);
+      progress = await pendingOf(page);
+    }
+    const clicksBeforeFinish = await clicks();
+
+    // `?` mở bảng phím tắt, và bảng phải nói về `f`; Esc phải đóng được nó.
+    await page.keyboard.press('?');
+    keys += 1;
+    const helpOpened = await page.getByTestId('shortcuts-dialog').waitFor({ timeout: 5000 }).then(() => true).catch(() => false);
+    const helpText = helpOpened
+      ? (await page.getByTestId('shortcuts-dialog').innerText()).replace(/\s+/g, ' ').trim()
+      : '';
+    await page.keyboard.press('Escape');
+    await page.getByTestId('shortcuts-dialog').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+    const helpClosed = (await page.getByTestId('shortcuts-dialog').count()) === 0;
+
+    // `f` phải làm đúng việc của nút "Đã xử lý xong": mở hộp thoại hoàn tất hoặc
+    // đi thẳng sang hồ sơ kế. Ở hồ sơ này (IN_REVIEW, điểm 69) là hộp thoại.
+    await page.keyboard.press('f');
+    keys += 1;
+    let finishDialogOpened = await page.getByTestId('finish-dialog').waitFor({ timeout: 6000 }).then(() => true).catch(() => false);
+    let navigated = finishDialogOpened
+      ? false
+      : await page.waitForFunction(() => !window.location.pathname.endsWith('/applicants/app-2'), undefined, { timeout: 3000 }).then(() => true).catch(() => false);
+    const finishByKey = finishDialogOpened || navigated;
+    // Bản chưa có phím `f`: đo luôn đường phải dùng thay thế (chuột) để bảng
+    // trước/sau có cùng đơn vị — số phím *và* số cú bấm. Trên bản có `f` nhánh
+    // này không chạy.
+    if (!finishByKey) {
+      await page.getByTestId('finish-application').click();
+      finishDialogOpened = await page.getByTestId('finish-dialog').waitFor({ timeout: 6000 }).then(() => true).catch(() => false);
+      navigated = finishDialogOpened
+        ? false
+        : await page.waitForFunction(() => !window.location.pathname.endsWith('/applicants/app-2'), undefined, { timeout: 3000 }).then(() => true).catch(() => false);
+    }
+    report.keyboardProfile = {
+      keysPressed: keys,
+      // Phím đã bấm mà không làm gì: `?` không mở bảng, `f` không hoàn tất.
+      deadKeys: (helpOpened ? 0 : 1) + (finishByKey ? 0 : 1),
+      finishByKey,
+      clicksDuringFinish: (await clicks()) - clicksBeforeFinish,
+      finishDialogOpened,
+      navigatedToNextProfile: navigated,
+      shortcutsHelpOpened: helpOpened,
+      shortcutsHelpClosedByEscape: helpClosed,
+      shortcutsHelpMentionsFinish: /f —/.test(helpText),
+      shortcutsHelpText: helpText.slice(0, 160),
+    };
+    await page.close();
+    await context.close();
+  }
+
   console.log(JSON.stringify(report, null, 2));
+
+  // Assert của phần 6 nằm sau khi in số, để một lần chạy trên bản cũ vẫn cho ra
+  // bảng trước/sau trước khi fail.
+  assert.equal(report.keyboardProfile.shortcutsHelpOpened, true, '`?` phải mở bảng phím tắt');
+  assert.ok(report.keyboardProfile.shortcutsHelpMentionsFinish, `bảng phím tắt phải có dòng về \`f\`: ${report.keyboardProfile.shortcutsHelpText}`);
+  assert.equal(report.keyboardProfile.shortcutsHelpClosedByEscape, true, 'Esc phải đóng bảng phím tắt');
+  assert.equal(report.keyboardProfile.finishByKey, true, '`f` phải hoàn tất được hồ sơ mà không cần chuột');
+  assert.equal(report.keyboardProfile.clicksDuringFinish, 0, 'hoàn tất bằng bàn phím không được cần cú bấm chuột');
   await browser.close();
 })().catch(err => { console.error(err); process.exit(1); });

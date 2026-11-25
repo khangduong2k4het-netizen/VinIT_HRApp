@@ -9,6 +9,48 @@ nhánh đang làm, (3) push lên nhánh đó. Nhánh chung duy nhất của dự
 `freebuff/1434fda45407dc1a68600843` (nhánh `feature/ux-finish-application` đã được
 bỏ; nội dung của nó nằm trọn trong nhánh chung).
 
+## 2026-11-25 — Bàn phím đi trọn một hồ sơ: `f` hoàn tất, `?` mở bảng phím tắt
+
+**Vấn đề.** Bàn phím dừng ở tiêu chí cuối. Xác nhận hết tiêu chí bằng `1` xong, muốn bấm
+"Đã xử lý xong" phải rời bàn phím sang chuột — cử chỉ duy nhất còn lại của cả vòng duyệt. Còn
+dòng gợi ý phím tắt ở đầu trang thì dài, chỉ nằm ở một chỗ nên HR không nhớ hết.
+
+**Sửa.** `f` → `finish`, gọi đúng `startFinish()` mà nút "Đã xử lý xong" đang gọi (cùng một cửa,
+không sinh đường hoàn tất thứ hai); `canFinish` false thì phím không làm gì. `?` mở hộp thoại
+"Phím tắt khi duyệt hồ sơ" liệt kê 8 phím đang có hiệu lực, đóng bằng `Esc` hoặc nút Đóng.
+Dòng gợi ý thêm "f hoàn tất hồ sơ · ? xem bảng phím tắt". Cả hai phím mới nằm trong
+`reviewKeyboard.ts` và chịu chung điều kiện chặn: đang gõ chữ, có Ctrl/Cmd/Alt, hay sự kiện đã
+bị xử lý thì không chen vào. Khoá i18n mới đã thêm vào `en.json`.
+
+**Đo** (`tests/review-loop-metrics.cjs` mục 6, 1440×900, mock API, hồ sơ `app-2` còn 2 tiêu chí
+chờ; đếm cú bấm chuột thật bằng listener `click` pha capture):
+
+| Chỉ số | Trước (HEAD `8cae15c`) | Sau |
+| --- | --- | --- |
+| Phím cho một hồ sơ | 4 lần bấm, **2 lần vô ích** (`?`, `f`) | 4 lần bấm, **0 vô ích** |
+| Hoàn tất bằng bàn phím | **không** (`finishByKey: false`) | **có** (mở hộp thoại hoàn tất) |
+| Cú bấm chuột để hoàn tất | **1** | **0** |
+| `?` mở bảng phím tắt | không | có, 8 dòng, `Esc` đóng được |
+
+Số xác nhận tiêu chí không đổi (2 phím cho 2 tiêu chí, 1 request mỗi lần xác nhận) — thay đổi này
+không đụng vào vòng xác nhận, chỉ nối thêm chặng cuối.
+
+**Assert mới** (không nới assert cũ): `?` phải mở bảng, bảng phải có dòng về `f`, `Esc` phải đóng,
+`f` phải hoàn tất được hồ sơ, và hoàn tất không được cần cú bấm chuột nào. Đối chứng: build lại
+HEAD rồi chạy cùng script → fail ngay "`?` phải mở bảng phím tắt" với
+`{deadKeys: 2, finishByKey: false, clicksDuringFinish: 1}`; khôi phục bản sửa → pass với
+`{deadKeys: 0, finishByKey: true, clicksDuringFinish: 0}`.
+
+**Đã chạy.** `review-keyboard.test.cjs` (11 test, gồm 1 test mới cho `f`/`?`), `i18n.test.cjs` (3),
+`tsc --noEmit`, `next build`, và ba e2e liên quan: `finish-direct-advance`, `sticky-review-actions`,
+`profile-transition-requests` — tất cả pass.
+
+**Chưa kiểm.** Chưa nhìn bảng phím tắt bằng mắt (chỉ đọc text trong DOM ở 1440px) và chưa xem ở
+390px. Chưa chạy nhánh `f` trên hồ sơ "sạch" (đi thẳng sang hồ sơ kế, không hộp thoại) — nhánh đó
+dùng chung `startFinish()` đã có test `finish-direct-advance` cho nút. Chưa thử `?` khi một hộp
+thoại khác đang mở: handler thoát sớm nên không mở chồng, nhưng đó là suy luận từ code, không
+phải phép đo.
+
 ## 2026-11-25 — Thanh dính ở 390px: ba hàng 152px → hai hàng 110px
 
 **Vấn đề.** Ở 390px thanh dính chiếm ba hàng (ngữ cảnh + bộ đếm / tiêu chí + hai quyết định /

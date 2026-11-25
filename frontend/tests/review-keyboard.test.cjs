@@ -17,7 +17,7 @@ function loadTypeScriptModule(relativePath) {
 
 const { reviewShortcut, isTypingTarget, moveCriterionIndex } = loadTypeScriptModule('src/lib/reviewKeyboard.ts');
 
-const ready = { canConfirm: true, canReject: true, canOpenPage: true, hasNextApplication: true };
+const ready = { canConfirm: true, canReject: true, canOpenPage: true, hasNextApplication: true, canFinish: true };
 const key = (name, extra = {}) => ({ key: name, ...extra });
 
 test('j/k chuyển tiêu chí, n sang hồ sơ kế tiếp, Enter mở trang CV', () => {
@@ -31,7 +31,7 @@ test('j/k chuyển tiêu chí, n sang hồ sơ kế tiếp, Enter mở trang CV'
 test('1/2 chỉ có nghĩa khi tiêu chí đang chọn thực sự làm được', () => {
   assert.equal(reviewShortcut(key('1'), ready, false), 'confirm');
   assert.equal(reviewShortcut(key('2'), ready, false), 'reject');
-  const noAction = { canConfirm: false, canReject: false, canOpenPage: false, hasNextApplication: false };
+  const noAction = { canConfirm: false, canReject: false, canOpenPage: false, hasNextApplication: false, canFinish: false };
   assert.equal(reviewShortcut(key('1'), noAction, false), null);
   assert.equal(reviewShortcut(key('2'), noAction, false), null);
   assert.equal(reviewShortcut(key('Enter'), noAction, false), null);
@@ -46,6 +46,22 @@ test('đang gõ chữ, có phím điều khiển hoặc sự kiện đã bị x�
   assert.equal(reviewShortcut(key('j', { metaKey: true }), ready, false), null);
   assert.equal(reviewShortcut(key('n', { altKey: true }), ready, false), null);
   assert.equal(reviewShortcut(key('1', { defaultPrevented: true }), ready, false), null);
+});
+
+test('f hoàn tất hồ sơ khi có quyền, ? luôn mở bảng phím tắt', () => {
+  assert.equal(reviewShortcut(key('f'), ready, false), 'finish');
+  assert.equal(reviewShortcut(key('F'), ready, false), 'finish', 'chữ hoa vẫn là phím tắt');
+  assert.equal(
+    reviewShortcut(key('f'), { ...ready, canFinish: false }, false),
+    null,
+    'không có quyền hoàn tất thì `f` không được làm gì',
+  );
+  assert.equal(reviewShortcut(key('?'), ready, false), 'show-shortcuts');
+  const nothingLeft = { canConfirm: false, canReject: false, canOpenPage: false, hasNextApplication: false, canFinish: false };
+  assert.equal(reviewShortcut(key('?'), nothingLeft, false), 'show-shortcuts', '`?` vẫn mở được khi không còn việc gì');
+  assert.equal(reviewShortcut(key('f'), ready, true), null, 'đang gõ chữ thì `f` là chữ, không phải lệnh');
+  assert.equal(reviewShortcut(key('?'), ready, true), null, 'đang gõ chữ thì `?` là dấu hỏi');
+  assert.equal(reviewShortcut(key('?', { ctrlKey: true }), ready, false), null, 'phím tắt của trình duyệt không bị chen vào');
 });
 
 test('phím khác không bị nuốt', () => {

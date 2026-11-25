@@ -12,7 +12,9 @@ export type ReviewShortcut =
   | 'confirm'
   | 'reject'
   | 'open-page'
-  | 'next-application';
+  | 'next-application'
+  | 'finish'
+  | 'show-shortcuts';
 
 export interface ReviewShortcutAvailability {
   /** Tiêu chí đang chọn có thể xác nhận trích dẫn ngay (còn chờ HR, có quyền). */
@@ -23,6 +25,8 @@ export interface ReviewShortcutAvailability {
   canOpenPage: boolean;
   /** Hồ sơ này nằm trong hàng đợi và còn hồ sơ kế tiếp. */
   hasNextApplication: boolean;
+  /** Người xem có quyền hoàn tất hồ sơ (cùng điều kiện với nút "Đã xử lý xong"). */
+  canFinish: boolean;
 }
 
 export interface ReviewKeyEvent {
@@ -74,6 +78,13 @@ export function reviewShortcut(
       return availability.canOpenPage ? 'open-page' : null;
     case 'n':
       return availability.hasNextApplication ? 'next-application' : null;
+    case 'f':
+      // Cùng một cửa với nút "Đã xử lý xong": không có quyền thì phím không làm gì
+      // chứ không mở ra một đường hoàn tất thứ hai.
+      return availability.canFinish ? 'finish' : null;
+    case '?':
+      // Phím trợ giúp: luôn mở được, kể cả khi không còn gì để xác nhận.
+      return 'show-shortcuts';
     default:
       return null;
   }
