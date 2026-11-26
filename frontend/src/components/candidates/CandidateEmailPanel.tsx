@@ -52,10 +52,30 @@ export default function CandidateEmailPanel({ applicationId, request }: { applic
     setDialog({ template: request.template, trigger: request.trigger, draft: null });
   }, [request, applicationId]);
 
+  const [retrying, setRetrying] = useState<string | null>(null);
+
   const cancel = async (emailId: string) => {
     if (!window.confirm(t('Hủy bản nháp này?'))) return;
     try { await candidateEmailsApi.cancelDraft(emailId); await load(); }
     catch (err: any) { setError(err.response?.data?.detail || t('Không thể hủy bản nháp.')); }
+  };
+
+  const retry = async (email: EmailRow) => {
+    const isRej = email.template_code === 'REJECTION';
+    if (isRej && !window.confirm(t('Xác nhận gửi lại thư từ chối cho ứng viên này?'))) return;
+    try {
+      setRetrying(email.email_id);
+      setError(null);
+      const res = await candidateEmailsApi.retryFailed(email.email_id, isRej);
+      if (res.data.status === 'FAILED') {
+        setError(t('Gửi thư không thành công. Thư đã được lưu với trạng thái lỗi.'));
+      }
+      await load();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || t('Không thể gửi lại thư.'));
+    } finally {
+      setRetrying(null);
+    }
   };
 
   const templateLabel = (code: string | null) => t(COMPOSE_TEMPLATES.find(item => item.code === code)?.label || 'Thư tự soạn');
@@ -63,7 +83,7 @@ export default function CandidateEmailPanel({ applicationId, request }: { applic
 
   return (
     <Accordion expanded={expanded} onChange={(_, value) => setExpanded(value)} disableGutters elevation={0}
-      sx={{ mb: 3, border: '1px solid #E4E7EC', borderRadius: '8px !important', '&:before': { display: 'none' } }}>
+      sx={{ mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: '10px !important', '&:before': { display: 'none' } }}>
       <AccordionSummary expandIcon={<ExpandMoreIcon />}>
         <Typography fontWeight={600}>{t('Thư gửi ứng viên ')}{visible.length > 0 ? `(${visible.length})` : ''}</Typography>
       </AccordionSummary>
@@ -100,9 +120,15 @@ export default function CandidateEmailPanel({ applicationId, request }: { applic
                 </Button>
                 <Button size="small" color="error" onClick={() => cancel(email.email_id)}>{t('Hủy nháp')}</Button>
               </>}
+              {email.status === 'FAILED' && (
+                <Button size="small" variant="outlined" color="error" disabled={retrying === email.email_id}
+                  onClick={() => retry(email)}>
+                  {retrying === email.email_id ? <CircularProgress size={14} color="inherit" /> : t('Thử gửi lại')}
+                </Button>
+              )}
             </Stack>
             <Collapse in={openEmail === email.email_id} unmountOnExit>
-              <Box sx={{ mt: 1, p: 1.5, bgcolor: '#F8FAFC', borderRadius: 1, border: '1px solid #E5EAF0' }}>
+              <Box sx={{ mt: 1, p: 1.5, bgcolor: 'background.default', borderRadius: 1.5, border: '1px solid', borderColor: 'divider' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                   {t('Gửi từ')}: {email.from_address}{email.reply_to_address ? ` · ${t('Trả lời về')}: ${email.reply_to_address}` : ''}
                 </Typography>

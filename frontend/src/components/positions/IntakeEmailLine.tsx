@@ -24,11 +24,13 @@ export default function IntakeEmailLine({ positionCode }: { positionCode: string
     try { await navigator.clipboard.writeText(address); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* ignore */ }
   };
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: -1, mb: 2 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
       <AlternateEmailIcon fontSize="small" color="action" />
       <Typography variant="body2">{t('Email nhận CV cho vị trí này:')}</Typography>
-      <Typography variant="body2" component="code" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{address}</Typography>
-      <Button size="small" onClick={copy}>{copied ? t('Đã sao chép') : t('Sao chép')}</Button>
+      <Typography variant="body2" component="code" className="mono-code" sx={{ fontWeight: 600, color: 'primary.main', wordBreak: 'break-all' }}>
+        {address}
+      </Typography>
+      <Button size="small" variant="text" onClick={copy}>{copied ? t('Đã sao chép') : t('Sao chép')}</Button>
       <Typography variant="caption" color="text.secondary">{t('Dán vào tin tuyển dụng; CV gửi tới địa chỉ này tự vào vị trí.')}</Typography>
     </Box>
   );

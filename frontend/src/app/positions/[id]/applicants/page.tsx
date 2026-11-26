@@ -62,6 +62,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { assessmentsApi, operationsApi, applicationsApi, shortlistApi } from '@/lib/api';
 import { notifyUrlChanged, useScrollMemory } from '@/lib/navMemory';
+import PageHeader from '@/components/common/PageHeader';
 import StatusBadge from '@/components/common/StatusBadge';
 import QueueFilterChips from '@/components/applicants/QueueFilterChips';
 import { useOverrideGate } from '@/components/applicants/OverrideReasonDialog';
@@ -435,41 +436,28 @@ export default function ApplicantsRankingPage() {
   return (
     <Box>
       <Button component={Link} href={`/positions/${positionId}`} startIcon={<ArrowBackIcon />} sx={{ mb: 1 }}>{t("Quay lại vị trí")}</Button>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2, mb: 3 }}>
-        <Box>
-          <Typography variant="h2" sx={{ fontSize: 22, color: '#0A2B57', mb: 0.5 }}>{t("Danh sách ưu tiên rà soát ứng viên")}</Typography>
-          <Typography variant="body2" color="text.secondary">{t("Xếp hạng sàng lọc theo phiên bản tiêu chí mới nhất đã duyệt; số thứ hạng là tại lần chạy gần nhất.")}</Typography>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-          <Button
-            variant="outlined"
-            startIcon={<RefreshIcon />}
-            onClick={loadRanking}
-            sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
-          >{t("Làm mới")}</Button>
-          <Button
-            variant="outlined"
-            startIcon={<ShareIcon />}
-            onClick={handleOpenShare}
-            sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
-          >{t("Chia sẻ Shortlist")}</Button>
-          <Button
-            variant="outlined"
-            startIcon={<FileDownloadOutlinedIcon />}
-            onClick={() => setExportOpen(true)}
-            sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
-          >{t("Xuất báo cáo")}</Button>
-          <Button
-            variant="contained"
-            color="secondary"
-            startIcon={assessing ? <CircularProgress size={18} color="inherit" /> : <PlaylistAddCheckIcon />}
-            onClick={handleRunAssessment}
-            disabled={assessing}
-          >
-            {assessing ? t("Đang đánh giá...") : t("Chạy đánh giá & xếp hạng")}
-          </Button>
-        </Box>
-      </Box>
+      <PageHeader
+        eyebrow={t('Sàng lọc ứng viên')}
+        title={t("Danh sách ưu tiên rà soát ứng viên")}
+        description={t("Xếp hạng sàng lọc theo phiên bản tiêu chí mới nhất đã duyệt; số thứ hạng là tại lần chạy gần nhất.")}
+        actions={
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Button variant="outlined" size="small" startIcon={<RefreshIcon />} onClick={loadRanking}>{t("Làm mới")}</Button>
+            <Button variant="outlined" size="small" startIcon={<ShareIcon />} onClick={handleOpenShare}>{t("Chia sẻ Shortlist")}</Button>
+            <Button variant="outlined" size="small" startIcon={<FileDownloadOutlinedIcon />} onClick={() => setExportOpen(true)}>{t("Xuất báo cáo")}</Button>
+            <Button
+              variant="contained"
+              color="secondary"
+              size="small"
+              startIcon={assessing ? <CircularProgress size={16} color="inherit" /> : <PlaylistAddCheckIcon />}
+              onClick={handleRunAssessment}
+              disabled={assessing}
+            >
+              {assessing ? t("Đang đánh giá...") : t("Chạy đánh giá & xếp hạng")}
+            </Button>
+          </Box>
+        }
+      />
 
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
@@ -486,31 +474,31 @@ export default function ApplicantsRankingPage() {
       {!rankingError && <>
       {/* Summary cards */}
       <Stack direction="row" spacing={2} useFlexGap sx={{ mb: 3, flexWrap: 'wrap' }}>
-        <Card sx={{ minWidth: 140, flex: '1 1 140px' }}>
+        <Card variant="outlined" sx={{ minWidth: 140, flex: '1 1 140px' }}>
           <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
             <Typography variant="caption" color="text.secondary">{t("Tổng hồ sơ")}</Typography>
-            <Typography variant="h4" sx={{ fontSize: 24, fontWeight: 'bold', color: '#0A2B57' }}>{totalApplications}</Typography>
+            <Typography variant="h4" className="tabular-nums" sx={{ fontSize: 24, fontWeight: 700, color: 'primary.main', mt: 0.5 }}>{totalApplications}</Typography>
           </CardContent>
         </Card>
-        <Card sx={{ minWidth: 140, flex: '1 1 140px' }}>
+        <Card variant="outlined" sx={{ minWidth: 140, flex: '1 1 140px' }}>
           <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
             <Typography variant="caption" color="text.secondary">{t("Có trong xếp hạng")}</Typography>
-            <Typography variant="h4" sx={{ fontSize: 24, fontWeight: 'bold', color: '#067647' }}>{assessedCount}</Typography>
+            <Typography variant="h4" className="tabular-nums" sx={{ fontSize: 24, fontWeight: 700, color: 'success.main', mt: 0.5 }}>{assessedCount}</Typography>
           </CardContent>
         </Card>
-        <Card sx={{ minWidth: 140, flex: '1 1 140px', border: queueCounts.NEEDS_VERIFICATION > 0 ? '1px solid #FEDF89' : undefined }}>
+        <Card variant="outlined" sx={{ minWidth: 140, flex: '1 1 140px', borderColor: queueCounts.NEEDS_VERIFICATION > 0 ? 'warning.light' : 'divider' }}>
           <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
             <Typography variant="caption" color="text.secondary">{t("Cần HR xác minh")}</Typography>
-            <Typography variant="h4" sx={{ fontSize: 24, fontWeight: 'bold', color: queueCounts.NEEDS_VERIFICATION > 0 ? '#B54708' : '#667085' }}>
+            <Typography variant="h4" className="tabular-nums" sx={{ fontSize: 24, fontWeight: 700, color: queueCounts.NEEDS_VERIFICATION > 0 ? 'warning.main' : 'text.secondary', mt: 0.5 }}>
               {queueCounts.NEEDS_VERIFICATION}
             </Typography>
           </CardContent>
         </Card>
         {queueCounts.DUPLICATE > 0 && (
-          <Card sx={{ minWidth: 140, flex: '1 1 140px', border: '1px solid #FECDCA' }}>
+          <Card variant="outlined" sx={{ minWidth: 140, flex: '1 1 140px', borderColor: 'error.light' }}>
             <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
               <Typography variant="caption" color="text.secondary">{t("Cảnh báo trùng lặp")}</Typography>
-              <Typography variant="h4" sx={{ fontSize: 24, fontWeight: 'bold', color: '#C72127' }}>
+              <Typography variant="h4" className="tabular-nums" sx={{ fontSize: 24, fontWeight: 700, color: 'error.main', mt: 0.5 }}>
                 {queueCounts.DUPLICATE}
               </Typography>
             </CardContent>
@@ -525,16 +513,16 @@ export default function ApplicantsRankingPage() {
           placeholder={t("Tìm kiếm theo tên ứng viên...")}
           startAdornment={
             <InputAdornment position="start">
-              <SearchIcon sx={{ color: '#A09F9C' }} />
+              <SearchIcon sx={{ color: 'text.disabled' }} />
             </InputAdornment>
           }
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           sx={{
-            maxWidth: 350,
-            borderRadius: '30px',
-            backgroundColor: '#F3EEEE',
-            '&.Mui-focused': { backgroundColor: '#FFFFFF' }
+            maxWidth: 360,
+            flex: '1 1 240px',
+            borderRadius: 2,
+            bgcolor: 'background.paper',
           }}
           size="small"
           inputProps={{ 'aria-label': t("Tìm kiếm theo tên ứng viên...") }}

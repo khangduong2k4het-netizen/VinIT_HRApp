@@ -14,6 +14,7 @@ import { candidateReportsApi } from '@/lib/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import { localizeServerMessage } from '@/i18n/serverMessages';
 import { APPLICATION_STATUSES, isApplicationStatus } from '@/lib/applicationStatus';
+import PageHeader from '@/components/common/PageHeader';
 import ExportReportDialog from '@/components/reports/ExportReportDialog';
 
 type Evidence = { quote: string; page_number: number | null; verified: boolean };
@@ -72,12 +73,12 @@ export default function CompareCandidatesPage() {
 
   const width = `${Math.floor(78 / data.candidates.length)}%`;
   const labelCell = (text: string, sub?: string) => (
-    <TableCell component="th" scope="row" sx={{ width: '22%', fontWeight: 600, verticalAlign: 'top', backgroundColor: '#F8FAFC' }}>
+    <TableCell component="th" scope="row" sx={{ width: '22%', fontWeight: 600, verticalAlign: 'top', bgcolor: 'background.default' }}>
       {text}{sub && <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{sub}</Typography>}
     </TableCell>
   );
   const section = (title: string) => (
-    <TableRow><TableCell colSpan={data.candidates.length + 1} sx={{ backgroundColor: '#0A2B57', color: '#fff', fontWeight: 700, py: 1 }}>{title}</TableCell></TableRow>
+    <TableRow><TableCell colSpan={data.candidates.length + 1} sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', fontWeight: 700, py: 1 }}>{title}</TableCell></TableRow>
   );
   const criterionRows = (category: Criterion['category']) => data.criteria.filter(c => c.category === category).map(c => (
     <TableRow key={c.criterion_id}>
@@ -112,24 +113,29 @@ export default function CompareCandidatesPage() {
   return (
     <Box>
       {back}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2, mb: 2 }}>
-        <Box>
-          <Typography variant="h2" sx={{ fontSize: 22, color: '#0A2B57', mb: 0.5 }}>{t("So sánh ứng viên song song")}</Typography>
-          <Typography variant="body2" color="text.secondary">{data.position.position_code} · {data.position.title}</Typography>
-        </Box>
-        <Button variant="outlined" startIcon={<FileDownloadOutlinedIcon />} onClick={() => setExportOpen(true)}>{t("Xuất các hồ sơ này")}</Button>
-      </Box>
+      <PageHeader
+        eyebrow={data.position.position_code || t('So sánh')}
+        title={t("So sánh ứng viên song song")}
+        description={data.position.title}
+        actions={
+          <Button variant="outlined" startIcon={<FileDownloadOutlinedIcon />} onClick={() => setExportOpen(true)}>
+            {t("Xuất các hồ sơ này")}
+          </Button>
+        }
+      />
       <Alert severity="info" sx={{ mb: 2 }}>
         {t("Ô viền xanh là kết quả tốt nhất của tiêu chí đó trong nhóm đang so sánh (chỉ khi các ứng viên khác nhau). \"Chưa rõ\" nghĩa là chưa tìm thấy bằng chứng, không phải không đạt. Điểm một phần chỉ tính trên tiêu chí đã có bằng chứng; xem cùng độ phủ.")}
       </Alert>
-      <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
+      <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
         <Table size="small" aria-label={t("So sánh ứng viên song song")}>
           <TableHead>
             <TableRow>
               <TableCell sx={{ width: '22%' }} />
               {data.candidates.map(c => (
                 <TableCell key={c.application_id} sx={{ width, verticalAlign: 'top' }}>
-                  <Typography component={Link} href={`/positions/${positionId}/applicants/${c.application_id}`} sx={{ fontWeight: 700, color: '#0A2B57' }}>{c.candidate_name}</Typography>
+                  <Typography component={Link} href={`/positions/${positionId}/applicants/${c.application_id}`} sx={{ fontWeight: 700, color: 'primary.main', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
+                    {c.candidate_name}
+                  </Typography>
                 </TableCell>
               ))}
             </TableRow>

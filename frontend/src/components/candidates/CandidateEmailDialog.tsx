@@ -16,6 +16,7 @@ export const COMPOSE_TEMPLATES: { code: EmailTemplateCode; label: string }[] = [
   { code: 'REQUEST_INFO', label: 'Mời bổ sung thông tin' },
   { code: 'INTERVIEW_INVITE', label: 'Mời phỏng vấn' },
   { code: 'REJECTION', label: 'Thông báo chưa phù hợp' },
+  { code: 'POOL_INVITE', label: 'Mời trao đổi (Talent Pool)' },
 ];
 
 const PLACEHOLDER = /\{(ho_ten|vi_tri|ma_vi_tri|ngay_nop|ten_hr|email_hr|thoi_gian_pv|dia_diem_pv)\}/g;

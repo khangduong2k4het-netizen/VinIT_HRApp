@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { talentPoolApi } from '@/lib/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import { localizeServerMessage } from '@/i18n/serverMessages';
+import CandidateEmailDialog from '@/components/candidates/CandidateEmailDialog';
 import { buildMailtoHref, DECISIONS, OUTCOMES, SKIP_REASONS, poolRef, scoreText, scanIsActive,
   type PoolContact, type ScanDetail, type ScanResult, type ScanSummary } from '@/lib/talentPool';
 
@@ -130,6 +131,7 @@ export default function ScanPanel({ positionId }: { positionId: string }) {
   const [draftSubject, setDraftSubject] = useState('');
   const [draftBody, setDraftBody] = useState('');
   const [copiedEmail, setCopiedEmail] = useState(false);
+  const [inviteAppId, setInviteAppId] = useState<string | null>(null);
 
   const loadScan = useCallback(async (scanId: string) => {
     try { setScan((await talentPoolApi.scanDetail(scanId)).data); }
@@ -307,11 +309,14 @@ export default function ScanPanel({ positionId }: { positionId: string }) {
           </Stack>
         )}
       </DialogContent>
-      <DialogActions>
+      <DialogActions sx={{ px: 3, py: 2, flexWrap: 'wrap', gap: 1 }}>
         {contact && (
           <>
             <Button variant="outlined" onClick={copyDraft}>
               {copiedEmail ? t('Đã sao chép email') : t('Sao chép nội dung email')}
+            </Button>
+            <Button variant="outlined" color="secondary" onClick={() => { setContactOpen(false); setInviteAppId(contact.application_id); }}>
+              {t('Soạn & gửi qua HRA')}
             </Button>
             {contact.email && (
               <Button variant="contained" component="a" href={buildMailtoHref(contact.email, draftSubject, draftBody)}>
@@ -323,5 +328,15 @@ export default function ScanPanel({ positionId }: { positionId: string }) {
         <Button onClick={() => setContactOpen(false)}>{t('Đóng')}</Button>
       </DialogActions>
     </Dialog>
+    {inviteAppId && (
+      <CandidateEmailDialog
+        open={!!inviteAppId}
+        applicationId={inviteAppId}
+        templateCode="POOL_INVITE"
+        triggerSource="MANUAL"
+        onClose={() => setInviteAppId(null)}
+        onDone={() => setInviteAppId(null)}
+      />
+    )}
   </>;
 }

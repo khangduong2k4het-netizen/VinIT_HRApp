@@ -313,7 +313,7 @@ export default function ApplicantDetailPage() {
       <StickyActionBar>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
           <Box sx={{ minWidth: 220, flex: 1 }}>
-            <Typography variant="body1" fontWeight={700} color="#0A2B57">{application.identity?.display_name || t("Hồ sơ ứng viên")}</Typography>
+            <Typography variant="body1" fontWeight={700} color="primary.main">{application.identity?.display_name || t("Hồ sơ ứng viên")}</Typography>
             <Typography variant="caption" color="text.secondary">
               {navigationIndex >= 0 && navigationContext
                 ? t("Hồ sơ {0}/{1} trong hàng đợi đang xem", navigationIndex + 1, navigationContext.applicationIds.length)
@@ -370,20 +370,20 @@ export default function ApplicantDetailPage() {
       )}
 
       {/* Applicant Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap', mb: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap', mb: 2.5, pb: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
         <Box>
-          <Typography variant="h1" sx={{ fontSize: 24, color: '#0A2B57', mb: 0.5 }}>
+          <Typography variant="h1" sx={{ fontSize: 24, color: 'text.primary', mb: 0.5 }}>
             {application.identity?.display_name || t("Hồ sơ ứng viên")}
           </Typography>
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mt: 1, flexWrap: 'wrap' }}>
-            <Typography variant="body2" color="text.secondary" fontFamily="monospace">
+          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', mt: 1, flexWrap: 'wrap' }}>
+            <Typography variant="body2" color="text.secondary" className="mono-code">
               ID: {application.application_id.slice(0, 8)}...
             </Typography>
             {application.file_processing_status === 'PROCESSING' && (
               <Chip label={t("Đang xử lý CV")} size="small" />
             )}
             {application.has_duplicate_warning && (
-              <Chip label={t("Hồ sơ trùng lặp")} size="small" sx={{ backgroundColor: '#FEF0C7', color: '#B54708' }} />
+              <Chip label={t("Hồ sơ trùng lặp")} size="small" color="warning" />
             )}
             {assessment && (
               <>
@@ -410,7 +410,6 @@ export default function ApplicantDetailPage() {
             target="_blank"
             rel="noreferrer"
             disabled={!cvUrl}
-            sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
           >{t("Tải CV gốc")}</Button>
           {application.can_update_status && nextStatuses.length > 0 && (
             <FormControl size="small" sx={{ minWidth: 220 }}>

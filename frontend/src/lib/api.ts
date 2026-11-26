@@ -320,6 +320,7 @@ export const candidateEmailsApi = {
   updateDraft: (emailId: string, data: { to_address: string; subject: string; body: string }) =>
     apiClient.put(`/candidate-emails/emails/${emailId}`, data),
   sendDraft: (emailId: string, confirmed = false) => apiClient.post(`/candidate-emails/emails/${emailId}/send`, { confirmed }),
+  retryFailed: (emailId: string, confirmed = false) => apiClient.post(`/candidate-emails/emails/${emailId}/retry`, { confirmed }),
   cancelDraft: (emailId: string) => apiClient.post(`/candidate-emails/emails/${emailId}/cancel`),
 };
 
@@ -336,6 +337,7 @@ export const mailboxApi = {
   assign: (messageId: string, positionId: string, attachmentId?: string) =>
     apiClient.post(`/mailbox/messages/${messageId}/assign`, { position_id: positionId, attachment_id: attachmentId || null }),
   ignore: (messageId: string) => apiClient.post(`/mailbox/messages/${messageId}/ignore`),
+  retry: (messageId: string) => apiClient.post(`/mailbox/messages/${messageId}/retry`),
 };
 
 export const talentPoolApi = {
