@@ -106,6 +106,9 @@ def reset(email: str, password: str | None = None, force: bool = False) -> tuple
 
 
 def main() -> int:
+    # Windows consoles default to a legacy code page; Vietnamese names and messages must not crash the script.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Emergency password reset for an Admin (AUTH_BACKEND=local).")
     parser.add_argument("--email")
     parser.add_argument("--list-admins", action="store_true", help="list the Admin accounts (email, name, status) and exit")
