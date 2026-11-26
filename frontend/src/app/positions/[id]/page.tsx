@@ -49,6 +49,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { positionsApi, criteriaApi, applicationsApi, operationsApi, authApi, dashboardApi, rubricApi } from '@/lib/api';
 import { setUrlParam } from '@/lib/navMemory';
+import IntakeEmailLine from '@/components/positions/IntakeEmailLine';
 
 const TAB_SLUGS = ['criteria', 'applications', 'shortlist', 'jd', 'history'] as const;
 const tabFromSlug = (slug: string | null) => { const i = (TAB_SLUGS as readonly string[]).indexOf(slug || ''); return i >= 0 ? i : null; };
@@ -718,6 +719,7 @@ export default function PositionDetailPage() {
           </Typography>
         </Box>
       )}
+      {isHR && position.position_code && <IntakeEmailLine positionCode={position.position_code} />}
 
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>

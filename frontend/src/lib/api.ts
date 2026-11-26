@@ -307,6 +307,21 @@ export const candidateEmailsApi = {
   cancelDraft: (emailId: string) => apiClient.post(`/candidate-emails/emails/${emailId}/cancel`),
 };
 
+// F3.03 email channel: the connected Gmail mailbox (Admin) and CVs waiting for HR to place them.
+export type MailboxStatus = 'NEEDS_TRIAGE' | 'MATCHED' | 'IGNORED' | 'FAILED';
+export const mailboxApi = {
+  status: () => apiClient.get('/mailbox/status'),
+  connectGmail: () => apiClient.post('/mailbox/gmail/connect'),
+  disconnect: () => apiClient.post('/mailbox/disconnect'),
+  syncNow: () => apiClient.post('/mailbox/sync', null, { timeout: 120000 }),
+  intakeAddress: (positionCode: string) => apiClient.get('/mailbox/intake-address', { params: { position_code: positionCode } }),
+  messages: (status: MailboxStatus = 'NEEDS_TRIAGE') => apiClient.get('/mailbox/messages', { params: { status } }),
+  attachmentFile: (attachmentId: string) => apiClient.get(`/mailbox/attachments/${attachmentId}/file`, { responseType: 'blob' }),
+  assign: (messageId: string, positionId: string, attachmentId?: string) =>
+    apiClient.post(`/mailbox/messages/${messageId}/assign`, { position_id: positionId, attachment_id: attachmentId || null }),
+  ignore: (messageId: string) => apiClient.post(`/mailbox/messages/${messageId}/ignore`),
+};
+
 export const talentPoolApi = {
   state: (applicationId: string) => apiClient.get(`/talent-pool/applications/${applicationId}`),
   mark: (applicationId: string, reasonCode: string) =>

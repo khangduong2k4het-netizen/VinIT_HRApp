@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -10,9 +11,24 @@ from app.api import api_router
 from app.services.langfuse_observability import shutdown as shutdown_langfuse
 from app.workers.processor import worker
 from app.workers.retention_scheduler import retention_scheduler
+from app.workers.mail_listener import mail_listener
 
 # Setup logging first
 setup_logging()
+
+
+class _HideOAuthQuery(logging.Filter):
+    """The Gmail sign-in callback carries Google's one-time code in its query string;
+    keep it out of the access log."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and isinstance(args[2], str) and "/mailbox/gmail/callback" in args[2]:
+            record.args = args[:2] + (args[2].split("?", 1)[0] + "?[hidden]",) + args[3:]
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_HideOAuthQuery())
 logger = get_logger(__name__)
 
 
@@ -98,12 +114,16 @@ def create_app() -> FastAPI:
         # F2.07: off by default until Legal & Privacy approves the process.
         if settings.APP_ENV != "testing" and settings.RETENTION_SCHEDULER_ENABLED:
             retention_scheduler.start()
+        # F3.03 email channel: only when a Gmail mailbox integration is configured.
+        if settings.APP_ENV != "testing" and settings.GMAIL_INTAKE_ENABLED:
+            mail_listener.start()
 
     @app.on_event("shutdown")
     async def shutdown_event():
         logger.info("Shutting down VinUni HRA Backend")
         worker.stop()
         retention_scheduler.stop()
+        mail_listener.stop()
         shutdown_langfuse()
 
     return app

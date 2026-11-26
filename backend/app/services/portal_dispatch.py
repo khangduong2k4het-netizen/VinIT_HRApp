@@ -44,7 +44,9 @@ _READY_POSITION_SQL = """
 
 
 # Both public /apply and server-to-server /v1/intake CVs can arrive while the position is busy.
-PUBLIC_INTAKE_SOURCES = ("PORTAL", "PARTNER_SITE")
+# Every channel that stores a CV and holds it while the position is busy: /apply, the
+# partner site and the Gmail mailbox (EMAIL).
+PUBLIC_INTAKE_SOURCES = ("PORTAL", "PARTNER_SITE", "EMAIL")
 
 
 def _positions_with_held_cvs(db) -> list[str]:

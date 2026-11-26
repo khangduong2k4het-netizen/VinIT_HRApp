@@ -216,6 +216,20 @@ class Settings(BaseSettings):
     # then the HR user's own address. Replies always go to the HR user who sent it.
     CANDIDATE_EMAIL_FROM: Optional[str] = None
     CANDIDATE_EMAIL_MAX_PER_HOUR: int = 100
+    # F3.03 email channel: a Gmail recruiting mailbox connected with Google sign-in.
+    # Gmail announces new mail on a Pub/Sub topic; HRA pulls that subscription (no
+    # public URL needed) and also re-syncs every GMAIL_FALLBACK_SYNC_MINUTES.
+    GMAIL_INTAKE_ENABLED: bool = False
+    GMAIL_CLIENT_ID: Optional[str] = None
+    GMAIL_CLIENT_SECRET: Optional[str] = None
+    GMAIL_REDIRECT_URI: str = "http://localhost:8000/v1/mailbox/gmail/callback"
+    GMAIL_PUBSUB_TOPIC: Optional[str] = None          # projects/<project>/topics/<topic>
+    GMAIL_PUBSUB_SUBSCRIPTION: Optional[str] = None   # projects/<project>/subscriptions/<sub>
+    GMAIL_FALLBACK_SYNC_MINUTES: int = 10
+    # Where the browser returns after Google sign-in.
+    FRONTEND_BASE_URL: str = "http://localhost:3000"
+    # Fernet key for the stored Gmail refresh token; empty = AI_CONFIG_ENCRYPTION_KEY.
+    MAILBOX_ENCRYPTION_KEY: Optional[str] = None
 
     # F2.09 candidate comparison and custom export (Excel/PDF). Contact
     # details (email/phone) are never exported.

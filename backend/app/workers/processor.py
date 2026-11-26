@@ -668,10 +668,17 @@ class ProcessingWorker:
                             """), fact)
 
                     # Update application identity
+                    # A CV received by email already has the sender's name and address,
+                    # which are more reliable than what the CV text gives; keep them.
                     db.execute(text("""
-                        UPDATE app_private.application_identities
-                        SET display_name = :display_name, email = :email, phone = :phone, updated_at = NOW()
-                        WHERE application_id = :application_id
+                        UPDATE app_private.application_identities i
+                        SET display_name = CASE WHEN a.source_code = 'EMAIL' AND i.display_name IS NOT NULL
+                                                THEN i.display_name ELSE :display_name END,
+                            email = CASE WHEN a.source_code = 'EMAIL' AND i.email IS NOT NULL
+                                         THEN i.email ELSE :email END,
+                            phone = :phone, updated_at = NOW()
+                        FROM app_private.applications a
+                        WHERE i.application_id = :application_id AND a.application_id = i.application_id
                     """), {
                         "application_id": application_id,
                         "display_name": display_name, "email": email, "phone": phone

@@ -184,7 +184,8 @@ def _commit_application(pos, *, filename: str, content: bytes, mime: str, declar
                         consent_talent_pool: bool, ip_hash: str, channel: str = "PORTAL",
                         source_code: str = "PORTAL", notice_version: str | None = None,
                         evidence_extra: dict | None = None, audit_action: str = "RECEIVE_PUBLIC_CV",
-                        audit_extra: dict | None = None, receipt_extra: bool = False) -> dict:
+                        audit_extra: dict | None = None, receipt_extra: bool = False,
+                        open_sql: str = OPEN_POSITION_SQL) -> dict:
     """Store the CV and create the application. Blocking: runs in the threadpool, never on the event loop."""
     db = SessionLocal()
     saved_path = None
@@ -201,7 +202,8 @@ def _commit_application(pos, *, filename: str, content: bytes, mime: str, declar
         # then check for a running job. The worker needs operations.position_id to
         # assess and rank, and the one-job-per-position guard only sees jobs that carry it.
         # Re-check everything the portal promises (open, published, approved criteria) under the lock.
-        still_open = db.execute(text(OPEN_POSITION_SQL + " AND p.position_id = :p FOR UPDATE OF p"), {"p": position_id}).first()
+        # The email channel passes its own query: open with approved criteria, not necessarily on /apply.
+        still_open = db.execute(text(open_sql + " AND p.position_id = :p FOR UPDATE OF p"), {"p": position_id}).first()
         if not still_open:
             raise HTTPException(status_code=404, detail="Vị trí không còn nhận hồ sơ.")
         # Checked under the position lock, so two simultaneous identical uploads cannot both pass.
