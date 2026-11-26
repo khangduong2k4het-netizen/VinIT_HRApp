@@ -142,8 +142,9 @@ def reset_user_password(db, *, target_user_id: str, new_password: str, actor_id:
     the new temporary password may already be effective while the account was
     not marked for a forced change.
     """
-    client = get_supabase_client()
-    if client is None:
+    local = settings.AUTH_BACKEND == "local"
+    client = None if local else get_supabase_client()
+    if client is None and not local:
         raise HTTPException(status_code=503, detail="Dịch vụ đặt lại mật khẩu chưa được cấu hình.")
     target = db.execute(text("""
         SELECT account_status FROM app_private.user_profiles
@@ -154,7 +155,11 @@ def reset_user_password(db, *, target_user_id: str, new_password: str, actor_id:
     if target["account_status"] != "ACTIVE":
         raise HTTPException(status_code=400, detail="Chỉ đặt lại mật khẩu cho tài khoản đang hoạt động.")
     try:
-        client.auth.admin.update_user_by_id(target_user_id, {"password": new_password})
+        if local:
+            # Same transaction as the profile update below: both commit together.
+            local_auth.set_password(db, target_user_id, new_password)
+        else:
+            client.auth.admin.update_user_by_id(target_user_id, {"password": new_password})
     except Exception as exc:
         if getattr(exc, "code", None) == "weak_password" or getattr(exc, "status", None) in (400, 422):
             raise HTTPException(status_code=400, detail="Mật khẩu tạm thời không đáp ứng chính sách của dịch vụ xác thực.") from None

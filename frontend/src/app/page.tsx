@@ -25,7 +25,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bootstrapAvailable, setBootstrapAvailable] = useState(false);
-  const [config, setConfig] = useState({ self_registration: false, password_reset: true });
+  const [config, setConfig] = useState({ self_registration: false, password_reset: false });
   const router = useRouter();
 
   useEffect(() => {
@@ -130,7 +130,9 @@ export default function LoginPage() {
           </form>
 
           <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', mt: 1.5 }}>
-            {config.password_reset && <Button size="small" onClick={() => router.push('/forgot-password')}>{t("Quên mật khẩu?")}</Button>}
+            {config.password_reset
+              ? <Button size="small" onClick={() => router.push('/forgot-password')}>{t("Quên mật khẩu?")}</Button>
+              : <Typography variant="caption" color="text.secondary" sx={{ py: 0.75 }}>{t("Quên mật khẩu? Liên hệ Admin để đặt lại mật khẩu.")}</Typography>}
             {config.self_registration && <Button size="small" onClick={() => router.push('/register')}>{t("Đăng ký tài khoản")}</Button>}
           </Box>
 

@@ -26,10 +26,11 @@ export default function RegisterPage() {
     authApi.publicConfig().then(response => {
       if (!active) return;
       setEnabled(Boolean(response.data.self_registration));
+      if (!response.data.self_registration) router.replace('/');
       setDomains(response.data.registration_domains || []);
-    }).catch(() => { if (active) setEnabled(false); });
+    }).catch(() => { if (active) { setEnabled(false); router.replace('/'); } });
     return () => { active = false; };
-  }, []);
+  }, [router]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); setError(null);

@@ -1866,5 +1866,6 @@
   "Người đăng ký chưa xác minh email nên chưa thể duyệt.": "This person has not verified their email yet, so the account cannot be approved.",
   "Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau.": "Too many requests. Please try again later.",
   "Cần chuyển hồ sơ sang Shortlist hoặc Phỏng vấn trước khi đưa vào Talent Pool (nếu Shortlist khác kết luận của AI, hãy chọn lý do điều chỉnh khi đổi trạng thái).": "Move the application to Shortlist or Interview before adding it to the Talent Pool (if Shortlist differs from the AI conclusion, choose an override reason when changing the status).",
-  "Trạng thái hồ sơ chưa đủ điều kiện": "The application status is not eligible yet"
+  "Trạng thái hồ sơ chưa đủ điều kiện": "The application status is not eligible yet",
+  "Quên mật khẩu? Liên hệ Admin để đặt lại mật khẩu.": "Forgot your password? Ask an Admin to reset it."
 }

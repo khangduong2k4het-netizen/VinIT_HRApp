@@ -79,3 +79,23 @@ TEST_DATABASE_URL="postgresql://postgres:MAT_KHAU@127.0.0.1:5432/hra_local_test"
 ```
 
 Frontend: `npm run type-check && npm run lint && npm run test:i18n && npm run test:unit`.
+
+## 6. Quên mật khẩu (khi không có email/SSO)
+
+Dự án chưa được cấp SMTP hay SSO nên không có thư tự đặt lại mật khẩu và **không có tự đăng ký tài khoản**
+(`SELF_REGISTRATION_ENABLED=false`, mặc định). Cách xử lý:
+
+- **HR / Hiring Manager quên mật khẩu:** nhờ Admin vào **Quản lý tài khoản** -> **Đặt lại mật khẩu** (đặt mật khẩu
+  tạm 12 ký tự trở lên). Người đó phải đổi mật khẩu ở lần đăng nhập kế tiếp, các phiên cũ bị thu hồi, có ghi audit.
+- **Admin quên mật khẩu:** người vận hành chạy lệnh khẩn cấp trên máy chủ (cần quyền truy cập DB; chỉ với `AUTH_BACKEND=local`):
+
+  ```powershell
+  cd backend
+  .\.venv\Scripts\python scripts\reset_admin_password.py --email admin@vinuni.edu.vn
+  ```
+
+  Lệnh in mật khẩu tạm ngẫu nhiên **một lần**; Admin đăng nhập và phải đổi ngay. Có thể tự chọn mật khẩu bằng
+  `--password "..."`. Mặc định chỉ áp dụng cho tài khoản Admin; tài khoản khác cần thêm `--force`.
+  Việc này được ghi audit (`EMERGENCY_RESET_PASSWORD`, actor `operator-cli`, không chứa mật khẩu).
+- **Khuyến nghị:** luôn có **ít nhất 2 tài khoản Admin** để Admin này đặt lại hộ Admin kia, chỉ dùng lệnh khẩn cấp khi không còn ai đăng nhập được.
+- Khi sau này có SMTP, đặt `SMTP_HOST`/`SMTP_FROM`: trang đăng nhập sẽ tự hiện "Quên mật khẩu?" gửi link đặt lại qua email.

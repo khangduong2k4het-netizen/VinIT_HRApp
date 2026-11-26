@@ -296,7 +296,8 @@ GENERIC_FORGOT = "Nếu email thuộc một tài khoản đang hoạt động, h
 def public_config():
     """What the login page may offer. No secrets."""
     return {"self_registration": bool(settings.SELF_REGISTRATION_ENABLED),
-            "password_reset": settings.AUTH_BACKEND == "local" or email_enabled(),
+            # Self-service reset needs a way to deliver the link: SMTP, or the development echo.
+            "password_reset": email_enabled() or bool(settings.PASSWORD_RESET_DEV_ECHO),
             "registration_domains": [d.strip() for d in settings.SELF_REGISTRATION_ALLOWED_DOMAINS.split(",") if d.strip()]}
 
 
