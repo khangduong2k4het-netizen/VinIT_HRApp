@@ -46,7 +46,11 @@ def password_problem(password: str) -> str | None:
 
 
 def list_admins() -> list[tuple[str, str, str]]:
-    """(email, display name, account status) of every account that holds the ADMIN role, for an operator who forgot the email."""
+    """(email, display name, account status) of every account that holds the ADMIN role, for an operator who forgot the email.
+
+    Server-side only and only with AUTH_BACKEND=local. No password or hash is read. Each use is audited."""
+    if settings.AUTH_BACKEND != "local":
+        raise ValueError("Chỉ dùng được khi AUTH_BACKEND=local.")
     db = SessionLocal()
     try:
         rows = db.execute(text("""
@@ -56,6 +60,11 @@ def list_admins() -> list[tuple[str, str, str]]:
                           WHERE r.user_id = u.id AND r.role_code = 'ADMIN' AND r.revoked_at IS NULL)
             ORDER BY p.account_status, u.email
         """)).all()
+        db.execute(text("""
+            INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, outcome, metadata)
+            VALUES (NULL, 'ADMIN_LIST_VIEWED', 'USER', 'SUCCESS', CAST(:m AS jsonb))
+        """), {"m": '{"actor": "operator-cli", "via": "server_script", "count": %d}' % len(rows)})
+        db.commit()
         return [(r[0], r[1], r[2]) for r in rows]
     finally:
         db.close()
@@ -116,7 +125,12 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="also allow an account that is not an Admin")
     args = parser.parse_args()
     if args.list_admins:
-        for email, name, status in list_admins():
+        try:
+            admins = list_admins()
+        except ValueError as exc:
+            print(f"Lỗi: {exc}", file=sys.stderr)
+            return 1
+        for email, name, status in admins:
             print(f"{email}	{name}	{status}")
         return 0
     if not args.email:

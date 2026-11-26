@@ -107,6 +107,16 @@ def test_list_admins_helps_when_the_email_is_forgotten(client):
     hr_email, _ = _member(["HR_RECRUITER"])
     listed = {row[0] for row in reset_admin_password.list_admins()}
     assert email in listed and hr_email not in listed
+    with engine.connect() as conn:
+        audit = conn.execute(text("""SELECT metadata::text, actor_user_id FROM app_private.audit_events
+            WHERE action_type = 'ADMIN_LIST_VIEWED' ORDER BY created_at DESC LIMIT 1""")).one()
+    assert "operator-cli" in audit[0] and audit[1] is None and "scrypt" not in audit[0]
+
+
+def test_list_admins_refuses_non_local_auth(monkeypatch):
+    monkeypatch.setattr(settings, "AUTH_BACKEND", "supabase")
+    with pytest.raises(ValueError, match="AUTH_BACKEND=local"):
+        reset_admin_password.list_admins()
 
 
 def test_emergency_script_only_for_local_auth(monkeypatch):

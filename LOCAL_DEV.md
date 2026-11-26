@@ -103,6 +103,7 @@ Dự án chưa được cấp SMTP hay SSO nên không có thư tự đặt lạ
   `--password "..."`. Mặc định chỉ áp dụng cho tài khoản Admin; tài khoản khác cần thêm `--force`.
   **Quên cả email Admin:** chạy `python scripts\reset_admin_password.py --list-admins` để xem danh sách email Admin (email, tên, trạng thái),
   rồi dùng lệnh trên với email đó.
+  Lệnh liệt kê chỉ chạy trên máy chủ với `AUTH_BACKEND=local`, không đọc mật khẩu/hash, và được ghi audit (`ADMIN_LIST_VIEWED`, actor `operator-cli`).
   Việc này được ghi audit (`EMERGENCY_RESET_PASSWORD`, actor `operator-cli`, không chứa mật khẩu).
 - **Khuyến nghị:** luôn có **ít nhất 2 tài khoản Admin** để Admin này đặt lại hộ Admin kia, chỉ dùng lệnh khẩn cấp khi không còn ai đăng nhập được.
 - Khi sau này có SMTP, đặt `SMTP_HOST`/`SMTP_FROM`: trang đăng nhập sẽ tự hiện "Quên mật khẩu?" gửi link đặt lại qua email.
