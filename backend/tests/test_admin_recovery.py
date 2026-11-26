@@ -48,6 +48,7 @@ def _bearer(user_id, email):
 
 
 def test_page_is_off_without_a_long_key(client, monkeypatch):
+    monkeypatch.setattr(settings, "SMTP_HOST", None)
     for value in (None, "", "short-key"):
         monkeypatch.setattr(settings, "ADMIN_RECOVERY_KEY", value)
         assert client.post("/v1/auth/recovery/admins", json={"key": "anything"}).status_code == 404
@@ -119,3 +120,77 @@ def test_admin_count_summary_is_for_admins_only(client):
     ok = client.get("/v1/admin/users/summary", headers=_bearer(admin_id, admin_email))
     assert ok.status_code == 200 and ok.json()["active_admins"] >= 1
     assert client.get("/v1/admin/users/summary", headers=_bearer(hr_id, hr_email)).status_code == 403
+
+
+@pytest.fixture()
+def mailbox(monkeypatch):
+    from app.api import admin_recovery as module
+    from app.api import auth as auth_api
+    sent = []
+    monkeypatch.setattr(settings, "SMTP_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "SMTP_FROM", "tuyendung@vinuni.test")
+    monkeypatch.setattr(settings, "AUTH_PUBLIC_MAX_PER_IP_HOUR", 0)
+    monkeypatch.setattr(module, "send_email", lambda to, subject, body, **kw: sent.append((to, subject, body)))
+    auth_api._public_hits.clear()
+    return sent
+
+
+def _link_token(body):
+    import re
+    return re.search(r"token=([A-Za-z0-9_-]+)", body).group(1)
+
+
+def test_email_path_is_generic_and_only_an_active_admin_gets_a_mail(client, mailbox):
+    admin_email, _ = _member(["ADMIN"])
+    hr_email, _ = _member(["HR_RECRUITER"])
+    _, off_id = _member(["ADMIN"], status="INACTIVE")
+    answers = [client.post("/v1/auth/recovery/email", json={"email": e}) for e in (admin_email, hr_email, f"nobody{uuid4().hex[:6]}@vinuni.edu.vn")]
+    assert {a.status_code for a in answers} == {202} and len({a.text for a in answers}) == 1
+    assert [m[0] for m in mailbox] == [admin_email]
+    assert "http" not in answers[0].text
+
+
+def test_email_link_resets_the_password_once_and_revokes_sessions(client, mailbox):
+    import time
+    email, user_id = _member(["ADMIN"])
+    old_session = _bearer(user_id, email)
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.user_profiles SET tokens_valid_after = NOW() - INTERVAL '1 hour' WHERE user_id = :u"), {"u": user_id})
+        conn.execute(text("UPDATE app_private.local_credentials SET failed_attempts = 3, locked_until = NOW() + INTERVAL '10 minutes' WHERE user_id = :u"), {"u": user_id})
+    client.post("/v1/auth/recovery/email", json={"email": email})
+    token = _link_token(mailbox[0][2])
+    assert client.post("/v1/auth/reset-password", json={"token": token, "new_password": NEW_PASSWORD}).status_code == 200
+    assert client.post("/v1/auth/reset-password", json={"token": token, "new_password": "another-password-789!"}).status_code == 400
+    assert client.get("/v1/auth/me", headers=old_session).status_code == 401
+    time.sleep(1.2)
+    assert client.post("/v1/auth/login", json={"email": email, "password": NEW_PASSWORD}).status_code == 200
+    with engine.connect() as conn:
+        audits = [r[0] for r in conn.execute(text("""SELECT action_type FROM app_private.audit_events WHERE object_id = :u
+            AND action_type IN ('ADMIN_RECOVERY_EMAIL_REQUESTED', 'RESET_PASSWORD_BY_TOKEN')"""), {"u": user_id})]
+    assert sorted(audits) == ["ADMIN_RECOVERY_EMAIL_REQUESTED", "RESET_PASSWORD_BY_TOKEN"]
+
+
+def test_email_path_is_rate_limited_per_account_and_says_so_when_email_is_off(client, mailbox, monkeypatch):
+    email, _ = _member(["ADMIN"])
+    for _ in range(6):
+        assert client.post("/v1/auth/recovery/email", json={"email": email}).status_code == 202
+    assert len(mailbox) == settings.PASSWORD_RESET_MAX_PER_HOUR  # the rest are silently ignored
+    monkeypatch.setattr(settings, "SMTP_HOST", None)
+    off = client.post("/v1/auth/recovery/email", json={"email": email})
+    assert off.status_code == 409 and "Chưa cấu hình email" in off.json()["detail"]
+    from app.api import auth as auth_api
+    auth_api._public_hits.clear()
+    monkeypatch.setattr(settings, "SMTP_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "AUTH_PUBLIC_MAX_PER_IP_HOUR", 2)
+    codes = [client.post("/v1/auth/recovery/email", json={"email": f"x{i}@vinuni.edu.vn"}).status_code for i in range(4)]
+    assert codes[:2] == [202, 202] and 429 in codes[2:]
+    auth_api._public_hits.clear()
+
+
+def test_admin_recovery_is_offered_when_either_the_key_or_email_exists(client, monkeypatch):
+    monkeypatch.setattr(settings, "ADMIN_RECOVERY_KEY", None)
+    monkeypatch.setattr(settings, "SMTP_HOST", None)
+    assert client.get("/v1/auth/public-config").json()["admin_recovery"] is False
+    monkeypatch.setattr(settings, "SMTP_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "SMTP_FROM", "tuyendung@vinuni.test")
+    assert client.get("/v1/auth/public-config").json()["admin_recovery"] is True

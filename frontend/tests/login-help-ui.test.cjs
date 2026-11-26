@@ -34,3 +34,11 @@ test('both pages are public routes and the Admin screen warns about a single Adm
 test('a wrong recovery key shows an error on the page instead of bouncing to the login page', () => {
   assert.match(read('src/lib/api.ts'), /!error\.config\?\.url\?\.includes\('\/auth\/recovery'\)/);
 });
+
+test('admin recovery offers two clear ways: the key (no email) and a confirmation mail', () => {
+  const page = read('src/app/admin-recovery/page.tsx');
+  assert.match(page, /recoveryEmail\(/);
+  assert.match(page, /setMode\('key'\)/);
+  assert.match(page, /setMode\('email'\)/);
+  for (const key of ['Tôi có mã khôi phục', 'Tôi chưa có mã / làm mất mã', 'Gửi thư xác nhận']) assert.ok(en[key], key);
+});

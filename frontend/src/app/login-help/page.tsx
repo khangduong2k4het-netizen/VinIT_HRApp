@@ -33,8 +33,8 @@ export default function LoginHelpPage() {
       title: t("Tôi là Admin và không đăng nhập được"),
       text: recovery === false
         ? t("Khôi phục Admin chưa được bật trên hệ thống này. Liên hệ người vận hành.")
-        : t("Dùng mã khôi phục do người vận hành giữ để đặt mật khẩu mới. Không cần nhớ email."),
-      action: t("Dùng mã khôi phục"),
+        : t("Lấy lại quyền truy cập bằng mã khôi phục của hệ thống, hoặc bằng thư xác nhận gửi tới email của Admin."),
+      action: t("Khôi phục tài khoản Admin"),
       onClick: () => router.push('/admin-recovery'),
       disabled: recovery !== true,
     },

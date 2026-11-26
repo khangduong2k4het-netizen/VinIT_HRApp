@@ -84,6 +84,7 @@ export const authApi = {
     apiClient.post('/auth/register', data),
   verifyEmail: (token: string) => apiClient.post('/auth/verify-email', { token }),
   forgotPassword: (email: string) => apiClient.post('/auth/forgot-password', { email }),
+  recoveryEmail: (email: string) => apiClient.post('/auth/recovery/email', { email }),
   recoveryAdmins: (key: string) => apiClient.post('/auth/recovery/admins', { key }),
   recoveryReset: (key: string, user_id: string, new_password: string) => apiClient.post('/auth/recovery/reset', { key, user_id, new_password }),
   requestPasswordReset: (email: string, reason: string) => apiClient.post('/auth/password-reset-requests', { email, reason }),

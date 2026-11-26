@@ -1909,5 +1909,17 @@
   "Đã nhập sai mã quá nhiều lần. Vui lòng thử lại sau 15 phút.": "Too many wrong keys. Try again in 15 minutes.",
   "Không tìm thấy tài khoản Admin này.": "That Admin account was not found.",
   "Chỉ đặt lại mật khẩu cho Admin đang hoạt động.": "Only active Admins can be reset.",
-  "Hệ thống chỉ có 1 Admin đang hoạt động. Hãy tạo thêm một Admin dự phòng để có người đặt lại mật khẩu khi Admin này quên.": "The system has only 1 active Admin. Create a backup Admin so someone can reset the password if this one is forgotten."
+  "Hệ thống chỉ có 1 Admin đang hoạt động. Hãy tạo thêm một Admin dự phòng để có người đặt lại mật khẩu khi Admin này quên.": "The system has only 1 active Admin. Create a backup Admin so someone can reset the password if this one is forgotten.",
+  "Chọn cách bạn muốn lấy lại quyền truy cập.": "Choose how you want to get back in.",
+  "Tôi có mã khôi phục": "I have the recovery key",
+  "Nhập mã do người vận hành giữ và đặt mật khẩu mới. Không cần nhớ email.": "Enter the key kept by the system operator and set a new password. No email needed.",
+  "Nhập mã khôi phục": "Enter the recovery key",
+  "Tôi chưa có mã / làm mất mã": "I do not have the key / I lost it",
+  "Nhập email Admin. Hệ thống gửi thư xác nhận tới email đó; mở liên kết trong thư để đặt mật khẩu mới.": "Enter the Admin's email. A confirmation mail is sent to it; open the link in the mail to set a new password.",
+  "Gửi thư xác nhận": "Send confirmation mail",
+  "Nhập email của tài khoản Admin. Liên kết trong thư có hiệu lực 30 phút và chỉ dùng được một lần.": "Enter the Admin account's email. The link in the mail is valid for 30 minutes and works once.",
+  "Chọn cách khác": "Choose another way",
+  "Nếu email thuộc một tài khoản Admin đang hoạt động, hệ thống đã gửi thư xác nhận tới email đó. Mở liên kết trong thư để đặt mật khẩu mới.": "If the email belongs to an active Admin account, a confirmation mail has been sent to it. Open the link in the mail to set a new password.",
+  "Chưa cấu hình email. Hãy dùng mã khôi phục, hoặc nhờ Admin khác / người quản trị máy chủ.": "Email is not configured. Use the recovery key, or ask another Admin / the server administrator.",
+  "Lấy lại quyền truy cập bằng mã khôi phục của hệ thống, hoặc bằng thư xác nhận gửi tới email của Admin.": "Get back in with the system recovery key, or with a confirmation mail sent to the Admin's email."
 }

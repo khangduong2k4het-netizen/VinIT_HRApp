@@ -11,7 +11,7 @@ from collections import defaultdict, deque
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr, field_validator
 from sqlalchemy import text
 
 from app.api.public_intake import _ip_hash, client_address
@@ -19,7 +19,8 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.database import SessionLocal
 from app.schemas.accounts import validate_password
-from app.services import local_auth
+from app.services import local_auth, password_reset
+from app.services.mailer import MailError, email_enabled, send_email
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -128,5 +129,55 @@ def reset_admin(body: RecoveryReset, http_request: Request):
     except HTTPException:
         db.rollback()
         raise
+    finally:
+        db.close()
+
+
+class RecoveryEmail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: EmailStr
+
+
+GENERIC_EMAIL = ("Nếu email thuộc một tài khoản Admin đang hoạt động, hệ thống đã gửi thư xác nhận tới email đó. "
+                 "Mở liên kết trong thư để đặt mật khẩu mới.")
+
+
+@router.post("/email", status_code=202)
+def recover_by_email(body: RecoveryEmail, http_request: Request):
+    """An Admin who has no recovery key asks for a confirmation link at their own address. The answer is the
+    same for every email; only an ACTIVE Admin gets a mail. The link is the normal one-time reset link
+    (30 minutes): using it sets a new password, revokes earlier sessions and clears a temporary lock."""
+    from app.api.auth import _limit_public_calls
+    _limit_public_calls(http_request)
+    if not email_enabled():
+        raise HTTPException(status_code=409, detail="Chưa cấu hình email. Hãy dùng mã khôi phục, hoặc nhờ Admin khác / "
+                            "người quản trị máy chủ.")
+    email = str(body.email).strip().lower()
+    db = SessionLocal()
+    try:
+        row = db.execute(text("""
+            SELECT u.id FROM auth.users u JOIN app_private.user_profiles p ON p.user_id = u.id
+            WHERE lower(u.email) = :email AND p.account_status = 'ACTIVE'
+              AND EXISTS (SELECT 1 FROM app_private.user_role_assignments r
+                          WHERE r.user_id = u.id AND r.role_code = 'ADMIN' AND r.revoked_at IS NULL)
+        """), {"email": email}).first()
+        if not row:
+            return {"message": GENERIC_EMAIL}
+        user_id = str(row[0])
+        token = password_reset.issue_token(db, user_id, "RESET")
+        if token is None:
+            db.rollback()
+            return {"message": GENERIC_EMAIL}
+        _audit(db, "ADMIN_RECOVERY_EMAIL_REQUESTED", user_id, http_request)
+        db.commit()
+        link = f"{settings.APP_PUBLIC_URL.rstrip('/')}/reset-password?token={token}"
+        try:
+            send_email(email, "Xác nhận khôi phục tài khoản Admin VinUni HRA",
+                       "Có yêu cầu khôi phục tài khoản Admin của bạn. Mở liên kết sau để đặt mật khẩu mới "
+                       f"(hết hạn sau {settings.PASSWORD_RESET_TTL_MINUTES} phút, dùng một lần):\n\n{link}\n\n"
+                       "Nếu bạn không yêu cầu, hãy bỏ qua thư này và báo cho người quản trị hệ thống.")
+        except MailError as exc:
+            logger.warning("Admin recovery email failed", error_type=str(exc))
+        return {"message": GENERIC_EMAIL}
     finally:
         db.close()

@@ -98,6 +98,10 @@ Dự án chưa được cấp SMTP hay SSO nên không có thư tự đặt lạ
      Để trống = tắt trang khôi phục. Chỉ dùng với `AUTH_BACKEND=local`.
   2. **Khi Admin không đăng nhập được:** ở trang đăng nhập bấm **"Cần trợ giúp đăng nhập?"** -> thẻ **"Tôi là Admin và không đăng nhập được"**
      -> **Dùng mã khôi phục**. Nhập mã, hệ thống liệt kê các Admin (không cần nhớ email), chọn đúng Admin và đặt mật khẩu mới.
+  2b. **Chưa có mã / làm mất mã:** ở trang khôi phục chọn **"Tôi chưa có mã / làm mất mã"**, nhập email Admin. Hệ thống gửi thư xác nhận
+     tới đúng email đó (cần cấu hình SMTP; chưa có thì trang báo "Chưa cấu hình email"); mở liên kết trong thư (30 phút, dùng một lần) để đặt mật khẩu mới.
+     Phản hồi luôn giống nhau dù email có phải Admin hay không; mỗi tài khoản tối đa 3 thư/giờ. Admin quên cả email: xem danh sách ở
+     Quản lý tài khoản (Admin khác) hoặc dùng mã khôi phục (tự liệt kê Admin) hoặc lệnh `--list-admins`.
   3. Hệ thống thu hồi các phiên cũ, mở khóa tài khoản, ghi audit (`ADMIN_RECOVERY_LIST_VIEWED`, `ADMIN_RECOVERY_RESET_PASSWORD`, không chứa mã
      hay mật khẩu). Nhập sai mã 5 lần thì khóa địa chỉ đó 15 phút; tổng 20 lần sai thì tạm khóa cả trang 15 phút.
   4. Nếu mã khôi phục bị lộ: đổi `ADMIN_RECOVERY_KEY` rồi khởi động lại API.

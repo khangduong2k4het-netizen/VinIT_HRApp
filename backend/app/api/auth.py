@@ -305,7 +305,7 @@ def public_config():
             # Self-service reset needs a way to deliver the link: SMTP, or the development echo.
             "password_reset": settings.PASSWORD_RESET_SELF_SERVICE and (email_enabled() or bool(settings.PASSWORD_RESET_DEV_ECHO)),
             "reset_request": True,
-            "admin_recovery": _recovery_enabled(),
+            "admin_recovery": _recovery_enabled() or email_enabled(),
             "registration_domains": [d.strip() for d in settings.SELF_REGISTRATION_ALLOWED_DOMAINS.split(",") if d.strip()]}
 
 
