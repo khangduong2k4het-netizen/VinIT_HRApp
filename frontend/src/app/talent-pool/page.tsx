@@ -23,7 +23,8 @@ export default function TalentPoolPage() {
 
   useEffect(() => {
     talentPoolApi.marks({ limit: 500, offset: 0 }).then(r => setMarks(r.data.items)).catch(() => setMarks([]));
-    positionsApi.list('OPEN').then(r => setPositions(r.data)).catch(() => setPositions([]));
+    // All open positions (the plain list endpoint returns one page of 20).
+    positionsApi.listAll().then(all => setPositions(all.filter((p: any) => p.status === 'OPEN'))).catch(() => setPositions([]));
   }, []);
 
   const filteredMarks = useMemo(
