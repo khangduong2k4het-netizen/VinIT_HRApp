@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from app.services.candidate_name import guess_candidate_name
 from app.db.database import SessionLocal, engine
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -597,7 +598,7 @@ class ProcessingWorker:
 
                     # Extract basic contact signals locally; never infer a name from the
                     # opaque candidate_identifier returned by the model.
-                    display_name = os.path.splitext(doc["original_filename"])[0]
+                    display_name = guess_candidate_name(raw_text)
                     email = email_match.group(0).lower() if email_match else None
 
                     # Insert profile facts.  Model output is untrusted: only

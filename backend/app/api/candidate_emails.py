@@ -264,7 +264,7 @@ async def compose(application_id: UUID, body: ComposeRequest, current_user: dict
                                   {"c": body.template_code}).mappings().first()
             if not template:
                 raise HTTPException(status_code=404, detail="Không tìm thấy mẫu thư")
-            values = {"ho_ten": app["display_name"] or "", "vi_tri": app["title"] or "", "ma_vi_tri": app["position_code"] or "",
+            values = {"ho_ten": (app["display_name"] or "").strip() or "Anh/Chị", "vi_tri": app["title"] or "", "ma_vi_tri": app["position_code"] or "",
                       "ngay_nop": app["applied_at"].strftime("%d/%m/%Y") if app["applied_at"] else "",
                       "ten_hr": hr["display_name"] or "", "email_hr": hr["email"] or ""}
             previous = db.execute(text("""SELECT status, sent_at, created_at FROM app_private.candidate_emails
