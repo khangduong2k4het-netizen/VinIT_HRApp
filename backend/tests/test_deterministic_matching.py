@@ -509,3 +509,15 @@ def test_unrelated_degree_is_not_a_match_and_not_a_no_match():
 
 def test_too_low_level_is_still_a_no_match():
     assert _degree_outcome("High school diploma (THPT), Example school") in {"NO_MATCH", "UNRESOLVED"}
+
+
+def test_stored_degree_level_from_before_v1_10_is_lowered_for_or_alternatives():
+    stored = criterion("d", DEGREE_CRITERION, "")
+    stored["requirement_spec"] = {"kind": "DEGREE", "required_degree_level": 4}
+    assert deterministic_matcher.build_requirement_spec(stored).required_degree_level == 3
+    master_only = criterion("m", "Master's degree in Computer Science", "")
+    master_only["requirement_spec"] = {"kind": "DEGREE", "required_degree_level": 4}
+    assert deterministic_matcher.build_requirement_spec(master_only).required_degree_level == 4
+    result = deterministic_matcher.evaluate_criteria(
+        "EDUCATION\nB.Eng. in Computer Science, Hanoi University of Science and Technology, 2016 - 2020", [stored], {})
+    assert result["findings"][0]["outcome"] == "MATCH"

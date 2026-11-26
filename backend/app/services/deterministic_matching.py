@@ -635,6 +635,20 @@ class DeterministicMatchingEngine:
             return 3
         return None
 
+    @classmethod
+    def _stored_or_inferred_degree_level(cls, stored: Any, inferred: int | None, kind: str, criterion: dict[str, Any]) -> int | None:
+        """A level stored before rules v1.10 may be the highest of "Bachelor's or Master's"; when the criterion text
+        offers alternatives the lower inferred level is the real requirement."""
+        if stored is None:
+            return None
+        level = int(stored)
+        if kind == "DEGREE" and inferred is not None and inferred < level:
+            text = normalize_text(f"{criterion.get('name') or ''}. {criterion.get('description') or ''}")
+            found = [lv for lv, patterns in DEGREE_PATTERNS if any(_contains_phrase(text, pattern) for pattern in patterns)]
+            if len(found) > 1 and re.search(r"\b(?:or|hoac)\b|/", text):
+                return inferred
+        return level
+
     def build_requirement_spec(self, criterion: dict[str, Any]) -> RequirementSpec:
         inferred = self._infer_requirement_spec(criterion)
         explicit = criterion.get("requirement_spec")
@@ -667,7 +681,8 @@ class DeterministicMatchingEngine:
             kind=kind,
             terms=terms,
             min_years=float(pick("min_years", inferred.min_years)) if pick("min_years", inferred.min_years) is not None else None,
-            required_degree_level=int(pick("required_degree_level", inferred.required_degree_level)) if pick("required_degree_level", inferred.required_degree_level) is not None else None,
+            required_degree_level=self._stored_or_inferred_degree_level(
+                pick("required_degree_level", inferred.required_degree_level), inferred.required_degree_level, kind, criterion),
             required_languages=tuple(str(item).lower() for item in languages),
             required_ielts=float(pick("required_ielts", inferred.required_ielts)) if pick("required_ielts", inferred.required_ielts) is not None else None,
             required_toeic=int(pick("required_toeic", inferred.required_toeic)) if pick("required_toeic", inferred.required_toeic) is not None else None,
