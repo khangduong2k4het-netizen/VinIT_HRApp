@@ -13,7 +13,7 @@ import { authApi } from '@/lib/api';
 // Pages that never require (or show) the signed-in workspace: login, first-admin
 // setup, forced password change, and the candidate-facing application portal.
 function isPublicPath(pathname: string): boolean {
-  return ['/', '/bootstrap', '/change-password', '/register', '/forgot-password', '/reset-password'].includes(pathname) || pathname === '/apply' || pathname.startsWith('/apply/');
+  return ['/', '/bootstrap', '/change-password', '/register', '/forgot-password', '/reset-password', '/verify-email'].includes(pathname) || pathname === '/apply' || pathname.startsWith('/apply/');
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {

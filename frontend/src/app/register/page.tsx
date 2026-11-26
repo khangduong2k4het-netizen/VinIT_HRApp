@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Alert, Box, Button, Card, CardContent, CircularProgress, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, CircularProgress, Link, TextField, Typography } from '@mui/material';
 import LanguageSwitcher from '@/i18n/LanguageSwitcher';
 import { useI18n } from '@/i18n/I18nProvider';
 import { authApi } from '@/lib/api';
@@ -15,6 +15,7 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [devLink, setDevLink] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -38,7 +39,9 @@ export default function RegisterPage() {
     }
     try {
       setLoading(true);
-      await authApi.register({ email: email.trim(), display_name: name.trim(), password });
+      const response = await authApi.register({ email: email.trim(), display_name: name.trim(), password });
+      // Only present when the server runs in development without an email channel.
+      setDevLink(response.data.dev_verify_link || null);
       setPassword(''); setConfirm(''); setSuccess(true);
     } catch (err: any) {
       setError(err.response?.data?.detail || t("Không thể gửi đăng ký."));
@@ -53,7 +56,12 @@ export default function RegisterPage() {
         {t("Tài khoản mới chỉ dùng được sau khi Admin duyệt và cấp vai trò.")}
       </Typography>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{t(error)}</Alert>}
-      {success ? <Alert severity="success" sx={{ mb: 2 }}>{t("Đã gửi đăng ký, chờ Admin duyệt.")}</Alert>
+      {success ? <>
+          <Alert severity="success" sx={{ mb: 2 }}>{t("Đã gửi đăng ký. Hãy mở liên kết xác minh trong email, sau đó chờ Admin duyệt.")}</Alert>
+          {devLink && <Alert severity="warning" sx={{ mb: 2, overflowWrap: 'anywhere' }}>
+            {t("Chế độ phát triển (chưa cấu hình email):")} <Link href={devLink}>{t("Mở liên kết xác minh email")}</Link>
+          </Alert>}
+        </>
         : enabled === null ? <CircularProgress size={24} aria-label={t("Đang kiểm tra")} />
         : enabled ? <Box component="form" onSubmit={submit}>
           {domains.length > 0 && <Alert severity="info" sx={{ mb: 1 }}>{t("Chỉ chấp nhận email thuộc tên miền:")} {domains.join(', ')}</Alert>}

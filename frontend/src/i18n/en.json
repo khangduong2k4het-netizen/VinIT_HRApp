@@ -1857,5 +1857,13 @@
   "Yêu cầu liên kết mới": "Request a new link",
   "Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.": "The reset link is not valid or has expired.",
   "Tài khoản chưa được kích hoạt (đang chờ Admin duyệt) hoặc đã bị khóa": "The account is not active yet (waiting for Admin approval) or is locked.",
-  "Chờ duyệt": "Pending approval"
+  "Chờ duyệt": "Pending approval",
+  "Chưa xác minh email": "Email not verified",
+  "Xác minh email": "Verify email",
+  "Đã xác minh email. Tài khoản đang chờ Admin duyệt; bạn có thể đăng nhập sau khi được duyệt.": "Email verified. The account is waiting for Admin approval; you can sign in once it is approved.",
+  "Liên kết xác minh không hợp lệ hoặc đã hết hạn.": "The verification link is not valid or has expired.",
+  "Đã gửi đăng ký. Hãy mở liên kết xác minh trong email, sau đó chờ Admin duyệt.": "Registration sent. Open the verification link in your email, then wait for Admin approval.",
+  "Mở liên kết xác minh email": "Open the email verification link",
+  "Người đăng ký chưa xác minh email nên chưa thể duyệt.": "This person has not verified their email yet, so the account cannot be approved.",
+  "Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau.": "Too many requests. Please try again later."
 }

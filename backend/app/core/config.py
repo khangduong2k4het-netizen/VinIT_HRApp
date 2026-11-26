@@ -210,6 +210,8 @@ class Settings(BaseSettings):
     # Forgot-password link lifetime and per-account request cap per hour.
     PASSWORD_RESET_TTL_MINUTES: int = 30
     PASSWORD_RESET_MAX_PER_HOUR: int = 3
+    # Requests per address and hour for /auth/register and /auth/forgot-password (429 beyond it). 0 = off.
+    AUTH_PUBLIC_MAX_PER_IP_HOUR: int = 10
     # Development/testing only: return the reset link in the API response when no
     # email channel is configured. Refused outside development/testing.
     PASSWORD_RESET_DEV_ECHO: bool = False

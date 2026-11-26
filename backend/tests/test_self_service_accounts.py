@@ -25,6 +25,7 @@ def client(monkeypatch):
     monkeypatch.setattr(settings, "SELF_REGISTRATION_ALLOWED_DOMAINS", "vinuni.edu.vn")
     monkeypatch.setattr(settings, "PASSWORD_RESET_DEV_ECHO", True)
     monkeypatch.setattr(settings, "SMTP_HOST", None)
+    monkeypatch.setattr(settings, "AUTH_PUBLIC_MAX_PER_IP_HOUR", 0)
     monkeypatch.setattr(settings, "SUPABASE_JWT_SECRET", "synthetic-jwt-secret-not-for-production-0123456789")
     return TestClient(app)
 
@@ -61,7 +62,7 @@ def test_registration_is_pending_until_admin_activates(client):
         row = conn.execute(text("""SELECT p.account_status, p.must_change_password,
             (SELECT COUNT(*) FROM app_private.user_role_assignments r WHERE r.user_id = p.user_id)
             FROM app_private.user_profiles p JOIN auth.users u ON u.id = p.user_id WHERE u.email = :e"""), {"e": email}).one()
-    assert row == ("INACTIVE", False, 0)
+    assert row == ("PENDING", False, 0)
     blocked = _login(client, email, PASSWORD)
     assert blocked.status_code == 403 and "chờ Admin duyệt" in blocked.json()["detail"]
     _activate(email)
@@ -72,7 +73,7 @@ def test_duplicate_email_gets_the_same_answer_and_does_not_replace_the_account(c
     email = _email()
     first = _register(client, email)
     second = _register(client, email, "another-password-for-tests-789")
-    assert first.status_code == second.status_code == 201 and first.json() == second.json()
+    assert first.status_code == second.status_code == 201 and first.json()["message"] == second.json()["message"]
     _activate(email)
     assert _login(client, email, PASSWORD).status_code == 200
     assert _login(client, email, "another-password-for-tests-789").status_code == 401
@@ -180,3 +181,66 @@ def test_login_right_after_approval_waits_instead_of_returning_409(client):
     started = time.time()
     assert _login(client, email, PASSWORD).status_code == 200
     assert time.time() - started < 3
+
+
+def _token_from(link):
+    return parse_qs(urlparse(link).query)["token"][0]
+
+
+def _admin_headers():
+    from app.db.database import SessionLocal
+    from app.services import local_auth
+    from app.services.accounts import provision_user
+    email = f"admin{uuid4().hex[:8]}@vinuni.edu.vn"
+    db = SessionLocal()
+    try:
+        user_id = provision_user(db, email=email, password=PASSWORD, display_name="Admin Test", roles=["ADMIN"],
+                                 actor_id=None, bootstrap=True)
+    finally:
+        db.close()
+    token, _ = local_auth.issue_token(user_id, email)
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _user_id(email):
+    with engine.connect() as conn:
+        return str(conn.execute(text("SELECT id FROM auth.users WHERE email = :e"), {"e": email}).scalar_one())
+
+
+def test_registration_needs_email_verification_before_admin_can_approve(client):
+    email = _email()
+    registered = _register(client, email)
+    link = registered.json()["dev_verify_link"]
+    assert "/verify-email?token=" in link
+    admin = _admin_headers()
+    approve = {"display_name": "Người Dùng Thử", "account_status": "ACTIVE", "roles": ["VIEWER"]}
+    unverified = client.patch(f"/v1/admin/users/{_user_id(email)}", headers=admin, json=approve)
+    assert unverified.status_code == 409 and "xác minh email" in unverified.json()["detail"]
+    listed = client.get("/v1/admin/users", headers=admin, params={"search": email}).json()["items"][0]
+    assert listed["account_status"] == "PENDING" and listed["email_verified_at"] is None
+    token = _token_from(link)
+    assert client.post("/v1/auth/verify-email", json={"token": token}).status_code == 200
+    assert client.post("/v1/auth/verify-email", json={"token": token}).status_code == 400  # single use
+    listed = client.get("/v1/admin/users", headers=admin, params={"search": email}).json()["items"][0]
+    assert listed["email_verified_at"] is not None
+    assert client.patch(f"/v1/admin/users/{_user_id(email)}", headers=admin, json=approve).status_code == 200
+    assert _login(client, email, PASSWORD).status_code == 200
+
+
+def test_reset_token_cannot_verify_email_and_the_other_way_round(client):
+    email = _email()
+    verify = _token_from(_register(client, email).json()["dev_verify_link"])
+    _activate(email)
+    reset = _token(_forgot(client, email))
+    assert client.post("/v1/auth/verify-email", json={"token": reset}).status_code == 400
+    assert client.post("/v1/auth/reset-password", json={"token": verify, "new_password": NEW_PASSWORD}).status_code == 400
+
+
+def test_public_account_endpoints_are_rate_limited_per_address(client, monkeypatch):
+    from app.api import auth as auth_api
+    auth_api._public_hits.clear()
+    monkeypatch.setattr(settings, "AUTH_PUBLIC_MAX_PER_IP_HOUR", 3)
+    assert [_register(client, _email()).status_code for _ in range(3)] == [201, 201, 201]
+    assert _register(client, _email()).status_code == 429
+    assert _forgot(client, _email()).status_code == 429
+    auth_api._public_hits.clear()

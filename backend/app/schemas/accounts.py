@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr, field_validator
 
 Role = Literal["ADMIN", "HR_LEAD", "HR_RECRUITER", "HIRING_MANAGER", "VIEWER"]
-AccountStatus = Literal["ACTIVE", "INACTIVE", "SUSPENDED"]
+AccountStatus = Literal["ACTIVE", "INACTIVE", "SUSPENDED", "PENDING"]
 
 
 def validate_password(value: SecretStr) -> SecretStr:
@@ -99,6 +99,11 @@ class AdminPasswordReset(BaseModel):
 
 class RegisterRequest(AccountIdentity):
     """Self-registration; same fields and password policy as an Admin-created account."""
+
+
+class VerifyEmailRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str = Field(min_length=20, max_length=200)
 
 
 class ForgotPasswordRequest(BaseModel):

@@ -82,6 +82,7 @@ export const authApi = {
   publicConfig: () => apiClient.get('/auth/public-config'),
   register: (data: { email: string; display_name: string; password: string }) =>
     apiClient.post('/auth/register', data),
+  verifyEmail: (token: string) => apiClient.post('/auth/verify-email', { token }),
   forgotPassword: (email: string) => apiClient.post('/auth/forgot-password', { email }),
   resetPassword: (token: string, new_password: string) =>
     apiClient.post('/auth/reset-password', { token, new_password }),

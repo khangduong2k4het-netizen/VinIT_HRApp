@@ -3,7 +3,9 @@ import hmac
 import time
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, status
+from collections import defaultdict, deque
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, SecretStr
 from sqlalchemy import text
 from supabase import create_client
@@ -13,7 +15,7 @@ from app.core.logging import get_logger
 from app.core.security import ensure_token_is_current, get_active_user
 from app.db.database import SessionLocal
 from app.schemas.accounts import (BootstrapRequest, ForgotPasswordRequest, PasswordChange, RegisterRequest,
-                                  ResetPasswordRequest)
+                                  ResetPasswordRequest, VerifyEmailRequest)
 from app.services import local_auth, password_reset
 from app.services.mailer import MailError, email_enabled, send_email
 from app.services.accounts import provision_user
@@ -269,7 +271,24 @@ def _change_supabase_password(current_user: dict, old_password: str, new_passwor
         raise HTTPException(status_code=503, detail="Không xác nhận được việc đổi mật khẩu. Hãy kiểm tra mật khẩu mới trước khi thử lại.") from None
 
 
-GENERIC_REGISTER = "Đã gửi đăng ký, chờ Admin duyệt."
+GENERIC_REGISTER = "Đã gửi đăng ký. Hãy mở liên kết xác minh trong email, sau đó chờ Admin duyệt."
+_public_hits: dict[str, deque] = defaultdict(deque)
+
+
+def _limit_public_calls(request: Request) -> None:
+    """Per-address cap on the unauthenticated account endpoints (in-process; use the reverse proxy for several workers)."""
+    cap = settings.AUTH_PUBLIC_MAX_PER_IP_HOUR
+    if cap <= 0:
+        return
+    from app.api.public_intake import client_address
+    now = time.time()
+    hits = _public_hits[client_address(request)]
+    while hits and hits[0] < now - 3600:
+        hits.popleft()
+    if len(hits) >= cap:
+        raise HTTPException(status_code=429, detail="Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau.")
+    hits.append(now)
+
 GENERIC_FORGOT = "Nếu email thuộc một tài khoản đang hoạt động, hướng dẫn đặt lại mật khẩu đã được gửi."
 
 
@@ -282,7 +301,7 @@ def public_config():
 
 
 @router.post("/register", status_code=201)
-def register(request: RegisterRequest):
+def register(request: RegisterRequest, http_request: Request):
     """Self-registration: INACTIVE account without a role until an Admin approves it.
 
     Duplicate emails get the same answer as new ones, so the response never reveals
@@ -290,27 +309,69 @@ def register(request: RegisterRequest):
     """
     if not settings.SELF_REGISTRATION_ENABLED:
         raise HTTPException(status_code=404, detail="Không tìm thấy.")
+    _limit_public_calls(http_request)
     email = str(request.email).strip().lower()
     if not password_reset.allowed_registration_domain(email):
         domains = ", ".join(d.strip() for d in settings.SELF_REGISTRATION_ALLOWED_DOMAINS.split(",") if d.strip())
         raise HTTPException(status_code=400, detail="Email phải thuộc tên miền được phép: " + domains)
+    result: dict = {"message": GENERIC_REGISTER}
     db = SessionLocal()
     try:
-        provision_user(db, email=email, password=request.password.get_secret_value(),
-                       display_name=request.display_name, roles=[], actor_id=None, bootstrap=False,
-                       account_status="INACTIVE", self_registered=True)
+        user_id = provision_user(db, email=email, password=request.password.get_secret_value(),
+                                 display_name=request.display_name, roles=[], actor_id=None, bootstrap=False,
+                                 account_status="PENDING", self_registered=True)
+        token = password_reset.issue_token(db, user_id, "VERIFY_EMAIL")
+        db.commit()
+        if token:
+            link = f"{settings.APP_PUBLIC_URL.rstrip('/')}/verify-email?token={token}"
+            sent = False
+            if email_enabled():
+                try:
+                    send_email(email, "Xác minh email đăng ký VinUni HRA",
+                               f"Mở liên kết sau để xác minh email (hết hạn sau 24 giờ, dùng một lần):\n\n{link}\n\n"
+                               "Sau khi xác minh, Admin sẽ duyệt tài khoản. Nếu bạn không đăng ký, hãy bỏ qua email này.")
+                    sent = True
+                except MailError as exc:
+                    logger.warning("Verification email failed", error_type=str(exc))
+            if not sent and settings.PASSWORD_RESET_DEV_ECHO:
+                result["dev_verify_link"] = link
     except HTTPException as exc:
         if exc.status_code != 409:
             raise
     finally:
         db.close()
-    return {"message": GENERIC_REGISTER}
+    return result
+
+
+@router.post("/verify-email")
+def verify_email(request: VerifyEmailRequest):
+    """Confirm the address of a self-registered account; it then waits for Admin approval."""
+    invalid = HTTPException(status_code=400, detail="Liên kết xác minh không hợp lệ hoặc đã hết hạn.")
+    db = SessionLocal()
+    try:
+        user_id = password_reset.consume_token(db, request.token, "VERIFY_EMAIL")
+        if not user_id:
+            db.rollback()
+            raise invalid
+        db.execute(text("""
+            UPDATE app_private.user_profiles SET email_verified_at = COALESCE(email_verified_at, NOW()), updated_at = NOW()
+            WHERE user_id = :id
+        """), {"id": user_id})
+        db.execute(text("""
+            INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, outcome)
+            VALUES (:id, 'VERIFY_EMAIL', 'USER', :id, 'SUCCESS')
+        """), {"id": user_id})
+        db.commit()
+        return {"verified": True}
+    finally:
+        db.close()
 
 
 @router.post("/forgot-password", status_code=202)
-def forgot_password(request: ForgotPasswordRequest):
+def forgot_password(request: ForgotPasswordRequest, http_request: Request):
     """Always answers the same, whether or not the email has an active account."""
     result: dict = {"message": GENERIC_FORGOT}
+    _limit_public_calls(http_request)
     if settings.AUTH_BACKEND != "local" and not settings.SUPABASE_SERVICE_ROLE_KEY:
         return result
     email = str(request.email).strip().lower()

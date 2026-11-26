@@ -12,17 +12,18 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { adminApi, authApi } from '@/lib/api';
 
 type Role = 'ADMIN' | 'HR_LEAD' | 'HR_RECRUITER' | 'HIRING_MANAGER' | 'VIEWER';
-type AccountStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
-type Account = { user_id: string; email: string | null; display_name: string; account_status: AccountStatus; roles: Role[]; must_change_password: boolean };
+type AccountStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' | 'PENDING';
+type Account = { user_id: string; email: string | null; display_name: string; account_status: AccountStatus; roles: Role[]; must_change_password: boolean; email_verified_at?: string | null };
 const roleKeys: Record<Role, string> = {
   ADMIN: 'Quản trị viên', HR_LEAD: 'Trưởng nhóm HR', HR_RECRUITER: 'HR tuyển dụng',
   HIRING_MANAGER: 'Hiring Manager (HM)', VIEWER: 'Người xem',
 };
-const statusKeys: Record<AccountStatus, string> = { ACTIVE: 'Đang hoạt động', INACTIVE: 'Ngừng hoạt động', SUSPENDED: 'Đã khóa' };
+const statusKeys: Record<AccountStatus, string> = { ACTIVE: 'Đang hoạt động', INACTIVE: 'Ngừng hoạt động', SUSPENDED: 'Đã khóa', PENDING: 'Chờ duyệt' };
 const allRoles = Object.keys(roleKeys) as Role[];
-// Self-registered accounts are INACTIVE with no role until an Admin approves them.
-const isPending = (account: Account) => account.account_status === 'INACTIVE' && account.roles.length === 0;
-const statusLabel = (account: Account) => isPending(account) ? 'Chờ duyệt' : statusKeys[account.account_status];
+// A self-registered account is PENDING until its email is verified and an Admin approves it.
+const isPending = (account: Account) => account.account_status === 'PENDING';
+const statusLabel = (account: Account) => isPending(account) && !account.email_verified_at
+  ? 'Chưa xác minh email' : statusKeys[account.account_status];
 const allStatuses = Object.keys(statusKeys) as AccountStatus[];
 
 export default function AdminUsersPage() {
