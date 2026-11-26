@@ -58,6 +58,40 @@ bạn cũng bỏ qua. Đừng sửa nó — nó đã áp lên Supabase thật.
 
 ---
 
+### 1.3. Nếu repo bỗng "sạch" mà `git ls-files` chỉ ra 10 file
+
+Đã xảy ra thật (2026-11-30). `HEAD` tụt về commit gốc `3bad733` chỉ có 10 file
+`doc/`; toàn bộ code nằm trong working tree dạng untracked. Nhìn `git status` thì
+giống "repo mới clone", nhưng thực ra **mất track**, không mất code.
+
+Chẩn đoán trong 5 giây:
+
+```bash
+git ls-files | wc -l          # 10 → sai, phải là 616
+git rev-parse HEAD            # 3bad733... → sai
+```
+
+Sửa — **kiểm trước khi sửa**, đừng reset mù:
+
+```bash
+# 1. working tree có khớp remote không? (dùng index tạm, không đụng index thật)
+export GIT_INDEX_FILE=/tmp/idx && rm -f $GIT_INDEX_FILE
+git read-tree origin/arena/ea6e2570-vinit-hrapp && git add -A .
+git diff --cached --name-only origin/arena/ea6e2570-vinit-hrapp | wc -l   # 0 = khớp
+rm -f $GIT_INDEX_FILE
+
+# 2. khớp rồi thì trỏ lại, không mất gì
+git reset --soft origin/arena/ea6e2570-vinit-hrapp
+```
+
+Nếu bước 1 **không** ra 0: dừng lại, có thay đổi thật cần giữ. Đừng reset.
+
+Cùng đợt mất đó cũng mất `node_modules` và venv. Cách nhận ra: test FE báo
+`Cannot find module 'typescript'`, pytest báo `No module named pytest`. Cài lại
+`npm install` và `python3 -m venv /tmp/venv && /tmp/venv/bin/pip install -e './backend[dev]'`.
+
+---
+
 ## 2. Migration
 
 1. **Không tự đặt số.** Xin người điều phối cấp số tiếp theo (`00042+`).
