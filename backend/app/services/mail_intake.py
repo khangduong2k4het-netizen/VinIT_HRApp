@@ -30,6 +30,7 @@ import unicodedata
 from datetime import datetime, timezone
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from html import unescape
+from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
@@ -62,6 +63,7 @@ CODE_RE = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]{2,10}-[A-Za-z0-9]{1,10}-\d{1,6}
 CV_NAME_RE = re.compile(r"(cv|resume|r[eé]sum[eé]|so[ _-]?yeu|ly[ _-]?lich|curriculum)", re.I)
 LABELS = {"MATCHED": "HRA/Đã nhận", "NEEDS_TRIAGE": "HRA/Chờ phân loại", "IGNORED": "HRA/Bỏ qua"}
 INLINE_IMAGE_MIN_BYTES = 20_000  # smaller images are signatures / logos, not CVs
+MAX_EMAIL_ATTACHMENTS = 10
 NOTICE_VERSION = "email-v1"
 _sync_lock = threading.Lock()
 
@@ -230,7 +232,12 @@ def _storage():
 
 def read_stored(storage_path: str) -> bytes:
     if settings.STORAGE_BACKEND == "local":
-        with open(os.path.join(settings.LOCAL_STORAGE_PATH, settings.SUPABASE_STORAGE_BUCKET_CV, storage_path), "rb") as f:
+        base = Path(settings.LOCAL_STORAGE_PATH).expanduser().resolve()
+        bucket_dir = (base / settings.SUPABASE_STORAGE_BUCKET_CV).resolve()
+        candidate = (bucket_dir / storage_path).resolve()
+        if candidate != bucket_dir and bucket_dir not in candidate.parents:
+            raise HTTPException(status_code=400, detail="Đường dẫn tệp không hợp lệ")
+        with open(candidate, "rb") as f:
             return f.read()
     return _storage().storage.from_(settings.SUPABASE_STORAGE_BUCKET_CV).download(storage_path)
 
@@ -335,10 +342,18 @@ def _process(db, account: dict, token: str, gmail_id: str, message_id: str) -> s
         return "IGNORED"
 
     accepted, rejected = [], []
+    downloaded = 0
     for att in parsed["attachments"]:
         is_image = att["mime"].startswith("image/")
         if is_image and (att["inline"] or att["size"] < INLINE_IMAGE_MIN_BYTES):
             continue  # signatures, logos
+        if att["size"] > settings.MAX_FILE_SIZE_BYTES:
+            rejected.append((att, "TOO_LARGE", att["size"]))
+            continue
+        if downloaded >= MAX_EMAIL_ATTACHMENTS:
+            rejected.append((att, "TOO_MANY_ATTACHMENTS", att["size"]))
+            continue
+        downloaded += 1
         content = gmail.b64url(att["data"]) if att.get("data") else gmail.get_attachment(token, gmail_id, att["attachment_id"])
         mime, why = _validated(att["filename"], content, att["mime"])
         if mime:
@@ -400,6 +415,86 @@ def _process(db, account: dict, token: str, gmail_id: str, message_id: str) -> s
     db.commit()
     _finish(db, message_id, "NEEDS_TRIAGE", reason=decision["reason"])
     return "NEEDS_TRIAGE"
+
+
+def sync_triage_label(account_id: str, gmail_id: str, target_status: str) -> None:
+    """Best-effort update of Gmail labels after HR triages a message."""
+    if not gmail.configured() or target_status not in LABELS:
+        return
+    db = SessionLocal()
+    try:
+        account = db.execute(text("""SELECT * FROM app_private.mailbox_accounts
+            WHERE account_id = :id AND status = 'ACTIVE'"""), {"id": account_id}).mappings().first()
+    finally:
+        db.close()
+    if not account:
+        return
+    try:
+        token = gmail.access_token(gmail.decrypt_token(account["refresh_token_ciphertext"]))
+        labels = gmail.ensure_labels(token, list(LABELS.values()))
+        add_id = labels.get(LABELS[target_status])
+        remove_id = labels.get(LABELS["NEEDS_TRIAGE"])
+        if add_id:
+            gmail.replace_label(token, gmail_id, add_id, remove_id)
+    except gmail.GmailError as exc:
+        logger.warning("Could not update triage Gmail label", error=exc.code)
+
+
+def retry_failed_message(message_id: str) -> dict:
+    """Re-process one FAILED mailbox message (e.g. after ClamAV or transient Gmail error)."""
+    if not gmail.configured():
+        raise HTTPException(status_code=409, detail="Chưa bật hoặc chưa cấu hình kết nối Gmail")
+    db = SessionLocal()
+    try:
+        row = db.execute(text("""SELECT m.message_id, m.account_id, m.provider_message_id, m.status,
+                a.email_address, a.refresh_token_ciphertext, a.status AS account_status
+            FROM app_private.mailbox_messages m
+            JOIN app_private.mailbox_accounts a ON a.account_id = m.account_id
+            WHERE m.message_id = :id FOR UPDATE OF m"""), {"id": message_id}).mappings().first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Không tìm thấy thư")
+        if row["status"] != "FAILED":
+            raise HTTPException(status_code=409, detail="Chỉ có thể thử lại các thư đang ở trạng thái lỗi")
+        if row["account_status"] != "ACTIVE":
+            raise HTTPException(status_code=409, detail="Hộp thư Gmail chưa ở trạng thái hoạt động")
+        account = {"account_id": row["account_id"], "email_address": row["email_address"]}
+        gmail_id = row["provider_message_id"]
+        ciphertext = row["refresh_token_ciphertext"]
+        db.execute(text("DELETE FROM app_private.mailbox_attachments WHERE message_id = :id AND status = 'REJECTED'"),
+                   {"id": message_id})
+        db.execute(text("UPDATE app_private.mailbox_messages SET status = 'NEW', reason = NULL WHERE message_id = :id"),
+                   {"id": message_id})
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+    db = SessionLocal()
+    try:
+        token = gmail.access_token(gmail.decrypt_token(ciphertext))
+        labels = gmail.ensure_labels(token, list(LABELS.values()))
+        status = _process(db, account, token, gmail_id, message_id)
+        label = LABELS.get(status)
+        if label and labels.get(label):
+            try:
+                gmail.add_label(token, gmail_id, labels[label])
+            except gmail.GmailError as exc:
+                logger.warning("Could not label retried message", error=exc.code)
+        updated = db.execute(text("SELECT status, reason, position_id FROM app_private.mailbox_messages WHERE message_id = :id"),
+                             {"id": message_id}).mappings().one()
+        return {"status": updated["status"], "reason": updated["reason"],
+                "position_id": str(updated["position_id"]) if updated["position_id"] else None}
+    except Exception as exc:
+        db.rollback()
+        code = getattr(exc, "code", type(exc).__name__)[:60]
+        db.execute(text("UPDATE app_private.mailbox_messages SET status = 'FAILED', reason = :r WHERE message_id = :id AND status = 'NEW'"),
+                   {"r": code, "id": message_id})
+        db.commit()
+        raise HTTPException(status_code=502, detail=f"Không thể đọc lại thư lúc này ({code})") from None
+    finally:
+        db.close()
 
 
 # ---- syncing the mailbox -----------------------------------------------------------------

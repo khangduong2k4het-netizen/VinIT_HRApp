@@ -243,3 +243,7 @@ def test_admin_recovery_is_offered_when_either_the_key_or_email_exists(client, m
     monkeypatch.setattr(settings, "SMTP_HOST", "127.0.0.1")
     monkeypatch.setattr(settings, "SMTP_FROM", "tuyendung@vinuni.test")
     assert client.get("/v1/auth/public-config").json()["admin_recovery"] is True
+    monkeypatch.setattr(settings, "AUTH_BACKEND", "supabase")
+    assert client.get("/v1/auth/public-config").json()["admin_recovery"] is False
+    assert client.post("/v1/auth/recovery/email-code", json={"email": "admin@vinuni.edu.vn"}).status_code == 404
+    assert client.post("/v1/auth/recovery/email-code/reset", json={"email": "admin@vinuni.edu.vn", "code": "AAAA-BBBB-CCCC", "new_password": NEW_PASSWORD}).status_code == 404

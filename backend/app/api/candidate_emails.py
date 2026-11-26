@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from typing import Literal, Optional
 from uuid import UUID
 
@@ -146,38 +147,88 @@ def _audit(db, user_id: str, action: str, application: dict, metadata: dict) -> 
 
 
 def _check_sendable(to_address: str, subject: str, body: str) -> None:
-    if not _EMAIL.match(to_address.strip()):
+    if "\r" in to_address or "\n" in to_address or not _EMAIL.match(to_address.strip()):
         raise HTTPException(status_code=400, detail="Địa chỉ email người nhận không hợp lệ")
+    if "\r" in subject or "\n" in subject:
+        raise HTTPException(status_code=400, detail="Tiêu đề thư không được chứa ký tự xuống dòng")
     missing = _unresolved(subject, body)
     if missing:
         raise HTTPException(status_code=400, detail="Thư còn chỗ chưa điền: " + ", ".join("{" + m + "}" for m in missing))
 
 
-def _deliver(db, email_row: dict, hr: dict, user_id: str, confirmed: bool) -> dict:
-    """Record or send one message HR has reviewed. Caller commits."""
-    if email_row["template_code"] == "REJECTION" and not confirmed:
-        raise HTTPException(status_code=400, detail="Thư từ chối cần HR xác nhận lần nữa trước khi gửi")
-    _check_sendable(email_row["to_address"], email_row["subject"], email_row["body"])
+_send_locks_guard = threading.Lock()
+_send_locks: dict[str, threading.Lock] = {}
+
+
+def _email_lock(email_id: str) -> threading.Lock:
+    with _send_locks_guard:
+        if len(_send_locks) > 1000:
+            idle = [k for k, lk in _send_locks.items() if not lk.locked()]
+            for k in idle[:500]:
+                _send_locks.pop(k, None)
+        lock = _send_locks.get(email_id)
+        if lock is None:
+            lock = threading.Lock()
+            _send_locks[email_id] = lock
+        return lock
+
+
+def _check_rate_limit(db, user_id: str) -> None:
     recent = db.execute(text("""SELECT COUNT(*) FROM app_private.candidate_emails
         WHERE sent_by = :u AND status IN ('RECORDED', 'SENT') AND sent_at > NOW() - INTERVAL '1 hour'"""),
                         {"u": user_id}).scalar_one()
     if recent >= settings.CANDIDATE_EMAIL_MAX_PER_HOUR:
         raise HTTPException(status_code=429, detail="Bạn đã gửi quá nhiều thư trong một giờ. Vui lòng thử lại sau.")
-    status, error_code = "RECORDED", None
-    if settings.CANDIDATE_EMAIL_SEND_MODE == "smtp":
+
+
+def _send_via_transport(email_row: dict) -> tuple[str, Optional[str]]:
+    """Perform the SMTP call outside any DB transaction/lock."""
+    if settings.CANDIDATE_EMAIL_SEND_MODE != "smtp":
+        return "RECORDED", None
+    try:
+        send_email(email_row["to_address"].strip(), email_row["subject"], email_row["body"],
+                   from_address=email_row["from_address"], reply_to=email_row.get("reply_to_address"))
+        return "SENT", None
+    except MailError as exc:
+        return "FAILED", str(exc)[:100]
+
+
+def _deliver_out_of_tx(email_id: str, user_id: str, confirmed: bool, *, allowed_statuses: tuple[str, ...]) -> dict:
+    """Validate, release DB connection, call SMTP, then persist final status & audit."""
+    with _email_lock(email_id):
+        db = SessionLocal()
         try:
-            send_email(email_row["to_address"].strip(), email_row["subject"], email_row["body"],
-                       from_address=email_row["from_address"], reply_to=email_row.get("reply_to_address"))
-            status = "SENT"
-        except MailError as exc:
-            status, error_code = "FAILED", str(exc)[:100]
-    row = db.execute(text("""
-        UPDATE app_private.candidate_emails
-        SET status = :s, error_code = :e, sent_by = :u, sent_at = CASE WHEN :s = 'FAILED' THEN NULL ELSE NOW() END,
-            updated_at = NOW()
-        WHERE email_id = :id RETURNING *
-    """), {"s": status, "e": error_code, "u": user_id, "id": str(email_row["email_id"])}).mappings().one()
-    return dict(row)
+            row, hr, app = _own_email(db, email_id, user_id, allowed_statuses=allowed_statuses)
+            if row["template_code"] == "REJECTION" and not confirmed:
+                raise HTTPException(status_code=400, detail="Thư từ chối cần HR xác nhận lần nữa trước khi gửi")
+            _check_sendable(row["to_address"], row["subject"], row["body"])
+            _check_rate_limit(db, user_id)
+            snapshot = dict(row)
+        finally:
+            db.close()
+
+        status, error_code = _send_via_transport(snapshot)
+
+        db = SessionLocal()
+        try:
+            row = db.execute(text("""
+                UPDATE app_private.candidate_emails
+                SET status = :s, error_code = :e, sent_by = :u,
+                    sent_at = CASE WHEN :s = 'FAILED' THEN NULL ELSE NOW() END,
+                    updated_at = NOW()
+                WHERE email_id = :id RETURNING *
+            """), {"s": status, "e": error_code, "u": user_id, "id": email_id}).mappings().one()
+            row = dict(row)
+            _audit(db, user_id, "SEND_CANDIDATE_EMAIL", app,
+                   {"email_id": email_id, "template_code": row["template_code"], "status": row["status"],
+                    "trigger": row["trigger_source"]})
+            db.commit()
+            return _email_out(row)
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
 
 
 # ---- templates ----------------------------------------------------------------------
@@ -298,7 +349,10 @@ async def create_email(application_id: UUID, body: EmailInput, current_user: dic
             app = _application(db, str(application_id), current_user["user_id"])
             sender = _sender(hr)
             if body.send:
+                if body.template_code == "REJECTION" and not body.confirmed:
+                    raise HTTPException(status_code=400, detail="Thư từ chối cần HR xác nhận lần nữa trước khi gửi")
                 _check_sendable(body.to_address, body.subject, body.body)
+                _check_rate_limit(db, current_user["user_id"])
             row = db.execute(text("""
                 INSERT INTO app_private.candidate_emails (application_id, position_id, template_code, trigger_source,
                     from_address, reply_to_address, to_address, subject, body, created_by)
@@ -307,29 +361,30 @@ async def create_email(application_id: UUID, body: EmailInput, current_user: dic
                    "f": sender["from_address"], "r": sender["reply_to_address"], "to": body.to_address.strip(),
                    "s": body.subject.strip(), "b": body.body, "u": current_user["user_id"]}).mappings().one()
             row = dict(row)
-            if body.send:
-                row = _deliver(db, row, hr, current_user["user_id"], body.confirmed)
-            _audit(db, current_user["user_id"], "SEND_CANDIDATE_EMAIL" if body.send else "DRAFT_CANDIDATE_EMAIL", app,
-                   {"email_id": str(row["email_id"]), "template_code": body.template_code, "status": row["status"],
-                    "trigger": body.trigger_source})
+            if not body.send:
+                _audit(db, current_user["user_id"], "DRAFT_CANDIDATE_EMAIL", app,
+                       {"email_id": str(row["email_id"]), "template_code": body.template_code, "status": row["status"],
+                        "trigger": body.trigger_source})
             db.commit()
-            return _email_out(row)
         except Exception:
             db.rollback()
             raise
         finally:
             db.close()
+        if body.send:
+            return _deliver_out_of_tx(str(row["email_id"]), current_user["user_id"], body.confirmed, allowed_statuses=("DRAFT",))
+        return _email_out(row)
     return await run_in_threadpool(run)
 
 
-def _own_draft(db, email_id: str, user_id: str) -> tuple[dict, dict, dict]:
+def _own_email(db, email_id: str, user_id: str, *, allowed_statuses: tuple[str, ...] = ("DRAFT",)) -> tuple[dict, dict, dict]:
     row = db.execute(text("SELECT * FROM app_private.candidate_emails WHERE email_id = :id FOR UPDATE"),
                      {"id": email_id}).mappings().first()
     if not row:
         raise HTTPException(status_code=404, detail="Không tìm thấy thư")
     hr = _hr_user(db, user_id)
     app = _application(db, str(row["application_id"]), user_id)
-    if row["status"] != "DRAFT":
+    if row["status"] not in allowed_statuses:
         raise HTTPException(status_code=409, detail="Thư này đã được gửi hoặc đã hủy")
     return dict(row), hr, app
 
@@ -339,7 +394,7 @@ async def update_draft(email_id: UUID, body: EmailUpdate, current_user: dict = D
     def run():
         db = SessionLocal()
         try:
-            _own_draft(db, str(email_id), current_user["user_id"])
+            _own_email(db, str(email_id), current_user["user_id"], allowed_statuses=("DRAFT", "FAILED"))
             row = db.execute(text("""UPDATE app_private.candidate_emails SET to_address = :to, subject = :s, body = :b,
                 updated_at = NOW() WHERE email_id = :id RETURNING *"""),
                              {"to": body.to_address.strip(), "s": body.subject.strip(), "b": body.body,
@@ -356,22 +411,15 @@ async def update_draft(email_id: UUID, body: EmailUpdate, current_user: dict = D
 
 @router.post("/emails/{email_id}/send")
 async def send_draft(email_id: UUID, body: SendRequest, current_user: dict = Depends(get_current_user)):
-    def run():
-        db = SessionLocal()
-        try:
-            row, hr, app = _own_draft(db, str(email_id), current_user["user_id"])
-            row = _deliver(db, row, hr, current_user["user_id"], body.confirmed)
-            _audit(db, current_user["user_id"], "SEND_CANDIDATE_EMAIL", app,
-                   {"email_id": str(email_id), "template_code": row["template_code"], "status": row["status"],
-                    "trigger": row["trigger_source"]})
-            db.commit()
-            return _email_out(row)
-        except Exception:
-            db.rollback()
-            raise
-        finally:
-            db.close()
-    return await run_in_threadpool(run)
+    return await run_in_threadpool(
+        _deliver_out_of_tx, str(email_id), current_user["user_id"], body.confirmed, allowed_statuses=("DRAFT",))
+
+
+@router.post("/emails/{email_id}/retry")
+async def retry_failed_email(email_id: UUID, body: SendRequest, current_user: dict = Depends(get_current_user)):
+    """Retry sending an email whose previous SMTP delivery failed."""
+    return await run_in_threadpool(
+        _deliver_out_of_tx, str(email_id), current_user["user_id"], body.confirmed, allowed_statuses=("FAILED",))
 
 
 @router.post("/emails/{email_id}/cancel")
@@ -379,7 +427,7 @@ async def cancel_draft(email_id: UUID, current_user: dict = Depends(get_current_
     def run():
         db = SessionLocal()
         try:
-            _, _, app = _own_draft(db, str(email_id), current_user["user_id"])
+            _, _, app = _own_email(db, str(email_id), current_user["user_id"], allowed_statuses=("DRAFT", "FAILED"))
             row = db.execute(text("""UPDATE app_private.candidate_emails SET status = 'CANCELLED', updated_at = NOW()
                 WHERE email_id = :id RETURNING *"""), {"id": str(email_id)}).mappings().one()
             _audit(db, current_user["user_id"], "CANCEL_CANDIDATE_EMAIL", app,

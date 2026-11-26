@@ -19,7 +19,8 @@ MIGRATION = Path(__file__).resolve().parents[2] / "supabase" / "migrations" / "0
 
 
 @pytest.fixture
-def mail(seed):
+def mail(seed, monkeypatch):
+    monkeypatch.setattr(settings, "CANDIDATE_EMAIL_SEND_MODE", "record")
     # Other tests truncate app tables; put back the default templates the migration seeds.
     seed_sql = MIGRATION.read_text(encoding="utf-8").split("INSERT INTO app_private.email_templates", 1)[1]
     with engine.begin() as conn:
@@ -126,3 +127,38 @@ def test_templates_are_listed_for_hr_and_edited_by_hr_lead_only(client, mail):
     body = {"subject_template": "Mời phỏng vấn {vi_tri}", "body_template": "Chào {ho_ten}"}
     assert client.put("/v1/candidate-emails/templates/INTERVIEW_INVITE", headers=headers(mail["hr"]), json=body).status_code == 403
     assert client.get("/v1/candidate-emails/templates", headers=headers(mail["hm"])).status_code == 403
+
+
+def test_header_injection_rejected_and_failed_smtp_can_be_retried(client, mail, monkeypatch):
+    from app.services.mailer import MailError, send_email
+    d = _compose(client, mail, "ACK_RECEIVED").json()
+    route = f"/v1/candidate-emails/applications/{mail['app']}/emails"
+    bad = client.post(route, headers=headers(mail["hr"]), json={
+        "template_code": "ACK_RECEIVED", "to_address": d["to_address"],
+        "subject": "Line 1\r\nBcc: evil@example.test", "body": d["body"], "send": True,
+    })
+    assert bad.status_code == 400
+    monkeypatch.setattr(settings, "SMTP_HOST", "127.0.0.1")
+    monkeypatch.setattr(settings, "SMTP_FROM", "hr@example.org")
+    with pytest.raises(MailError, match="INVALID_HEADER"):
+        send_email("candidate@example.test", "Bad\nSubject", "Body")
+
+    # Simulate transient SMTP failure followed by successful retry.
+    calls = []
+    monkeypatch.setattr(settings, "CANDIDATE_EMAIL_SEND_MODE", "smtp")
+
+    def flaky_send(to, subject, body, **kw):
+        calls.append(to)
+        if len(calls) == 1:
+            raise MailError("SMTPConnectError")
+
+    monkeypatch.setattr("app.api.candidate_emails.send_email", flaky_send)
+    first = client.post(route, headers=headers(mail["hr"]), json={
+        "template_code": "ACK_RECEIVED", "to_address": d["to_address"],
+        "subject": d["subject"], "body": d["body"], "send": True,
+    })
+    assert first.status_code == 201 and first.json()["status"] == "FAILED"
+    eid = first.json()["email_id"]
+    retried = client.post(f"/v1/candidate-emails/emails/{eid}/retry", headers=headers(mail["hr"]), json={})
+    assert retried.status_code == 200 and retried.json()["status"] == "SENT"
+    assert len(calls) == 2

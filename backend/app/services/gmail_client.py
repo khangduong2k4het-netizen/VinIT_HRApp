@@ -129,8 +129,11 @@ def forget_token(refresh_token: str) -> None:
 
 def _call(method: str, url: str, token: str, *, params: dict | None = None, json: Any = None,
           timeout: float = 30) -> dict:
-    resp = httpx.request(method, url, headers={"Authorization": f"Bearer {token}"}, params=params, json=json,
-                         timeout=timeout)
+    try:
+        resp = httpx.request(method, url, headers={"Authorization": f"Bearer {token}"}, params=params, json=json,
+                             timeout=timeout)
+    except httpx.HTTPError:
+        raise GmailError("GOOGLE_UNREACHABLE") from None
     if resp.status_code == 404:
         raise GmailError("NOT_FOUND", 404)
     if resp.status_code == 429 or resp.status_code >= 500:
@@ -154,7 +157,7 @@ def stop_watch(token: str) -> None:
     _call("POST", f"{GMAIL}/stop", token)
 
 
-def history_message_ids(token: str, start_history_id: str) -> tuple[list[str], Optional[str]]:
+def history_message_ids(token: str, start_history_id: str, max_pages: int = 50) -> tuple[list[str], Optional[str]]:
     """Ids of messages added to INBOX since ``start_history_id`` and the newest history id.
 
     Raises GmailError('NOT_FOUND') when the history id is too old (Gmail keeps about a week).
@@ -162,7 +165,9 @@ def history_message_ids(token: str, start_history_id: str) -> tuple[list[str], O
     ids: list[str] = []
     latest = None
     page = None
-    while True:
+    pages = 0
+    while pages < max_pages:
+        pages += 1
         params = {"startHistoryId": start_history_id, "historyTypes": "messageAdded", "labelId": "INBOX",
                   "maxResults": 100}
         if page:
@@ -176,7 +181,8 @@ def history_message_ids(token: str, start_history_id: str) -> tuple[list[str], O
                     ids.append(msg["id"])
         page = data.get("nextPageToken")
         if not page:
-            return ids, latest
+            break
+    return ids, latest
 
 
 def recent_inbox_ids(token: str, newer_than_days: int = 2) -> list[str]:
@@ -205,6 +211,13 @@ def ensure_labels(token: str, names: list[str]) -> dict[str, str]:
 
 def add_label(token: str, message_id: str, label_id: str) -> None:
     _call("POST", f"{GMAIL}/messages/{message_id}/modify", token, json={"addLabelIds": [label_id]})
+
+
+def replace_label(token: str, message_id: str, add_label_id: str, remove_label_id: Optional[str] = None) -> None:
+    body: dict[str, list[str]] = {"addLabelIds": [add_label_id]}
+    if remove_label_id and remove_label_id != add_label_id:
+        body["removeLabelIds"] = [remove_label_id]
+    _call("POST", f"{GMAIL}/messages/{message_id}/modify", token, json=body)
 
 
 # ---- Pub/Sub ----------------------------------------------------------------------

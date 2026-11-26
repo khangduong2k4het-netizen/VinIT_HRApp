@@ -67,15 +67,15 @@ def _is_admin(db, user_id: str) -> bool:
                       {"u": user_id}).first() is not None
 
 
-def _require_hr(current_user: dict) -> None:
-    db = SessionLocal()
-    try:
-        ok = db.execute(text("""SELECT 1 FROM app_private.user_role_assignments r
-            JOIN app_private.user_profiles p ON p.user_id = r.user_id
-            WHERE r.user_id = :u AND r.revoked_at IS NULL AND r.role_code = ANY(:roles) AND p.account_status = 'ACTIVE'
-            LIMIT 1"""), {"u": current_user["user_id"], "roles": list(HR_ROLES)}).first()
-    finally:
-        db.close()
+def _require_hr_db(db, user_id: str) -> None:
+    ok = db.execute(text("""SELECT 1 FROM app_private.user_profiles p
+        WHERE p.user_id = :u AND p.account_status = 'ACTIVE' AND (
+            EXISTS (SELECT 1 FROM app_private.user_role_assignments r
+                    WHERE r.user_id = :u AND r.revoked_at IS NULL AND r.role_code = ANY(:roles))
+            OR EXISTS (SELECT 1 FROM app_private.position_assignments pa
+                       WHERE pa.user_id = :u AND pa.revoked_at IS NULL
+                         AND pa.position_role IN ('HR_RECRUITER', 'HR_LEAD'))
+        ) LIMIT 1"""), {"u": user_id, "roles": list(HR_ROLES)}).first()
     if not ok:
         raise HTTPException(status_code=403, detail="Chỉ HR mới xem được hộp thư CV")
 
@@ -221,11 +221,10 @@ async def sync_now(_: dict = Depends(require_admin_role)):
 @router.get("/intake-address")
 async def get_intake_address(position_code: str = Query(min_length=3, max_length=40), current_user: dict = Depends(get_current_user)):
     """The address candidates can send a CV to for this position, if a mailbox is connected."""
-    _require_hr(current_user)
-
     def run():
         db = SessionLocal()
         try:
+            _require_hr_db(db, current_user["user_id"])
             account = mail_intake.active_account(db)
             ok = account and account["status"] == "ACTIVE"
             return {"address": intake_address(account["email_address"], position_code.upper()) if ok else None}
@@ -237,11 +236,10 @@ async def get_intake_address(position_code: str = Query(min_length=3, max_length
 @router.get("/messages")
 async def list_messages(status: Literal["NEEDS_TRIAGE", "MATCHED", "IGNORED", "FAILED"] = "NEEDS_TRIAGE",
                         limit: int = Query(default=50, ge=1, le=200), current_user: dict = Depends(get_current_user)):
-    _require_hr(current_user)
-
     def run():
         db = SessionLocal()
         try:
+            _require_hr_db(db, current_user["user_id"])
             rows = db.execute(text("""
                 SELECT m.message_id, m.from_address, m.from_name, m.subject, m.received_at, m.created_at, m.status,
                        m.reason, m.match_method, m.suggestions, m.position_id, p.position_code, p.title AS position_title,
@@ -272,11 +270,10 @@ async def list_messages(status: Literal["NEEDS_TRIAGE", "MATCHED", "IGNORED", "F
 @router.get("/attachments/{attachment_id}/file")
 async def attachment_file(attachment_id: UUID, current_user: dict = Depends(get_current_user)):
     """A file waiting for triage, for HR to open before choosing the position."""
-    _require_hr(current_user)
-
     def run():
         db = SessionLocal()
         try:
+            _require_hr_db(db, current_user["user_id"])
             row = db.execute(text("""SELECT a.storage_path, a.mime_type, a.filename, m.status FROM app_private.mailbox_attachments a
                 JOIN app_private.mailbox_messages m USING (message_id) WHERE a.attachment_id = :id"""),
                              {"id": str(attachment_id)}).mappings().first()
@@ -309,12 +306,12 @@ def _triage_message(db, message_id: str) -> dict:
 @router.post("/messages/{message_id}/assign")
 async def assign(message_id: UUID, body: AssignInput, current_user: dict = Depends(get_current_user)):
     """HR picks the position for a CV HRA could not place; the application is created like any email CV."""
-    _require_hr(current_user)
     await check_position_access(body.position_id, current_user, required_roles=["HR_RECRUITER"])
 
     def run():
         db = SessionLocal()
         try:
+            _require_hr_db(db, current_user["user_id"])
             msg = _triage_message(db, str(message_id))
             pos = db.execute(text(mail_intake.EMAIL_OPEN_POSITION_SQL + " AND p.position_id = :p"),
                              {"p": str(body.position_id)}).first()
@@ -341,13 +338,15 @@ async def assign(message_id: UUID, body: AssignInput, current_user: dict = Depen
                     WHERE attachment_id = :id"""), {"s": "USED" if used else "DISCARDED", "a": app_id if used else None,
                                                      "id": f["attachment_id"]})
                 mail_intake.remove_stored(f["storage_path"])
+            final_status = "MATCHED" if app_id else "IGNORED"
             db.execute(text("""UPDATE app_private.mailbox_messages SET status = :s, position_id = :p, match_method = 'HR',
                 reason = :r, decided_by = :u, decided_at = NOW() WHERE message_id = :id"""),
-                       {"s": "MATCHED" if app_id else "IGNORED", "p": str(body.position_id), "u": current_user["user_id"],
+                       {"s": final_status, "p": str(body.position_id), "u": current_user["user_id"],
                         "r": None if app_id else "DUPLICATE_CV", "id": str(message_id)})
             _audit(db, current_user["user_id"], "ASSIGN_EMAIL_CV", str(message_id), {"duplicate": app_id is None},
                    position_id=str(body.position_id))
             db.commit()
+            mail_intake.sync_triage_label(str(msg["account_id"]), msg["provider_message_id"], final_status)
             return {"status": "MATCHED" if app_id else "DUPLICATE", "application_id": app_id}
         except Exception:
             db.rollback()
@@ -360,12 +359,11 @@ async def assign(message_id: UUID, body: AssignInput, current_user: dict = Depen
 @router.post("/messages/{message_id}/ignore")
 async def ignore(message_id: UUID, current_user: dict = Depends(get_current_user)):
     """Not a CV, spam, or not for any open position: delete the kept files."""
-    _require_hr(current_user)
-
     def run():
         db = SessionLocal()
         try:
-            _triage_message(db, str(message_id))
+            _require_hr_db(db, current_user["user_id"])
+            msg = _triage_message(db, str(message_id))
             for f in db.execute(text("""SELECT attachment_id, storage_path FROM app_private.mailbox_attachments
                     WHERE message_id = :m AND status = 'STORED'"""), {"m": str(message_id)}).mappings().all():
                 mail_intake.remove_stored(f["storage_path"])
@@ -375,10 +373,32 @@ async def ignore(message_id: UUID, current_user: dict = Depends(get_current_user
                 decided_by = :u, decided_at = NOW() WHERE message_id = :id"""), {"u": current_user["user_id"], "id": str(message_id)})
             _audit(db, current_user["user_id"], "IGNORE_EMAIL_CV", str(message_id), {})
             db.commit()
+            mail_intake.sync_triage_label(str(msg["account_id"]), msg["provider_message_id"], "IGNORED")
             return {"status": "IGNORED"}
         except Exception:
             db.rollback()
             raise
         finally:
             db.close()
+    return await run_in_threadpool(run)
+
+
+@router.post("/messages/{message_id}/retry")
+async def retry_message(message_id: UUID, current_user: dict = Depends(get_current_user)):
+    """Retry processing a FAILED message (e.g. after transient scanner or Gmail error)."""
+    def run():
+        db = SessionLocal()
+        try:
+            _require_hr_db(db, current_user["user_id"])
+        finally:
+            db.close()
+        result = mail_intake.retry_failed_message(str(message_id))
+        db = SessionLocal()
+        try:
+            _audit(db, current_user["user_id"], "RETRY_EMAIL_CV", str(message_id), {"status": result["status"]},
+                   position_id=result.get("position_id"))
+            db.commit()
+        finally:
+            db.close()
+        return result
     return await run_in_threadpool(run)

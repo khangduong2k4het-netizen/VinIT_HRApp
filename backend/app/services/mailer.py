@@ -23,16 +23,25 @@ def email_enabled() -> bool:
     return bool(settings.SMTP_HOST and settings.SMTP_FROM)
 
 
+def _check_header(value: str | None) -> str | None:
+    if value is not None and ("\r" in value or "\n" in value):
+        raise MailError("INVALID_HEADER")
+    return value
+
+
 def send_email(to_address: str, subject: str, body: str, *, from_address: str | None = None,
                reply_to: str | None = None) -> None:
     if not email_enabled():
         raise MailError("EMAIL_NOT_CONFIGURED")
     message = EmailMessage()
-    message["From"] = from_address or settings.SMTP_FROM
-    if reply_to:
-        message["Reply-To"] = reply_to
-    message["To"] = to_address
-    message["Subject"] = subject
+    try:
+        message["From"] = _check_header(from_address or settings.SMTP_FROM)
+        if reply_to:
+            message["Reply-To"] = _check_header(reply_to)
+        message["To"] = _check_header(to_address)
+        message["Subject"] = _check_header(subject)
+    except ValueError as exc:
+        raise MailError("INVALID_HEADER") from exc
     message.set_content(body)
     try:
         with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=20) as client:

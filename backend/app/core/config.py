@@ -309,6 +309,11 @@ class Settings(BaseSettings):
         if self.INTAKE_API_ENABLED and self.APP_ENV not in ("development", "testing"):
             if self.MALWARE_SCAN_MODE != "clamav":
                 raise ValueError("INTAKE_API_ENABLED requires MALWARE_SCAN_MODE=clamav outside development/testing")
+        if self.GMAIL_INTAKE_ENABLED and self.APP_ENV not in ("development", "testing"):
+            if self.MALWARE_SCAN_MODE != "clamav":
+                raise ValueError("GMAIL_INTAKE_ENABLED requires MALWARE_SCAN_MODE=clamav outside development/testing")
+            if not (self.MAILBOX_ENCRYPTION_KEY or self.AI_CONFIG_ENCRYPTION_KEY or "").strip():
+                raise ValueError("GMAIL_INTAKE_ENABLED requires MAILBOX_ENCRYPTION_KEY or AI_CONFIG_ENCRYPTION_KEY outside development/testing")
         return self
 
 

@@ -288,6 +288,10 @@ def _limit_public_calls(request: Request) -> None:
         return
     from app.api.public_intake import client_address
     now = time.time()
+    if len(_public_hits) > 2000:
+        stale = [key for key, q in list(_public_hits.items()) if not q or q[-1] < now - 3600]
+        for key in stale:
+            _public_hits.pop(key, None)
     hits = _public_hits[client_address(request)]
     while hits and hits[0] < now - 3600:
         hits.popleft()
@@ -305,7 +309,7 @@ def public_config():
             # Self-service reset needs a way to deliver the link: SMTP, or the development echo.
             "password_reset": settings.PASSWORD_RESET_SELF_SERVICE and (email_enabled() or bool(settings.PASSWORD_RESET_DEV_ECHO)),
             "reset_request": True,
-            "admin_recovery": _recovery_enabled() or email_enabled(),
+            "admin_recovery": _recovery_enabled() or (settings.AUTH_BACKEND == "local" and email_enabled()),
             "registration_domains": [d.strip() for d in settings.SELF_REGISTRATION_ALLOWED_DOMAINS.split(",") if d.strip()]}
 
 
