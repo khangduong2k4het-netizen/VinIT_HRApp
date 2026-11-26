@@ -1,5 +1,6 @@
 'use client';
 
+import PasswordField from '@/components/common/PasswordField';
 import { useEffect, useState } from 'react';
 import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions,
@@ -201,8 +202,8 @@ export default function AdminUsersPage() {
           <TextField label={t("Họ và tên")} value={name} onChange={e => setName(e.target.value)} fullWidth required margin="normal" inputProps={{ maxLength: 120 }} />
           <TextField label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} fullWidth required margin="normal" disabled={Boolean(editing)} autoComplete="off" />
           {!editing && <>
-            <TextField label={t("Mật khẩu tạm thời")} type="password" value={password} onChange={e => setPassword(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" helperText={t("Ít nhất 12 ký tự, tối đa 72 byte UTF-8.")} />
-            <TextField label={t("Xác nhận mật khẩu")} type="password" value={confirm} onChange={e => setConfirm(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" />
+            <PasswordField label={t("Mật khẩu tạm thời")} value={password} onChange={e => setPassword(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" helperText={t("Ít nhất 12 ký tự, tối đa 72 byte UTF-8.")} />
+            <PasswordField label={t("Xác nhận mật khẩu")} value={confirm} onChange={e => setConfirm(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" />
           </>}
           <FormControl fullWidth required margin="normal"><InputLabel id="edit-roles-label">{t("Vai trò")}</InputLabel>
             <Select labelId="edit-roles-label" multiple value={roles} label={t("Vai trò")} onChange={e => setRoles(e.target.value as Role[])}
@@ -228,8 +229,8 @@ export default function AdminUsersPage() {
           {resetError && <Alert severity="error" sx={{ mb: 2 }}>{t(resetError)}</Alert>}
           <Alert severity="warning" sx={{ mb: 2 }}>{t("Thành viên sẽ phải đổi mật khẩu này khi đăng nhập lại; các phiên đăng nhập hiện tại của thành viên sẽ bị thu hồi.")}</Alert>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{resetTarget ? `${resetTarget.display_name} · ${resetTarget.email || '—'}` : ''}</Typography>
-          <TextField label={t("Mật khẩu tạm thời")} type="password" value={resetPassword} onChange={e => setResetPassword(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" helperText={t("Ít nhất 12 ký tự, tối đa 72 byte UTF-8.")} />
-          <TextField label={t("Xác nhận mật khẩu")} type="password" value={resetConfirm} onChange={e => setResetConfirm(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" />
+          <PasswordField label={t("Mật khẩu tạm thời")} value={resetPassword} onChange={e => setResetPassword(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" helperText={t("Ít nhất 12 ký tự, tối đa 72 byte UTF-8.")} />
+          <PasswordField label={t("Xác nhận mật khẩu")} value={resetConfirm} onChange={e => setResetConfirm(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" />
         </DialogContent>
         <DialogActions sx={{ p: 2 }}><Button onClick={closeReset} disabled={resetting}>{t("Hủy")}</Button>
           <Button type="submit" variant="contained" color="secondary" disabled={resetting}>{resetting ? <CircularProgress size={20} color="inherit" /> : t("Đặt lại mật khẩu")}</Button>

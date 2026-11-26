@@ -1,5 +1,6 @@
 'use client';
 
+import PasswordField from '@/components/common/PasswordField';
 import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Alert, Box, Button, Card, CardContent, CircularProgress, TextField, Typography } from '@mui/material';
@@ -40,8 +41,8 @@ function ResetPasswordForm() {
       {done ? <Alert severity="success" sx={{ my: 2 }}>{t("Đã đặt lại mật khẩu. Hãy đăng nhập bằng mật khẩu mới.")}</Alert>
         : !token ? <Alert severity="warning" sx={{ my: 2 }}>{t("Liên kết đặt lại mật khẩu không hợp lệ. Hãy yêu cầu liên kết mới.")}</Alert>
         : <Box component="form" onSubmit={submit}>
-          <TextField label={t("Mật khẩu mới")} type="password" value={password} onChange={e => setPassword(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" helperText={t("Ít nhất 12 ký tự, tối đa 72 byte UTF-8.")} />
-          <TextField label={t("Xác nhận mật khẩu")} type="password" value={confirm} onChange={e => setConfirm(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" />
+          <PasswordField label={t("Mật khẩu mới")} value={password} onChange={e => setPassword(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" helperText={t("Ít nhất 12 ký tự, tối đa 72 byte UTF-8.")} />
+          <PasswordField label={t("Xác nhận mật khẩu")} value={confirm} onChange={e => setConfirm(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" />
           <Button type="submit" variant="contained" color="secondary" fullWidth disabled={loading} sx={{ mt: 2 }}>
             {loading ? <CircularProgress size={22} color="inherit" /> : t("Đặt lại mật khẩu")}
           </Button>

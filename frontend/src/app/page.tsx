@@ -1,5 +1,6 @@
 'use client';
 
+import PasswordField from '@/components/common/PasswordField';
 import { useI18n } from '@/i18n/I18nProvider';
 import LanguageSwitcher from '@/i18n/LanguageSwitcher';
 
@@ -106,9 +107,8 @@ export default function LoginPage() {
               margin="normal"
               placeholder="nguyenvana@vinuni.edu.vn"
             />
-            <TextField
+            <PasswordField
               label={t("Mật khẩu")}
-              type="password"
               fullWidth
               value={password}
               onChange={(e) => setPassword(e.target.value)}
