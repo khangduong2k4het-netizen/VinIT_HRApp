@@ -21,7 +21,8 @@ test('admin recovery asks for the key first, lists Admins, and uses the eye pass
   assert.match(page, /recoveryAdmins\(/);
   assert.match(page, /recoveryReset\(/);
   assert.match(page, /PasswordField/);
-  assert.ok(!/localStorage/.test(page), 'the key is never stored');
+  const stores = page.match(/localStorage\.setItem\([^)]*\)/g) || [];
+  assert.deepEqual(stores, ["localStorage.setItem('hra_access_token', login.data.access_token)"], 'only the sign-in token is stored, never a key or code');
 });
 
 test('both pages are public routes and the Admin screen warns about a single Admin', () => {
@@ -37,8 +38,10 @@ test('a wrong recovery key shows an error on the page instead of bouncing to the
 
 test('admin recovery offers two clear ways: the key (no email) and a confirmation mail', () => {
   const page = read('src/app/admin-recovery/page.tsx');
-  assert.match(page, /recoveryEmail\(/);
+  assert.match(page, /recoveryEmailCode\(/);
+  assert.match(page, /recoveryEmailReset\(/);
+  assert.match(page, /Mật khẩu cũ \(mã trong email, dùng 1 lần\)/);
   assert.match(page, /setMode\('key'\)/);
   assert.match(page, /setMode\('email'\)/);
-  for (const key of ['Tôi có mã khôi phục', 'Tôi chưa có mã / làm mất mã', 'Gửi thư xác nhận']) assert.ok(en[key], key);
+  for (const key of ['Tôi có mã khôi phục', 'Tôi chưa có mã / làm mất mã', 'Nhập email Admin']) assert.ok(en[key], key);
 });

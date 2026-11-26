@@ -135,56 +135,105 @@ def mailbox(monkeypatch):
     return sent
 
 
-def _link_token(body):
+def _code_from(mail):
     import re
-    return re.search(r"token=([A-Za-z0-9_-]+)", body).group(1)
+    return re.search(r"\b([A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4})\b", mail[2]).group(1)
 
 
-def test_email_path_is_generic_and_only_an_active_admin_gets_a_mail(client, mailbox):
+def _ask(client, email):
+    return client.post("/v1/auth/recovery/email-code", json={"email": email})
+
+
+def _reset(client, email, code, password=NEW_PASSWORD):
+    return client.post("/v1/auth/recovery/email-code/reset", json={"email": email, "code": code, "new_password": password})
+
+
+def test_step_one_is_generic_and_only_an_active_admin_gets_a_code(client, mailbox):
     admin_email, _ = _member(["ADMIN"])
     hr_email, _ = _member(["HR_RECRUITER"])
-    _, off_id = _member(["ADMIN"], status="INACTIVE")
-    answers = [client.post("/v1/auth/recovery/email", json={"email": e}) for e in (admin_email, hr_email, f"nobody{uuid4().hex[:6]}@vinuni.edu.vn")]
+    _member(["ADMIN"], status="INACTIVE")
+    answers = [_ask(client, e) for e in (admin_email, hr_email, f"nobody{uuid4().hex[:6]}@vinuni.edu.vn")]
     assert {a.status_code for a in answers} == {202} and len({a.text for a in answers}) == 1
     assert [m[0] for m in mailbox] == [admin_email]
-    assert "http" not in answers[0].text
+    code = _code_from(mailbox[0])
+    assert len(code) == 14 and code not in answers[0].text and "15 phút" in mailbox[0][2]
 
 
-def test_email_link_resets_the_password_once_and_revokes_sessions(client, mailbox):
+def test_the_code_plays_the_old_password_once_then_revokes_sessions_and_audits_without_secrets(client, mailbox):
     import time
     email, user_id = _member(["ADMIN"])
     old_session = _bearer(user_id, email)
     with engine.begin() as conn:
         conn.execute(text("UPDATE app_private.user_profiles SET tokens_valid_after = NOW() - INTERVAL '1 hour' WHERE user_id = :u"), {"u": user_id})
         conn.execute(text("UPDATE app_private.local_credentials SET failed_attempts = 3, locked_until = NOW() + INTERVAL '10 minutes' WHERE user_id = :u"), {"u": user_id})
-    client.post("/v1/auth/recovery/email", json={"email": email})
-    token = _link_token(mailbox[0][2])
-    assert client.post("/v1/auth/reset-password", json={"token": token, "new_password": NEW_PASSWORD}).status_code == 200
-    assert client.post("/v1/auth/reset-password", json={"token": token, "new_password": "another-password-789!"}).status_code == 400
+    _ask(client, email)
+    code = _code_from(mailbox[0])
+    assert _reset(client, email, code.lower().replace("-", " ")).status_code == 200  # case / spacing do not matter
+    assert _reset(client, email, code, "another-password-789!").status_code == 400  # one use
     assert client.get("/v1/auth/me", headers=old_session).status_code == 401
     time.sleep(1.2)
     assert client.post("/v1/auth/login", json={"email": email, "password": NEW_PASSWORD}).status_code == 200
     with engine.connect() as conn:
-        audits = [r[0] for r in conn.execute(text("""SELECT action_type FROM app_private.audit_events WHERE object_id = :u
-            AND action_type IN ('ADMIN_RECOVERY_EMAIL_REQUESTED', 'RESET_PASSWORD_BY_TOKEN')"""), {"u": user_id})]
-    assert sorted(audits) == ["ADMIN_RECOVERY_EMAIL_REQUESTED", "RESET_PASSWORD_BY_TOKEN"]
+        audits = {r[0]: r[1] for r in conn.execute(text("""SELECT action_type, COALESCE(metadata::text, '') FROM app_private.audit_events
+            WHERE object_id = :u AND action_type IN ('ADMIN_RECOVERY_EMAIL_CODE_SENT', 'ADMIN_RECOVERY_EMAIL_CODE_USED')"""), {"u": user_id})}
+        stored = conn.execute(text("SELECT code_hash FROM app_private.admin_recovery_codes WHERE user_id = :u"), {"u": user_id}).scalars().all()
+    assert set(audits) == {"ADMIN_RECOVERY_EMAIL_CODE_SENT", "ADMIN_RECOVERY_EMAIL_CODE_USED"}
+    assert not any(code in v or NEW_PASSWORD in v for v in audits.values())
+    assert stored and all(code not in h and len(h) == 64 for h in stored)
 
 
-def test_email_path_is_rate_limited_per_account_and_says_so_when_email_is_off(client, mailbox, monkeypatch):
+def test_wrong_code_five_times_cancels_it_and_all_failures_look_the_same(client, mailbox):
+    email, _ = _member(["ADMIN"])
+    other_email, _ = _member(["ADMIN"])
+    _ask(client, email)
+    code = _code_from(mailbox[0])
+    answers = [_reset(client, email, "AAAA-BBBB-CCCC") for _ in range(5)]
+    assert {a.status_code for a in answers} == {400} and len({a.text for a in answers}) == 1
+    admin_recovery._failures_by_ip.clear()
+    late = _reset(client, email, code)  # the right code arrives after the 5th wrong try: cancelled
+    assert late.status_code == 400 and late.text == answers[0].text
+    unknown = _reset(client, f"nobody{uuid4().hex[:6]}@vinuni.edu.vn", code)
+    no_code = _reset(client, other_email, code)
+    assert unknown.text == no_code.text == answers[0].text
+    _ask(client, email)  # a new request replaces the cancelled code
+    assert _reset(client, email, _code_from(mailbox[1])).status_code == 200
+
+
+def test_expired_code_and_a_new_request_replaces_the_old_code(client, mailbox):
+    email, user_id = _member(["ADMIN"])
+    _ask(client, email)
+    first = _code_from(mailbox[0])
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE app_private.admin_recovery_codes SET expires_at = NOW() - INTERVAL '1 minute' WHERE user_id = :u"), {"u": user_id})
+    assert _reset(client, email, first).status_code == 400
+    _ask(client, email)
+    _ask(client, email)
+    second, third = _code_from(mailbox[1]), _code_from(mailbox[2])
+    assert _reset(client, email, second).status_code == 400  # replaced by the third
+    assert _reset(client, email, third).status_code == 200
+
+
+def test_new_password_rules_and_the_per_account_and_per_address_limits(client, mailbox, monkeypatch):
     email, _ = _member(["ADMIN"])
     for _ in range(6):
-        assert client.post("/v1/auth/recovery/email", json={"email": email}).status_code == 202
-    assert len(mailbox) == settings.PASSWORD_RESET_MAX_PER_HOUR  # the rest are silently ignored
-    monkeypatch.setattr(settings, "SMTP_HOST", None)
-    off = client.post("/v1/auth/recovery/email", json={"email": email})
-    assert off.status_code == 409 and "Chưa cấu hình email" in off.json()["detail"]
+        assert _ask(client, email).status_code == 202
+    assert len(mailbox) == admin_recovery.MAX_CODES_PER_HOUR  # the rest are silently ignored
+    code = _code_from(mailbox[-1])
+    assert _reset(client, email, code, "short").status_code == 422
     from app.api import auth as auth_api
     auth_api._public_hits.clear()
-    monkeypatch.setattr(settings, "SMTP_HOST", "127.0.0.1")
     monkeypatch.setattr(settings, "AUTH_PUBLIC_MAX_PER_IP_HOUR", 2)
-    codes = [client.post("/v1/auth/recovery/email", json={"email": f"x{i}@vinuni.edu.vn"}).status_code for i in range(4)]
+    codes = [_ask(client, f"x{i}@vinuni.edu.vn").status_code for i in range(4)]
     assert codes[:2] == [202, 202] and 429 in codes[2:]
     auth_api._public_hits.clear()
+
+
+def test_without_email_both_steps_say_so_and_send_nothing(client, mailbox, monkeypatch):
+    monkeypatch.setattr(settings, "SMTP_HOST", None)
+    email, _ = _member(["ADMIN"])
+    for response in (_ask(client, email), _reset(client, email, "AAAA-BBBB-CCCC")):
+        assert response.status_code == 409 and "Chưa cấu hình email" in response.json()["detail"]
+    assert mailbox == []
 
 
 def test_admin_recovery_is_offered_when_either_the_key_or_email_exists(client, monkeypatch):

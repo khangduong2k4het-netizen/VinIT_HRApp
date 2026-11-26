@@ -6,6 +6,7 @@ per address and overall; every use is audited without the key or any password.""
 import hashlib
 import hmac
 import json
+import secrets
 import time
 from collections import defaultdict, deque
 from uuid import UUID
@@ -19,7 +20,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.database import SessionLocal
 from app.schemas.accounts import validate_password
-from app.services import local_auth, password_reset
+from app.services import local_auth
 from app.services.mailer import MailError, email_enabled, send_email
 
 router = APIRouter()
@@ -138,15 +139,50 @@ class RecoveryEmail(BaseModel):
     email: EmailStr
 
 
-GENERIC_EMAIL = ("Nếu email thuộc một tài khoản Admin đang hoạt động, hệ thống đã gửi thư xác nhận tới email đó. "
-                 "Mở liên kết trong thư để đặt mật khẩu mới.")
+class RecoveryCodeReset(RecoveryEmail):
+    code: SecretStr = Field(min_length=1, max_length=64)
+    new_password: SecretStr
+
+    _password = field_validator("new_password")(validate_password)
 
 
-@router.post("/email", status_code=202)
-def recover_by_email(body: RecoveryEmail, http_request: Request):
-    """An Admin who has no recovery key asks for a confirmation link at their own address. The answer is the
-    same for every email; only an ACTIVE Admin gets a mail. The link is the normal one-time reset link
-    (30 minutes): using it sets a new password, revokes earlier sessions and clears a temporary lock."""
+# No look-alike characters (0/O, 1/I/L). 12 characters of 31 = about 59 bits, shown as XXXX-XXXX-XXXX.
+CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+CODE_LENGTH = 12
+CODE_TTL_MINUTES = 15
+MAX_CODE_ATTEMPTS = 5
+MAX_CODES_PER_HOUR = 3
+GENERIC_EMAIL = ("Nếu email thuộc một tài khoản Admin đang hoạt động, hệ thống đã gửi mã tới email đó. "
+                 "Nhập mã vào ô đầu tiên bên dưới cùng mật khẩu mới.")
+GENERIC_CODE_ERROR = "Email hoặc mã không đúng, hoặc mã đã hết hạn. Hãy kiểm tra hoặc gửi lại mã."
+
+
+def generate_code() -> str:
+    raw = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
+    return "-".join(raw[i:i + 4] for i in range(0, CODE_LENGTH, 4))
+
+
+def normalize_code(code: str) -> str:
+    return "".join(ch for ch in code.upper() if ch in CODE_ALPHABET)
+
+
+def _hash_code(code: str) -> str:
+    return hashlib.sha256(normalize_code(code).encode("utf-8")).hexdigest()
+
+
+def _active_admin(db, email: str):
+    return db.execute(text("""
+        SELECT u.id FROM auth.users u JOIN app_private.user_profiles p ON p.user_id = u.id
+        WHERE lower(u.email) = :email AND p.account_status = 'ACTIVE'
+          AND EXISTS (SELECT 1 FROM app_private.user_role_assignments r
+                      WHERE r.user_id = u.id AND r.role_code = 'ADMIN' AND r.revoked_at IS NULL)
+    """), {"email": email}).first()
+
+
+@router.post("/email-code", status_code=202)
+def send_email_code(body: RecoveryEmail, http_request: Request):
+    """Step 1 of the email path: the Admin types their email. The answer is the same for every email; only an
+    ACTIVE Admin gets a mail, with a one-time code that plays the part of the old password in step 2."""
     from app.api.auth import _limit_public_calls
     _limit_public_calls(http_request)
     if not email_enabled():
@@ -155,29 +191,88 @@ def recover_by_email(body: RecoveryEmail, http_request: Request):
     email = str(body.email).strip().lower()
     db = SessionLocal()
     try:
-        row = db.execute(text("""
-            SELECT u.id FROM auth.users u JOIN app_private.user_profiles p ON p.user_id = u.id
-            WHERE lower(u.email) = :email AND p.account_status = 'ACTIVE'
-              AND EXISTS (SELECT 1 FROM app_private.user_role_assignments r
-                          WHERE r.user_id = u.id AND r.role_code = 'ADMIN' AND r.revoked_at IS NULL)
-        """), {"email": email}).first()
+        row = _active_admin(db, email)
         if not row:
             return {"message": GENERIC_EMAIL}
         user_id = str(row[0])
-        token = password_reset.issue_token(db, user_id, "RESET")
-        if token is None:
-            db.rollback()
+        recent = db.execute(text("""
+            SELECT COUNT(*) FROM app_private.admin_recovery_codes WHERE user_id = :id AND created_at > NOW() - INTERVAL '1 hour'
+        """), {"id": user_id}).scalar_one()
+        if recent >= MAX_CODES_PER_HOUR:
             return {"message": GENERIC_EMAIL}
-        _audit(db, "ADMIN_RECOVERY_EMAIL_REQUESTED", user_id, http_request)
+        db.execute(text("""
+            UPDATE app_private.admin_recovery_codes SET used_at = NOW(), cancelled = TRUE WHERE user_id = :id AND used_at IS NULL
+        """), {"id": user_id})
+        code = generate_code()
+        db.execute(text("""
+            INSERT INTO app_private.admin_recovery_codes (user_id, code_hash, expires_at)
+            VALUES (:id, :hash, NOW() + make_interval(mins => :ttl))
+        """), {"id": user_id, "hash": _hash_code(code), "ttl": CODE_TTL_MINUTES})
+        _audit(db, "ADMIN_RECOVERY_EMAIL_CODE_SENT", user_id, http_request)
         db.commit()
-        link = f"{settings.APP_PUBLIC_URL.rstrip('/')}/reset-password?token={token}"
         try:
-            send_email(email, "Xác nhận khôi phục tài khoản Admin VinUni HRA",
-                       "Có yêu cầu khôi phục tài khoản Admin của bạn. Mở liên kết sau để đặt mật khẩu mới "
-                       f"(hết hạn sau {settings.PASSWORD_RESET_TTL_MINUTES} phút, dùng một lần):\n\n{link}\n\n"
-                       "Nếu bạn không yêu cầu, hãy bỏ qua thư này và báo cho người quản trị hệ thống.")
+            send_email(email, "Mã khôi phục tài khoản Admin VinUni HRA",
+                       "Có yêu cầu khôi phục tài khoản Admin của bạn. Mã dưới đây đóng vai mật khẩu cũ: nhập nó vào ô đầu tiên "
+                       f"trên trang khôi phục cùng mật khẩu mới.\n\n    {code}\n\n"
+                       f"Mã hết hạn sau {CODE_TTL_MINUTES} phút, dùng được một lần và bị hủy nếu nhập sai {MAX_CODE_ATTEMPTS} lần. "
+                       "Không chuyển tiếp thư này. Nếu bạn không yêu cầu, hãy bỏ qua thư và báo cho người quản trị hệ thống.")
         except MailError as exc:
-            logger.warning("Admin recovery email failed", error_type=str(exc))
+            logger.warning("Admin recovery code email failed", error_type=str(exc))
         return {"message": GENERIC_EMAIL}
+    finally:
+        db.close()
+
+
+@router.post("/email-code/reset")
+def reset_with_email_code(body: RecoveryCodeReset, http_request: Request):
+    """Step 2: email + the code from the mail + new password. Every failure gives the same answer."""
+    if not email_enabled():
+        raise HTTPException(status_code=409, detail="Chưa cấu hình email. Hãy dùng mã khôi phục, hoặc nhờ Admin khác / "
+                            "người quản trị máy chủ.")
+    ip, now = client_address(http_request), time.time()
+    mine = _failures_by_ip[ip]
+    _prune(mine, now)
+    if len(mine) >= MAX_FAILURES_PER_IP:
+        raise HTTPException(status_code=429, detail="Đã nhập sai quá nhiều lần. Vui lòng thử lại sau 15 phút.")
+    invalid = HTTPException(status_code=400, detail=GENERIC_CODE_ERROR)
+    email = str(body.email).strip().lower()
+    given = _hash_code(body.code.get_secret_value())
+    db = SessionLocal()
+    try:
+        row = _active_admin(db, email)
+        open_code = None
+        if row:
+            open_code = db.execute(text("""
+                SELECT code_id, user_id, code_hash, failed_attempts FROM app_private.admin_recovery_codes
+                WHERE user_id = :id AND used_at IS NULL AND expires_at > NOW() FOR UPDATE
+            """), {"id": str(row[0])}).mappings().first()
+        stored = open_code["code_hash"] if open_code else hashlib.sha256(b"no-open-code").hexdigest()
+        matches = hmac.compare_digest(given, stored)
+        if not open_code or not matches:
+            mine.append(now)
+            if open_code:
+                attempts = open_code["failed_attempts"] + 1
+                db.execute(text("""
+                    UPDATE app_private.admin_recovery_codes SET failed_attempts = :n,
+                        used_at = CASE WHEN :n >= :max THEN NOW() ELSE NULL END, cancelled = (:n >= :max)
+                    WHERE code_id = :id
+                """), {"n": attempts, "max": MAX_CODE_ATTEMPTS, "id": str(open_code["code_id"])})
+                db.commit()
+            else:
+                db.rollback()
+            raise invalid
+        user_id = str(open_code["user_id"])
+        db.execute(text("UPDATE app_private.admin_recovery_codes SET used_at = NOW() WHERE code_id = :id"), {"id": str(open_code["code_id"])})
+        local_auth.set_password(db, user_id, body.new_password.get_secret_value())
+        db.execute(text("""
+            UPDATE app_private.user_profiles SET must_change_password = FALSE,
+                tokens_valid_after = clock_timestamp(), updated_at = NOW() WHERE user_id = :id
+        """), {"id": user_id})
+        _audit(db, "ADMIN_RECOVERY_EMAIL_CODE_USED", user_id, http_request)
+        db.commit()
+        mine.clear()
+        return {"changed": True}
+    except HTTPException:
+        raise
     finally:
         db.close()

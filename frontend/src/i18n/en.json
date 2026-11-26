@@ -1921,5 +1921,16 @@
   "Chọn cách khác": "Choose another way",
   "Nếu email thuộc một tài khoản Admin đang hoạt động, hệ thống đã gửi thư xác nhận tới email đó. Mở liên kết trong thư để đặt mật khẩu mới.": "If the email belongs to an active Admin account, a confirmation mail has been sent to it. Open the link in the mail to set a new password.",
   "Chưa cấu hình email. Hãy dùng mã khôi phục, hoặc nhờ Admin khác / người quản trị máy chủ.": "Email is not configured. Use the recovery key, or ask another Admin / the server administrator.",
-  "Lấy lại quyền truy cập bằng mã khôi phục của hệ thống, hoặc bằng thư xác nhận gửi tới email của Admin.": "Get back in with the system recovery key, or with a confirmation mail sent to the Admin's email."
+  "Lấy lại quyền truy cập bằng mã khôi phục của hệ thống, hoặc bằng thư xác nhận gửi tới email của Admin.": "Get back in with the system recovery key, or with a confirmation mail sent to the Admin's email.",
+  "Nhập email của tài khoản Admin. Hệ thống gửi tới email đó một mã dùng một lần (hết hạn sau 15 phút).": "Enter the Admin account's email. A one-time code (valid for 15 minutes) is sent to that email.",
+  "Gửi mã tới email": "Send the code by email",
+  "Nhập email Admin": "Enter the Admin email",
+  "Nhập email Admin. Hệ thống gửi một mã dùng một lần tới email đó; dùng mã này như mật khẩu cũ để đặt mật khẩu mới.": "Enter the Admin's email. A one-time code is sent to it; use it as the old password to set a new one.",
+  "Mật khẩu cũ (mã trong email, dùng 1 lần)": "Old password (the code in the email, single use)",
+  "Xác nhận mật khẩu mới": "Confirm new password",
+  "Đặt mật khẩu mới và đăng nhập": "Set new password and sign in",
+  "Đã gửi lại mã (nếu email hợp lệ).": "Code sent again (if the email is valid).",
+  "Nếu email thuộc một tài khoản Admin đang hoạt động, hệ thống đã gửi mã tới email đó. Nhập mã vào ô đầu tiên bên dưới cùng mật khẩu mới.": "If the email belongs to an active Admin account, a code has been sent to it. Enter it in the first box below together with the new password.",
+  "Email hoặc mã không đúng, hoặc mã đã hết hạn. Hãy kiểm tra hoặc gửi lại mã.": "The email or code is not correct, or the code has expired. Check it or resend the code.",
+  "Đã nhập sai quá nhiều lần. Vui lòng thử lại sau 15 phút.": "Too many wrong tries. Try again in 15 minutes."
 }
