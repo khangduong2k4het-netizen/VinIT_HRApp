@@ -9,7 +9,7 @@
     "lint": "eslint --ext .js,.jsx,.ts,.tsx src",
     "type-check": "tsc --noEmit",
     "test:i18n": "node --test tests/i18n.test.cjs",
-    "test:unit": "node --test tests/workspace-ui.test.cjs tests/ai-quality-ui.test.cjs tests/public-apply-ui.test.cjs tests/public-intake-talent-pool.test.cjs",
+    "test:unit": "node --test tests/workspace-ui.test.cjs tests/ai-quality-ui.test.cjs tests/public-apply-ui.test.cjs tests/public-intake-talent-pool.test.cjs tests/login-ui.test.cjs",
     "test:e2e:synthetic": "node tests/synthetic-ui.e2e.cjs",
     "test:e2e:quality": "node tests/quality-duplicates.e2e.cjs",
     "test:e2e:accounts": "node tests/account-ui.e2e.cjs"
