@@ -121,7 +121,7 @@ def test_reset_password_flow_token_is_single_use_and_stored_hashed(client):
     old_token_login = _login(client, email, PASSWORD).json()["access_token"]
     ok = client.post("/v1/auth/reset-password", json={"token": token, "new_password": NEW_PASSWORD})
     assert ok.status_code == 200
-    time.sleep(1.1)  # tokens issued within the reset second are refused by design
+    # No sleep here: logging in right after the reset waits out the reset second server-side.
     assert _login(client, email, NEW_PASSWORD).status_code == 200
     assert _login(client, email, PASSWORD).status_code == 401
     reused = client.post("/v1/auth/reset-password", json={"token": token, "new_password": "third-password-for-tests-000"})
@@ -169,3 +169,14 @@ def test_audit_records_ids_only(client):
               AND action_type IN ('REGISTER_ACCOUNT', 'REQUEST_PASSWORD_RESET', 'RESET_PASSWORD_BY_TOKEN')"""), {"e": email}).all()
     assert {r[0] for r in rows} == {"REGISTER_ACCOUNT", "REQUEST_PASSWORD_RESET", "RESET_PASSWORD_BY_TOKEN"}
     assert not any(token in r[1] or NEW_PASSWORD in r[1] or PASSWORD in r[1] for r in rows)
+
+
+def test_login_right_after_approval_waits_instead_of_returning_409(client):
+    email = _email()
+    _register(client, email)
+    with engine.begin() as conn:  # approval stamps tokens_valid_after = now
+        conn.execute(text("UPDATE app_private.user_profiles SET account_status = 'ACTIVE', tokens_valid_after = clock_timestamp() "
+                          "WHERE user_id = (SELECT id FROM auth.users WHERE email = :e)"), {"e": email})
+    started = time.time()
+    assert _login(client, email, PASSWORD).status_code == 200
+    assert time.time() - started < 3

@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import time
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -103,10 +104,17 @@ def _local_login(credentials: LoginRequest) -> LoginResponse:
             raise HTTPException(status_code=403, detail="Tài khoản chưa được kích hoạt (đang chờ Admin duyệt) hoặc đã bị khóa")
         token, expires_in = local_auth.issue_token(identity["user_id"], identity["email"])
         if profile["tokens_valid_after"] is not None:
-            try:
-                ensure_token_is_current(jwt.decode(token, options={"verify_signature": False}), profile["tokens_valid_after"])
-            except Exception:
-                raise HTTPException(status_code=409, detail="Vui lòng chờ vài giây rồi đăng nhập lại.") from None
+            # A token issued in the same second as an approval / password reset is refused by design.
+            # Wait out that second here instead of making the user retry by hand.
+            for attempt in (0, 1):
+                try:
+                    ensure_token_is_current(jwt.decode(token, options={"verify_signature": False}), profile["tokens_valid_after"])
+                    break
+                except Exception:
+                    if attempt:
+                        raise HTTPException(status_code=409, detail="Vui lòng chờ vài giây rồi đăng nhập lại.") from None
+                    time.sleep(1.1)
+                    token, expires_in = local_auth.issue_token(identity["user_id"], identity["email"])
         return LoginResponse(access_token=token, expires_in=expires_in,
                              user={"id": identity["user_id"], "email": identity["email"],
                                    "must_change_password": bool(profile["must_change_password"])})
