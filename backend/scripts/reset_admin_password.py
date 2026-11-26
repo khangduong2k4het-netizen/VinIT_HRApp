@@ -11,6 +11,7 @@ Usage (from backend/, uses DATABASE_URL from the environment/.env):
     python scripts/reset_admin_password.py --email admin@vinuni.edu.vn
     python scripts/reset_admin_password.py --email admin@vinuni.edu.vn --password "A-12+char-temporary-pass"
     python scripts/reset_admin_password.py --email hr@vinuni.edu.vn --force
+    python scripts/reset_admin_password.py --list-admins      # forgot which email the Admin used
 
 Without --password a random temporary password is generated and printed once. Give it to the person through a
 trusted channel; they must change it on first sign-in.
@@ -42,6 +43,22 @@ def password_problem(password: str) -> str | None:
     if len(password) < 12 or len(password.encode("utf-8")) > 72 or not password.strip():
         return "Mật khẩu cần ít nhất 12 ký tự và tối đa 72 byte UTF-8."
     return None
+
+
+def list_admins() -> list[tuple[str, str, str]]:
+    """(email, display name, account status) of every account that holds the ADMIN role, for an operator who forgot the email."""
+    db = SessionLocal()
+    try:
+        rows = db.execute(text("""
+            SELECT u.email, p.display_name, p.account_status FROM auth.users u
+            JOIN app_private.user_profiles p ON p.user_id = u.id
+            WHERE EXISTS (SELECT 1 FROM app_private.user_role_assignments r
+                          WHERE r.user_id = u.id AND r.role_code = 'ADMIN' AND r.revoked_at IS NULL)
+            ORDER BY p.account_status, u.email
+        """)).all()
+        return [(r[0], r[1], r[2]) for r in rows]
+    finally:
+        db.close()
 
 
 def reset(email: str, password: str | None = None, force: bool = False) -> tuple[str, str]:
@@ -90,10 +107,17 @@ def reset(email: str, password: str | None = None, force: bool = False) -> tuple
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Emergency password reset for an Admin (AUTH_BACKEND=local).")
-    parser.add_argument("--email", required=True)
+    parser.add_argument("--email")
+    parser.add_argument("--list-admins", action="store_true", help="list the Admin accounts (email, name, status) and exit")
     parser.add_argument("--password", help="temporary password (12+ characters); generated when omitted")
     parser.add_argument("--force", action="store_true", help="also allow an account that is not an Admin")
     args = parser.parse_args()
+    if args.list_admins:
+        for email, name, status in list_admins():
+            print(f"{email}	{name}	{status}")
+        return 0
+    if not args.email:
+        parser.error("cần --email (hoặc --list-admins để xem danh sách Admin)")
     try:
         _, temporary = reset(args.email, args.password, args.force)
     except ValueError as exc:

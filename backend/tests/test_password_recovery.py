@@ -102,6 +102,13 @@ def test_emergency_script_can_force_a_non_admin_and_records_the_operator(client)
     assert tuple(row) == (None, "operator-cli")
 
 
+def test_list_admins_helps_when_the_email_is_forgotten(client):
+    email, _ = _member(["ADMIN"])
+    hr_email, _ = _member(["HR_RECRUITER"])
+    listed = {row[0] for row in reset_admin_password.list_admins()}
+    assert email in listed and hr_email not in listed
+
+
 def test_emergency_script_only_for_local_auth(monkeypatch):
     monkeypatch.setattr(settings, "AUTH_BACKEND", "supabase")
     with pytest.raises(ValueError, match="AUTH_BACKEND=local"):
