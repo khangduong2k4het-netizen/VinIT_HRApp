@@ -30,7 +30,8 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import SearchIcon from '@mui/icons-material/Search';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { positionsApi, dashboardApi, authApi } from '@/lib/api';
+import { positionsApi, dashboardApi } from '@/lib/api';
+import { getCurrentUser } from '@/lib/meCache';
 import StatusBadge from '@/components/common/StatusBadge';
 import { Position } from '@/types';
 
@@ -49,10 +50,10 @@ export default function PositionsPage() {
     try {
       setLoading(true);
       const [positions, stats, me] = await Promise.all([
-        positionsApi.listAll(), dashboardApi.getSummary().catch(() => null), authApi.me(),
+        positionsApi.listAll(), dashboardApi.getSummary().catch(() => null), getCurrentUser(),
       ]);
-      setCanCreate(me.data.system_roles?.some((role: string) => ['ADMIN', 'HR_LEAD', 'HR_RECRUITER'].includes(role)) ||
-        me.data.position_assignments?.some((a: any) => ['HR_RECRUITER', 'HR_LEAD'].includes(a.position_role)) || false);
+      setCanCreate(me.system_roles?.some((role: string) => ['ADMIN', 'HR_LEAD', 'HR_RECRUITER'].includes(role)) ||
+        me.position_assignments?.some((a: any) => ['HR_RECRUITER', 'HR_LEAD'].includes(a.position_role)) || false);
       setPositions(positions);
       setError(null);
       setApplicationTotal(stats?.data?.total_applications ?? null);

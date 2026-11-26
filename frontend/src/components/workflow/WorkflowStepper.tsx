@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Box, Card, CardContent, Step, StepLabel, Stepper, Typography } from '@mui/material';
+import { Box, Tooltip, Typography } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
@@ -24,34 +24,53 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 function StepIcon({ status }: { status: string }) {
-  if (status === 'COMPLETED') return <CheckCircleIcon sx={{ color: '#067647' }} aria-hidden />;
-  if (status === 'BLOCKED') return <ErrorOutlineIcon sx={{ color: '#B42318' }} aria-hidden />;
-  if (status === 'CURRENT') return <RadioButtonUncheckedIcon sx={{ color: '#C72127' }} aria-hidden />;
-  return <RadioButtonUncheckedIcon sx={{ color: '#98A2B3' }} aria-hidden />;
+  if (status === 'COMPLETED') return <CheckCircleIcon sx={{ color: '#067647', fontSize: 16 }} aria-hidden />;
+  if (status === 'BLOCKED') return <ErrorOutlineIcon sx={{ color: '#B42318', fontSize: 16 }} aria-hidden />;
+  if (status === 'CURRENT') return <RadioButtonUncheckedIcon sx={{ color: '#C72127', fontSize: 16 }} aria-hidden />;
+  return <RadioButtonUncheckedIcon sx={{ color: '#98A2B3', fontSize: 16 }} aria-hidden />;
 }
 
+/**
+ * Tiến trình 5 bước dạng dải chip.
+ *
+ * Stepper dạng khối trước đây chiếm một thẻ riêng, lặp lại nhãn "Bước hiện tại"
+ * và đẩy nội dung chính xuống thấp. Dải chip giữ nguyên thông tin (bước hiện
+ * tại, bước bị chặn) nhưng chỉ cao một dòng và nằm chung thẻ tổng quan.
+ */
 export default function WorkflowStepper({ workspace }: { workspace: PositionWorkspace }) {
   const { t } = useI18n();
-  const activeIndex = Math.max(0, workspace.workflow.steps.findIndex(step => step.code === workspace.workflow.current_step));
 
   return (
-    <Card variant="outlined" sx={{ mb: 3, borderColor: '#E4EAF2' }} aria-label={t("Tiến trình tuyển dụng của vị trí")}>
-      <CardContent sx={{ py: 2.5 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', mb: 2 }}>
-          <Typography variant="h3" sx={{ fontSize: 16, color: '#0A2B57' }}>{t("Tiến trình vị trí")}</Typography>
-          <Typography variant="caption" color="text.secondary">{t("Bước hiện tại:")} {t(STEP_LABELS[workspace.workflow.current_step])}</Typography>
-        </Box>
-        <Stepper activeStep={activeIndex} alternativeLabel sx={{ '& .MuiStepLabel-label': { fontSize: 12 } }}>
-          {workspace.workflow.steps.map(step => (
-            <Step key={step.code} completed={step.status === 'COMPLETED'} active={step.code === workspace.workflow.current_step}>
-              <StepLabel StepIconComponent={() => <StepIcon status={step.status} />} error={step.status === 'BLOCKED'}>
-                {t(STEP_LABELS[step.code])}
-                <Typography component="span" variant="caption" display="block" color="text.secondary">{t(STATUS_LABELS[step.status])}</Typography>
-              </StepLabel>
-            </Step>
-          ))}
-        </Stepper>
-      </CardContent>
-    </Card>
+    <Box
+      aria-label={t("Tiến trình tuyển dụng của vị trí")}
+      sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}
+    >
+      {workspace.workflow.steps.map((step, index) => {
+        const current = step.code === workspace.workflow.current_step;
+        return (
+          <React.Fragment key={step.code}>
+            {index > 0 && <Typography component="span" color="text.disabled" sx={{ px: 0.25 }} aria-hidden>›</Typography>}
+            <Tooltip title={t(STATUS_LABELS[step.status])}>
+              <Box
+                sx={{
+                  display: 'flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.25, borderRadius: 99,
+                  backgroundColor: current ? '#FDF2F2' : 'transparent',
+                  border: '1px solid', borderColor: current ? '#F3C2C6' : 'transparent',
+                }}
+              >
+                <StepIcon status={step.status} />
+                <Typography
+                  component="span"
+                  variant="caption"
+                  sx={{ fontWeight: current ? 700 : 500, color: step.status === 'BLOCKED' ? '#B42318' : current ? '#0A2B57' : '#667085', whiteSpace: 'nowrap' }}
+                >
+                  {t(STEP_LABELS[step.code])}
+                </Typography>
+              </Box>
+            </Tooltip>
+          </React.Fragment>
+        );
+      })}
+    </Box>
   );
 }

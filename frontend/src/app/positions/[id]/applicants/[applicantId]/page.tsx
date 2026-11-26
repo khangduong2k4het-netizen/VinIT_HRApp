@@ -45,9 +45,14 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { applicationsApi, assessmentsApi, authApi, criteriaApi, listAllApplications, operationsApi } from '@/lib/api';
+import { applicationsApi, assessmentsApi, criteriaApi, listAllApplications, operationsApi } from '@/lib/api';
+import { getCachedUser, subscribeCurrentUser } from '@/lib/meCache';
 import { recordUxEvent } from '@/lib/uxMetrics';
-import { isTypingTarget, moveCriterionIndex, reviewShortcut } from '@/lib/reviewKeyboard';
+import { runWhenIdle } from '@/lib/idle';
+import { prefetchApplication, takePrefetchedApplication } from '@/lib/profilePrefetch';
+import { getApprovedRubric } from '@/lib/rubricCache';
+import { isTypingTarget, moveCriterionIndex, nextPendingCriterionId, reviewShortcut } from '@/lib/reviewKeyboard';
+import { suggestFinishStatus, type FinishSuggestionReason } from '@/lib/finishSuggestion';
 import { criterionReasonCandidates, readRecentReasons, rememberReason } from '@/lib/rejectionReasons';
 import ReasonSuggestions from '@/components/candidates/ReasonSuggestions';
 import StatusBadge from '@/components/common/StatusBadge';
@@ -70,7 +75,7 @@ import {
   type ApplicantQueue,
   type ApplicantSort,
 } from '@/lib/applicantReview';
-import type { ApplicationWithAssessment, Criterion, CriterionResult, PrivateNote, RankingItem } from '@/types';
+import type { ApplicationWithAssessment, Criterion, CriterionResult, HrCriterionReview, PrivateNote, RankingItem } from '@/types';
 import { generalNotes, notesForCriterion, summarizeCriterionNotes } from '@/lib/criterionNotes';
 import { APPLICATION_STATUSES, APPLICATION_TRANSITIONS, isApplicationStatus } from '@/lib/applicationStatus';
 import { readApplicationCapabilities } from '@/lib/applicationCapabilities';
@@ -85,6 +90,42 @@ interface StatusEvent {
   changed_by_name: string | null;
 }
 
+/**
+ * Tải trước hồ sơ kế tiếp trong hàng đợi.
+ *
+ * Link trong thanh dính đã tự prefetch route khi nó nằm trong khung nhìn, nên
+ * prefetch route ở đây không thêm gì đo được. Thứ thật sự chặn lần mở hồ sơ kế là
+ * `GET /applications/{id}` — trang hiện spinner cho tới khi request đó xong — nên
+ * component này tải trước dữ liệu, và trang hồ sơ dùng nó để vẽ ngay.
+ */
+/**
+ * Nhãn ngắn cho màn hẹp, nhãn đầy đủ từ 600px.
+ *
+ * Ở 390px, "Đánh dấu sai" và "Đã xử lý xong hồ sơ này" chiếm gần trọn một hàng
+ * cho mỗi nút, đẩy thanh dính cao gần nửa màn hình. Chỉ chữ hiển thị đổi — vẫn là
+ * hai quyết định đó, cùng một nút, cùng một chỗ bấm.
+ */
+function CompactLabel({ compact, full }: { compact: string; full: string }) {
+  return (
+    <>
+      <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>{compact}</Box>
+      <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>{full}</Box>
+    </>
+  );
+}
+
+function PrefetchProfile({ applicantId, href }: { applicantId: string; href: string }) {
+  const router = useRouter();
+  // Hữu ích cho lần bấm `n`, nhưng không phải việc của màn hình đầu: để trình
+  // duyệt rảnh rồi mới tải thay vì chen vào lúc mở hồ sơ.
+  useEffect(() => runWhenIdle(() => {
+    prefetchApplication(applicantId);
+    // Route vẫn được gọi rõ: link có thể nằm ngoài khung nhìn (màn hình hẹp).
+    router.prefetch(href);
+  }), [applicantId, href, router]);
+  return null;
+}
+
 export default function ApplicantDetailPage() {
   const { t, dateLocale, locale } = useI18n();
   const params = useParams();
@@ -96,6 +137,9 @@ export default function ApplicantDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  // Bảng phím tắt (`?`): dòng gợi ý ở đầu trang chỉ đọc được một lần, còn HR cần
+  // xem lại giữa lúc duyệt mà không phải rời hồ sơ.
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [newStatus, setNewStatus] = useState('');
   const [statusReason, setStatusReason] = useState('');
   // Lý do HR đã dùng cho vị trí này, đọc lại mỗi lần mở hộp thoại: lý do vừa ghi
@@ -111,11 +155,17 @@ export default function ApplicantDetailPage() {
   const [reprocessNotice, setReprocessNotice] = useState(false);
   const [history, setHistory] = useState<StatusEvent[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  // Đã nạp lịch sử cho hồ sơ nào — mở/đóng accordion không gọi lại.
+  const historyLoadedFor = useRef<string | null>(null);
   // Ghi chú tải một lần cho cả trang: ghi chú chung vào bảng cuối trang, ghi chú
   // theo tiêu chí vào đúng card của nó. Một nguồn, không hai danh sách lệch nhau.
   const [notes, setNotes] = useState<PrivateNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
   const [notesError, setNotesError] = useState<string | null>(null);
+  // Ghi chú chỉ tải khi HR mở panel, không tải khi mở hồ sơ: hồ sơ nào cũng
+  // không tốn request ghi chú cho tới khi có người thật sự đọc chúng.
+  const [notesRequested, setNotesRequested] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [claiming, setClaiming] = useState(false);
   const [selectedPage, setSelectedPage] = useState(1);
@@ -148,7 +198,6 @@ export default function ApplicantDetailPage() {
   const [finishStatus, setFinishStatus] = useState('');
   const [finishReason, setFinishReason] = useState('');
   const [finishNote, setFinishNote] = useState('');
-  const [finishAttest, setFinishAttest] = useState(false);
   const [finishAdvance, setFinishAdvance] = useState(true);
   const [finishing, setFinishing] = useState(false);
   const [finishError, setFinishError] = useState<string | null>(null);
@@ -158,24 +207,41 @@ export default function ApplicantDetailPage() {
 
   const loadData = useCallback(async (initial = false) => {
     const currentRequest = ++requestId.current;
-    try {
-      if (initial) setLoading(true);
-      const res = await applicationsApi.getById(applicantId);
-      if (currentRequest !== requestId.current) return;
-      if (res.data.position_id !== positionId) throw new Error(t("Hồ sơ không thuộc vị trí này"));
-      setApplication(res.data);
+    const applyLoaded = (data: Awaited<ReturnType<typeof applicationsApi.getById>>['data']) => {
+      if (data.position_id !== positionId) throw new Error(t("Hồ sơ không thuộc vị trí này"));
+      setApplication(data);
       setError(null);
-      const loadedCaps = readApplicationCapabilities(res.data);
-      if (loadedCaps.viewStatusHistory) {
-        applicationsApi.getStatusEvents(applicantId).then(events => {
-          if (currentRequest === requestId.current) { setHistory(events.data || []); setHistoryError(null); }
-        }).catch(() => { if (currentRequest === requestId.current) setHistoryError(t("Không thể tải lịch sử trạng thái.")); });
-      } else { setHistory([]); setHistoryError(null); }
+      const loadedCaps = readApplicationCapabilities(data);
+      // Lịch sử trạng thái nằm trong một accordion đang đóng: tải khi HR mở nó
+      // (xem `loadStatusHistory`) thay vì bắt mọi lần mở hồ sơ trả giá cho một
+      // khối chưa ai đọc.
+      if (!loadedCaps.viewStatusHistory) { setHistory([]); setHistoryError(null); setHistoryLoading(false); }
       if (!loadedCaps.viewCv) {
         // Losing CV permission must drop any copy already held in memory.
         if (blobUrl.current) { URL.revokeObjectURL(blobUrl.current); blobUrl.current = null; }
         setCvUrl(null); setCvError(null); setCvRequested(false);
       }
+    };
+    try {
+      if (initial) {
+        // Dữ liệu hồ sơ đã được trang trước tải trước (xem `PrefetchProfile`):
+        // vẽ ngay bằng nó thay vì spinner.
+        const prefetched = takePrefetchedApplication(applicantId);
+        if (prefetched && prefetched.data.position_id === positionId) {
+          applyLoaded(prefetched.data);
+          setLoading(false);
+          // Bản vừa tải trước xong trong vài giây: đọc lại API ngay sau đó chỉ
+          // lặp lại đúng dữ liệu vừa thấy, nên bỏ lần xác nhận ấy — mỗi lần mở
+          // hồ sơ kế chỉ còn một request hồ sơ thay vì hai. Bản cũ hơn cửa sổ
+          // đó thì vẫn đọc lại bên dưới, vẫn vẽ ngay bằng bản tải trước.
+          if (prefetched.fresh) return;
+        } else {
+          setLoading(true);
+        }
+      }
+      const res = await applicationsApi.getById(applicantId);
+      if (currentRequest !== requestId.current) return;
+      applyLoaded(res.data);
     } catch (err: any) {
       if (currentRequest === requestId.current) {
         if (err.response?.status === 403 || err.response?.status === 404) setApplication(null);
@@ -189,19 +255,37 @@ export default function ApplicantDetailPage() {
     return () => { requestId.current += 1; if (blobUrl.current) { URL.revokeObjectURL(blobUrl.current); blobUrl.current = null; } };
   }, [loadData]);
 
+  const loadStatusHistory = useCallback(async () => {
+    if (historyLoadedFor.current === applicantId) return;
+    historyLoadedFor.current = applicantId;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const events = await applicationsApi.getStatusEvents(applicantId);
+      setHistory(events.data || []);
+    } catch (err: any) {
+      historyLoadedFor.current = null;
+      setHistoryError(err.response?.data?.detail || t("Không thể tải lịch sử trạng thái."));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [applicantId, t]);
+
   // The rubric itself, so the reviewer can check "what did this criterion
-  // actually ask for" without leaving the profile. One request per page, keyed
-  // by criterion_id; the assessment response only carries the name, outcome and
-  // quote, not the requirement the candidate was measured against.
+  // actually ask for" without leaving the profile. Keyed by criterion_id; the
+  // assessment response only carries the name, outcome and quote, not the
+  // requirement the candidate was measured against. Rubric thuộc vị trí chứ
+  // không thuộc hồ sơ, nên nó được dùng chung giữa các lần bấm `n` trong cùng
+  // vị trí thay vì gọi lại y hệt mỗi lần mở hồ sơ (xem `lib/rubricCache.ts`).
   const [criteriaById, setCriteriaById] = useState<Record<string, Criterion>>({});
 
   useEffect(() => {
     let cancelled = false;
-    criteriaApi.getApproved(positionId)
-      .then(res => {
+    getApprovedRubric(positionId)
+      .then(criteria => {
         if (cancelled) return;
         const next: Record<string, Criterion> = {};
-        (res.data?.criteria || []).forEach((item: Criterion) => { next[item.criterion_id] = item; });
+        criteria.forEach(item => { next[item.criterion_id] = item; });
         setCriteriaById(next);
       })
       .catch(() => { if (!cancelled) setCriteriaById({}); });
@@ -221,14 +305,27 @@ export default function ApplicantDetailPage() {
       search: fromUrl.search,
       fromList: Boolean(fromUrl.queue || fromUrl.sort || fromUrl.search || params.get('from') === 'list'),
     });
-    setNavigationContext(readApplicantNavigation(positionId));
+    const storedNavigation = readApplicantNavigation(positionId);
+    setNavigationContext(storedNavigation);
     setUrlQueue(null);
     const queueParam = normalizeApplicantQueue(params.get('queue'));
     const sortParam = isApplicantSort(params.get('sort')) ? (params.get('sort') as ApplicantSort) : 'RANK';
     if (queueParam || sortParam !== 'RANK' || params.get('q')) {
       const contextKey = `${positionId}:${queueParam || 'ALL'}:${sortParam}:${params.get('q') || ''}`;
       urlQueueFor.current = contextKey;
-      Promise.all([assessmentsApi.getLatestRanking(positionId), listAllApplications(positionId)])
+      // Danh sách vừa mở hồ sơ để lại đúng thứ tự id trong sessionStorage, nên
+      // prev/next và bộ đếm "hồ sơ k/n" không cần gọi lại ranking + cả danh sách
+      // ứng viên. Chỉ deep link lạnh mới phải dựng lại, và lần đó chạy khi trình
+      // duyệt rảnh thay vì tranh với hồ sơ đang mở.
+      const storedOrder = storedNavigation
+        && storedNavigation.queue === (queueParam || 'ALL')
+        && storedNavigation.sort === sortParam
+        && storedNavigation.search === (params.get('q') || '')
+        && storedNavigation.applicationIds.includes(applicantId)
+        ? storedNavigation.applicationIds
+        : null;
+      if (storedOrder) setUrlQueue(storedOrder);
+      else Promise.all([assessmentsApi.getLatestRanking(positionId), listAllApplications(positionId)])
         .then(([rankRes, appsRes]) => {
           if (urlQueueFor.current !== contextKey) return;
           const appMap = new Map<string, any>();
@@ -285,25 +382,48 @@ export default function ApplicantDetailPage() {
   }, [statusDialogOpen, finishOpen, positionId]);
 
   useEffect(() => {
-    authApi.me()
-      .then(response => setCurrentUserId(response.data?.user_id || null))
-      .catch(() => { /* người phụ trách chỉ là hiển thị; không có id vẫn xem được hồ sơ */ });
+    // Chỉ để hiển thị "người phụ trách" và nút nhận hồ sơ. Khung trang đã tải
+    // danh tính rồi (`lib/meCache.ts`), nên đọc bản đó; hỏi lại ở đây nghĩa là
+    // mỗi hồ sơ mở ra (trang được gắn lại theo `applicantId`) một `auth/me`
+    // thừa, và nó chỉ được che đi khi bản dùng chung 30 giây còn hiệu lực.
+    const apply = (me: { user_id?: string }) => setCurrentUserId(me.user_id || null);
+    const cached = getCachedUser();
+    if (cached) { apply(cached); return; }
+    return subscribeCurrentUser(apply);
   }, []);
 
+  // Quyền ghi chú là một boolean, không phải cả object hồ sơ: phụ thuộc vào object
+  // khiến mọi thay đổi nhỏ (một lần xác minh) kéo theo một lần tải lại ghi chú.
+  const mayManageNotes = application ? readApplicationCapabilities(application).manageHrNotes : false;
+  // Ghi chú là thông tin phụ, chỉ nằm trong panel ở cuối trang: nạp đúng một
+  // lần khi HR mở panel đó. Trước đây trang tự nạp sau 600 ms ở lại hồ sơ, nên
+  // mỗi hồ sơ HR dừng lại tốn một `GET .../private-notes` (và hồ sơ lướt qua
+  // từng tốn thêm một request bị huỷ). Nay lướt hay dừng đều không tốn request
+  // nào; chỉ panel mở ra mới hỏi.
   useEffect(() => {
     let cancelled = false;
-    const mayManageNotes = application ? readApplicationCapabilities(application).manageHrNotes : false;
-    if (!mayManageNotes) { setNotes([]); setNotesLoading(false); return; }
+    const controller = new AbortController();
+    if (!mayManageNotes) { setNotes([]); setNotesLoading(false); return () => controller.abort(); }
+    if (!notesRequested) return () => controller.abort();
+    // Đổi hồ sơ là cắt request đang bay: cờ `cancelled` chỉ bỏ qua câu trả lời,
+    // còn request vẫn chạy hết trên mạng cho một màn hình đã đổi.
+    setNotesError(null);
     setNotesLoading(true);
-    applicationsApi.getPrivateNotes(applicantId)
+    applicationsApi.getPrivateNotes(applicantId, controller.signal)
       .then(response => { if (!cancelled) { setNotes(response.data || []); setNotesError(null); } })
-      .catch((err: any) => { if (!cancelled) setNotesError(err.response?.data?.detail || t("Không thể tải ghi chú nội bộ.")); })
+      .catch((err: any) => {
+        // Bị huỷ vì đã rời hồ sơ: không phải lỗi để báo cho HR.
+        if (!cancelled && err?.code !== 'ERR_CANCELED') setNotesError(err.response?.data?.detail || t("Không thể tải ghi chú nội bộ."));
+      })
       .finally(() => { if (!cancelled) setNotesLoading(false); });
-    return () => { cancelled = true; };
-  }, [applicantId, application, t]);
+    return () => { cancelled = true; controller.abort(); };
+  }, [applicantId, mayManageNotes, notesRequested, t]);
 
   const addNote = useCallback(async (content: string, criterionId?: string) => {
     await applicationsApi.addPrivateNote(applicantId, content, criterionId);
+    // Ghi xong mà HR đã sang hồ sơ khác: không tải lại ghi chú của hồ sơ vừa
+    // rời (kết quả cũng không được hiện ở hồ sơ mới).
+    if (!window.location.pathname.includes(`/applicants/${applicantId}`)) return;
     const response = await applicationsApi.getPrivateNotes(applicantId);
     setNotes(response.data || []);
   }, [applicantId]);
@@ -365,9 +485,6 @@ export default function ApplicantDetailPage() {
     } finally { setCvDownloading(false); }
   };
 
-  // Recording a review is not a recruiting action: it never touches
-  // application_status. The reload afterwards is what makes the queue progress
-  // ("đã kiểm 2/4") visible without a manual refresh.
   // Đo tác động UX: thời gian HR thật sự ở trong hồ sơ, để biết các lượt cải tiến
   // trước có rút ngắn việc xác minh hay không. Chỉ ghi id hồ sơ + thời lượng vào
   // localStorage của máy này — không ghi tên, CV hay nội dung đánh giá.
@@ -390,12 +507,69 @@ export default function ApplicantDetailPage() {
   }, []);
 
   const [reviewSaving, setReviewSaving] = useState<string | null>(null);
+  // Khoá đồng bộ cho một lần ghi. `reviewSaving` chỉ đổi sau khi React vẽ lại,
+  // nên hai cú bấm sát nhau vẫn cùng đọc "chưa lưu" và cùng gửi một review —
+  // mỗi review là một dòng append-only, nên đó là hai quyết định trùng trong
+  // lịch sử. Ref đổi ngay trong lần gọi đầu tiên.
+  const reviewSavingRef = useRef<string | null>(null);
+
+  // Một lần xác nhận chỉ thêm đúng một review vào một tiêu chí; không có phần
+  // nào khác của hồ sơ đổi theo. Tải lại cả hồ sơ (hồ sơ + lịch sử trạng thái +
+  // ghi chú + panel ứng viên) tốn 7 request cho mỗi phím bấm, làm trang nhấp
+  // nháy và đẩy con trỏ về chỗ cũ — đo trước khi sửa: 15 GET cho 2 tiêu chí.
+  // Nay ghi thẳng bản ghi backend vừa trả về vào đúng tiêu chí đó.
+  const applyReview = useCallback((resultId: string, review: HrCriterionReview) => {
+    setApplication(prev => {
+      const results = prev?.latest_assessment?.criterion_results;
+      if (!prev || !prev.latest_assessment || !results) return prev;
+      return {
+        ...prev,
+        latest_assessment: {
+          ...prev.latest_assessment,
+          criterion_results: results.map(result => (result.result_id === resultId
+            ? { ...result, hr_reviews: [review, ...(result.hr_reviews || [])] }
+            : result)),
+        },
+      };
+    });
+  }, []);
+
+  // Con trỏ bàn phím và khung CV đi cùng nhau: đọc trích dẫn của tiêu chí nào thì
+  // CV mở đúng trang của tiêu chí đó. CV vẫn chỉ tải khi HR yêu cầu (xem
+  // `cvRequested`); đã mở rồi thì nó theo con trỏ thay vì đứng ở trang cũ.
+  const focusCriterion = (result?: CriterionResult) => {
+    if (!result) return;
+    setActiveCriterionId(result.criterion_id);
+    const page = result.evidence?.[0]?.page_number || result.page_number || null;
+    if (page && cvRequested) {
+      setSelectedEvidenceId(result.criterion_id);
+      jumpToPage(page);
+    }
+    // Chờ một nhịp để thẻ mới được vẽ rồi mới cuộn tới nó.
+    window.requestAnimationFrame(() => {
+      document.getElementById(`criterion-${result.criterion_id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+  };
+
+  // Ghi nhận xác minh không phải hành động tuyển dụng: không bao giờ đổi
+  // application_status. Xác nhận xong thì con trỏ nhảy sang tiêu chí còn chờ kế
+  // tiếp, nên HR bấm `1` liên tiếp thay vì tự dò tiêu chí bằng j/k.
   const handleReview = async (resultId: string, decision: 'CONFIRMED' | 'REJECTED', comment?: string) => {
+    // Đang lưu thì cú bấm thứ hai (phím `1` hay nút) là cùng một quyết định,
+    // không phải quyết định mới — bỏ qua thay vì ghi thêm một dòng nữa.
+    if (reviewSavingRef.current !== null) return;
+    reviewSavingRef.current = resultId;
     setReviewSaving(resultId);
     try {
-      await assessmentsApi.reviewCriterionResult(resultId, decision, comment);
-      await loadData();
+      const response = await assessmentsApi.reviewCriterionResult(resultId, decision, comment);
+      applyReview(resultId, response.data);
+      if (decision === 'CONFIRMED') {
+        const reviewed = criteriaResults.find(result => result.result_id === resultId);
+        const nextCriterionId = reviewed ? nextPendingCriterionId(criteriaResults, reviewed.criterion_id) : null;
+        if (nextCriterionId) focusCriterion(criteriaResults.find(result => result.criterion_id === nextCriterionId));
+      }
     } finally {
+      reviewSavingRef.current = null;
       setReviewSaving(null);
     }
   };
@@ -579,13 +753,19 @@ export default function ApplicantDetailPage() {
   reviewKeyHandler.current = (event: KeyboardEvent) => {
     // Hộp thoại đang mở thì phím thuộc về hộp thoại (nhập lý do, xác nhận hoàn tất).
     if (document.querySelector('[role="dialog"]')) return;
+    // Đang lưu thì phím xác nhận không có nghĩa: tiêu chí chỉ hết "chờ HR" sau
+    // khi backend trả lời, nên lần bấm thứ hai trong lúc chờ sẽ ghi thêm một
+    // review CONFIRMED nữa cho đúng tiêu chí đó. Nút chuột đã bị disable vì
+    // `reviewSaving`, đường bàn phím phải chặn cùng một điều kiện.
+    const reviewInFlight = reviewSavingRef.current !== null;
     const shortcut = reviewShortcut(
       event,
       {
-        canConfirm: activeAwaitingReview,
+        canConfirm: activeAwaitingReview && !reviewInFlight,
         canReject: activeAwaitingReview,
         canOpenPage: Boolean(isPdf && activePage),
         hasNextApplication: Boolean(nextApplicantId),
+        canFinish,
       },
       isTypingTarget(event.target),
     );
@@ -595,10 +775,7 @@ export default function ApplicantDetailPage() {
       case 'next-criterion':
       case 'prev-criterion': {
         const nextIndex = moveCriterionIndex(activeCriterionIndex, criteriaResults.length, shortcut === 'next-criterion' ? 1 : -1);
-        const next = criteriaResults[nextIndex];
-        if (!next) return;
-        setActiveCriterionId(next.criterion_id);
-        document.getElementById(`criterion-${next.criterion_id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        focusCriterion(criteriaResults[nextIndex]);
         return;
       }
       case 'confirm':
@@ -613,6 +790,14 @@ export default function ApplicantDetailPage() {
       case 'next-application':
         if (nextApplicantId) router.push(keepContext(nextApplicantId));
         return;
+      case 'finish':
+        // Đi đúng đường của nút "Đã xử lý xong": hộp thoại hoàn tất hoặc đi thẳng
+        // sang hồ sơ kế tuỳ `finishHasNothingToWrite`, không thêm đường tắt nào.
+        startFinish();
+        return;
+      case 'show-shortcuts':
+        setShortcutsOpen(true);
+        return;
     }
   };
 
@@ -623,23 +808,58 @@ export default function ApplicantDetailPage() {
   // nếu không, hộp thoại sẽ gọi endpoint review và nhận 403.
   const pendingResults = canVerifyCriteria ? pendingCriteria.filter(result => Boolean(result.result_id)) : [];
   const canFinish = canWorkVerification && !shareContext;
+  // Đề xuất trạng thái sau khi hoàn tất, chọn sẵn trong hộp thoại. Hộp thoại cũ
+  // mở ở "Giữ nguyên trạng thái" nên HR phải tự suy ra bước tiếp theo, dù hồ sơ
+  // đã có đủ dữ liệu để nói. Đây chỉ là giá trị chọn sẵn — đổi được, và vẫn phải
+  // bấm nút hoàn tất.
+  const mandatoryFailed = criteriaResults.some(result => result.category === 'MUST_HAVE' && result.outcome === 'NO_MATCH');
+  const finishSuggestion = canUpdateStatus
+    ? suggestFinishStatus({
+      currentStatus,
+      nextStatuses,
+      mandatoryFailed,
+      score: assessment?.matching_score ?? null,
+    })
+    : { status: '' as const, reason: 'NONE' as FinishSuggestionReason };
+  const suggestionText: Record<FinishSuggestionReason, string> = {
+    NONE: '',
+    MANDATORY_FAILED: t('Có tiêu chí bắt buộc chưa đạt — đề xuất loại ở vòng sàng lọc; lý do vẫn cần bạn nhập.'),
+    START_REVIEW: t('Hồ sơ còn ở trạng thái Mới — đề xuất chuyển sang Đang xem.'),
+    READY_FOR_SHORTLIST: t('Điểm tổng hợp {0}% và không có tiêu chí bắt buộc nào chưa đạt — đề xuất Shortlist.', assessment?.matching_score ?? 0),
+    ADVANCE_STAGE: t('Hồ sơ đã qua vòng sàng lọc — đề xuất chuyển sang Đang phỏng vấn.'),
+  };
   const withCompletedFlag = (href: string) => {
     const [path, query = ''] = href.split('?');
     const search = new URLSearchParams(query);
     search.set('completed', '1');
     return `${path}?${search.toString()}`;
   };
+  // Không còn tiêu chí chờ và không có bước trạng thái nào để ghi: hộp thoại chỉ
+  // để bấm thêm hai lần cho một việc đã xong, nên nút chuyển thẳng sang hồ sơ kế.
+  // Vẫn mở hộp thoại khi còn tiêu chí chờ, khi có đề xuất đổi trạng thái, hoặc
+  // khi đây là hồ sơ cuối hàng đợi (HR cần thấy mình đang kết thúc ở đâu).
+  const finishHasNothingToWrite = pendingResults.length === 0
+    && (!canUpdateStatus || !finishSuggestion.status || finishSuggestion.status === currentStatus);
+  const startFinish = () => {
+    if (finishHasNothingToWrite && nextApplicantId) {
+      recordUxEvent({ type: 'VERIFICATION_COMPLETED', at: Date.now(), application_id: applicantId });
+      router.push(withCompletedFlag(keepContext(nextApplicantId)));
+      return;
+    }
+    openFinish();
+  };
   const openFinish = () => {
-    setFinishStatus('');
+    setFinishStatus(finishSuggestion.status);
     setFinishReason('');
     setFinishNote('');
-    setFinishAttest(false);
     setFinishAdvance(Boolean(nextApplicantId));
     setFinishError(null);
     setFinishOpen(true);
   };
-  const finishBlocked = (pendingResults.length > 0 && !finishAttest)
-    || (finishStatus.startsWith('REJECTED') && !finishReason.trim());
+  // Còn lại đúng một điều kiện chặn: loại hồ sơ mà không nêu lý do. Cam kết đã
+  // đối chiếu nằm ngay trên nút, nên bấm nút là chính lời cam kết — không còn
+  // một ô đánh dấu riêng để bấm thêm một lần nữa.
+  const finishBlocked = finishStatus.startsWith('REJECTED') && !finishReason.trim();
   const handleFinish = async () => {
     if (finishing || finishBlocked) return;
     setFinishing(true);
@@ -668,6 +888,7 @@ export default function ApplicantDetailPage() {
 
   return (
     <Box>
+      {nextApplicantId && <PrefetchProfile applicantId={nextApplicantId} href={keepContext(nextApplicantId)} />}
       {/* Back button */}
       <Button
         component={Link}
@@ -678,38 +899,165 @@ export default function ApplicantDetailPage() {
         {canBrowseProfiles && !shareContext ? t("Quay lại danh sách xếp hạng") : t("Quay lại shortlist")}
       </Button>
 
+      {/* Thanh dính gọn lại ở màn hẹp: hai hàng ở 390px — hàng đầu giữ ngữ cảnh,
+          bộ đếm tiêu chí, "Hoàn tất" và hai nút điều hướng dạng icon; hàng sau giữ
+          tiêu chí đang chọn cùng hai quyết định với nhãn đầy đủ. Từ 600px trở
+          lên vẫn là một hàng như cũ. Việc chính vẫn nằm ngay trên thanh: còn bao
+          nhiêu tiêu chí chờ, và hai quyết định của tiêu chí đang chọn — trước đây
+          phải cuộn xuống đúng thẻ bằng chứng, mà trên điện thoại thẻ đang xem
+          thường đã trôi khỏi màn hình sau khi đọc CV. */}
       <StickyActionBar>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-          <Box sx={{ minWidth: 220, flex: 1 }}>
-            <Typography variant="caption" color="text.secondary">
-              {navigationIndex >= 0
-                ? t("Hồ sơ {0}/{1} trong hàng đợi đang xem", navigationIndex + 1, browseTotal)
-                : t("Đang xem chi tiết hồ sơ")}
-              {assessment?.matching_status === 'NEEDS_HR_VERIFICATION' ? ` · ${t("Cần HR xác minh")}` : ''}
-            </Typography>
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            columnGap: { sm: 1.5, md: 2 },
+            rowGap: 1,
+            flexWrap: 'wrap',
+            // Hai nhóm đầu/cuối phải nằm chung hàng ở màn hẹp, nên ở đó các Box
+            // nhóm chuyển sang `display: contents` và con của chúng được xếp bằng
+            // `order` (0 ngữ cảnh → 1 bộ đếm → 2 hoàn tất → 3,4 điều hướng →
+            // 5 tiêu chí → 6,7 hai quyết định). Từ 600px trở lên trả lại ba nhóm
+            // như cũ, nên thứ tự và khoảng cách không đổi.
+          }}
+        >
+          <Box sx={{ display: { xs: 'contents', sm: 'flex' }, alignItems: 'center', gap: 1, minWidth: 0, flex: { sm: 1 } }}>
+            <Box sx={{ minWidth: 0, flex: { xs: '1 1 60px', sm: 1 }, order: { xs: 0 } }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              >
+                {navigationIndex >= 0
+                  ? t("Hồ sơ {0}/{1} trong hàng đợi đang xem", navigationIndex + 1, browseTotal)
+                  : t("Đang xem chi tiết hồ sơ")}
+                {assessment?.matching_status === 'NEEDS_HR_VERIFICATION' ? ` · ${t("Cần HR xác minh")}` : ''}
+              </Typography>
+              {/* Ở 390px dòng này chỉ còn phần "Hồ sơ 3/6": chỗ đã nhường cho bộ
+                  đếm, Hoàn tất và hai nút điều hướng trên cùng một hàng. */}
+            </Box>
+            {canVerifyCriteria && !shareContext && flaggedCriteria.length > 0 && (
+              <Chip
+                size="small"
+                data-testid="sticky-pending"
+                // Màn hẹp chỉ đủ chỗ cho "2/2"; nhãn đầy đủ giữ từ 600px trở lên và
+                // vẫn là tên đọc được của chip cho trình đọc màn hình.
+                aria-label={pendingCriteria.length > 0
+                  ? t('Còn {0}/{1} tiêu chí chờ', pendingCriteria.length, flaggedCriteria.length)
+                  : t('Đủ {0}/{0} tiêu chí', flaggedCriteria.length)}
+                label={(
+                  <>
+                    <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                      {pendingCriteria.length > 0
+                        ? t('Còn {0}/{1} tiêu chí chờ', pendingCriteria.length, flaggedCriteria.length)
+                        : t('Đủ {0}/{0} tiêu chí', flaggedCriteria.length)}
+                    </Box>
+                    <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>
+                      {`${pendingCriteria.length}/${flaggedCriteria.length}`}
+                    </Box>
+                  </>
+                )}
+                sx={{
+                  order: { xs: 1 },
+                  flexShrink: 0,
+                  backgroundColor: pendingCriteria.length === 0 ? '#ECFDF3' : '#FFFAEB',
+                  color: pendingCriteria.length === 0 ? '#067647' : '#B54708',
+                  fontWeight: 700,
+                }}
+              />
+            )}
           </Box>
-          {canFinish && (
-            <Button
-              variant="contained"
-              color="secondary"
-              size="small"
-              startIcon={<CheckCircleOutlineIcon />}
-              onClick={openFinish}
-              data-testid="finish-application"
-            >
-              {t('Đã xử lý xong hồ sơ này')}
-            </Button>
+          {canVerifyCriteria && !shareContext && flaggedCriteria.length > 0 && (
+            <Box sx={{ display: { xs: 'contents', sm: 'flex' }, alignItems: 'center', gap: 1, minWidth: 0, flex: { sm: '0 1 auto' } }}>
+              {/* Tên tiêu chí phải đọc được ngay trên thanh, không chỉ trong tooltip:
+                  trên điện thoại không có hover, nên HR chỉ thấy hai nút mà không biết
+                  đang quyết định cho tiêu chí nào. Cắt bằng ellipsis để vẫn gọn ở 390px. */}
+              {activeResult && (
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  data-testid="sticky-criterion"
+                  label={t('Đang chọn: {0}', activeResult.criterion_name)}
+                  sx={{
+                    order: { xs: 5 },
+                    // Ở màn hẹp phải nhường chỗ cho hai nút quyết định: `1 1 auto`
+                    // làm chip chiếm trọn hàng và đẩy hai nút xuống hàng thứ ba.
+                    flex: { xs: '1 1 0px', sm: '1 1 auto' },
+                    minWidth: 0,
+                    maxWidth: { xs: 'none', sm: 360 },
+                    borderColor: '#D0D5DD',
+                    backgroundColor: '#F9FAFB',
+                    '& .MuiChip-label': {
+                      display: 'block',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    },
+                  }}
+                />
+              )}
+              <Tooltip title={activeResult ? t('Đang chọn: {0}', activeResult.criterion_name) : ''}>
+                <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0, order: { xs: 6 } }}>
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="secondary"
+                    data-testid="sticky-confirm"
+                    disabled={!activeAwaitingReview || reviewSaving !== null}
+                    sx={{ whiteSpace: 'nowrap' }}
+                    onClick={() => { if (activeResult?.result_id) void handleReview(activeResult.result_id, 'CONFIRMED'); }}
+                  >
+                    {/* Một bộ từ cho cả hai khổ: `Đúng`/`Sai` ở màn hẹp đọc như
+                        kết luận về tiêu chí, trong khi nút này nói về trích dẫn —
+                        và từ 600px lại đổi thành `Xác nhận`/`Đánh dấu sai` cùng
+                        một hành động. Hai nhãn đầy đủ vẫn vừa một hàng ở 390px,
+                        nên không cần bản rút gọn. */}
+                    {t('Xác nhận')}
+                  </Button>
+                </Box>
+              </Tooltip>
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                data-testid="sticky-reject"
+                disabled={!activeAwaitingReview}
+                sx={{ order: { xs: 7 }, flexShrink: 0, whiteSpace: 'nowrap' }}
+                onClick={() => { if (activeResult) setRejectRequest({ criterionId: activeResult.criterion_id, token: Date.now() }); }}
+              >
+                {t('Đánh dấu sai')}
+              </Button>
+            </Box>
           )}
-          {previousApplicantId ? (
-            <Button component={Link} href={keepContext(previousApplicantId)} variant="outlined" size="small" startIcon={<NavigateBeforeIcon />}>{t("Hồ sơ trước")}</Button>
-          ) : (
-            <Button variant="outlined" size="small" startIcon={<NavigateBeforeIcon />} disabled>{t("Hồ sơ trước")}</Button>
-          )}
-          {nextApplicantId ? (
-            <Button component={Link} href={keepContext(nextApplicantId)} variant="contained" color="secondary" size="small" endIcon={<NavigateNextIcon />}>{t("Hồ sơ tiếp theo")}</Button>
-          ) : (
-            <Button variant="outlined" size="small" endIcon={<NavigateNextIcon />} disabled>{t("Hồ sơ tiếp theo")}</Button>
-          )}
+          {/* Hoàn tất và điều hướng hồ sơ: ở 390px nằm chung hàng với ngữ cảnh và
+              bộ đếm (order 2–4). Điều hướng chỉ còn icon ở màn hẹp — hai nút quyết
+              định vẫn giữ nhãn đầy đủ ở hàng dưới. */}
+          <Box sx={{ display: { xs: 'contents', sm: 'flex' }, alignItems: 'center', gap: 1, flexWrap: 'wrap', minWidth: 0 }}>
+            {canFinish && (
+              <Button
+                variant="contained"
+                color="secondary"
+                size="small"
+                startIcon={<CheckCircleOutlineIcon />}
+                onClick={startFinish}
+                data-testid="finish-application"
+                sx={{ order: { xs: 2 }, whiteSpace: 'nowrap', '& .MuiButton-startIcon': { display: { xs: 'none', sm: 'inline-flex' } } }}
+              >
+                <CompactLabel compact={t('Hoàn tất')} full={t('Đã xử lý xong hồ sơ này')} />
+              </Button>
+            )}
+            {previousApplicantId ? (
+              <Button component={Link} href={keepContext(previousApplicantId)} aria-label={t("Hồ sơ trước")} variant="outlined" size="small" startIcon={<NavigateBeforeIcon />} sx={{ order: { xs: 3 }, minWidth: { xs: 40 }, px: { xs: 1, sm: 2 }, whiteSpace: 'nowrap', '& .MuiButton-startIcon': { m: { xs: 0, sm: '0 8px 0 -4px' } } }}><Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>{t("Hồ sơ trước")}</Box></Button>
+            ) : (
+              <Button aria-label={t("Hồ sơ trước")} variant="outlined" size="small" startIcon={<NavigateBeforeIcon />} disabled sx={{ order: { xs: 3 }, minWidth: { xs: 40 }, px: { xs: 1, sm: 2 }, whiteSpace: 'nowrap', '& .MuiButton-startIcon': { m: { xs: 0, sm: '0 8px 0 -4px' } } }}><Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>{t("Hồ sơ trước")}</Box></Button>
+            )}
+            {nextApplicantId ? (
+              <Button component={Link} href={keepContext(nextApplicantId)} aria-label={t("Hồ sơ tiếp theo")} variant="contained" color="secondary" size="small" endIcon={<NavigateNextIcon />} sx={{ order: { xs: 4 }, minWidth: { xs: 40 }, px: { xs: 1, sm: 2 }, whiteSpace: 'nowrap', '& .MuiButton-endIcon': { m: { xs: 0, sm: '0 -4px 0 8px' } } }}><Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>{t("Hồ sơ tiếp theo")}</Box></Button>
+            ) : (
+              <Button aria-label={t("Hồ sơ tiếp theo")} variant="outlined" size="small" endIcon={<NavigateNextIcon />} disabled sx={{ order: { xs: 4 }, minWidth: { xs: 40 }, px: { xs: 1, sm: 2 }, whiteSpace: 'nowrap', '& .MuiButton-endIcon': { m: { xs: 0, sm: '0 -4px 0 8px' } } }}><Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>{t("Hồ sơ tiếp theo")}</Box></Button>
+            )}
+          </Box>
         </Box>
       </StickyActionBar>
 
@@ -717,7 +1065,7 @@ export default function ApplicantDetailPage() {
           có nó thì phím tắt là tính năng ẩn: HR không đoán ra j/k/1/2/n. */}
       {canWorkVerification && !shareContext && (
         <Typography variant="caption" color="text.secondary" data-testid="review-shortcuts" sx={{ display: 'block', mb: 1.5 }}>
-          {t('Phím tắt: j/k chọn tiêu chí · 1 xác nhận · 2 đánh dấu sai · Enter mở trang CV · n hồ sơ tiếp theo')}
+          {t('Phím tắt: j/k chọn tiêu chí · 1 xác nhận (tự sang tiêu chí kế tiếp) · 2 đánh dấu sai · Enter mở trang CV · n hồ sơ tiếp theo · f hoàn tất hồ sơ · ? xem bảng phím tắt')}
         </Typography>
       )}
 
@@ -1040,25 +1388,37 @@ export default function ApplicantDetailPage() {
         </Grid>
       </Grid>
 
-      {caps.viewCv && <CandidateProfilePanel key={applicantId} applicationId={applicantId} canEdit={caps.editProfile} onSaved={() => { loadData(); }} />}
+      {/* Hai panel anh em phải có key khác nhau: trước đây cả hai cùng key
+          {applicantId}, và React gặp hai children trùng key đã mount thêm một bản
+          "Profile ứng viên" sau mỗi lần trang render — bản cũ không được gỡ, mỗi
+          bản lại tự tải /profile của hồ sơ. Một hồ sơ 6 tiêu chí vì thế gọi
+          /profile 16 lần. Key theo loại panel để mỗi panel vẫn được dựng lại khi
+          đổi hồ sơ (dữ liệu cũ không dính sang hồ sơ mới) mà không đụng nhau. */}
+      {caps.viewCv && <CandidateProfilePanel key={`profile-${applicantId}`} applicationId={applicantId} canEdit={caps.editProfile} onSaved={() => { loadData(); }} />}
       {caps.manageHrNotes && (
         <HRNotesPanel
-          key={applicantId}
+          key={`notes-${applicantId}`}
           notes={generalNotes(notes)}
           loading={notesLoading}
           error={notesError}
           onAdd={content => addNote(content)}
+          onOpen={() => setNotesRequested(true)}
           criterionNoteCount={summarizeCriterionNotes(notes).criteriaWithNotes}
         />
       )}
 
       {caps.viewStatusHistory && (
-        <Accordion disableGutters elevation={0} sx={{ mb: 3, border: '1px solid #E4E7EC', borderRadius: '8px !important', '&:before': { display: 'none' } }}>
+        <Accordion
+          disableGutters
+          elevation={0}
+          onChange={(_event, expanded) => { if (expanded) void loadStatusHistory(); }}
+          sx={{ mb: 3, border: '1px solid #E4E7EC', borderRadius: '8px !important', '&:before': { display: 'none' } }}
+        >
           <AccordionSummary expandIcon={<ExpandMoreIcon />} aria-controls="status-history-content" id="status-history-header">
             <Typography fontWeight={600}>{t("Lịch sử trạng thái ")}{history.length > 0 && `(${history.length})`}</Typography>
           </AccordionSummary>
           <AccordionDetails id="status-history-content">
-            {historyError ? <Alert severity="error">{t(historyError)}</Alert> : history.length === 0 ? (
+            {historyLoading && history.length === 0 ? <CircularProgress size={20} /> : historyError ? <Alert severity="error">{t(historyError)}</Alert> : history.length === 0 ? (
               <Typography variant="body2" color="text.secondary">{t("Chưa có thay đổi trạng thái.")}</Typography>
             ) : history.map(event => (
               <Box key={event.event_id} sx={{ py: 1.5, borderTop: '1px solid #EDF1F5' }}>
@@ -1074,6 +1434,25 @@ export default function ApplicantDetailPage() {
           </AccordionDetails>
         </Accordion>
       )}
+
+      {/* Bảng phím tắt: mọi phím đang có hiệu lực, ở một chỗ. Trước đây chỉ có
+          một dòng chữ dài ở đầu trang nên HR phải nhớ hoặc cuộn lại. */}
+      <Dialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} maxWidth="xs" fullWidth data-testid="shortcuts-dialog">
+        <DialogTitle>{t('Phím tắt khi duyệt hồ sơ')}</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" sx={{ py: 0.5 }}>{t('j / k — chọn tiêu chí kế tiếp hoặc trước đó')}</Typography>
+          <Typography variant="body2" sx={{ py: 0.5 }}>{t('1 — xác nhận trích dẫn, tự sang tiêu chí kế tiếp')}</Typography>
+          <Typography variant="body2" sx={{ py: 0.5 }}>{t('2 — đánh dấu sai và mở hộp thoại nhập lý do')}</Typography>
+          <Typography variant="body2" sx={{ py: 0.5 }}>{t('Enter — mở trang CV của tiêu chí đang chọn')}</Typography>
+          <Typography variant="body2" sx={{ py: 0.5 }}>{t('n — sang hồ sơ tiếp theo')}</Typography>
+          <Typography variant="body2" sx={{ py: 0.5 }} data-testid="shortcut-finish">{t('f — đã xử lý xong hồ sơ này')}</Typography>
+          <Typography variant="body2" sx={{ py: 0.5 }}>{t('? — mở bảng phím tắt này')}</Typography>
+          <Typography variant="body2" sx={{ py: 0.5 }}>{t('Esc — đóng bảng hoặc hộp thoại')}</Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setShortcutsOpen(false)}>{t('Đóng')}</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Status changes follow the server transition matrix. */}
       <Dialog open={statusDialogOpen} onClose={() => !statusSubmitting && setStatusDialogOpen(false)} maxWidth="sm" fullWidth>
@@ -1110,7 +1489,7 @@ export default function ApplicantDetailPage() {
         <DialogTitle>{t('Hoàn tất hồ sơ này')}</DialogTitle>
         <DialogContent dividers>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            {t('Ghi nhận việc xác minh, đổi trạng thái nếu cần, rồi chuyển sang hồ sơ tiếp theo. Trạng thái chỉ đổi khi bạn chọn bên dưới.')}
+            {t('Ghi nhận việc xác minh, đổi trạng thái nếu cần (đã chọn sẵn đề xuất), rồi chuyển sang hồ sơ tiếp theo.')}
           </Typography>
           {finishError && <Alert severity="error" sx={{ mb: 2 }}>{t(finishError)}</Alert>}
 
@@ -1132,22 +1511,19 @@ export default function ApplicantDetailPage() {
                   <li key={result.criterion_id}><Typography variant="body2">{result.criterion_name}</Typography></li>
                 ))}
               </Box>
-              {/* Xác nhận rõ ràng thay vì tự động coi "đã bấm hoàn tất" là "đã kiểm".
-                  Ghi CONFIRMED cho người chưa nhìn là làm sai lệch biên bản. */}
-              <Box data-testid="finish-attest">
-                <FormControlLabel
-                  sx={{ mt: 1, alignItems: 'flex-start' }}
-                  control={<Checkbox checked={finishAttest} onChange={event => setFinishAttest(event.target.checked)} />}
-                  label={<Typography variant="body2">{t('Tôi đã đối chiếu {0} tiêu chí trên với CV và xác nhận trích dẫn là đúng.', pendingResults.length)}</Typography>}
-                />
-              </Box>
+              {/* Cam kết nằm ngay trên nút chính: bấm nút là chính lời cam kết,
+                  nên không còn ô đánh dấu phải bấm thêm. Vẫn là một hành động
+                  rõ ràng của HR, không tự động coi "đã mở hộp thoại" là "đã kiểm". */}
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }} data-testid="finish-attest-note">
+                {t('Nút bên dưới là xác nhận của bạn: đã đối chiếu {0} tiêu chí trên với CV và trích dẫn là đúng.', pendingResults.length)}
+              </Typography>
             </Box>
           )}
 
           {canUpdateStatus ? (
             <>
               <Typography variant="subtitle2" sx={{ mt: 1, mb: 1 }}>{t('Trạng thái hồ sơ')}</Typography>
-              <FormControl fullWidth size="small" sx={{ mb: 2 }} data-testid="finish-status">
+              <FormControl fullWidth size="small" sx={{ mb: suggestionText[finishSuggestion.reason] ? 1 : 2 }} data-testid="finish-status">
                 <InputLabel id="finish-status-label">{t('Sau khi hoàn tất')}</InputLabel>
                 <Select labelId="finish-status-label" label={t('Sau khi hoàn tất')} value={finishStatus}
                   onChange={event => setFinishStatus(event.target.value)}>
@@ -1157,6 +1533,11 @@ export default function ApplicantDetailPage() {
                   ))}
                 </Select>
               </FormControl>
+              {suggestionText[finishSuggestion.reason] && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }} data-testid="finish-suggestion">
+                  {suggestionText[finishSuggestion.reason]}
+                </Typography>
+              )}
               {finishStatus.startsWith('REJECTED') && (
                 <>
                   <ReasonSuggestions
@@ -1193,7 +1574,11 @@ export default function ApplicantDetailPage() {
           <Button onClick={() => setFinishOpen(false)} disabled={finishing}>{t('Hủy')}</Button>
           <Button variant="contained" color="secondary" startIcon={<CheckCircleOutlineIcon />} onClick={handleFinish}
             disabled={finishing || finishBlocked} data-testid="finish-confirm">
-            {finishing ? t('Đang hoàn tất…') : t('Hoàn tất')}
+            {finishing
+              ? t('Đang hoàn tất…')
+              : pendingResults.length > 0
+                ? t('Xác nhận đã kiểm {0} tiêu chí và hoàn tất', pendingResults.length)
+                : t('Hoàn tất')}
           </Button>
         </DialogActions>
       </Dialog>

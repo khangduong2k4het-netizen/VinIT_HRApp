@@ -19,6 +19,7 @@ export default function QueueFilterChips({ value, counts, onChange }: QueueFilte
     return (
       <Chip
         key={queue}
+        size="small"
         label={`${t(QUEUE_LABELS[queue])} (${counts[queue]})`}
         aria-label={t("{0}: {1} hồ sơ trong toàn bộ vị trí", t(QUEUE_LABELS[queue]), counts[queue])}
         onClick={() => onChange(queue)}
@@ -34,7 +35,17 @@ export default function QueueFilterChips({ value, counts, onChange }: QueueFilte
     // Cụm được ghi ngay trước các chip của nó và chảy cùng dòng: nhóm rõ ràng
     // nhưng không thêm ba dòng tiêu đề đẩy bảng dữ liệu xuống dưới màn hình.
     <Box
-      sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}
+      sx={{
+        display: 'flex',
+        gap: 1,
+        // Trên điện thoại, tám chip hàng đợi từng chiếm bảy dòng trước bảng; ở
+        // đây chúng chảy thành một dải cuộn ngang, vẫn chạm được từng chip.
+        flexWrap: { xs: 'nowrap', md: 'wrap' },
+        overflowX: { xs: 'auto', md: 'visible' },
+        alignItems: 'center',
+        mb: 2,
+        pb: { xs: 0.5, md: 0 },
+      }}
       role="group"
       aria-label={t("Hàng đợi rà soát ứng viên")}
       data-testid="queue-chip-counts"
@@ -49,13 +60,13 @@ export default function QueueFilterChips({ value, counts, onChange }: QueueFilte
           <Box
             key={cluster}
             data-testid={`queue-cluster-${cluster}`}
-            sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', alignItems: 'center' }}
+            sx={{ display: 'flex', gap: 0.75, flexWrap: { xs: 'nowrap', md: 'wrap' }, alignItems: 'center', flexShrink: 0 }}
           >
             <Typography
               component="span"
               variant="caption"
               color="text.secondary"
-              sx={{ fontWeight: 700, pr: 0.5, borderLeft: '2px solid #D0D7E2', pl: 1 }}
+              sx={{ fontWeight: 700, pr: 0.5, borderLeft: '2px solid #D0D7E2', pl: 1, whiteSpace: 'nowrap', flexShrink: 0 }}
             >
               {t(WORK_CLUSTER_LABELS[cluster])}
             </Typography>

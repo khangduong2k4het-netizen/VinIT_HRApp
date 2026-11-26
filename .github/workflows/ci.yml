@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - "arena/**"
+      - "integrate/**"   # nhánh tích hợp nhiều nguồn; cần CI như nhánh chính
     # Documentation-only pushes do not change runtime behaviour. Mixed
     # pushes still run CI because GitHub only skips when every changed
     # file matches paths-ignore.

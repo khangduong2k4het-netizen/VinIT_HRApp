@@ -13,11 +13,16 @@ interface HRNotesPanelProps {
   loading: boolean;
   error: string | null;
   onAdd: (content: string) => Promise<void>;
+  /**
+   * Gọi ở lần mở panel đầu tiên. Trang không tự tải ghi chú khi mở hồ sơ —
+   * panel đóng thì nội dung không ai đọc, nên request chỉ nên có khi có người mở.
+   */
+  onOpen?: () => void;
   /** Số ghi chú đang gắn với tiêu chí, để không ai nghĩ danh sách này là tất cả. */
   criterionNoteCount?: number;
 }
 
-export default function HRNotesPanel({ notes, loading, error, onAdd, criterionNoteCount = 0 }: HRNotesPanelProps) {
+export default function HRNotesPanel({ notes, loading, error, onAdd, onOpen, criterionNoteCount = 0 }: HRNotesPanelProps) {
   const { t, dateLocale } = useI18n();
   const [content, setContent] = React.useState('');
   const [saving, setSaving] = React.useState(false);
@@ -38,7 +43,14 @@ export default function HRNotesPanel({ notes, loading, error, onAdd, criterionNo
   };
 
   return (
-    <Accordion id="hr-notes" disableGutters elevation={0} sx={{ mb: 3, border: '1px solid #E4E7EC', borderRadius: '8px !important', '&:before': { display: 'none' } }}>
+    <Accordion
+      id="hr-notes"
+      disableGutters
+      elevation={0}
+      // Mở panel là lúc duy nhất cần dữ liệu; đóng/mở lại không hỏi lại.
+      onChange={(_event, expanded) => { if (expanded) onOpen?.(); }}
+      sx={{ mb: 3, border: '1px solid #E4E7EC', borderRadius: '8px !important', '&:before': { display: 'none' } }}
+    >
       <AccordionSummary expandIcon={<ExpandMoreIcon />}>
         <Typography fontWeight={600}>{t("Ghi chú nội bộ HR ")}{notes.length > 0 ? `(${notes.length})` : ''}</Typography>
       </AccordionSummary>

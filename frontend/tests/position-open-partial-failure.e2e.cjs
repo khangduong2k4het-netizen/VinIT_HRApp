@@ -22,6 +22,8 @@ const json = (r,b,s=200) => r.fulfill({status:s,contentType:'application/json',b
   if(p === '/v1/positions/position/jd-versions') return json(r,[{jd_version_id:'jd',version_number:1,content_text:'JD giả',language_code:'en'}]);
   if(p === '/v1/positions/position/workspace') return json(r,{},404);
   if(p === '/v1/dashboard/position/position') return json(r,{total_applications:0,applications_processing:0,files_needing_hr_review:0,applications_by_status:{SHORTLIST:0}});
+  // Badge "việc cần làm" trên header gọi work-queue ở mọi trang đã đăng nhập.
+  if(p === '/v1/dashboard/work-queue') return json(r,{generated_at:'2026-11-19T03:00:00Z',summary:{},items:[]});
   if(p === '/v1/operations/position/position/active') return json(r,null);
   if(p === '/v1/positions') return json(r,[]);
   if(p === '/v1/departments') return json(r,[]);

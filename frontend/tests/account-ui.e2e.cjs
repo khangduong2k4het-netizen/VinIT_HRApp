@@ -61,6 +61,13 @@ const json = (route, body, status = 200) => route.fulfill({ status, contentType:
         Object.assign(user, req.postDataJSON()); return json(route, user);
       }
       if (path === '/v1/dashboard/summary') return json(route, { total_applications: 0 });
+      // Badge "việc cần làm" trên header gọi work-queue ở mọi trang đã đăng nhập.
+      if (path === '/v1/dashboard/work-queue') return json(route, { generated_at: '2026-11-19T03:00:00Z', summary: {}, items: [] });
+      // Tạo vị trí xong là sinh bộ tiêu chí nháp luôn (luồng mới); thiếu route này
+      // thì trang tạo vị trí đứng lại ở /positions/new và không chuyển trang.
+      if (path === '/v1/criteria/generate/position-id' && method === 'POST') {
+        return json(route, { criteria_version_id: 'cv-id', version_number: 1, status: 'DRAFT' }, 202);
+      }
       if (path === '/v1/positions' && method === 'GET') return json(route, state.positions);
       if (path === '/v1/positions' && method === 'POST') {
         state.positionBody = req.postDataJSON();

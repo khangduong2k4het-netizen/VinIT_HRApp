@@ -54,9 +54,9 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
   // --- 2. No status picker, and the dialog says why ------------------------
   assert.equal(await page.getByTestId('finish-status').count(), 0, 'no status picker without the status permission');
   assert.match(await page.getByTestId('finish-no-status-permission').innerText(), /giữ nguyên trạng thái/);
-  assert.equal(await page.getByTestId('finish-confirm').isDisabled(), true, 'still needs the verification attestation');
-  await page.getByTestId('finish-attest').getByRole('checkbox').check();
-  await page.waitForFunction(() => !document.querySelector('[data-testid="finish-confirm"]').disabled);
+  assert.equal(await page.getByTestId('finish-attest').count(), 0, 'the commitment is the button, not a separate checkbox');
+  assert.match(await page.getByTestId('finish-confirm').innerText(), /Xác nhận đã kiểm 2 tiêu chí/);
+  assert.equal(await page.getByTestId('finish-confirm').isDisabled(), false, 'pressing the button is the attestation');
 
   // --- 3. Verification is recorded, status untouched, then move on --------
   await page.getByTestId('finish-confirm').click();

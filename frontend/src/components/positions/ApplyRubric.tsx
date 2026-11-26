@@ -18,7 +18,7 @@ type Rubric = { template_version_id: string; title: string; family_name: string;
  * Không ẩn hẳn rubric khác nhóm: HR vẫn có thể cố ý dùng chéo, chỉ là không còn
  * là lựa chọn mặc định dễ bấm nhầm nữa.
  */
-export default function ApplyRubric({ positionId, jobFamilyId, disabled, onApplied }: { positionId: string; jobFamilyId?: string | null; disabled: boolean; onApplied: () => Promise<void> }) {
+export default function ApplyRubric({ positionId, jobFamilyId, disabled, onApplied, size = 'medium', label }: { positionId: string; jobFamilyId?: string | null; disabled: boolean; onApplied: () => Promise<void>; size?: 'small' | 'medium'; label?: string }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [versions, setVersions] = useState<Rubric[]>([]);
@@ -48,7 +48,7 @@ export default function ApplyRubric({ positionId, jobFamilyId, disabled, onAppli
     catch (err: any) { setError(err.response?.data?.detail || t('Không thể áp dụng rubric.')); }
     finally { setBusy(false); }
   };
-  return <><Button variant="outlined" disabled={disabled} onClick={show}>{t('Dùng rubric đã xuất bản')}</Button>
+  return <><Button variant="outlined" size={size} disabled={disabled} onClick={show}>{t(label || 'Dùng rubric đã xuất bản')}</Button>
     <Dialog open={open} onClose={() => !busy && setOpen(false)} fullWidth maxWidth="sm">
       <DialogTitle>{t('Áp dụng rubric vào vị trí')}</DialogTitle>
       <DialogContent>
