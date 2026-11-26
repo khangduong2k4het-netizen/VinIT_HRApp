@@ -133,7 +133,8 @@ class Settings(BaseSettings):
     # v1.7: B.Eng./B.Sc./Kỹ sư recognised as bachelor-level degrees.
     # v1.8: dotted abbreviations (B.Eng., Ph.D.) no longer split evidence quotes.
     # v1.9: the same career length restated in the summary, work section and profile is counted once.
-    DETERMINISTIC_RULES_VERSION: str = "deterministic-rules-v1.9"
+    # v1.10: "Bachelor's or Master's" asks for a bachelor level; IT-family degrees count for "Computer Science, ...".
+    DETERMINISTIC_RULES_VERSION: str = "deterministic-rules-v1.10"
     MANDATORY_CRITERIA_WEIGHT_DEFAULT: float = 0.7
     NICE_TO_HAVE_WEIGHT_DEFAULT: float = 0.3
     MIN_EVIDENCE_COVERAGE: float = 0.7

@@ -119,7 +119,7 @@ def test_negated_skill_mention_is_unresolved_not_a_rule_match():
     # v1.3, and the Python years gate/framework grouping in v1.4; the
     # version is part of the assessment fingerprint, so existing
     # assessments must be recalculated after any of these changes.
-    assert result["rule_version"] == "deterministic-rules-v1.9"
+    assert result["rule_version"] == "deterministic-rules-v1.10"
 
 
 def test_positive_skill_still_matches_when_another_sentence_is_negated():
@@ -472,3 +472,40 @@ def test_sentence_split_ignores_abbreviation_periods():
     assert sentences("Ph.D. in CS. Next sentence.") == ["Ph.D. in CS.", "Next sentence."]
     assert sentences("Built it. Then left.") == ["Built it.", "Then left."]
     assert sentences("Version 7.0 is out. Yes") == ["Version 7.0 is out.", "Yes"]
+
+
+# --- rules v1.10: "Bachelor's or Master's" and IT-family degrees ---
+
+DEGREE_CRITERION = "Bachelor's or Master's degree in Computer Science, AI, Data Science or related field"
+
+
+def _degree_outcome(education):
+    criteria = [criterion("d", DEGREE_CRITERION, "Education")]
+    result = deterministic_matcher.evaluate_criteria(f"EDUCATION\n{education}", criteria, {})
+    return result["findings"][0]["outcome"] if result["findings"] else "UNRESOLVED"
+
+
+def test_bachelor_or_master_requirement_is_met_by_a_bachelor():
+    spec = deterministic_matcher.build_requirement_spec(criterion("d", DEGREE_CRITERION, "Education"))
+    assert spec.required_degree_level == 3
+    assert deterministic_matcher.build_requirement_spec(
+        criterion("m", "Education", "Master's degree in Computer Science")).required_degree_level == 4
+
+
+def test_it_family_degrees_satisfy_computer_science_requirement():
+    for education in (
+        "B.Eng. in Information Technology, Posts and Telecommunications Institute of Technology, 2017 - 2021",
+        "Bachelor of Software Engineering, Example University",
+        "Bachelor of Data Science, Example University",
+        "Cử nhân Công nghệ thông tin, Đại học Bách khoa",
+        "Kỹ sư Khoa học máy tính, Đại học Công nghệ",
+    ):
+        assert _degree_outcome(education) in {"MATCH", "STRONG_MATCH"}, education
+
+
+def test_unrelated_degree_is_not_a_match_and_not_a_no_match():
+    assert _degree_outcome("Bachelor of Marketing, Example University") == "UNRESOLVED"
+
+
+def test_too_low_level_is_still_a_no_match():
+    assert _degree_outcome("High school diploma (THPT), Example school") in {"NO_MATCH", "UNRESOLVED"}

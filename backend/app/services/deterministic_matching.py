@@ -204,6 +204,15 @@ FIELD_ABBREVIATIONS: dict[str, tuple[str, ...]] = {
     "software engineering": ("ky thuat phan mem", "cong nghe phan mem"),
     "data science": ("khoa hoc du lieu",),
 }
+# Fields of one family: a CV naming any of them evidences a criterion naming another
+# ("Computer Science, AI" is met by a degree in Information Technology or Software Engineering).
+# Deliberately narrow; unrelated fields (Marketing, Accounting) never join it.
+IT_FAMILY_FIELDS: tuple[str, ...] = (
+    "computer science", "information technology", "software engineering", "data science", "computer engineering",
+    "informatics", "artificial intelligence", "khoa hoc may tinh", "cong nghe thong tin",
+    "ky thuat phan mem", "cong nghe phan mem", "khoa hoc du lieu", "ky thuat may tinh", "tin hoc", "cntt", "khmt",
+    "tri tue nhan tao",
+)
 _FIELD_SPLIT = re.compile(r"[,;/()]|\b(?:or|and|hoac|va|in|of|trong|ve)\b", re.IGNORECASE)
 _FIELD_SUFFIXES = ("ing", "ers", "er", "ed", "s")
 
@@ -601,9 +610,14 @@ class DeterministicMatchingEngine:
 
     @staticmethod
     def _required_degree_level(normalized: str) -> int | None:
-        for level, patterns in DEGREE_PATTERNS:
-            if any(_contains_phrase(normalized, pattern) for pattern in patterns):
-                return level
+        found = [level for level, patterns in DEGREE_PATTERNS
+                 if any(_contains_phrase(normalized, pattern) for pattern in patterns)]
+        if found:
+            # "Bachelor's or Master's degree": any one of the listed levels satisfies it, so the
+            # lowest counts. Without "or" the highest named level stays the requirement.
+            if len(found) > 1 and re.search(r"\b(?:or|hoac)\b|/", normalized):
+                return min(found)
+            return found[0]
         if "degree" in normalized.split() or "bang dai hoc" in normalized:
             return 3
         return None
@@ -794,6 +808,10 @@ class DeterministicMatchingEngine:
     def _field_in_text(phrases: tuple[tuple[str, ...], ...], text: str) -> bool:
         normalized = normalize_text(text)
         stems = {_field_stem(token) for token in normalized.split()}
+        names_it_family = any(" ".join(phrase) in IT_FAMILY_FIELDS or phrase == ("ai",) for phrase in phrases)
+        if names_it_family and (any(_contains_phrase(normalized, form) for form in IT_FAMILY_FIELDS)
+                                or re.search(r"\bIT\b", text or "")):
+            return True
         for phrase in phrases:
             # Lower-case "it" is a pronoun; only the upper-case abbreviation counts.
             is_pronoun_it = phrase == ("it",) and not re.search(r"\bIT\b", text or "")
