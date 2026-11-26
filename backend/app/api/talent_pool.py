@@ -24,7 +24,7 @@ REASON_TEXT = {
     "CONSENT_WITHDRAWN": "Ứng viên đã rút đồng ý",
     "RETENTION_EXPIRED": "Hồ sơ đã quá thời hạn lưu",
     "DELETION_PENDING": "Hồ sơ đang chờ xóa hoặc bị tạm hoãn",
-    "STATUS_NOT_ELIGIBLE": "Trạng thái hồ sơ chưa đủ điều kiện",
+    "STATUS_NOT_ELIGIBLE": "Cần chuyển hồ sơ sang Shortlist hoặc Phỏng vấn trước khi đưa vào Talent Pool (nếu Shortlist khác kết luận của AI, hãy chọn lý do điều chỉnh khi đổi trạng thái).",
 }
 
 

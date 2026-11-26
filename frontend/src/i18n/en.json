@@ -919,7 +919,6 @@
   "Ứng viên đã rút đồng ý": "The candidate withdrew consent",
   "Hồ sơ đã quá thời hạn lưu": "The application is past its reuse period",
   "Hồ sơ đang chờ xóa hoặc bị tạm hoãn": "The application is awaiting deletion or on hold",
-  "Trạng thái hồ sơ chưa đủ điều kiện": "The application status is not eligible yet",
   "Hồ sơ đã nằm trong Talent Pool": "The application is already in the Talent Pool",
   "Hồ sơ không nằm trong Talent Pool": "The application is not in the Talent Pool",
   "Không có đồng ý đang hiệu lực để rút": "There is no active consent to withdraw",
@@ -1865,5 +1864,7 @@
   "Đã gửi đăng ký. Hãy mở liên kết xác minh trong email, sau đó chờ Admin duyệt.": "Registration sent. Open the verification link in your email, then wait for Admin approval.",
   "Mở liên kết xác minh email": "Open the email verification link",
   "Người đăng ký chưa xác minh email nên chưa thể duyệt.": "This person has not verified their email yet, so the account cannot be approved.",
-  "Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau.": "Too many requests. Please try again later."
+  "Bạn đã gửi quá nhiều yêu cầu. Vui lòng thử lại sau.": "Too many requests. Please try again later.",
+  "Cần chuyển hồ sơ sang Shortlist hoặc Phỏng vấn trước khi đưa vào Talent Pool (nếu Shortlist khác kết luận của AI, hãy chọn lý do điều chỉnh khi đổi trạng thái).": "Move the application to Shortlist or Interview before adding it to the Talent Pool (if Shortlist differs from the AI conclusion, choose an override reason when changing the status).",
+  "Trạng thái hồ sơ chưa đủ điều kiện": "The application status is not eligible yet"
 }
