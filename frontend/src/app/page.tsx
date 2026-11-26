@@ -25,11 +25,13 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bootstrapAvailable, setBootstrapAvailable] = useState(false);
+  const [config, setConfig] = useState({ self_registration: false, password_reset: true });
   const router = useRouter();
 
   useEffect(() => {
     let active = true;
     authApi.bootstrapStatus().then(response => { if (active) setBootstrapAvailable(Boolean(response.data.available)); }).catch(() => {});
+    authApi.publicConfig().then(response => { if (active) setConfig(response.data); }).catch(() => {});
     return () => { active = false; };
   }, []);
 
@@ -126,6 +128,11 @@ export default function LoginPage() {
               {loading ? <CircularProgress size={24} color="inherit" /> : t("Đăng nhập")}
             </Button>
           </form>
+
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', mt: 1.5 }}>
+            {config.password_reset && <Button size="small" onClick={() => router.push('/forgot-password')}>{t("Quên mật khẩu?")}</Button>}
+            {config.self_registration && <Button size="small" onClick={() => router.push('/register')}>{t("Đăng ký tài khoản")}</Button>}
+          </Box>
 
           {bootstrapAvailable && <Button fullWidth sx={{ mt: 2 }} onClick={() => router.push('/bootstrap')}>
             {t("Khởi tạo Admin đầu tiên")}

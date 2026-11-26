@@ -202,6 +202,17 @@ class Settings(BaseSettings):
     # Frontend base URL used in reminder emails.
     APP_PUBLIC_URL: str = "http://localhost:3000"
 
+    # Self-service accounts. Registration is off by default; accounts it creates
+    # are INACTIVE with no role until an Admin approves them. Empty domain list = any domain.
+    SELF_REGISTRATION_ENABLED: bool = False
+    SELF_REGISTRATION_ALLOWED_DOMAINS: str = "vinuni.edu.vn"
+    # Forgot-password link lifetime and per-account request cap per hour.
+    PASSWORD_RESET_TTL_MINUTES: int = 30
+    PASSWORD_RESET_MAX_PER_HOUR: int = 3
+    # Development/testing only: return the reset link in the API response when no
+    # email channel is configured. Refused outside development/testing.
+    PASSWORD_RESET_DEV_ECHO: bool = False
+
     # Outbound email (retention reminders and purge OTP). Disabled when empty.
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587
@@ -272,6 +283,8 @@ class Settings(BaseSettings):
             raise ValueError("LLM_PROVIDER=mock is only allowed when APP_ENV is development or testing")
         if self.RETENTION_OTP_DEV_ECHO and self.APP_ENV not in ("development", "testing"):
             raise ValueError("RETENTION_OTP_DEV_ECHO is only allowed when APP_ENV is development or testing")
+        if self.PASSWORD_RESET_DEV_ECHO and self.APP_ENV not in ("development", "testing"):
+            raise ValueError("PASSWORD_RESET_DEV_ECHO is only allowed when APP_ENV is development or testing")
         if any(day < 1 for day in self.RETENTION_NOTICE_DAYS):
             raise ValueError("RETENTION_NOTICE_DAYS must contain positive day counts")
         # The public portal accepts files from anyone. Outside development/testing it

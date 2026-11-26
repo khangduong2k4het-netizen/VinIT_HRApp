@@ -20,6 +20,9 @@ const roleKeys: Record<Role, string> = {
 };
 const statusKeys: Record<AccountStatus, string> = { ACTIVE: 'Đang hoạt động', INACTIVE: 'Ngừng hoạt động', SUSPENDED: 'Đã khóa' };
 const allRoles = Object.keys(roleKeys) as Role[];
+// Self-registered accounts are INACTIVE with no role until an Admin approves them.
+const isPending = (account: Account) => account.account_status === 'INACTIVE' && account.roles.length === 0;
+const statusLabel = (account: Account) => isPending(account) ? 'Chờ duyệt' : statusKeys[account.account_status];
 const allStatuses = Object.keys(statusKeys) as AccountStatus[];
 
 export default function AdminUsersPage() {
@@ -76,7 +79,7 @@ export default function AdminUsersPage() {
   const create = () => { resetForm(); setSuccess(null); setOpen(true); };
   const edit = (account: Account) => {
     setEditing(account); setName(account.display_name); setEmail(account.email || ''); setRoles(account.roles);
-    setAccountStatus(account.account_status); setPassword(''); setConfirm(''); setDialogError(null); setSuccess(null); setOpen(true);
+    setAccountStatus(isPending(account) ? 'ACTIVE' : account.account_status); setPassword(''); setConfirm(''); setDialogError(null); setSuccess(null); setOpen(true);
   };
   const save = async (event: React.FormEvent) => {
     event.preventDefault(); setDialogError(null);
@@ -159,7 +162,7 @@ export default function AdminUsersPage() {
             <Typography fontWeight={700} sx={{ overflowWrap: 'anywhere' }}>{account.display_name}</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere', mb: 1 }}>{account.email || '—'}</Typography>
             {roleChips(account)}
-            <Typography variant="body2" sx={{ mt: 1 }}>{t(statusKeys[account.account_status])}{account.must_change_password ? ` · ${t("Chờ đổi mật khẩu")}` : ''}</Typography>
+            <Typography variant="body2" sx={{ mt: 1 }}>{t(statusLabel(account))}{account.must_change_password ? ` · ${t("Chờ đổi mật khẩu")}` : ''}</Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
               <Button onClick={() => edit(account)} aria-label={t("Chỉnh sửa tài khoản {0}", account.display_name)}>{t("Chỉnh sửa")}</Button>
               {account.account_status === 'ACTIVE' && account.user_id !== currentUser && <Button color="warning" onClick={() => openReset(account)} aria-label={t("Đặt lại mật khẩu cho {0}", account.display_name)}>{t("Đặt lại mật khẩu")}</Button>}
@@ -171,7 +174,7 @@ export default function AdminUsersPage() {
           <TableBody>{items.map(account => <TableRow key={account.user_id}>
             <TableCell>{account.display_name}{account.user_id === currentUser && <Typography variant="caption" display="block" color="text.secondary">{t("Tài khoản của bạn")}</Typography>}</TableCell>
             <TableCell sx={{ overflowWrap: 'anywhere' }}>{account.email || '—'}</TableCell><TableCell>{roleChips(account)}</TableCell>
-            <TableCell>{t(statusKeys[account.account_status])}{account.must_change_password && <Typography variant="caption" display="block" color="text.secondary">{t("Chờ đổi mật khẩu")}</Typography>}</TableCell>
+            <TableCell>{t(statusLabel(account))}{account.must_change_password && <Typography variant="caption" display="block" color="text.secondary">{t("Chờ đổi mật khẩu")}</Typography>}</TableCell>
             <TableCell align="right"><Box sx={{ display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 1 }}>
               <Button onClick={() => edit(account)} aria-label={t("Chỉnh sửa tài khoản {0}", account.display_name)}>{t("Chỉnh sửa")}</Button>
               {account.account_status === 'ACTIVE' && account.user_id !== currentUser && <Button color="warning" onClick={() => openReset(account)} aria-label={t("Đặt lại mật khẩu cho {0}", account.display_name)}>{t("Đặt lại mật khẩu")}</Button>}

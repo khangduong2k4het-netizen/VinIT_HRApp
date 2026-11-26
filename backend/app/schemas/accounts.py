@@ -95,3 +95,20 @@ class AdminPasswordReset(BaseModel):
     new_password: SecretStr
 
     _password = field_validator("new_password")(validate_password)
+
+
+class RegisterRequest(AccountIdentity):
+    """Self-registration; same fields and password policy as an Admin-created account."""
+
+
+class ForgotPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str = Field(min_length=20, max_length=200)
+    new_password: SecretStr
+
+    _password = field_validator("new_password")(validate_password)

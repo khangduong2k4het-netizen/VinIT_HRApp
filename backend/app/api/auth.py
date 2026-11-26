@@ -11,8 +11,10 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.security import ensure_token_is_current, get_active_user
 from app.db.database import SessionLocal
-from app.schemas.accounts import BootstrapRequest, PasswordChange
-from app.services import local_auth
+from app.schemas.accounts import (BootstrapRequest, ForgotPasswordRequest, PasswordChange, RegisterRequest,
+                                  ResetPasswordRequest)
+from app.services import local_auth, password_reset
+from app.services.mailer import MailError, email_enabled, send_email
 from app.services.accounts import provision_user
 
 router = APIRouter()
@@ -98,7 +100,7 @@ def _local_login(credentials: LoginRequest) -> LoginResponse:
             SELECT account_status, must_change_password, tokens_valid_after FROM app_private.user_profiles WHERE user_id = :id
         """), {"id": identity["user_id"]}).mappings().first()
         if not profile or profile["account_status"] != "ACTIVE":
-            raise HTTPException(status_code=403, detail="Tài khoản chưa được kích hoạt hoặc đã bị khóa")
+            raise HTTPException(status_code=403, detail="Tài khoản chưa được kích hoạt (đang chờ Admin duyệt) hoặc đã bị khóa")
         token, expires_in = local_auth.issue_token(identity["user_id"], identity["email"])
         if profile["tokens_valid_after"] is not None:
             try:
@@ -141,7 +143,7 @@ def login(credentials: LoginRequest):
             SELECT account_status, must_change_password, tokens_valid_after FROM app_private.user_profiles WHERE user_id = :id
         """), {"id": str(response.user.id)}).mappings().first()
         if not profile or profile["account_status"] != "ACTIVE":
-            raise HTTPException(status_code=403, detail="Tài khoản chưa được kích hoạt hoặc đã bị khóa")
+            raise HTTPException(status_code=403, detail="Tài khoản chưa được kích hoạt (đang chờ Admin duyệt) hoặc đã bị khóa")
         if profile["tokens_valid_after"] is not None:
             try:
                 # The response came directly from Auth; full signature checking
@@ -257,3 +259,126 @@ def _change_supabase_password(current_user: dict, old_password: str, new_passwor
             raise HTTPException(status_code=400, detail="Mật khẩu mới không đáp ứng chính sách của dịch vụ xác thực.") from None
         logger.warning("Password update failed or has an unknown outcome", error_type=type(exc).__name__, user_id=current_user["user_id"])
         raise HTTPException(status_code=503, detail="Không xác nhận được việc đổi mật khẩu. Hãy kiểm tra mật khẩu mới trước khi thử lại.") from None
+
+
+GENERIC_REGISTER = "Đã gửi đăng ký, chờ Admin duyệt."
+GENERIC_FORGOT = "Nếu email thuộc một tài khoản đang hoạt động, hướng dẫn đặt lại mật khẩu đã được gửi."
+
+
+@router.get("/public-config")
+def public_config():
+    """What the login page may offer. No secrets."""
+    return {"self_registration": bool(settings.SELF_REGISTRATION_ENABLED),
+            "password_reset": settings.AUTH_BACKEND == "local" or email_enabled(),
+            "registration_domains": [d.strip() for d in settings.SELF_REGISTRATION_ALLOWED_DOMAINS.split(",") if d.strip()]}
+
+
+@router.post("/register", status_code=201)
+def register(request: RegisterRequest):
+    """Self-registration: INACTIVE account without a role until an Admin approves it.
+
+    Duplicate emails get the same answer as new ones, so the response never reveals
+    whether an account exists.
+    """
+    if not settings.SELF_REGISTRATION_ENABLED:
+        raise HTTPException(status_code=404, detail="Không tìm thấy.")
+    email = str(request.email).strip().lower()
+    if not password_reset.allowed_registration_domain(email):
+        domains = ", ".join(d.strip() for d in settings.SELF_REGISTRATION_ALLOWED_DOMAINS.split(",") if d.strip())
+        raise HTTPException(status_code=400, detail="Email phải thuộc tên miền được phép: " + domains)
+    db = SessionLocal()
+    try:
+        provision_user(db, email=email, password=request.password.get_secret_value(),
+                       display_name=request.display_name, roles=[], actor_id=None, bootstrap=False,
+                       account_status="INACTIVE", self_registered=True)
+    except HTTPException as exc:
+        if exc.status_code != 409:
+            raise
+    finally:
+        db.close()
+    return {"message": GENERIC_REGISTER}
+
+
+@router.post("/forgot-password", status_code=202)
+def forgot_password(request: ForgotPasswordRequest):
+    """Always answers the same, whether or not the email has an active account."""
+    result: dict = {"message": GENERIC_FORGOT}
+    if settings.AUTH_BACKEND != "local" and not settings.SUPABASE_SERVICE_ROLE_KEY:
+        return result
+    email = str(request.email).strip().lower()
+    db = SessionLocal()
+    try:
+        row = db.execute(text("""
+            SELECT u.id FROM auth.users u JOIN app_private.user_profiles p ON p.user_id = u.id
+            WHERE lower(u.email) = :email AND p.account_status = 'ACTIVE'
+        """), {"email": email}).first()
+        if not row:
+            return result
+        user_id = str(row[0])
+        token = password_reset.issue_token(db, user_id)
+        if token is None:
+            db.rollback()
+            return result
+        db.execute(text("""
+            INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, outcome)
+            VALUES (:id, 'REQUEST_PASSWORD_RESET', 'USER', :id, 'SUCCESS')
+        """), {"id": user_id})
+        db.commit()
+        link = f"{settings.APP_PUBLIC_URL.rstrip('/')}/reset-password?token={token}"
+        sent = False
+        if email_enabled():
+            try:
+                send_email(email, "Đặt lại mật khẩu VinUni HRA",
+                           f"Mở liên kết sau để đặt lại mật khẩu (hết hạn sau {settings.PASSWORD_RESET_TTL_MINUTES} phút, "
+                           f"dùng một lần):\n\n{link}\n\nNếu bạn không yêu cầu, hãy bỏ qua email này.")
+                sent = True
+            except MailError as exc:
+                logger.warning("Password reset email failed", error_type=str(exc))
+        if not sent and settings.PASSWORD_RESET_DEV_ECHO:
+            result["dev_reset_link"] = link
+        return result
+    finally:
+        db.close()
+
+
+@router.post("/reset-password")
+def reset_password(request: ResetPasswordRequest):
+    """Set a new password with a one-time token from the reset link."""
+    invalid = HTTPException(status_code=400, detail="Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.")
+    db = SessionLocal()
+    try:
+        user_id = password_reset.consume_token(db, request.token)
+        if not user_id:
+            db.rollback()
+            raise invalid
+        status_row = db.execute(text("SELECT account_status FROM app_private.user_profiles WHERE user_id = :id FOR UPDATE"),
+                                {"id": user_id}).first()
+        if not status_row or status_row[0] != "ACTIVE":
+            db.rollback()
+            raise invalid
+        new_password = request.new_password.get_secret_value()
+        if settings.AUTH_BACKEND == "local":
+            local_auth.set_password(db, user_id, new_password)
+        else:
+            from app.db.supabase import get_supabase_client
+            client = get_supabase_client()
+            if client is None:
+                db.rollback()
+                raise HTTPException(status_code=503, detail="Dịch vụ đặt lại mật khẩu chưa được cấu hình.")
+            try:
+                client.auth.admin.update_user_by_id(user_id, {"password": new_password})
+            except Exception:
+                db.rollback()
+                raise HTTPException(status_code=400, detail="Mật khẩu mới không đáp ứng chính sách của dịch vụ xác thực.") from None
+        db.execute(text("""
+            UPDATE app_private.user_profiles SET must_change_password = FALSE,
+                tokens_valid_after = clock_timestamp(), updated_at = NOW() WHERE user_id = :id
+        """), {"id": user_id})
+        db.execute(text("""
+            INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, outcome)
+            VALUES (:id, 'RESET_PASSWORD_BY_TOKEN', 'USER', :id, 'SUCCESS')
+        """), {"id": user_id})
+        db.commit()
+        return {"changed": True}
+    finally:
+        db.close()

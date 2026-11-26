@@ -79,6 +79,12 @@ export const authApi = {
   bootstrapStatus: () => apiClient.get('/auth/bootstrap-status'),
   bootstrap: (data: { email: string; display_name: string; password: string; setup_token: string }) =>
     apiClient.post('/auth/bootstrap', data),
+  publicConfig: () => apiClient.get('/auth/public-config'),
+  register: (data: { email: string; display_name: string; password: string }) =>
+    apiClient.post('/auth/register', data),
+  forgotPassword: (email: string) => apiClient.post('/auth/forgot-password', { email }),
+  resetPassword: (token: string, new_password: string) =>
+    apiClient.post('/auth/reset-password', { token, new_password }),
   changePassword: (current_password: string, new_password: string) =>
     apiClient.post('/auth/change-password', { current_password, new_password }),
 };
