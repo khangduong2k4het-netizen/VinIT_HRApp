@@ -129,26 +129,19 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          {(config.password_reset || config.self_registration) && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, mt: 1.5 }}>
-              {config.password_reset && <Button size="small" onClick={() => router.push('/forgot-password')}>{t("Quên mật khẩu?")}</Button>}
-              {config.self_registration && <Button size="small" onClick={() => router.push('/register')}>{t("Đăng ký tài khoản")}</Button>}
-            </Box>
-          )}
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, mt: 1.5 }}>
+            <Button size="small" onClick={() => router.push('/forgot-password')}>{t("Quên mật khẩu? Gửi yêu cầu cho Admin")}</Button>
+            {config.self_registration && <Button size="small" onClick={() => router.push('/register')}>{t("Đăng ký tài khoản")}</Button>}
+          </Box>
 
           {bootstrapAvailable && <Button fullWidth sx={{ mt: 2 }} onClick={() => router.push('/bootstrap')}>
             {t("Khởi tạo Admin đầu tiên")}
           </Button>}
 
-          {/* Always shown: there is no email channel in every deployment, so an Admin resets forgotten passwords. */}
-          <Typography variant="caption" color="text.disabled" sx={{ display: 'block', textAlign: 'center', mt: 2 }}>
-            {t("Quên mật khẩu? Liên hệ Admin để đặt lại mật khẩu.")}
-          </Typography>
-
           <Typography
             variant="caption"
             color="text.disabled"
-            sx={{ display: 'block', textAlign: 'center', mt: 1.5 }}
+            sx={{ display: 'block', textAlign: 'center', mt: 2 }}
           >
             © {new Date().getFullYear()} {t("VinUniversity. Nội bộ sử dụng.")}</Typography>
         </CardContent>

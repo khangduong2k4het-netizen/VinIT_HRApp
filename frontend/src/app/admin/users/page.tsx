@@ -1,5 +1,6 @@
 'use client';
 
+import ResetRequestsPanel from '@/components/admin/ResetRequestsPanel';
 import PasswordField from '@/components/common/PasswordField';
 import { useEffect, useState } from 'react';
 import {
@@ -146,6 +147,7 @@ export default function AdminUsersPage() {
     {error && <Alert severity="error" sx={{ mb: 2 }}>{t(error)}</Alert>}
     {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>{t(success)}</Alert>}
     <Alert severity="info" sx={{ mb: 3 }}>{t("Việc cấp vai trò HM không tự gán HM vào vị trí; HR phải chọn HM khi tạo vị trí.")}</Alert>
+    <ResetRequestsPanel />
     <Grid container spacing={2} sx={{ mb: 3 }}>
       <Grid item xs={12} sm={6}><TextField label={t("Tìm theo tên hoặc email")} value={searchInput} onChange={e => setSearchInput(e.target.value)} fullWidth size="small" /></Grid>
       <Grid item xs={6} sm={3}><FormControl fullWidth size="small"><InputLabel id="role-filter-label">{t("Vai trò")}</InputLabel>

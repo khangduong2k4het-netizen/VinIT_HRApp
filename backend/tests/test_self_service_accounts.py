@@ -26,6 +26,7 @@ def client(monkeypatch):
     monkeypatch.setattr(settings, "PASSWORD_RESET_DEV_ECHO", True)
     monkeypatch.setattr(settings, "SMTP_HOST", None)
     monkeypatch.setattr(settings, "AUTH_PUBLIC_MAX_PER_IP_HOUR", 0)
+    monkeypatch.setattr(settings, "PASSWORD_RESET_SELF_SERVICE", True)
     monkeypatch.setattr(settings, "SUPABASE_JWT_SECRET", "synthetic-jwt-secret-not-for-production-0123456789")
     return TestClient(app)
 

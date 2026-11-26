@@ -14,7 +14,8 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.security import ensure_token_is_current, get_active_user
 from app.db.database import SessionLocal
-from app.schemas.accounts import (BootstrapRequest, ForgotPasswordRequest, PasswordChange, RegisterRequest,
+from app.schemas.accounts import (BootstrapRequest, ForgotPasswordRequest, PasswordChange, PasswordResetRequestInput,
+                                  RegisterRequest,
                                   ResetPasswordRequest, VerifyEmailRequest)
 from app.services import local_auth, password_reset
 from app.services.mailer import MailError, email_enabled, send_email
@@ -297,7 +298,8 @@ def public_config():
     """What the login page may offer. No secrets."""
     return {"self_registration": bool(settings.SELF_REGISTRATION_ENABLED),
             # Self-service reset needs a way to deliver the link: SMTP, or the development echo.
-            "password_reset": email_enabled() or bool(settings.PASSWORD_RESET_DEV_ECHO),
+            "password_reset": settings.PASSWORD_RESET_SELF_SERVICE and (email_enabled() or bool(settings.PASSWORD_RESET_DEV_ECHO)),
+            "reset_request": True,
             "registration_domains": [d.strip() for d in settings.SELF_REGISTRATION_ALLOWED_DOMAINS.split(",") if d.strip()]}
 
 
@@ -368,11 +370,59 @@ def verify_email(request: VerifyEmailRequest):
         db.close()
 
 
+GENERIC_REQUEST = ("Nếu email thuộc một tài khoản đang hoạt động, yêu cầu đã được gửi tới Admin. "
+                   "Khi Admin duyệt, link đặt lại mật khẩu sẽ được gửi tới email đó.")
+MAX_REQUESTS_PER_DAY = 3
+
+
+@router.post("/password-reset-requests", status_code=202)
+def request_password_reset(body: PasswordResetRequestInput, http_request: Request):
+    """Ask an Admin to allow a password reset. The answer is the same for every email; a request is stored only
+    for an ACTIVE account that has no open request and has not asked too often today."""
+    _limit_public_calls(http_request)
+    from app.api.public_intake import _ip_hash
+    email = str(body.email).strip().lower()
+    db = SessionLocal()
+    try:
+        from app.api.reset_requests import expire_old_requests
+        expire_old_requests(db)
+        row = db.execute(text("""
+            SELECT u.id FROM auth.users u JOIN app_private.user_profiles p ON p.user_id = u.id
+            WHERE lower(u.email) = :email AND p.account_status = 'ACTIVE'
+        """), {"email": email}).first()
+        if row:
+            user_id = str(row[0])
+            recent = db.execute(text("""
+                SELECT COUNT(*) FILTER (WHERE status = 'PENDING') AS open_count, COUNT(*) AS day_count
+                FROM app_private.password_reset_requests WHERE user_id = :id AND requested_at > NOW() - INTERVAL '1 day'
+            """), {"id": user_id}).one()
+            pending = db.execute(text("SELECT 1 FROM app_private.password_reset_requests WHERE user_id = :id AND status = 'PENDING'"),
+                                 {"id": user_id}).first()
+            if not pending and recent.day_count < MAX_REQUESTS_PER_DAY:
+                request_id = db.execute(text("""
+                    INSERT INTO app_private.password_reset_requests (user_id, email, reason, requested_ip_hash)
+                    VALUES (:id, :email, :reason, :ip) RETURNING request_id
+                """), {"id": user_id, "email": email, "reason": body.reason, "ip": _ip_hash(http_request)}).scalar_one()
+                db.execute(text("""
+                    INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, outcome, metadata)
+                    VALUES (:id, 'REQUEST_PASSWORD_RESET_APPROVAL', 'USER', :id, 'PENDING', CAST(:m AS jsonb))
+                """), {"id": user_id, "m": '{"request_id": "%s"}' % request_id})
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+    return {"message": GENERIC_REQUEST}
+
+
 @router.post("/forgot-password", status_code=202)
 def forgot_password(request: ForgotPasswordRequest, http_request: Request):
     """Always answers the same, whether or not the email has an active account."""
     result: dict = {"message": GENERIC_FORGOT}
     _limit_public_calls(http_request)
+    if not settings.PASSWORD_RESET_SELF_SERVICE:
+        return result
     if settings.AUTH_BACKEND != "local" and not settings.SUPABASE_SERVICE_ROLE_KEY:
         return result
     email = str(request.email).strip().lower()

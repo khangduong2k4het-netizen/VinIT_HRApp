@@ -210,6 +210,9 @@ class Settings(BaseSettings):
     # Forgot-password link lifetime and per-account request cap per hour.
     PASSWORD_RESET_TTL_MINUTES: int = 30
     PASSWORD_RESET_MAX_PER_HOUR: int = 3
+    # Old behaviour: anyone can get a reset link emailed at once, without an Admin. Off: people send a request
+    # with a reason and an Admin approves it (api/reset_requests.py).
+    PASSWORD_RESET_SELF_SERVICE: bool = False
     # Requests per address and hour for /auth/register and /auth/forgot-password (429 beyond it). 0 = off.
     AUTH_PUBLIC_MAX_PER_IP_HOUR: int = 10
     # Development/testing only: return the reset link in the API response when no

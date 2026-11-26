@@ -1869,5 +1869,21 @@
   "Trạng thái hồ sơ chưa đủ điều kiện": "The application status is not eligible yet",
   "Quên mật khẩu? Liên hệ Admin để đặt lại mật khẩu.": "Forgot your password? Ask an Admin to reset it.",
   "Hiện mật khẩu": "Show password",
-  "Ẩn mật khẩu": "Hide password"
+  "Ẩn mật khẩu": "Hide password",
+  "Quên mật khẩu? Gửi yêu cầu cho Admin": "Forgot your password? Send a request to the Admin",
+  "Vui lòng ghi lý do (ít nhất 5 ký tự).": "Please write a reason (at least 5 characters).",
+  "Nhập email tài khoản và ghi lý do. Admin sẽ kiểm tra; khi được duyệt, link đặt lại mật khẩu (hiệu lực 30 phút, dùng một lần) sẽ được gửi tới email đó.": "Enter the account email and a reason. An Admin will check it; once approved, a reset link (valid for 30 minutes, single use) is sent to that email.",
+  "Ví dụ: quên mật khẩu sau kỳ nghỉ, cần vào hệ thống để xử lý hồ sơ.": "Example: forgot my password after the holiday and need to process applications.",
+  "Gửi yêu cầu cho Admin": "Send request to Admin",
+  "Nếu email thuộc một tài khoản đang hoạt động, yêu cầu đã được gửi tới Admin. Khi Admin duyệt, link đặt lại mật khẩu sẽ được gửi tới email đó.": "If the email belongs to an active account, the request has been sent to the Admin. Once approved, a reset link is emailed to that address.",
+  "Yêu cầu đặt lại mật khẩu": "Password reset requests",
+  "Không có yêu cầu nào đang chờ.": "No requests are waiting.",
+  "Duyệt và gửi link": "Approve and send link",
+  "Ghi chú (không bắt buộc)": "Note (optional)",
+  "Từ chối yêu cầu": "Reject request",
+  "Đã duyệt: link đặt lại mật khẩu đã gửi tới email của tài khoản.": "Approved: the reset link was emailed to the account.",
+  "Đã từ chối yêu cầu.": "Request rejected.",
+  "Chưa cấu hình email nên không gửi được link. Hãy dùng nút 'Đặt lại mật khẩu' (mật khẩu tạm) ở Quản lý tài khoản.": "Email is not configured, so the link cannot be sent. Use the 'Reset password' button (temporary password) in Account management.",
+  "Không thể xử lý yêu cầu.": "Could not process the request.",
+  "Gửi lúc": "Sent"
 }

@@ -85,8 +85,13 @@ Frontend: `npm run type-check && npm run lint && npm run test:i18n && npm run te
 Dự án chưa được cấp SMTP hay SSO nên không có thư tự đặt lại mật khẩu và **không có tự đăng ký tài khoản**
 (`SELF_REGISTRATION_ENABLED=false`, mặc định). Cách xử lý:
 
-- **HR / Hiring Manager quên mật khẩu:** nhờ Admin vào **Quản lý tài khoản** -> **Đặt lại mật khẩu** (đặt mật khẩu
-  tạm 12 ký tự trở lên). Người đó phải đổi mật khẩu ở lần đăng nhập kế tiếp, các phiên cũ bị thu hồi, có ghi audit.
+- **HR / Hiring Manager quên mật khẩu:** ở trang đăng nhập bấm **"Quên mật khẩu? Gửi yêu cầu cho Admin"**, nhập email tài khoản
+  và **lý do**. Admin vào **Quản lý tài khoản** -> mục **Yêu cầu đặt lại mật khẩu**, kiểm tra rồi bấm **Duyệt và gửi link**
+  (hệ thống gửi link đặt lại mật khẩu 30 phút, dùng một lần, vào đúng email của tài khoản đó) hoặc **Từ chối** (có ghi chú).
+  Mỗi tài khoản chỉ có 1 yêu cầu đang chờ; yêu cầu quá 7 ngày tự hết hạn; Admin không tự duyệt yêu cầu của chính mình.
+  Trang luôn trả cùng một thông báo dù email có tồn tại hay không. **Cần cấu hình email gửi đi (SMTP)**; nếu chưa có,
+  nút Duyệt báo "chưa cấu hình email" và Admin dùng nút **Đặt lại mật khẩu** (mật khẩu tạm) ở danh sách tài khoản:
+  người dùng phải đổi ngay khi đăng nhập, các phiên cũ bị thu hồi, có ghi audit.
 - **Admin quên mật khẩu:** người vận hành chạy lệnh khẩn cấp trên máy chủ (cần quyền truy cập DB; chỉ với `AUTH_BACKEND=local`):
 
   ```powershell

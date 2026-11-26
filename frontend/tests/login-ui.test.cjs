@@ -5,13 +5,12 @@ const path = require('node:path');
 
 const source = fs.readFileSync(path.join(__dirname, '../src/app/page.tsx'), 'utf8');
 
-test('login always tells people to ask an Admin, whether or not email reset is available', () => {
-  const note = source.indexOf('Liên hệ Admin để đặt lại mật khẩu');
-  assert.ok(note > 0);
-  // Not inside the conditional that shows the email "Quên mật khẩu?" link.
-  const emailBlock = source.slice(source.indexOf('config.password_reset &&'), note);
-  assert.ok(!/config\.password_reset\s*\?/.test(source), 'the note must not depend on config.password_reset');
-  assert.ok(emailBlock.length > 0 && source.indexOf('© ') > note, 'the note sits above the copyright line');
+test('login links to a request form for the Admin (no email self-service, no loose note)', () => {
+  assert.match(source, /router\.push\('\/forgot-password'\)/);
+  assert.match(source, /Quên mật khẩu\? Gửi yêu cầu cho Admin/);
+  assert.ok(!/Liên hệ Admin để đặt lại mật khẩu/.test(source));
+  assert.ok(!/config\.password_reset/.test(source));
+  assert.ok(source.indexOf('© ') > source.indexOf('Gửi yêu cầu cho Admin'), 'the link sits above the copyright line');
 });
 
 test('login links are centred under the form, not left-aligned', () => {

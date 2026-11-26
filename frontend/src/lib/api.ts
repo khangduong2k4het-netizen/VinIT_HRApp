@@ -84,6 +84,7 @@ export const authApi = {
     apiClient.post('/auth/register', data),
   verifyEmail: (token: string) => apiClient.post('/auth/verify-email', { token }),
   forgotPassword: (email: string) => apiClient.post('/auth/forgot-password', { email }),
+  requestPasswordReset: (email: string, reason: string) => apiClient.post('/auth/password-reset-requests', { email, reason }),
   resetPassword: (token: string, new_password: string) =>
     apiClient.post('/auth/reset-password', { token, new_password }),
   changePassword: (current_password: string, new_password: string) =>
@@ -281,6 +282,9 @@ export const adminApi = {
     apiClient.post('/admin/users', data),
   updateUser: (id: string, data: { display_name: string; account_status: string; roles: string[] }) =>
     apiClient.patch(`/admin/users/${id}`, data),
+  listResetRequests: (status = 'PENDING') => apiClient.get('/admin/reset-requests', { params: { status } }),
+  approveResetRequest: (id: string) => apiClient.post(`/admin/reset-requests/${id}/approve`),
+  rejectResetRequest: (id: string, note: string) => apiClient.post(`/admin/reset-requests/${id}/reject`, { note }),
   resetUserPassword: (id: string, new_password: string) =>
     apiClient.post(`/admin/users/${id}/reset-password`, { new_password }),
   listAiConfigs: () => apiClient.get('/admin/ai/config'),

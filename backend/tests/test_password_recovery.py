@@ -110,7 +110,11 @@ def test_emergency_script_only_for_local_auth(monkeypatch):
 
 def test_forgot_password_is_not_offered_without_an_email_channel(client, monkeypatch):
     monkeypatch.setattr(settings, "PASSWORD_RESET_DEV_ECHO", False)
-    assert client.get("/v1/auth/public-config").json()["password_reset"] is False
+    monkeypatch.setattr(settings, "PASSWORD_RESET_SELF_SERVICE", True)
+    config = client.get("/v1/auth/public-config").json()
+    assert config["password_reset"] is False and config["reset_request"] is True
     monkeypatch.setattr(settings, "SMTP_HOST", "127.0.0.1")
     monkeypatch.setattr(settings, "SMTP_FROM", "tuyendung@vinuni.test")
     assert client.get("/v1/auth/public-config").json()["password_reset"] is True
+    monkeypatch.setattr(settings, "PASSWORD_RESET_SELF_SERVICE", False)
+    assert client.get("/v1/auth/public-config").json()["password_reset"] is False

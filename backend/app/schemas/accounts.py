@@ -117,3 +117,17 @@ class ResetPasswordRequest(BaseModel):
     new_password: SecretStr
 
     _password = field_validator("new_password")(validate_password)
+
+
+class PasswordResetRequestInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: EmailStr
+    reason: str = Field(min_length=5, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def clean_reason(cls, value: str) -> str:
+        text = value.strip()
+        if len(text) < 5:
+            raise ValueError("Reason is too short")
+        return text
