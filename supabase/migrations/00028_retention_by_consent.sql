@@ -8,9 +8,9 @@
 -- without consent to the policy row. For an application with an active
 -- TALENT_POOL consent the due date is the later of
 --   position closed + retention_months_without_consent, and
---   consent granted + retention_months,
--- which matches "kept up to 5 years" counted from when the candidate ticked
--- consent. NULL keeps the old rule (retention_months after closing for all).
+--   application received + retention_months,
+-- which matches "kept up to 5 years" counted from when the application was
+-- received, not from when the consent box was ticked. NULL keeps the old rule (retention_months after closing for all).
 ALTER TABLE app_private.retention_policy_versions
     ADD COLUMN IF NOT EXISTS retention_months_without_consent INTEGER
     CHECK (retention_months_without_consent IS NULL OR retention_months_without_consent > 0);

@@ -1,7 +1,8 @@
 """Retention by consent (migration 00028).
 
-5 years only while a Talent Pool consent is in force; otherwise 12 months
-after the position closes.
+5 years counted from when the application was received, but only while a
+Talent Pool consent is in force (not from the moment the box was ticked);
+otherwise 12 months after the position closes.
 """
 from __future__ import annotations
 
@@ -22,9 +23,9 @@ def test_without_consent_due_12_months_after_closing():
     assert retention_due_date(CLOSED, None, POLICY) == add_months(CLOSED, 12)
 
 
-def test_with_consent_due_5_years_from_consent():
-    consent = datetime(2025, 11, 1, tzinfo=timezone.utc)
-    assert retention_due_date(CLOSED, consent, POLICY) == add_months(consent, 60)
+def test_with_consent_due_5_years_from_receipt():
+    received = datetime(2025, 11, 1, tzinfo=timezone.utc)
+    assert retention_due_date(CLOSED, received, POLICY) == add_months(received, 60)
 
 
 def test_never_earlier_than_12_months_after_closing():
@@ -76,11 +77,15 @@ def _policy(version, months, without_consent):
             conn.execute(text("DELETE FROM app_private.retention_policy_versions WHERE policy_version = :v"), {"v": version})
 
 
-def _consent(seed, *, months_ago, app="app"):
+def _consent(seed, *, months_ago, app="app", consent_months_ago=None):
     with engine.begin() as conn:
         conn.execute(text("""INSERT INTO app_private.application_data_consents
                 (application_id, purpose, notice_version, channel, granted_at)
             VALUES (:a, 'TALENT_POOL', 'v2', 'PORTAL', NOW() - make_interval(months => :m))"""),
+                     {"a": seed[app], "m": months_ago if consent_months_ago is None else consent_months_ago})
+        # The 5 years run from receipt of the application, not from the tick.
+        conn.execute(text("""UPDATE app_private.applications
+            SET created_at = NOW() - make_interval(months => :m) WHERE application_id = :a"""),
                      {"a": seed[app], "m": months_ago})
 
 
@@ -150,10 +155,10 @@ def test_reminders_fire_for_both_12month_and_5year_due_dates_in_same_position(cl
     with engine.begin() as conn:
         conn.execute(text("UPDATE app_private.positions SET status = 'CLOSED', closed_at = :c WHERE position_id = :p"),
                      {"c": closed_at, "p": seed["pos"]})
-        conn.execute(text("INSERT INTO app_private.applications(application_id, position_id, source_code) VALUES (:a, :p, 'PORTAL')"),
-                     {"a": second_app, "p": seed["pos"]})
-        conn.execute(text("""INSERT INTO app_private.application_data_consents(application_id, purpose, notice_version, channel, granted_at)
-            VALUES (:a, 'TALENT_POOL', 'v2', 'PORTAL', :g)"""), {"a": second_app, "g": consented_at})
+        conn.execute(text("INSERT INTO app_private.applications(application_id, position_id, source_code, created_at) VALUES (:a, :p, 'PORTAL', :g)"),
+                     {"a": second_app, "p": seed["pos"], "g": consented_at})
+        conn.execute(text("""INSERT INTO app_private.application_data_consents(application_id, purpose, notice_version, channel)
+            VALUES (:a, 'TALENT_POOL', 'v2', 'PORTAL')"""), {"a": second_app})
     with _policy("test-consent", 60, 12):
         summary = automation.run_retention_cycle(now=now)
         assert summary["cases_created"] == 2
@@ -164,3 +169,13 @@ def test_reminders_fire_for_both_12month_and_5year_due_dates_in_same_position(cl
         assert len(due_days) == 2
         # Running again is idempotent for both due dates.
         assert automation.run_retention_cycle(now=now)["in_app_reminders_sent"] == 0
+
+
+@integration
+def test_old_cv_with_recent_consent_is_due_from_receipt(client, seed):
+    """CV received 61 months ago, consent ticked 2 months ago: the 5 years count from receipt."""
+    _close(seed, months_ago=13)
+    _consent(seed, months_ago=61, consent_months_ago=2)
+    _grant_lead(seed)
+    with _policy("test-consent", 60, 12):
+        assert _generate(client, seed)["created_count"] == 1

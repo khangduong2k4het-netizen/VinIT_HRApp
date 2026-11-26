@@ -21,7 +21,7 @@ PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF"
 
 def _reason(**over):
     base = dict(status="SHORTLIST", consent_present=True, consent_withdrawn=False,
-                consented_at=NOW - timedelta(days=30), open_retention_status=None, now=NOW)
+                received_at=NOW - timedelta(days=30), open_retention_status=None, now=NOW)
     base.update(over)
     return ineligibility_reason(**base)
 
@@ -30,12 +30,12 @@ def test_pool_rules_in_priority_order():
     assert _reason() is None
     assert _reason(consent_present=False, consent_withdrawn=True) == "NO_CONSENT"
     assert _reason(consent_withdrawn=True) == "CONSENT_WITHDRAWN"
-    assert _reason(consented_at=datetime(2021, 11, 16, tzinfo=timezone.utc)) == "RETENTION_EXPIRED"
-    assert _reason(consented_at=datetime(2021, 11, 18, tzinfo=timezone.utc)) is None
-    assert _reason(consented_at=None) == "RETENTION_EXPIRED"
+    assert _reason(received_at=datetime(2021, 11, 16, tzinfo=timezone.utc)) == "RETENTION_EXPIRED"
+    assert _reason(received_at=datetime(2021, 11, 18, tzinfo=timezone.utc)) is None
+    assert _reason(received_at=None) == "RETENTION_EXPIRED"
     assert _reason(open_retention_status="ON_HOLD") == "DELETION_PENDING"
     assert _reason(status="NEW") == "STATUS_NOT_ELIGIBLE"
-    # The five years start when the candidate ticks the Talent Pool consent.
+    # The five years start when the application is received.
     assert pool_expiry(datetime(2026, 2, 28, tzinfo=timezone.utc)).date().isoformat() == "2031-02-28"
 
 
@@ -484,12 +484,15 @@ def test_mark_requires_valid_consent_and_scope(client, seed):
     old = _consented_application(seed, received=long_ago, consented=long_ago)
     state = client.get(f"/v1/talent-pool/applications/{old}", headers=hr).json()
     assert state["reason"] == "RETENTION_EXPIRED"
-    # The window starts when consent is ticked, not when the CV arrived: an old CV
-    # whose Talent Pool consent was given recently is still in its five years.
+    # The window starts when the CV was received, not when consent was ticked: an
+    # old CV whose Talent Pool consent was given recently is already past its five years.
     late = _consented_application(seed, received=long_ago)
     state = client.get(f"/v1/talent-pool/applications/{late}", headers=hr).json()
+    assert state["reason"] == "RETENTION_EXPIRED" and state["can_mark"] is False
+    fresh = _consented_application(seed, received=datetime.now(timezone.utc) - timedelta(days=30))
+    state = client.get(f"/v1/talent-pool/applications/{fresh}", headers=hr).json()
     assert state["reason"] is None and state["can_mark"] is True
-    assert state["expires_on"] == pool_expiry(datetime.now(timezone.utc)).date().isoformat()
+    assert state["expires_on"] == pool_expiry(datetime.now(timezone.utc) - timedelta(days=30)).date().isoformat()
     metadata = _count("SELECT metadata::text FROM app_private.audit_events WHERE action_type = 'MARK_TALENT_POOL'")
     assert "Pool" not in metadata
 
@@ -523,10 +526,11 @@ def test_eligible_pool_excludes_withdrawn_expired_and_pending_deletion(client, s
         WHERE application_id = :a AND purpose = 'TALENT_POOL'""", a=withdrawn) == "ref-1"
     assert client.post(f"/v1/talent-pool/applications/{withdrawn}/withdraw-consent", headers=lead, json={}).status_code == 404
     with engine.begin() as conn:
+        # The five years count from receipt of the CV, not from the consent tick.
+        conn.execute(text("UPDATE app_private.applications SET created_at = NOW() - INTERVAL '61 months' WHERE application_id = :a"), {"a": expired})
+        # An old consent date alone does not expire the pool.
         conn.execute(text("""UPDATE app_private.application_data_consents SET granted_at = NOW() - INTERVAL '61 months'
-            WHERE application_id = :a AND purpose = 'TALENT_POOL'"""), {"a": expired})
-        # An old CV alone does not expire the pool: only the consent date counts.
-        conn.execute(text("UPDATE app_private.applications SET created_at = NOW() - INTERVAL '61 months' WHERE application_id = :a"), {"a": good})
+            WHERE application_id = :a AND purpose = 'TALENT_POOL'"""), {"a": good})
         conn.execute(text("""INSERT INTO app_private.application_retention_cases(application_id, policy_version, position_closed_at, due_date, status)
             SELECT :a, policy_version, NOW(), NOW(), 'ON_HOLD' FROM app_private.retention_policy_versions LIMIT 1"""), {"a": held})
     assert ids() == {good}

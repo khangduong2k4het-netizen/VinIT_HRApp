@@ -221,7 +221,7 @@ def _list_marks_sync(user_id: str, limit: int, offset: int) -> dict:
                           "marked_at": r["marked_at"], "position_id": str(r["position_id"]),
                           "position_title": r["position_title"], "position_code": r["position_code"],
                           "application_status": r["application_status"], "eligible": e is not None,
-                          "expires_on": pool_expiry(e["consented_at"]).date().isoformat() if e else None})
+                          "expires_on": pool_expiry(e["received_at"]).date().isoformat() if e else None})
         return {"items": items}
     finally:
         db.close()

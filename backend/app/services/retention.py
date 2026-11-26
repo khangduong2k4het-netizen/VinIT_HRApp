@@ -100,19 +100,20 @@ def earliest_retention_months(policy: dict) -> int:
     return policy["base_months"] if policy["base_months"] is not None else policy["months"]
 
 
-def retention_due_date(closed_at: datetime, consent_granted_at: datetime | None, policy: dict) -> datetime:
+def retention_due_date(closed_at: datetime, received_at: datetime | None, policy: dict) -> datetime:
     """Due date of one application.
 
     Without an active Talent Pool consent: ``base_months`` after the position
-    closes. With one: the later of that and ``months`` after the consent was
-    granted, so the CV is kept up to 5 years from when the candidate ticked it.
+    closes. With one: the later of that and ``months`` after the application
+    was received, so the CV is kept up to 5 years from when it came in, not
+    from when the consent box was ticked.
     """
     closed_at = _as_utc(closed_at)
     if policy["base_months"] is None:
         return add_months(closed_at, policy["months"])
     due = add_months(closed_at, policy["base_months"])
-    if consent_granted_at is not None:
-        due = max(due, add_months(_as_utc(consent_granted_at), policy["months"]))
+    if received_at is not None:
+        due = max(due, add_months(_as_utc(received_at), policy["months"]))
     return due
 
 
@@ -370,9 +371,10 @@ def generate_retention_cases(db, *, position_id: str, actor_user_id: str | None)
 
     applications = db.execute(text("""
         SELECT application_id,
-               (SELECT k.granted_at FROM app_private.application_data_consents k
+               (CASE WHEN EXISTS (SELECT 1 FROM app_private.application_data_consents k
                 WHERE k.application_id = applications.application_id
-                  AND k.purpose = 'TALENT_POOL' AND k.withdrawn_at IS NULL) AS consent_granted_at
+                  AND k.purpose = 'TALENT_POOL' AND k.withdrawn_at IS NULL)
+                THEN applications.created_at END) AS consent_received_at
         FROM app_private.applications
         WHERE position_id = :position_id
           AND NOT EXISTS (
@@ -386,7 +388,7 @@ def generate_retention_cases(db, *, position_id: str, actor_user_id: str | None)
     created = []
     for application in applications:
         application_id = str(application["application_id"])
-        app_due = retention_due_date(closed_at, application["consent_granted_at"], policy)
+        app_due = retention_due_date(closed_at, application["consent_received_at"], policy)
         if app_due > horizon:
             continue
         row = db.execute(text("""

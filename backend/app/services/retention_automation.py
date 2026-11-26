@@ -107,10 +107,10 @@ def cancel_cases_of_superseded_policy(db, *, actor_user_id: str | None = None) -
           AND GREATEST(
                 c.position_closed_at + make_interval(months => :base_months),
                 CASE WHEN :use_consent THEN (
-                    SELECT k.granted_at + make_interval(months => :months)
-                    FROM app_private.application_data_consents k
-                    WHERE k.application_id = c.application_id
-                      AND k.purpose = 'TALENT_POOL' AND k.withdrawn_at IS NULL) END
+                    SELECT a.created_at + make_interval(months => :months)
+                    FROM app_private.applications a
+                    WHERE a.application_id = c.application_id
+                      AND EXISTS (SELECT 1 FROM app_private.application_data_consents k WHERE k.application_id = a.application_id AND k.purpose = 'TALENT_POOL' AND k.withdrawn_at IS NULL)) END
               ) > c.due_date
         RETURNING c.retention_case_id, c.position_id
     """), {"policy_version": policy["policy_version"], "months": policy["months"],
