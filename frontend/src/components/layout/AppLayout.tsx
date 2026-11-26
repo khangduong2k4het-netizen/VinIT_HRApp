@@ -8,12 +8,19 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
 import Sidebar from './Sidebar';
 import Header, { APPBAR_HEIGHT } from './Header';
-import { authApi, dashboardApi } from '@/lib/api';
+import { dashboardApi } from '@/lib/api';
+import { getCurrentUser } from '@/lib/meCache';
+import { runWhenIdle } from '@/lib/idle';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { t } = useI18n();
   const router = useRouter();
   const pathname = usePathname();
+  // Phạm vi xác thực: đổi vị trí mới có thể đổi quyền (vai trò gắn theo vị trí),
+  // còn chuyển giữa các hồ sơ trong cùng một vị trí thì không. `pathname` có cả
+  // mã hồ sơ, nên dùng nó làm khoá khiến mỗi lần bấm `n` lại hỏi `auth/me` (và
+  // cả badge work-queue) sau khi bản dùng chung 30 giây hết hạn.
+  const authScope = pathname.replace(/^(\/positions\/[^/]+).*$/, '$1');
   const [isLoading, setIsLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [systemRoles, setSystemRoles] = useState<string[]>([]);
@@ -35,11 +42,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       if (!token) { router.replace('/'); return; }
       try {
         if (!authenticated) setIsLoading(true);
-        const response = await authApi.me();
-        if (active && response.data.must_change_password) {
+        // Dùng bản dùng chung: trang hồ sơ cũng hỏi đúng câu này trong cùng
+        // một lần chuyển, nên hai request thay vì một (xem `lib/meCache.ts`).
+        const me = await getCurrentUser();
+        if (active && me.must_change_password) {
           setAuthenticated(false); router.replace('/change-password'); return;
         }
-        if (active) { setProfile(response.data); setSystemRoles(response.data.system_roles || []); setCanAccessRubrics((response.data.system_roles || []).some((r: string) => ['ADMIN', 'HR_LEAD', 'HR_RECRUITER'].includes(r)) || (response.data.position_assignments || []).some((p: { position_role: string }) => ['HR_RECRUITER', 'HR_LEAD'].includes(p.position_role))); setAuthenticated(true); setAuthError(null); }
+        if (active) { setProfile(me); setSystemRoles(me.system_roles || []); setCanAccessRubrics((me.system_roles || []).some((r: string) => ['ADMIN', 'HR_LEAD', 'HR_RECRUITER'].includes(r)) || (me.position_assignments || []).some((p: { position_role: string }) => ['HR_RECRUITER', 'HR_LEAD'].includes(p.position_role))); setAuthenticated(true); setAuthError(null); }
       } catch (err: any) {
         if (active && err.response?.status !== 401) {
           setAuthenticated(false);
@@ -52,7 +61,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => { active = false; };
     // Revalidate on navigation but do not include authenticated (would cause a loop).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, router, attempt]);
+  }, [authScope, router, attempt]);
 
   // Đổi trang là lúc hợp lý để cập nhật badge; giãn cách 30 giây để việc đi lại
   // giữa các màn không nhân thành một loạt truy vấn tổng hợp.
@@ -61,10 +70,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     if (pathname === '/dashboard') return;
     if (Date.now() - workQueueFetchedAt.current < 30_000) return;
     workQueueFetchedAt.current = Date.now();
-    dashboardApi.getWorkQueue()
+    // Badge là phụ trợ: để trình duyệt rảnh rồi mới hỏi, không tranh với dữ liệu
+    // của màn hình vừa mở.
+    const cancel = runWhenIdle(() => dashboardApi.getWorkQueue()
       .then(response => setWorkCount(response.data?.items?.length ?? 0))
-      .catch(() => { /* badge là phụ trợ; lỗi mạng không được chặn màn hình */ });
-  }, [authenticated, pathname]);
+      .catch(() => { /* badge là phụ trợ; lỗi mạng không được chặn màn hình */ }));
+    return cancel;
+    // pathname nằm trong deps vì effect đọc nó (bỏ qua /dashboard, và ý đồ là
+    // cập nhật badge khi đổi trang). Thiếu nó thì comment nói một đằng, code
+    // làm một nẻo: badge không bao giờ cập nhật khi điều hướng.
+  }, [authenticated, authScope, pathname]);
 
   if (['/', '/bootstrap', '/change-password', '/careers-demo', '/careers', '/pool-withdraw', '/demo'].includes(pathname)) return <>{children}</>;
   if (isLoading || (!authenticated && !authError)) return (

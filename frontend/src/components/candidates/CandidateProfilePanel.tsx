@@ -3,7 +3,7 @@
 import { useI18n } from '@/i18n/I18nProvider';
 
 import * as React from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, Grid, InputLabel, MenuItem, Select, TextField, Typography } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { applicationsApi } from '@/lib/api';
@@ -49,13 +49,17 @@ export default function CandidateProfilePanel({ applicationId, canEdit, onSaved 
   const [facts, setFacts] = useState<DraftFact[]>([]);
   const [newType, setNewType] = useState<FactType>('SKILL');
   const [message, setMessage] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  // Profile ứng viên là accordion đóng sẵn, nằm dưới phần tiêu chí. Tải nó ngay
+  // khi mở hồ sơ chỉ làm chậm màn hình đầu bằng một request cho khối chưa ai
+  // mở; nạp ở lần mở đầu tiên, sau đó giữ nguyên.
+  const loadedOnce = useRef(false);
 
   const load = useCallback(async () => {
     try { setLoading(true); setError(null); setProfile((await applicationsApi.getProfile(applicationId)).data); }
     catch (err: any) { setError(err.response?.data?.detail || t("Không thể tải profile ứng viên.")); }
     finally { setLoading(false); }
   }, [applicationId, t]);
-  useEffect(() => { load(); }, [load]);
 
   const edit = () => {
     if (!profile) return;
@@ -84,10 +88,16 @@ export default function CandidateProfilePanel({ applicationId, canEdit, onSaved 
   };
 
   return <>
-    <Accordion disableGutters elevation={0} sx={{ mb: 2, border: '1px solid #E4E7EC', borderRadius: '8px !important', '&:before': { display: 'none' } }}>
+    <Accordion
+      disableGutters
+      elevation={0}
+      expanded={expanded}
+      onChange={(_event, next) => { setExpanded(next); if (next && !loadedOnce.current) { loadedOnce.current = true; void load(); } }}
+      sx={{ mb: 2, border: '1px solid #E4E7EC', borderRadius: '8px !important', '&:before': { display: 'none' } }}
+    >
       <AccordionSummary expandIcon={<ExpandMoreIcon />}><Typography fontWeight={600}>{t("Profile ứng viên ")}{profile?.version_number ? t("· phiên bản {0}", profile.version_number) : ''}</Typography></AccordionSummary>
       <AccordionDetails>
-        {loading ? <CircularProgress size={22} /> : error && !open ? <Alert severity="error" action={<Button onClick={load}>{t("Thử lại")}</Button>}>{t(error)}</Alert> : profile && <>
+        {loading ? <CircularProgress size={22} /> : error && !open ? <Alert severity="error" action={<Button onClick={() => { loadedOnce.current = true; void load(); }}>{t("Thử lại")}</Button>}>{t(error)}</Alert> : profile && <>
           {message && <Alert severity="info" sx={{ mb: 2 }} onClose={() => setMessage(null)}>{t(message)}</Alert>}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap', mb: 2 }}>
             <Typography variant="body2" color="text.secondary">{profile.identity.email || t("Chưa có email")} · {profile.identity.phone || t("Chưa có số điện thoại")}</Typography>

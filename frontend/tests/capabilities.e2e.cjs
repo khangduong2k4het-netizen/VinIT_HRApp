@@ -56,10 +56,14 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
   const dialog = page.getByTestId('finish-dialog');
   await dialog.waitFor();
   assert.equal(await page.getByTestId('finish-no-review-permission').count(), 1, 'the dialog says verification is not permitted');
-  assert.equal(await page.getByTestId('finish-attest').count(), 0, 'no attestation for work this reviewer cannot record');
+  assert.equal(await page.getByTestId('finish-attest-note').count(), 0, 'no attestation for work this reviewer cannot record');
   assert.equal(await page.getByTestId('finish-status').count(), 1, 'the status picker is still available');
 
   // --- 3. Finishing sends no review request --------------------------------
+  // This case is about the review gate, not about which status to pick: keep the
+  // status so the only thing being checked is that no review POST is attempted.
+  await page.getByTestId('finish-status').locator('[role="combobox"]').click();
+  await page.getByRole('option', { name: 'Giữ nguyên trạng thái' }).click();
   await page.getByTestId('finish-confirm').click();
   await page.waitForURL(/completed=1/, { timeout: 10000 });
   assert.deepEqual(forbidden, [], 'no review POST may be attempted without the review gate');

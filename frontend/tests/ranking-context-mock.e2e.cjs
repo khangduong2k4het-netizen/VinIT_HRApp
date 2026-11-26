@@ -50,6 +50,8 @@ const applications = ranking.map((item, index) => ({
       { position_id: 'p3', position_code: 'DEVOPS-7', title: 'DevOps Engineer', status: 'OPEN', criteria_status: 'APPROVED' },
     ]);
     if (p === '/v1/dashboard/summary') return json(r, { open_positions: 2, total_applications: 0, applications_by_status: { SHORTLIST: 0 }, files_needing_hr_review: 0 });
+    // Badge "việc cần làm" trên header gọi work-queue ở mọi trang đã đăng nhập.
+    if (p === '/v1/dashboard/work-queue') return json(r, { generated_at: '2026-11-19T03:00:00Z', summary: {}, items: [] });
     if (p === '/v1/positions/p1') return json(r, {
       position_id: 'p1', position_code: 'REQ-1', title: 'Backend', status: 'OPEN', department_id: 'd1',
       workflow: { next_action: { code: 'REVIEW_FILES', blocked_reason_code: null, target: { pathname: '/positions/p1/applicants', search: 'queue=FILE_REVIEW' } } },
@@ -74,6 +76,36 @@ const applications = ranking.map((item, index) => ({
       profile_version_id: 'pv1', version_number: 1,
       identity: { display_name: 'Ứng viên 1', email: null, phone: null }, facts: [],
     });
+    // Bước "Hồ sơ tiếp theo" (mục 10) mở app-2, và trang hồ sơ tải trước dữ liệu
+    // hồ sơ kế tiếp ngay sau đó. Trước đây hai request này rơi vào nhánh
+    // "Unexpected", mà mục 10 lại chỉ chờ một thẻ h1 vốn đã có từ trang trước,
+    // nên test chạy tiếp khi hồ sơ mới còn đang tải — lúc bắt được request lúc
+    // không, và test chập chờn. Dựng dữ liệu cho mọi hồ sơ trong hàng đợi để
+    // trang mở bình thường, rồi chờ đúng tên ứng viên thay vì một thẻ chung.
+    const detailOf = (id) => {
+      const row = ranking.find(item => item.application_id === id);
+      return {
+        application_id: id, position_id: 'p1', can_view_cv: true, can_update_status: true,
+        can_manage_hr_notes: false, can_view_assessment_evidence: true,
+        application_status: 'IN_REVIEW', file_processing_status: 'COMPLETED',
+        has_duplicate_warning: false, documents: [],
+        identity: { display_name: row?.candidate_name || id },
+        latest_assessment: {
+          matching_status: row?.matching_status || 'NEEDS_HR_VERIFICATION',
+          matching_score: row?.matching_score ?? null,
+          evidence_coverage: row?.evidence_coverage ?? null,
+          criterion_results: (row?.criterion_results || []).map(result => ({ ...result, outcome: 'MATCH' })),
+        },
+      };
+    };
+    const detailId = p.match(/^\/v1\/applications\/(app-\d+)$/);
+    if (detailId && detailId[1] !== 'app-0') return json(r, detailOf(detailId[1]));
+    const nestedId = p.match(/^\/v1\/applications\/(app-\d+)\/(status-events|profile)$/);
+    if (nestedId && nestedId[1] !== 'app-0') {
+      return json(r, nestedId[2] === 'profile'
+        ? { profile_version_id: `pv-${nestedId[1]}`, version_number: 1, identity: { display_name: detailOf(nestedId[1]).identity.display_name, email: null, phone: null }, facts: [] }
+        : []);
+    }
     // The profile page loads the approved rubric so a reviewer can read what each
     // criterion asked for. Not part of what this test checks, but it must not be
     // reported as an unexpected call.
@@ -220,7 +252,11 @@ const applications = ranking.map((item, index) => ({
   assert.equal(await page.getByRole('link', { name: /Hồ sơ tiếp theo/ }).count(), 1, 'stepping forward works without sessionStorage');
   assert.equal(await page.getByRole('button', { name: /Hồ sơ trước/ }).isDisabled(), true, 'the first row has nowhere to go back to');
   await page.getByRole('link', { name: /Hồ sơ tiếp theo/ }).click();
-  await page.getByRole('heading', { level: 1 }).waitFor();
+  // Chờ đúng hồ sơ kế đã dựng (tên ứng viên của app-2), không chờ một thẻ h1 có
+  // sẵn từ trang trước: chờ thẻ chung thì bước sau điều hướng đi trong lúc hồ sơ
+  // mới còn đang tải, và request của nó tới sau khi test đã kiểm tra lỗi.
+  await page.getByRole('heading', { level: 1, name: 'Ứng viên 3' }).waitFor();
+  assert.match(decodeURIComponent(page.url()), /\/applicants\/app-2(\?|$)/, 'stepping opens the next profile');
   assert.match(decodeURIComponent(page.url()), /queue=NEEDS_VERIFICATION/, 'stepping keeps the queue in the URL');
 
   // --- 11. Age is shown, rank is untouched ---------------------------------

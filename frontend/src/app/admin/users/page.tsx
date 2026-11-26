@@ -9,7 +9,8 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useI18n } from '@/i18n/I18nProvider';
-import { adminApi, authApi } from '@/lib/api';
+import { adminApi } from '@/lib/api';
+import { getCurrentUser } from '@/lib/meCache';
 
 type Role = 'ADMIN' | 'HR_LEAD' | 'HR_RECRUITER' | 'HIRING_MANAGER' | 'VIEWER';
 type AccountStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
@@ -61,9 +62,9 @@ export default function AdminUsersPage() {
     setLoading(true); setError(null);
     Promise.all([
       adminApi.listUsers({ search: search || undefined, role: roleFilter || undefined, account_status: statusFilter || undefined, page }),
-      authApi.me(),
+      getCurrentUser(),
     ]).then(([response, me]) => {
-      if (active) { setItems(response.data.items); setHasMore(response.data.has_more); setCurrentUser(me.data.user_id); }
+      if (active) { setItems(response.data.items); setHasMore(response.data.has_more); setCurrentUser(me.user_id ?? ''); }
     }).catch((err: any) => { if (active) setError(err.response?.data?.detail || t("Không thể tải danh sách tài khoản.")); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };

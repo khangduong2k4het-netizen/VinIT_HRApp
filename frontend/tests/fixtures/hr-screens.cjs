@@ -257,6 +257,38 @@ const DUPLICATE_SIGNALS = [
   },
 ];
 
+// Cặp hồ sơ trong DUPLICATE_SIGNALS, mỗi bên một định danh và một bộ kết quả
+// tiêu chí khác nhau — màn so sánh chỉ có nghĩa khi hai bên thật sự khác nhau.
+// c4 giống nhau (đều chưa đáp ứng) để có cả dòng trùng kết luận.
+const COMPARE_APPLICATIONS = {
+  'app-3': {
+    name: 'Phạm Đình Khang',
+    email: 'khang.pham@example.com',
+    phone: '0912 345 671',
+    score: 61,
+    coverage: 0.58,
+    results: {
+      c1: { outcome: 'MATCH', score: 70, page: 2 },
+      c2: { outcome: 'UNCLEAR', score: null, page: 3 },
+      c3: { outcome: 'MATCH', score: 80, page: 4 },
+      c4: { outcome: 'NO_MATCH', score: 0, page: null },
+    },
+  },
+  'app-9': {
+    name: 'Dương Hồng Yến',
+    email: 'yen.duong@example.com',
+    phone: '0987 654 321',
+    score: 86,
+    coverage: 0.9,
+    results: {
+      c1: { outcome: 'STRONG_MATCH', score: 92, page: 3 },
+      c2: { outcome: 'MATCH', score: 78, page: 2 },
+      c3: { outcome: 'UNCLEAR', score: null, page: 5 },
+      c4: { outcome: 'NO_MATCH', score: 0, page: null },
+    },
+  },
+};
+
 const applications = ranking.map(item => ({
   application_id: item.application_id,
   position_id: 'p1',
@@ -409,10 +441,14 @@ function installMockApi(context, overrides = {}) {
         ...detail,
         latest_assessment: {
           ...detail.latest_assessment,
-          criterion_results: (detail.latest_assessment?.criterion_results || CRITERIA).map(c => ({
-            ...c,
-            hr_reviews: reviews[c.result_id] || [],
-          })),
+          // Mỗi hồ sơ một result_id riêng, như bảng thật. Bản cũ trả id trần
+          // (`r-c2`) nên nhiều hồ sơ dùng chung một id: xác nhận ở hồ sơ này sẽ
+          // hiện thành "đã kiểm" ở hồ sơ khác, và không thể kiểm được "mỗi dòng
+          // một POST".
+          criterion_results: (detail.latest_assessment?.criterion_results || CRITERIA).map(c => {
+            const resultId = `app-2:${c.result_id}`;
+            return { ...c, result_id: resultId, hr_reviews: reviews[resultId] || [] };
+          }),
         },
       });
     }
@@ -477,6 +513,91 @@ function installMockApi(context, overrides = {}) {
         latest_assessment: { ...detail.latest_assessment, application_id: 'app-admin' },
       });
     }
+    // Hai hồ sơ bị gắn cờ trùng (sig-1): mỗi bên một định danh và một bộ kết quả
+    // tiêu chí khác nhau, để màn so sánh có việc thật mà làm. Cùng c4 (đều chưa
+    // đáp ứng) để có cả dòng giống nhau lẫn dòng khác nhau.
+    const compareId = p.match(/^\/v1\/applications\/(app-\d+)$/)?.[1];
+    if (compareId && COMPARE_APPLICATIONS[compareId] && r.request().method() === 'GET') {
+      const spec = COMPARE_APPLICATIONS[compareId];
+      const row = ranking.find(item => item.application_id === compareId);
+      return json({
+        ...detail,
+        application_id: compareId,
+        candidate_name: spec.name,
+        application_status: row?.application_status || 'IN_REVIEW',
+        has_duplicate_warning: true,
+        identity: { display_name: spec.name, email: spec.email, phone: spec.phone },
+        latest_assessment: {
+          ...detail.latest_assessment,
+          application_id: compareId,
+          matching_score: spec.score,
+          evidence_coverage: spec.coverage,
+          criterion_results: CRITERIA.map(item => {
+            const override = spec.results[item.criterion_id];
+            const page = override.page;
+            // Như trên: kết quả thuộc về từng hồ sơ, nên id phải mang mã hồ sơ.
+            const resultId = `${compareId}:${item.result_id}`;
+            return {
+              ...item,
+              result_id: resultId,
+              outcome: override.outcome,
+              score: override.score,
+              page_number: page,
+              evidence: page
+                ? [{ evidence_id: `e-${compareId}-${item.criterion_id}`, verbatim_quote: item.verbatim_quote || item.reasoning, page_number: page, verification_status: 'UNVERIFIED' }]
+                : [],
+              hr_reviews: reviews[resultId] || [],
+            };
+          }),
+        },
+      });
+    }
+    // Hồ sơ trượt tiêu chí bắt buộc: c1 là MUST_HAVE nhưng kết luận NO_MATCH.
+    // Đây là đường dẫn tới nhánh "loại ở vòng sàng lọc" khi hoàn tất — trước đây
+    // chỉ có unit test cho suggestFinishStatus, chưa có giao diện nào chạy qua.
+    if (p === '/v1/applications/app-must-fail' && r.request().method() === 'GET') {
+      const failedResultId = 'app-must-fail:r-c1';
+      return json({
+        ...detail,
+        application_id: 'app-must-fail',
+        candidate_name: 'Trượt Bắt Buộc',
+        identity: { display_name: 'Trượt Bắt Buộc', email: 'truot.batbuoc@example.com', phone: '09xx xxx 999' },
+        application_status: 'IN_REVIEW',
+        has_duplicate_warning: false,
+        latest_assessment: {
+          ...detail.latest_assessment,
+          application_id: 'app-must-fail',
+          matching_status: 'POSSIBLE_MISMATCH',
+          matching_score: 41,
+          evidence_coverage: 0.52,
+          summary: 'Trượt tiêu chí bắt buộc về kinh nghiệm Python cho dịch vụ production.',
+          criterion_results: [
+            {
+              ...CRITERIA[0],
+              result_id: failedResultId,
+              outcome: 'NO_MATCH',
+              score: 0,
+              confidence: 0.79,
+              decision_source: 'AI',
+              evidence_strength: 0.55,
+              // Vẫn chờ HR xác minh: một tiêu chí bắt buộc bị kết luận trượt thì
+              // càng phải để HR đối chiếu trước khi loại hồ sơ.
+              requires_verification: true,
+              page_number: null,
+              reasoning: 'Không có dòng nào trong CV mô tả dịch vụ Python chạy production, chỉ có script xử lý dữ liệu một lần.',
+              verbatim_quote: null,
+              evidence: [],
+              hr_reviews: reviews[failedResultId] || [],
+            },
+            { ...CRITERIA[1], result_id: 'app-must-fail:r-c2', requires_verification: false, hr_reviews: [] },
+          ],
+        },
+      });
+    }
+    if (p === '/v1/applications/app-must-fail/status' && r.request().method() === 'PATCH') {
+      const body = JSON.parse(r.request().postData() || '{}');
+      return json({ ...detail, application_id: 'app-must-fail', application_status: body.new_status });
+    }
     // Any other application row from the ranking can be opened too: finishing a
     // profile advances to the next one, and that page must load in the mock.
     const applicationMatch = p.match(/^\/v1\/applications\/(app-\d+)$/);
@@ -492,7 +613,12 @@ function installMockApi(context, overrides = {}) {
         latest_assessment: {
           ...detail.latest_assessment,
           application_id: id,
-          criterion_results: CRITERIA.map(c => ({ ...c, hr_reviews: reviews[c.result_id] || [] })),
+          // Mỗi hồ sơ một result_id riêng, đúng như bảng thật: xác minh ở hồ sơ
+          // này không được biến hồ sơ khác thành "đã kiểm".
+          criterion_results: CRITERIA.map(c => {
+            const resultId = `${id}:${c.result_id}`;
+            return { ...c, result_id: resultId, hr_reviews: reviews[resultId] || [] };
+          }),
         },
       });
     }

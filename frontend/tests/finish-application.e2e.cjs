@@ -59,13 +59,20 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
   const dialog = page.getByTestId('finish-dialog');
   await dialog.waitFor();
 
-  // --- 2. Pending verification needs an explicit attestation ---------------
+  // --- 2. The commitment is the button itself, and a status is preselected --
   assert.match(await page.getByTestId('finish-pending').innerText(), /Còn 2 tiêu chí/);
-  assert.equal(await page.getByTestId('finish-confirm').isDisabled(), true, 'cannot record a review nobody attested to');
-  await page.getByTestId('finish-attest').getByRole('checkbox').check();
-  await page.waitForFunction(() => !document.querySelector('[data-testid="finish-confirm"]').disabled);
+  assert.equal(await page.getByTestId('finish-attest').count(), 0, 'no separate checkbox to tick before confirming');
+  assert.match(await page.getByTestId('finish-attest-note').innerText(), /đã đối chiếu 2 tiêu chí/);
+  assert.equal(await page.getByTestId('finish-confirm').isDisabled(), false, 'the main button is the attestation, so it is pressable');
+  assert.match(await page.getByTestId('finish-confirm').innerText(), /Xác nhận đã kiểm 2 tiêu chí/, 'the button says what pressing it attests to');
+  assert.match(await page.getByTestId('finish-status').innerText(), /Shortlist/, 'the suggested status is already chosen');
+  assert.match(await page.getByTestId('finish-suggestion').innerText(), /Điểm tổng hợp 69%/);
 
   // --- 3 + 4. Finish records verification, changes no status, advances -----
+  // The suggestion must stay only a suggestion: ask for "keep the status" and
+  // the finish must not touch application_status.
+  await page.getByTestId('finish-status').locator('[role="combobox"]').click();
+  await page.getByRole('option', { name: 'Giữ nguyên trạng thái' }).click();
   await page.getByTestId('finish-confirm').click();
   await page.waitForURL(/\/applicants\/app-8\?/, { timeout: 10000 });
   const next = new URL(page.url());
@@ -81,6 +88,7 @@ if (!base || !['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostnam
   await page.getByTestId('finish-application').click();
   await dialog.waitFor();
   assert.equal(await page.getByTestId('finish-pending').count(), 0, 'nothing is pending after the recorded reviews');
+  assert.match(await page.getByTestId('finish-status').innerText(), /Shortlist/, 'a suggestion is preselected on reopen too');
   await page.getByTestId('finish-status').locator('[role="combobox"]').click();
   await page.getByRole('option', { name: 'Loại vòng sàng lọc' }).click();
   assert.equal(await page.getByTestId('finish-confirm').isDisabled(), true, 'a rejection without a reason stays blocked');
