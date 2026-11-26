@@ -1,15 +1,41 @@
 import os
 import tempfile
-from typing import Tuple, Optional, BinaryIO
+from typing import Tuple, Optional
 from enum import Enum
 from pypdf import PdfReader
 from pdf2image import convert_from_path
 import pytesseract
 from docx import Document
-from PIL import Image
 import io
 import zipfile
 from app.core.config import settings
+
+
+def _ocr_languages() -> str:
+    """Ngôn ngữ cho tesseract: tiếng Việt + tiếng Anh, lùi về tiếng Anh nếu thiếu gói.
+
+    Trước đây gắn cứng `eng`, nên CV scan tiếng Việt ra chữ mất dấu — và chữ sai
+    đó vẫn được đem đi chấm điểm, không có gì báo là đã sai.
+
+    Không hard-code `vie` được: máy chưa cài `tesseract-ocr-vie` sẽ ném
+    TesseractError lúc chạy, tức là hỏng cả luồng nhận CV thay vì chỉ giảm chất
+    lượng. Vì vậy hỏi tesseract xem có gói nào rồi mới chọn, và chỉ tính một lần.
+    """
+    global _OCR_LANG_CACHE
+    if _OCR_LANG_CACHE is not None:
+        return _OCR_LANG_CACHE
+    try:
+        available = set(pytesseract.get_languages(config=""))
+    except Exception:
+        available = set()
+    if "vie" in available:
+        _OCR_LANG_CACHE = "vie+eng"
+    else:
+        _OCR_LANG_CACHE = "eng"
+    return _OCR_LANG_CACHE
+
+
+_OCR_LANG_CACHE: Optional[str] = None
 from app.core.logging import get_logger
 from app.core.exceptions import FileValidationError
 
@@ -111,12 +137,13 @@ class DocumentProcessor:
                 raise FileValidationError("Could not process scanned PDF file")
 
             for page_num, image in enumerate(images, start=1):
-                # Run OCR with English language for MVP
-                text = pytesseract.image_to_string(image, lang='eng')
+                lang = _ocr_languages()
+                text = pytesseract.image_to_string(image, lang=lang)
                 pages_text.append({
                     "page_number": page_num,
                     "content": text.strip(),
-                    "ocr_confidence": pytesseract.image_to_data(image, lang='eng', output_type=pytesseract.Output.DICT)
+                    "ocr_language": lang,
+                    "ocr_confidence": pytesseract.image_to_data(image, lang=lang, output_type=pytesseract.Output.DICT)
                 })
 
         full_text = "\n\n".join([f"--- Page {p['page_number']} ---\n{p['content']}" for p in pages_text])
@@ -151,7 +178,7 @@ class DocumentProcessor:
         elif doc_type == DocumentType.DOCX:
             full_text, pages = await self.extract_text_from_docx(file_content)
         else:
-            raise FileValidationError(f"Unsupported document type")
+            raise FileValidationError("Unsupported document type")
 
         # Page markers are metadata, not CV content: a multi-page blank scan
         # must never pass the extraction check merely because of its labels.
