@@ -1952,5 +1952,9 @@
   "Không thể gửi lại thư.": "Could not resend the email.",
   "Thử gửi lại": "Retry send",
   "Sao chép link /apply": "Copy /apply link",
-  "Soạn & gửi qua HRA": "Compose & send in HRA"
+  "Soạn & gửi qua HRA": "Compose & send in HRA",
+  "Bạn sắp gửi thư mời trao đổi tới": "You are about to send an invitation to connect to",
+  "Ứng viên đã đồng ý cho VinUni lưu hồ sơ để cân nhắc các vị trí khác (Talent Pool). Mục đích thư: mời trao đổi cơ hội tuyển dụng. Bấm \"Xác nhận gửi thư mời\" để gửi.": "The candidate agreed to let VinUni keep their file for other positions (Talent Pool). Purpose of the letter: an invitation to discuss a job opportunity. Press \"Confirm sending the invitation\" to send it.",
+  "Xác nhận gửi thư mời": "Confirm sending the invitation",
+  "Để mời một ứng viên trao đổi: quét Talent Pool cho vị trí đang tuyển, chọn Liên hệ cho hồ sơ phù hợp, xem thông tin liên hệ rồi soạn thư. Hệ thống kiểm tra lại sự đồng ý của ứng viên trước mỗi lần soạn và gửi.": "To invite a candidate: scan the Talent Pool for an open position, choose Contact for a suitable file, view the contact details, then write the letter. The system re-checks the candidate's consent before every draft and send."
 }

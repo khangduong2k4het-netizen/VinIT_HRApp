@@ -311,11 +311,11 @@ export const candidateEmailsApi = {
   updateTemplate: (code: EmailTemplateCode, data: { subject_template: string; body_template: string }) =>
     apiClient.put(`/candidate-emails/templates/${code}`, data),
   forApplication: (applicationId: string) => apiClient.get(`/candidate-emails/applications/${applicationId}`),
-  compose: (applicationId: string, templateCode: EmailTemplateCode) =>
-    apiClient.post(`/candidate-emails/applications/${applicationId}/compose`, { template_code: templateCode }),
+  compose: (applicationId: string, templateCode: EmailTemplateCode, scanId?: string) =>
+    apiClient.post(`/candidate-emails/applications/${applicationId}/compose`, { template_code: templateCode, ...(scanId ? { scan_id: scanId } : {}) }),
   create: (applicationId: string, data: {
     template_code: EmailTemplateCode | null; trigger_source: 'MANUAL' | 'STATUS_CHANGE';
-    to_address: string; subject: string; body: string; send: boolean; confirmed?: boolean;
+    to_address: string; subject: string; body: string; send: boolean; confirmed?: boolean; scan_id?: string;
   }) => apiClient.post(`/candidate-emails/applications/${applicationId}/emails`, data),
   updateDraft: (emailId: string, data: { to_address: string; subject: string; body: string }) =>
     apiClient.put(`/candidate-emails/emails/${emailId}`, data),

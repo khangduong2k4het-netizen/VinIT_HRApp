@@ -418,58 +418,81 @@ def _process(db, account: dict, token: str, gmail_id: str, message_id: str) -> s
 
 
 def sync_triage_label(account_id: str, gmail_id: str, target_status: str) -> None:
-    """Best-effort update of Gmail labels after HR triages a message."""
-    if not gmail.configured() or target_status not in LABELS:
-        return
-    db = SessionLocal()
+    """Best-effort update of Gmail labels after HR triages a message. Never raises: the HR decision is already saved."""
     try:
-        account = db.execute(text("""SELECT * FROM app_private.mailbox_accounts
-            WHERE account_id = :id AND status = 'ACTIVE'"""), {"id": account_id}).mappings().first()
-    finally:
-        db.close()
-    if not account:
-        return
-    try:
+        if not gmail.configured() or target_status not in LABELS:
+            return
+        db = SessionLocal()
+        try:
+            account = db.execute(text("""SELECT * FROM app_private.mailbox_accounts
+                WHERE account_id = :id AND status = 'ACTIVE'"""), {"id": account_id}).mappings().first()
+        finally:
+            db.close()
+        if not account:
+            return
         token = gmail.access_token(gmail.decrypt_token(account["refresh_token_ciphertext"]))
         labels = gmail.ensure_labels(token, list(LABELS.values()))
         add_id = labels.get(LABELS[target_status])
         remove_id = labels.get(LABELS["NEEDS_TRIAGE"])
         if add_id:
             gmail.replace_label(token, gmail_id, add_id, remove_id)
-    except gmail.GmailError as exc:
-        logger.warning("Could not update triage Gmail label", error=exc.code)
+    except Exception as exc:  # noqa: BLE001 - a label is cosmetic; log and move on
+        logger.warning("Could not update triage Gmail label", error_type=type(exc).__name__,
+                       error=getattr(exc, "code", None))
+
+
+def schedule_triage_label_sync(account_id: str, gmail_id: str, target_status: str) -> None:
+    """Run the Gmail label update in the background so HR's request is not held up by Google."""
+    threading.Thread(target=sync_triage_label, args=(account_id, gmail_id, target_status),
+                     daemon=True, name="triage-label-sync").start()
+
+
+MAX_MESSAGE_RETRIES = 5
+STALE_RETRY_MINUTES = 15
 
 
 def retry_failed_message(message_id: str) -> dict:
-    """Re-process one FAILED mailbox message (e.g. after ClamAV or transient Gmail error)."""
+    """Re-process one FAILED mailbox message (e.g. after ClamAV or transient Gmail error). At most
+    MAX_MESSAGE_RETRIES times; a message left in NEW by a crashed retry may be retried after STALE_RETRY_MINUTES."""
     if not gmail.configured():
         raise HTTPException(status_code=409, detail="Chưa bật hoặc chưa cấu hình kết nối Gmail")
+    leftovers: list[str] = []
     db = SessionLocal()
     try:
-        row = db.execute(text("""SELECT m.message_id, m.account_id, m.provider_message_id, m.status,
+        row = db.execute(text("""SELECT m.message_id, m.account_id, m.provider_message_id, m.status, m.retry_count,
+                (m.retry_started_at IS NOT NULL AND m.retry_started_at < NOW() - make_interval(mins => :stale)) AS retry_stale,
                 a.email_address, a.refresh_token_ciphertext, a.status AS account_status
             FROM app_private.mailbox_messages m
             JOIN app_private.mailbox_accounts a ON a.account_id = m.account_id
-            WHERE m.message_id = :id FOR UPDATE OF m"""), {"id": message_id}).mappings().first()
+            WHERE m.message_id = :id FOR UPDATE OF m"""), {"id": message_id, "stale": STALE_RETRY_MINUTES}).mappings().first()
         if not row:
             raise HTTPException(status_code=404, detail="Không tìm thấy thư")
-        if row["status"] != "FAILED":
+        if not (row["status"] == "FAILED" or (row["status"] == "NEW" and row["retry_stale"])):
             raise HTTPException(status_code=409, detail="Chỉ có thể thử lại các thư đang ở trạng thái lỗi")
+        if row["retry_count"] >= MAX_MESSAGE_RETRIES:
+            raise HTTPException(status_code=409, detail=f"Đã hết lượt thử lại ({MAX_MESSAGE_RETRIES} lần). Hãy mở thư trong Gmail "
+                                                        "để kiểm tra hoặc nhờ Admin xử lý.")
         if row["account_status"] != "ACTIVE":
             raise HTTPException(status_code=409, detail="Hộp thư Gmail chưa ở trạng thái hoạt động")
         account = {"account_id": row["account_id"], "email_address": row["email_address"]}
         gmail_id = row["provider_message_id"]
         ciphertext = row["refresh_token_ciphertext"]
-        db.execute(text("DELETE FROM app_private.mailbox_attachments WHERE message_id = :id AND status = 'REJECTED'"),
-                   {"id": message_id})
-        db.execute(text("UPDATE app_private.mailbox_messages SET status = 'NEW', reason = NULL WHERE message_id = :id"),
-                   {"id": message_id})
+        # A failed run may have left files and rows half done: clear them so the retry starts clean. Rows of a CV
+        # already turned into an application (USED) stay; the application itself is protected by the duplicate check.
+        leftovers = [r["storage_path"] for r in db.execute(text("""SELECT storage_path FROM app_private.mailbox_attachments
+            WHERE message_id = :id AND status = 'STORED' AND storage_path IS NOT NULL"""), {"id": message_id}).mappings()]
+        db.execute(text("""DELETE FROM app_private.mailbox_attachments
+            WHERE message_id = :id AND status IN ('REJECTED', 'STORED', 'DISCARDED')"""), {"id": message_id})
+        db.execute(text("""UPDATE app_private.mailbox_messages SET status = 'NEW', reason = NULL,
+            retry_count = retry_count + 1, retry_started_at = NOW() WHERE message_id = :id"""), {"id": message_id})
         db.commit()
     except Exception:
         db.rollback()
         raise
     finally:
         db.close()
+    for path in leftovers:
+        remove_stored(path)
 
     db = SessionLocal()
     try:

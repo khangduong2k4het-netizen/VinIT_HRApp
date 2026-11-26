@@ -2,13 +2,11 @@
 
 // P3-1 Talent Pool: the pool HR handles, and scans of the pool against an open position.
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Grid, MenuItem, Table, TableBody, TableCell,
+import { Alert, Box, Card, CardContent, Chip, CircularProgress, Grid, MenuItem, Table, TableBody, TableCell,
   TableContainer, TableHead, TablePagination, TableRow, TextField, Typography } from '@mui/material';
-import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import Link from 'next/link';
 import PageHeader from '@/components/common/PageHeader';
 import EmptyState from '@/components/common/EmptyState';
-import CandidateEmailDialog from '@/components/candidates/CandidateEmailDialog';
 import { positionsApi, talentPoolApi } from '@/lib/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import ScanPanel from '@/components/talent-pool/ScanPanel';
@@ -24,7 +22,6 @@ export default function TalentPoolPage() {
   const [eligibilityFilter, setEligibilityFilter] = useState<'ALL' | 'ELIGIBLE' | 'INELIGIBLE'>('ALL');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(20);
-  const [inviteAppId, setInviteAppId] = useState<string | null>(null);
 
   useEffect(() => {
     talentPoolApi.marks({ limit: 500, offset: 0 }).then(r => setMarks(r.data.items)).catch(() => setMarks([]));
@@ -67,7 +64,10 @@ export default function TalentPoolPage() {
 
       <Card variant="outlined">
         <CardContent>
-          <Typography variant="h6" sx={{ mb: 2 }}>{t('Hồ sơ trong Talent Pool')}</Typography>
+          <Typography variant="h6" sx={{ mb: 1 }}>{t('Hồ sơ trong Talent Pool')}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {t('Để mời một ứng viên trao đổi: quét Talent Pool cho vị trí đang tuyển, chọn Liên hệ cho hồ sơ phù hợp, xem thông tin liên hệ rồi soạn thư. Hệ thống kiểm tra lại sự đồng ý của ứng viên trước mỗi lần soạn và gửi.')}
+          </Typography>
           {marks !== null && marks.length > 0 && (
             <Grid container spacing={2} sx={{ mb: 2 }}>
               <Grid item xs={12} sm={5}>
@@ -108,7 +108,6 @@ export default function TalentPoolPage() {
                       <TableCell>{t('Lý do')}</TableCell>
                       <TableCell>{t('Trạng thái')}</TableCell>
                       <TableCell>{t('Lưu đến')}</TableCell>
-                      <TableCell align="right">{t('Thao tác')}</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -130,13 +129,6 @@ export default function TalentPoolPage() {
                             : <Chip size="small" color="warning" label={t('Không còn đủ điều kiện')} />}
                         </TableCell>
                         <TableCell className="tabular-nums">{m.expires_on || '—'}</TableCell>
-                        <TableCell align="right">
-                          {m.eligible && (
-                            <Button size="small" variant="outlined" startIcon={<MailOutlineIcon />} onClick={() => setInviteAppId(m.application_id)}>
-                              {t('Mời trao đổi')}
-                            </Button>
-                          )}
-                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -155,16 +147,6 @@ export default function TalentPoolPage() {
           )}
         </CardContent>
       </Card>
-      {inviteAppId && (
-        <CandidateEmailDialog
-          open={!!inviteAppId}
-          applicationId={inviteAppId}
-          templateCode="POOL_INVITE"
-          triggerSource="MANUAL"
-          onClose={() => setInviteAppId(null)}
-          onDone={() => setInviteAppId(null)}
-        />
-      )}
     </Box>
   );
 }

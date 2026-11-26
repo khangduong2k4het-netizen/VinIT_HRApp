@@ -68,14 +68,11 @@ def _is_admin(db, user_id: str) -> bool:
 
 
 def _require_hr_db(db, user_id: str) -> None:
-    ok = db.execute(text("""SELECT 1 FROM app_private.user_profiles p
-        WHERE p.user_id = :u AND p.account_status = 'ACTIVE' AND (
-            EXISTS (SELECT 1 FROM app_private.user_role_assignments r
-                    WHERE r.user_id = :u AND r.revoked_at IS NULL AND r.role_code = ANY(:roles))
-            OR EXISTS (SELECT 1 FROM app_private.position_assignments pa
-                       WHERE pa.user_id = :u AND pa.revoked_at IS NULL
-                         AND pa.position_role IN ('HR_RECRUITER', 'HR_LEAD'))
-        ) LIMIT 1"""), {"u": user_id, "roles": list(HR_ROLES)}).first()
+    """Only the HR system roles see the whole triage queue (messages not yet tied to any position)."""
+    ok = db.execute(text("""SELECT 1 FROM app_private.user_role_assignments r
+        JOIN app_private.user_profiles p ON p.user_id = r.user_id
+        WHERE r.user_id = :u AND r.revoked_at IS NULL AND r.role_code = ANY(:roles) AND p.account_status = 'ACTIVE'
+        LIMIT 1"""), {"u": user_id, "roles": list(HR_ROLES)}).first()
     if not ok:
         raise HTTPException(status_code=403, detail="Chỉ HR mới xem được hộp thư CV")
 
@@ -346,7 +343,7 @@ async def assign(message_id: UUID, body: AssignInput, current_user: dict = Depen
             _audit(db, current_user["user_id"], "ASSIGN_EMAIL_CV", str(message_id), {"duplicate": app_id is None},
                    position_id=str(body.position_id))
             db.commit()
-            mail_intake.sync_triage_label(str(msg["account_id"]), msg["provider_message_id"], final_status)
+            mail_intake.schedule_triage_label_sync(str(msg["account_id"]), msg["provider_message_id"], final_status)
             return {"status": "MATCHED" if app_id else "DUPLICATE", "application_id": app_id}
         except Exception:
             db.rollback()
@@ -373,7 +370,7 @@ async def ignore(message_id: UUID, current_user: dict = Depends(get_current_user
                 decided_by = :u, decided_at = NOW() WHERE message_id = :id"""), {"u": current_user["user_id"], "id": str(message_id)})
             _audit(db, current_user["user_id"], "IGNORE_EMAIL_CV", str(message_id), {})
             db.commit()
-            mail_intake.sync_triage_label(str(msg["account_id"]), msg["provider_message_id"], "IGNORED")
+            mail_intake.schedule_triage_label_sync(str(msg["account_id"]), msg["provider_message_id"], "IGNORED")
             return {"status": "IGNORED"}
         except Exception:
             db.rollback()

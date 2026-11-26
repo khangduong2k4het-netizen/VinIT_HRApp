@@ -279,6 +279,7 @@ def _change_supabase_password(current_user: dict, old_password: str, new_passwor
 
 GENERIC_REGISTER = "Đã gửi đăng ký. Hãy mở liên kết xác minh trong email, sau đó chờ Admin duyệt."
 _public_hits: dict[str, deque] = defaultdict(deque)
+_last_public_prune = 0.0
 
 
 def _limit_public_calls(request: Request) -> None:
@@ -288,7 +289,9 @@ def _limit_public_calls(request: Request) -> None:
         return
     from app.api.public_intake import client_address
     now = time.time()
-    if len(_public_hits) > 2000:
+    global _last_public_prune
+    if len(_public_hits) > 2000 and now - _last_public_prune >= 60:
+        _last_public_prune = now
         stale = [key for key, q in list(_public_hits.items()) if not q or q[-1] < now - 3600]
         for key in stale:
             _public_hits.pop(key, None)

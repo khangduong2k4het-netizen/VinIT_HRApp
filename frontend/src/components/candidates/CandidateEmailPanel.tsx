@@ -10,7 +10,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import { candidateEmailsApi, type EmailTemplateCode } from '@/lib/api';
 import { useI18n } from '@/i18n/I18nProvider';
-import CandidateEmailDialog, { COMPOSE_TEMPLATES, type EmailDraft } from './CandidateEmailDialog';
+import CandidateEmailDialog, { TEMPLATE_LABELS, type EmailDraft } from './CandidateEmailDialog';
 
 type EmailRow = EmailDraft & {
   status: 'DRAFT' | 'RECORDED' | 'SENT' | 'FAILED' | 'CANCELLED';
@@ -78,7 +78,7 @@ export default function CandidateEmailPanel({ applicationId, request }: { applic
     }
   };
 
-  const templateLabel = (code: string | null) => t(COMPOSE_TEMPLATES.find(item => item.code === code)?.label || 'Thư tự soạn');
+  const templateLabel = (code: string | null) => t((code && TEMPLATE_LABELS[code]) || 'Thư tự soạn');
   const visible = emails.filter(email => email.status !== 'CANCELLED');
 
   return (

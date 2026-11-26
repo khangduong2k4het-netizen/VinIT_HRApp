@@ -131,7 +131,7 @@ export default function ScanPanel({ positionId }: { positionId: string }) {
   const [draftSubject, setDraftSubject] = useState('');
   const [draftBody, setDraftBody] = useState('');
   const [copiedEmail, setCopiedEmail] = useState(false);
-  const [inviteAppId, setInviteAppId] = useState<string | null>(null);
+  const [inviteAppId, setInviteAppId] = useState<string | null>(null);  // set only after the audited contact reveal
 
   const loadScan = useCallback(async (scanId: string) => {
     try { setScan((await talentPoolApi.scanDetail(scanId)).data); }
@@ -328,11 +328,12 @@ export default function ScanPanel({ positionId }: { positionId: string }) {
         <Button onClick={() => setContactOpen(false)}>{t('Đóng')}</Button>
       </DialogActions>
     </Dialog>
-    {inviteAppId && (
+    {inviteAppId && scan && (
       <CandidateEmailDialog
         open={!!inviteAppId}
         applicationId={inviteAppId}
         templateCode="POOL_INVITE"
+        poolScanId={scan.scan_id}
         triggerSource="MANUAL"
         onClose={() => setInviteAppId(null)}
         onDone={() => setInviteAppId(null)}

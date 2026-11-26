@@ -55,9 +55,15 @@ def _prune(window: deque, now: float) -> None:
         window.popleft()
 
 
+_last_ip_prune = 0.0
+
+
 def _prune_ip_map(now: float) -> None:
-    if len(_failures_by_ip) <= 2000:
+    """Drop idle addresses; at most once a minute so a large map is not rescanned on every request."""
+    global _last_ip_prune
+    if len(_failures_by_ip) <= 2000 or now - _last_ip_prune < 60:
         return
+    _last_ip_prune = now
     stale = [key for key, q in list(_failures_by_ip.items()) if not q or q[-1] < now - WINDOW_SECONDS]
     for key in stale:
         _failures_by_ip.pop(key, None)
