@@ -182,7 +182,7 @@ class Settings(BaseSettings):
     LANGFUSE_CAPTURE_CONTENT: bool = False
 
     # Retention fallback only: the approved row in
-    # app_private.retention_policy_versions decides (migration 00023: 12 months
+    # app_private.retention_policy_versions decides (migration 00028: 12 months
     # after closing, or up to 5 years from an active Talent Pool consent).
     RETENTION_MONTHS: int = 60
     # F2.07 — reminder milestones before the due date (days) and the window in
