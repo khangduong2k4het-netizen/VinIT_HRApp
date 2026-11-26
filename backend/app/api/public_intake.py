@@ -112,6 +112,20 @@ def get_public_position(position_code: str):
         db.close()
 
 
+def _forgive_last_attempt(ip_hash: str) -> None:
+    """A form the candidate simply filled in wrong (missing consent, stale notice) costs nothing: do not let
+    it use up the hourly limit. Unknown positions and rejected files still count against it."""
+    db = SessionLocal()
+    try:
+        db.execute(text("""DELETE FROM app_private.public_intake_events WHERE event_id = (
+            SELECT event_id FROM app_private.public_intake_events
+            WHERE ip_hash = :h AND outcome = 'ATTEMPT' AND created_at > NOW() - INTERVAL '2 minutes'
+            ORDER BY created_at DESC LIMIT 1)"""), {"h": ip_hash})
+        db.commit()
+    finally:
+        db.close()
+
+
 def _fake_token() -> str:
     """Answer shaped like a real receipt, so a repeat or bot submission learns nothing."""
     return secrets.token_hex(32)
@@ -319,10 +333,12 @@ async def apply(position_code: str, request: Request, response: Response, file: 
     if pos is None:
         raise HTTPException(status_code=404, detail="Vị trí không còn nhận hồ sơ.")
     if not consent_processing:
+        await run_in_threadpool(_forgive_last_attempt, ip_hash)
         raise HTTPException(status_code=400, detail="Cần đồng ý cho phép sử dụng thông tin hồ sơ để ứng tuyển.")
     # Record only the wording the candidate actually saw. A stale page must not
     # silently grant a new version of consent after a backend deployment.
     if notice_version != settings.PUBLIC_INTAKE_NOTICE_VERSION:
+        await run_in_threadpool(_forgive_last_attempt, ip_hash)
         raise HTTPException(status_code=409, detail="Nội dung đồng ý đã thay đổi. Vui lòng tải lại trang trước khi nộp hồ sơ.")
     # Notice v4 is one explicit consent covering both this position and reuse.
     # A v3 page cannot grant it: its notice version was rejected above.

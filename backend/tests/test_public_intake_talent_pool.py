@@ -679,3 +679,19 @@ def test_held_portal_cvs_wait_while_position_is_closed(client, portal):
         conn.execute(text("UPDATE app_private.positions SET status = 'CLOSED', closed_at = NOW() WHERE position_id = :p"), {"p": seed["pos"]})
     assert dispatch_held_portal_cvs() == 0
     assert _count("""SELECT COUNT(*) FROM app_private.operations WHERE position_id = :p AND status = 'PENDING'""", p=seed["pos"]) == 0
+
+
+@integration
+def test_form_mistakes_do_not_use_up_the_hourly_limit(client, portal, monkeypatch):
+    seed = portal
+    monkeypatch.setattr(settings, "PUBLIC_INTAKE_MAX_PER_IP_HOUR", 2)
+    for _ in range(4):
+        assert _apply(client, seed, processing=False).status_code == 400  # forgot to tick consent
+        assert _apply(client, seed, notice="v0").status_code == 409  # stale page
+    assert _count("SELECT COUNT(*) FROM app_private.public_intake_events") == 0
+    assert _apply(client, seed).status_code == 202
+    # An unknown position still counts, so probing for codes stays limited.
+    for _ in range(2):
+        client.post("/v1/public/positions/REQ-NOPE-1/apply", files={"file": ("cv.pdf", PDF, "application/pdf")},
+                    data={"consent_processing": "true", "notice_version": "v4", "website": ""})
+    assert _apply(client, seed).status_code == 429
