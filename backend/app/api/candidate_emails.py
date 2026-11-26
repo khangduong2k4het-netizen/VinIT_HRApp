@@ -409,7 +409,14 @@ async def compose(application_id: UUID, body: ComposeRequest, current_user: dict
                                   {"c": body.template_code}).mappings().first()
             if not template:
                 raise HTTPException(status_code=404, detail="Không tìm thấy mẫu thư")
-            values = {"ho_ten": (app["display_name"] or "").strip() or "Anh/Chị", "vi_tri": (pool["target_title"] if pool else app["title"]) or "",
+            name = (app["display_name"] or "").strip()
+            if pool:  # a file name is not a name: greet "Anh/Chị" unless the CV gave a real one
+                from app.services.talent_pool_scan import usable_candidate_name
+                cv_file = db.execute(text("""SELECT d.original_filename FROM app_private.application_documents d
+                    WHERE d.application_id = :a AND d.document_type = 'CV' ORDER BY d.created_at LIMIT 1"""),
+                                     {"a": str(application_id)}).scalar()
+                name = usable_candidate_name(name, cv_file) or ""
+            values = {"ho_ten": name or "Anh/Chị", "vi_tri": (pool["target_title"] if pool else app["title"]) or "",
                       "ma_vi_tri": (pool["target_code"] if pool else app["position_code"]) or "",
                       "ngay_nop": app["applied_at"].strftime("%d/%m/%Y") if app["applied_at"] else "",
                       "ten_hr": hr["display_name"] or "", "email_hr": hr["email"] or ""}
