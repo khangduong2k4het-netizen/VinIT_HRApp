@@ -23,6 +23,21 @@ def _lock_management(db, actor_id: str) -> None:
     _lock_active_admin(db, actor_id)
 
 
+@router.get("/summary")
+def accounts_summary(current_user: dict = Depends(require_admin_role)):
+    """Counts the Admin screen needs to warn about a single point of failure."""
+    db = SessionLocal()
+    try:
+        active_admins = db.execute(text("""
+            SELECT COUNT(DISTINCT p.user_id) FROM app_private.user_profiles p
+            JOIN app_private.user_role_assignments r ON r.user_id = p.user_id
+            WHERE p.account_status = 'ACTIVE' AND r.role_code = 'ADMIN' AND r.revoked_at IS NULL
+        """)).scalar_one()
+        return {"active_admins": int(active_admins)}
+    finally:
+        db.close()
+
+
 @router.get("")
 def list_managed_users(
     search: Optional[str] = Query(None, max_length=120),

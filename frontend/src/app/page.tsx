@@ -129,8 +129,8 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, mt: 1.5 }}>
-            <Button size="small" onClick={() => router.push('/forgot-password')}>{t("Quên mật khẩu? Gửi yêu cầu cho Admin")}</Button>
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, mt: 2 }}>
+            <Button size="small" color="inherit" sx={{ color: 'text.secondary', textTransform: 'none' }} onClick={() => router.push('/login-help')}>{t("Cần trợ giúp đăng nhập?")}</Button>
             {config.self_registration && <Button size="small" onClick={() => router.push('/register')}>{t("Đăng ký tài khoản")}</Button>}
           </Box>
 

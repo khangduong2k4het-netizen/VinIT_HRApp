@@ -25,6 +25,11 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
+def _recovery_enabled() -> bool:
+    from app.api.admin_recovery import recovery_enabled
+    return recovery_enabled()
+
+
 class LoginRequest(BaseModel):
     email: str
     password: SecretStr
@@ -300,6 +305,7 @@ def public_config():
             # Self-service reset needs a way to deliver the link: SMTP, or the development echo.
             "password_reset": settings.PASSWORD_RESET_SELF_SERVICE and (email_enabled() or bool(settings.PASSWORD_RESET_DEV_ECHO)),
             "reset_request": True,
+            "admin_recovery": _recovery_enabled(),
             "registration_domains": [d.strip() for d in settings.SELF_REGISTRATION_ALLOWED_DOMAINS.split(",") if d.strip()]}
 
 

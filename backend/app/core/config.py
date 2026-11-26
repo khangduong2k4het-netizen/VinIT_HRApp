@@ -213,6 +213,9 @@ class Settings(BaseSettings):
     # Old behaviour: anyone can get a reset link emailed at once, without an Admin. Off: people send a request
     # with a reason and an Admin approves it (api/reset_requests.py).
     PASSWORD_RESET_SELF_SERVICE: bool = False
+    # Admin recovery page (/admin-recovery): whoever holds this key can set a new password for an Admin. At least
+    # 32 random characters; empty = the page is off. Keep it like a system password (safe, password manager).
+    ADMIN_RECOVERY_KEY: Optional[str] = None
     # Requests per address and hour for /auth/register and /auth/forgot-password (429 beyond it). 0 = off.
     AUTH_PUBLIC_MAX_PER_IP_HOUR: int = 10
     # Development/testing only: return the reset link in the API response when no

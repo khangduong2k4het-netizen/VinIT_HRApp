@@ -45,6 +45,8 @@ export default function AdminUsersPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [activeAdmins, setActiveAdmins] = useState<number | null>(null);
+  useEffect(() => { adminApi.accountsSummary().then(r => setActiveAdmins(Number(r.data.active_admins))).catch(() => setActiveAdmins(null)); }, []);
   const [editing, setEditing] = useState<Account | null>(null);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -147,6 +149,7 @@ export default function AdminUsersPage() {
     {error && <Alert severity="error" sx={{ mb: 2 }}>{t(error)}</Alert>}
     {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>{t(success)}</Alert>}
     <Alert severity="info" sx={{ mb: 3 }}>{t("Việc cấp vai trò HM không tự gán HM vào vị trí; HR phải chọn HM khi tạo vị trí.")}</Alert>
+    {activeAdmins !== null && activeAdmins <= 1 && <Alert severity="warning" sx={{ mb: 3 }}>{t("Hệ thống chỉ có 1 Admin đang hoạt động. Hãy tạo thêm một Admin dự phòng để có người đặt lại mật khẩu khi Admin này quên.")}</Alert>}
     <ResetRequestsPanel />
     <Grid container spacing={2} sx={{ mb: 3 }}>
       <Grid item xs={12} sm={6}><TextField label={t("Tìm theo tên hoặc email")} value={searchInput} onChange={e => setSearchInput(e.target.value)} fullWidth size="small" /></Grid>

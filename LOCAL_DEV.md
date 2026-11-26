@@ -92,18 +92,24 @@ Dự án chưa được cấp SMTP hay SSO nên không có thư tự đặt lạ
   Trang luôn trả cùng một thông báo dù email có tồn tại hay không. **Cần cấu hình email gửi đi (SMTP)**; nếu chưa có,
   nút Duyệt báo "chưa cấu hình email" và Admin dùng nút **Đặt lại mật khẩu** (mật khẩu tạm) ở danh sách tài khoản:
   người dùng phải đổi ngay khi đăng nhập, các phiên cũ bị thu hồi, có ghi audit.
-- **Admin quên mật khẩu:** người vận hành chạy lệnh khẩn cấp trên máy chủ (cần quyền truy cập DB; chỉ với `AUTH_BACKEND=local`):
+- **Admin quên mật khẩu hoặc cả email (cách chính — ngay trong giao diện, không cần gõ lệnh):**
+  1. **Một lần khi triển khai:** người vận hành tạo một chuỗi ngẫu nhiên dài (từ 32 ký tự) và đặt vào `backend/.env`:
+     `ADMIN_RECOVERY_KEY=<chuỗi>`. Cất chuỗi này như mật khẩu hệ thống (két, trình quản lý mật khẩu, phong bì niêm phong).
+     Để trống = tắt trang khôi phục. Chỉ dùng với `AUTH_BACKEND=local`.
+  2. **Khi Admin không đăng nhập được:** ở trang đăng nhập bấm **"Cần trợ giúp đăng nhập?"** -> thẻ **"Tôi là Admin và không đăng nhập được"**
+     -> **Dùng mã khôi phục**. Nhập mã, hệ thống liệt kê các Admin (không cần nhớ email), chọn đúng Admin và đặt mật khẩu mới.
+  3. Hệ thống thu hồi các phiên cũ, mở khóa tài khoản, ghi audit (`ADMIN_RECOVERY_LIST_VIEWED`, `ADMIN_RECOVERY_RESET_PASSWORD`, không chứa mã
+     hay mật khẩu). Nhập sai mã 5 lần thì khóa địa chỉ đó 15 phút; tổng 20 lần sai thì tạm khóa cả trang 15 phút.
+  4. Nếu mã khôi phục bị lộ: đổi `ADMIN_RECOVERY_KEY` rồi khởi động lại API.
+- **Phương án cuối (không dùng được trang trên):** người vận hành chạy lệnh trên máy chủ (cần quyền DB):
 
   ```powershell
   cd backend
-  .\.venv\Scripts\python scripts\reset_admin_password.py --email admin@vinuni.edu.vn
+  .\.venv\Scripts\python scriptseset_admin_password.py --list-admins
+  .\.venv\Scripts\python scriptseset_admin_password.py --email admin@vinuni.edu.vn
   ```
 
-  Lệnh in mật khẩu tạm ngẫu nhiên **một lần**; Admin đăng nhập và phải đổi ngay. Có thể tự chọn mật khẩu bằng
-  `--password "..."`. Mặc định chỉ áp dụng cho tài khoản Admin; tài khoản khác cần thêm `--force`.
-  **Quên cả email Admin:** chạy `python scripts\reset_admin_password.py --list-admins` để xem danh sách email Admin (email, tên, trạng thái),
-  rồi dùng lệnh trên với email đó.
-  Lệnh liệt kê chỉ chạy trên máy chủ với `AUTH_BACKEND=local`, không đọc mật khẩu/hash, và được ghi audit (`ADMIN_LIST_VIEWED`, actor `operator-cli`).
-  Việc này được ghi audit (`EMERGENCY_RESET_PASSWORD`, actor `operator-cli`, không chứa mật khẩu).
-- **Khuyến nghị:** luôn có **ít nhất 2 tài khoản Admin** để Admin này đặt lại hộ Admin kia, chỉ dùng lệnh khẩn cấp khi không còn ai đăng nhập được.
+  Lệnh in mật khẩu tạm ngẫu nhiên **một lần**; Admin đăng nhập và phải đổi ngay. Mặc định chỉ áp dụng cho Admin (tài khoản khác thêm `--force`),
+  có ghi audit `EMERGENCY_RESET_PASSWORD` / `ADMIN_LIST_VIEWED` (actor `operator-cli`), không chứa mật khẩu.
+- **Khuyến nghị:** luôn có **ít nhất 2 tài khoản Admin** (trang Quản lý tài khoản sẽ hiện cảnh báo vàng khi chỉ còn 1 Admin) để Admin này đặt lại hộ Admin kia, chỉ dùng lệnh khẩn cấp khi không còn ai đăng nhập được.
 - Khi sau này có SMTP, đặt `SMTP_HOST`/`SMTP_FROM`: trang đăng nhập sẽ tự hiện "Quên mật khẩu?" gửi link đặt lại qua email.
