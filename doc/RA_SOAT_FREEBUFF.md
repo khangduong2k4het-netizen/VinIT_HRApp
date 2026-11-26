@@ -108,6 +108,60 @@ bản freebuff thì mất kiểu `InterviewNotification`.
 
 **Đây là loại lỗi không có conflict marker.** Nó chỉ lộ khi chạy build + test thật.
 
+## 5.1. KẾT QUẢ — đã tích hợp xong (2026-11-30)
+
+Deploy D1–D7 đã pass trên môi trường thật trước khi gộp, đúng thứ tự khuyến nghị.
+Sau đó gộp theo đúng 4 bước ở §6.
+
+| Bước | Kết quả |
+|---|---|
+| 1 — 31 file mới | Lấy nguyên. **Không file nào trùng file ta đã sửa** nên không thể vỡ |
+| 2 — `package.json` + `en.json` | Hợp danh sách (27 file test); union **2022 key**, **không thêm cặp giá trị tiếng Anh trùng nào** |
+| 3 — 27 file tự gộp | Sạch, không conflict |
+| 4 — 4 file conflict | Xử tay cả 4, có kiểm từng cái (dưới) |
+
+### Cách xử 4 conflict
+
+1. **`package.json`** — cả hai cùng thêm tên file test. Hợp danh sách.
+2. **`en.json`** — khối conflict có "bên freebuff rỗng": họ **không có** đoạn đó,
+   không phải họ xoá. Gộp xong **thiếu 3 key** (2019 vs 2022) vì 3 key nằm ngoài
+   khối conflict bị cắt. Phát hiện bằng cách so với union tính từ hai ref.
+   **Bài học: đừng tin "đã hết conflict marker" là đã gộp đủ.**
+3. **`NHAT_KY_THAY_DOI.md`** — nối hai nhật ký, freebuff (11-25) lên trên ta
+   (11-21), vì file ghi "mục mới nhất nằm trên cùng".
+4. **`positions/[id]/page.tsx`** — chỉ 1 khối 30 dòng. Kiểm **hai chiều** trước
+   khi chọn: freebuff có giữ đủ chức năng không (có — "Tải lên CV" đổi thành
+   "Nhận CV" ở chỗ khác, `Ứng viên`/`Shortlist`/`ApplyRubric` vẫn còn); ta có gì
+   bị mất không (không — file này không chứa lịch phỏng vấn). Lấy khối freebuff.
+
+### Một bug thật của freebuff, tìm được nhờ lint
+
+`AppLayout.tsx`: effect đọc `pathname` để bỏ qua `/dashboard`, comment ghi *"đổi
+trang là lúc cập nhật badge"*, nhưng deps chỉ có `[authenticated, authScope]`.
+Hệ quả: **badge chỉ cập nhật lúc đăng nhập rồi đứng im suốt phiên**.
+
+`eslint` bắt được (`react-hooks/exhaustive-deps`) — nên warning đó là bug thật,
+không phải nhiễu. Đã thêm `pathname`; an toàn vì `workQueueFetchedAt` là `useRef`
+chặn gọi lại trong 30 giây. Có test khoá, **đã kiểm ngược**.
+
+### Cổng kiểm cuối
+
+| | Trước gộp | Sau gộp |
+|---|---|---|
+| Test FE | 163 | **183** (+20: 13 của freebuff, 5 e2e, 2 khoá bug) |
+| Test backend | 671 | **671** (merge không đụng backend) |
+| `en.json` | 1941 | **2022** |
+| Trang build được | 26 | **28** (`by-criterion`, `compare`) |
+| CI | xanh | **xanh cả 3 job** ở `d459dad` |
+
+### Một việc phát sinh: nhánh tích hợp không có CI
+
+`ci.yml` chỉ khớp `main` và `arena/**`, nên `integrate/freebuff-ux` được push mà
+**không có run nào**. Đã thêm `integrate/**` vào pattern. Bài học: nhánh tích hợp
+không có CI là nhánh không có cổng — đúng loại nợ vừa mất 11 ngày để phát hiện.
+
+---
+
 ## 6. Đề xuất: gộp theo 4 bước, có cổng kiểm từng bước
 
 Không gộp một lần. Không `git merge`. Làm từng lớp, mỗi lớp CI xanh mới sang lớp sau.
