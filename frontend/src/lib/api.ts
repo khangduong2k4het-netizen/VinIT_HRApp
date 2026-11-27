@@ -30,7 +30,7 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.data?.detail) error.response.data.detail = localizeServerMessage(error.response.data.detail);
-    if (error.response?.status === 401 && typeof window !== 'undefined' && !error.config?.url?.includes('/auth/login')) {
+    if (error.response?.status === 401 && typeof window !== 'undefined' && !error.config?.url?.includes('/auth/login') && !error.config?.url?.includes('/auth/recovery')) {
       localStorage.removeItem('hra_access_token');
       clearNavMemory();
       window.location.href = '/';
@@ -79,6 +79,18 @@ export const authApi = {
   bootstrapStatus: () => apiClient.get('/auth/bootstrap-status'),
   bootstrap: (data: { email: string; display_name: string; password: string; setup_token: string }) =>
     apiClient.post('/auth/bootstrap', data),
+  publicConfig: () => apiClient.get('/auth/public-config'),
+  register: (data: { email: string; display_name: string; password: string }) =>
+    apiClient.post('/auth/register', data),
+  verifyEmail: (token: string) => apiClient.post('/auth/verify-email', { token }),
+  forgotPassword: (email: string) => apiClient.post('/auth/forgot-password', { email }),
+  recoveryEmailCode: (email: string) => apiClient.post('/auth/recovery/email-code', { email }),
+  recoveryEmailReset: (email: string, code: string, new_password: string) => apiClient.post('/auth/recovery/email-code/reset', { email, code, new_password }),
+  recoveryAdmins: (key: string) => apiClient.post('/auth/recovery/admins', { key }),
+  recoveryReset: (key: string, user_id: string, new_password: string) => apiClient.post('/auth/recovery/reset', { key, user_id, new_password }),
+  requestPasswordReset: (email: string, reason: string) => apiClient.post('/auth/password-reset-requests', { email, reason }),
+  resetPassword: (token: string, new_password: string) =>
+    apiClient.post('/auth/reset-password', { token, new_password }),
   changePassword: (current_password: string, new_password: string) =>
     apiClient.post('/auth/change-password', { current_password, new_password }),
 };
@@ -274,6 +286,10 @@ export const adminApi = {
     apiClient.post('/admin/users', data),
   updateUser: (id: string, data: { display_name: string; account_status: string; roles: string[] }) =>
     apiClient.patch(`/admin/users/${id}`, data),
+  accountsSummary: () => apiClient.get('/admin/users/summary'),
+  listResetRequests: (status = 'PENDING') => apiClient.get('/admin/reset-requests', { params: { status } }),
+  approveResetRequest: (id: string) => apiClient.post(`/admin/reset-requests/${id}/approve`),
+  rejectResetRequest: (id: string, note: string) => apiClient.post(`/admin/reset-requests/${id}/reject`, { note }),
   resetUserPassword: (id: string, new_password: string) =>
     apiClient.post(`/admin/users/${id}/reset-password`, { new_password }),
   listAiConfigs: () => apiClient.get('/admin/ai/config'),

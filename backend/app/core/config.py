@@ -58,8 +58,8 @@ class Settings(BaseSettings):
     CLAMD_HOST: str = "127.0.0.1"
     CLAMD_PORT: int = 3310
     CLAMD_TIMEOUT_SECONDS: float = 10.0
-    # P3-1 Talent Pool: how long a CV may be reused, counted from when the candidate
-    # ticked the Talent Pool consent (application_data_consents.granted_at).
+    # P3-1 Talent Pool: how long a CV may be reused, counted from when the application
+    # was received (applications.created_at), not from when the consent was ticked.
     TALENT_POOL_RETENTION_MONTHS: int = 60
     # P3-1 phase 2: most pool applications one scan scores (rules only, no LLM).
     TALENT_POOL_SCAN_MAX: int = 300
@@ -133,7 +133,8 @@ class Settings(BaseSettings):
     # v1.7: B.Eng./B.Sc./Kỹ sư recognised as bachelor-level degrees.
     # v1.8: dotted abbreviations (B.Eng., Ph.D.) no longer split evidence quotes.
     # v1.9: the same career length restated in the summary, work section and profile is counted once.
-    DETERMINISTIC_RULES_VERSION: str = "deterministic-rules-v1.9"
+    # v1.10: "Bachelor's or Master's" asks for a bachelor level; IT-family degrees count for "Computer Science, ...".
+    DETERMINISTIC_RULES_VERSION: str = "deterministic-rules-v1.10"
     MANDATORY_CRITERIA_WEIGHT_DEFAULT: float = 0.7
     NICE_TO_HAVE_WEIGHT_DEFAULT: float = 0.3
     MIN_EVIDENCE_COVERAGE: float = 0.7
@@ -182,7 +183,7 @@ class Settings(BaseSettings):
     LANGFUSE_CAPTURE_CONTENT: bool = False
 
     # Retention fallback only: the approved row in
-    # app_private.retention_policy_versions decides (migration 00023: 12 months
+    # app_private.retention_policy_versions decides (migration 00028: 12 months
     # after closing, or up to 5 years from an active Talent Pool consent).
     RETENTION_MONTHS: int = 60
     # F2.07 — reminder milestones before the due date (days) and the window in
@@ -201,6 +202,25 @@ class Settings(BaseSettings):
     RETENTION_OTP_DEV_ECHO: bool = False
     # Frontend base URL used in reminder emails.
     APP_PUBLIC_URL: str = "http://localhost:3000"
+
+    # Self-service accounts. Registration is off by default; accounts it creates
+    # are INACTIVE with no role until an Admin approves them. Empty domain list = any domain.
+    SELF_REGISTRATION_ENABLED: bool = False
+    SELF_REGISTRATION_ALLOWED_DOMAINS: str = "vinuni.edu.vn"
+    # Forgot-password link lifetime and per-account request cap per hour.
+    PASSWORD_RESET_TTL_MINUTES: int = 30
+    PASSWORD_RESET_MAX_PER_HOUR: int = 3
+    # Old behaviour: anyone can get a reset link emailed at once, without an Admin. Off: people send a request
+    # with a reason and an Admin approves it (api/reset_requests.py).
+    PASSWORD_RESET_SELF_SERVICE: bool = False
+    # Admin recovery page (/admin-recovery): whoever holds this key can set a new password for an Admin. At least
+    # 32 random characters; empty = the page is off. Keep it like a system password (safe, password manager).
+    ADMIN_RECOVERY_KEY: Optional[str] = None
+    # Requests per address and hour for /auth/register and /auth/forgot-password (429 beyond it). 0 = off.
+    AUTH_PUBLIC_MAX_PER_IP_HOUR: int = 10
+    # Development/testing only: return the reset link in the API response when no
+    # email channel is configured. Refused outside development/testing.
+    PASSWORD_RESET_DEV_ECHO: bool = False
 
     # Outbound email (retention reminders and purge OTP). Disabled when empty.
     SMTP_HOST: Optional[str] = None
@@ -272,6 +292,8 @@ class Settings(BaseSettings):
             raise ValueError("LLM_PROVIDER=mock is only allowed when APP_ENV is development or testing")
         if self.RETENTION_OTP_DEV_ECHO and self.APP_ENV not in ("development", "testing"):
             raise ValueError("RETENTION_OTP_DEV_ECHO is only allowed when APP_ENV is development or testing")
+        if self.PASSWORD_RESET_DEV_ECHO and self.APP_ENV not in ("development", "testing"):
+            raise ValueError("PASSWORD_RESET_DEV_ECHO is only allowed when APP_ENV is development or testing")
         if any(day < 1 for day in self.RETENTION_NOTICE_DAYS):
             raise ValueError("RETENTION_NOTICE_DAYS must contain positive day counts")
         # The public portal accepts files from anyone. Outside development/testing it

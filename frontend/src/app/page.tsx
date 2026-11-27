@@ -1,5 +1,6 @@
 'use client';
 
+import PasswordField from '@/components/common/PasswordField';
 import { useI18n } from '@/i18n/I18nProvider';
 import LanguageSwitcher from '@/i18n/LanguageSwitcher';
 
@@ -25,11 +26,13 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bootstrapAvailable, setBootstrapAvailable] = useState(false);
+  const [config, setConfig] = useState({ self_registration: false, password_reset: false });
   const router = useRouter();
 
   useEffect(() => {
     let active = true;
     authApi.bootstrapStatus().then(response => { if (active) setBootstrapAvailable(Boolean(response.data.available)); }).catch(() => {});
+    authApi.publicConfig().then(response => { if (active) setConfig(response.data); }).catch(() => {});
     return () => { active = false; };
   }, []);
 
@@ -104,9 +107,8 @@ export default function LoginPage() {
               margin="normal"
               placeholder="nguyenvana@vinuni.edu.vn"
             />
-            <TextField
+            <PasswordField
               label={t("Mật khẩu")}
-              type="password"
               fullWidth
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -127,6 +129,11 @@ export default function LoginPage() {
             </Button>
           </form>
 
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5, mt: 2 }}>
+            <Button size="small" color="inherit" sx={{ color: 'text.secondary', textTransform: 'none' }} onClick={() => router.push('/login-help')}>{t("Cần trợ giúp đăng nhập?")}</Button>
+            {config.self_registration && <Button size="small" onClick={() => router.push('/register')}>{t("Đăng ký tài khoản")}</Button>}
+          </Box>
+
           {bootstrapAvailable && <Button fullWidth sx={{ mt: 2 }} onClick={() => router.push('/bootstrap')}>
             {t("Khởi tạo Admin đầu tiên")}
           </Button>}
@@ -134,7 +141,7 @@ export default function LoginPage() {
           <Typography
             variant="caption"
             color="text.disabled"
-            sx={{ display: 'block', textAlign: 'center', mt: 3 }}
+            sx={{ display: 'block', textAlign: 'center', mt: 2 }}
           >
             © {new Date().getFullYear()} {t("VinUniversity. Nội bộ sử dụng.")}</Typography>
         </CardContent>

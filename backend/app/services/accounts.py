@@ -14,11 +14,13 @@ logger = get_logger(__name__)
 
 
 def _insert_profile_and_roles(db, *, user_id: str, display_name: str, roles: list[str],
-                              actor_id: str | None, bootstrap: bool) -> None:
+                              actor_id: str | None, bootstrap: bool, account_status: str = "ACTIVE",
+                              self_registered: bool = False) -> None:
     db.execute(text("""
         INSERT INTO app_private.user_profiles (user_id, display_name, account_status, must_change_password)
-        VALUES (:user_id, :display_name, 'ACTIVE', :must_change)
-    """), {"user_id": user_id, "display_name": display_name, "must_change": not bootstrap})
+        VALUES (:user_id, :display_name, :status, :must_change)
+    """), {"user_id": user_id, "display_name": display_name, "status": account_status,
+            "must_change": not bootstrap and not self_registered})
     for role in roles:
         db.execute(text("""
             INSERT INTO app_private.user_role_assignments (user_id, role_code, granted_by)
@@ -26,20 +28,23 @@ def _insert_profile_and_roles(db, *, user_id: str, display_name: str, roles: lis
         """), {"user_id": user_id, "role": role, "actor": actor_id})
     db.execute(text("""
         INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, outcome, metadata)
-        VALUES (:actor, :action, 'USER', :user_id, 'ACTIVE', CAST(:metadata AS jsonb))
-    """), {"actor": actor_id or user_id, "action": "BOOTSTRAP_ADMIN" if bootstrap else "CREATE_USER",
-            "user_id": user_id, "metadata": json.dumps({"roles": sorted(roles), "must_change_password": not bootstrap,
+        VALUES (:actor, :action, 'USER', :user_id, :status, CAST(:metadata AS jsonb))
+    """), {"actor": actor_id or user_id, "status": account_status,
+            "action": "BOOTSTRAP_ADMIN" if bootstrap else "REGISTER_ACCOUNT" if self_registered else "CREATE_USER",
+            "user_id": user_id, "metadata": json.dumps({"roles": sorted(roles), "must_change_password": not bootstrap and not self_registered,
                                                         "auth_backend": settings.AUTH_BACKEND})})
 
 
 def _provision_local_user(db, *, email: str, password: str, display_name: str,
-                          roles: list[str], actor_id: str | None, bootstrap: bool) -> str:
+                          roles: list[str], actor_id: str | None, bootstrap: bool,
+                          account_status: str = "ACTIVE", self_registered: bool = False) -> str:
     """AUTH_BACKEND=local: identity, credentials, profile and roles commit atomically."""
     user_id = str(uuid4())
     try:
         local_auth.create_identity(db, user_id, email, password)
         _insert_profile_and_roles(db, user_id=user_id, display_name=display_name, roles=roles,
-                                  actor_id=actor_id, bootstrap=bootstrap)
+                                  actor_id=actor_id, bootstrap=bootstrap, account_status=account_status,
+                                  self_registered=self_registered)
         db.commit()
         return user_id
     except local_auth.LocalIdentityExists:
@@ -55,7 +60,8 @@ def _provision_local_user(db, *, email: str, password: str, display_name: str,
 
 
 def provision_user(db, *, email: str, password: str, display_name: str,
-                   roles: list[str], actor_id: str | None, bootstrap: bool) -> str:
+                   roles: list[str], actor_id: str | None, bootstrap: bool,
+                   account_status: str = "ACTIVE", self_registered: bool = False) -> str:
     """Create Auth identity and app profile/roles while caller holds authorization locks.
 
     Auth and PostgreSQL cannot participate in one transaction. Before DB commit,
@@ -66,7 +72,8 @@ def provision_user(db, *, email: str, password: str, display_name: str,
     """
     if settings.AUTH_BACKEND == "local":
         return _provision_local_user(db, email=email, password=password, display_name=display_name,
-                                     roles=roles, actor_id=actor_id, bootstrap=bootstrap)
+                                     roles=roles, actor_id=actor_id, bootstrap=bootstrap,
+                                     account_status=account_status, self_registered=self_registered)
     client = get_supabase_client()
     if client is None:
         raise HTTPException(status_code=503, detail="Dịch vụ tạo tài khoản chưa được cấu hình.")
@@ -102,20 +109,8 @@ def provision_user(db, *, email: str, password: str, display_name: str,
             logger.error("Auth returned a different user identifier", requested_user_id=user_id, returned_user_id=returned_id)
             raise HTTPException(status_code=503, detail="Không xác nhận được việc tạo tài khoản. Kiểm tra Supabase Auth trước khi thử lại.")
         created = True
-        db.execute(text("""
-            INSERT INTO app_private.user_profiles (user_id, display_name, account_status, must_change_password)
-            VALUES (:user_id, :display_name, 'ACTIVE', :must_change)
-        """), {"user_id": user_id, "display_name": display_name, "must_change": not bootstrap})
-        for role in roles:
-            db.execute(text("""
-                INSERT INTO app_private.user_role_assignments (user_id, role_code, granted_by)
-                VALUES (:user_id, :role, :actor)
-            """), {"user_id": user_id, "role": role, "actor": actor_id})
-        db.execute(text("""
-            INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, outcome, metadata)
-            VALUES (:actor, :action, 'USER', :user_id, 'ACTIVE', CAST(:metadata AS jsonb))
-        """), {"actor": actor_id or user_id, "action": "BOOTSTRAP_ADMIN" if bootstrap else "CREATE_USER",
-                "user_id": user_id, "metadata": json.dumps({"roles": sorted(roles), "must_change_password": not bootstrap})})
+        _insert_profile_and_roles(db, user_id=user_id, display_name=display_name, roles=roles, actor_id=actor_id,
+                                  bootstrap=bootstrap, account_status=account_status, self_registered=self_registered)
         commit_started = True
         db.commit()
         return user_id
@@ -147,8 +142,9 @@ def reset_user_password(db, *, target_user_id: str, new_password: str, actor_id:
     the new temporary password may already be effective while the account was
     not marked for a forced change.
     """
-    client = get_supabase_client()
-    if client is None:
+    local = settings.AUTH_BACKEND == "local"
+    client = None if local else get_supabase_client()
+    if client is None and not local:
         raise HTTPException(status_code=503, detail="Dịch vụ đặt lại mật khẩu chưa được cấu hình.")
     target = db.execute(text("""
         SELECT account_status FROM app_private.user_profiles
@@ -159,7 +155,11 @@ def reset_user_password(db, *, target_user_id: str, new_password: str, actor_id:
     if target["account_status"] != "ACTIVE":
         raise HTTPException(status_code=400, detail="Chỉ đặt lại mật khẩu cho tài khoản đang hoạt động.")
     try:
-        client.auth.admin.update_user_by_id(target_user_id, {"password": new_password})
+        if local:
+            # Same transaction as the profile update below: both commit together.
+            local_auth.set_password(db, target_user_id, new_password)
+        else:
+            client.auth.admin.update_user_by_id(target_user_id, {"password": new_password})
     except Exception as exc:
         if getattr(exc, "code", None) == "weak_password" or getattr(exc, "status", None) in (400, 422):
             raise HTTPException(status_code=400, detail="Mật khẩu tạm thời không đáp ứng chính sách của dịch vụ xác thực.") from None

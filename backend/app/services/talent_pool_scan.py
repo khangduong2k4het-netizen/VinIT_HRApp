@@ -171,7 +171,7 @@ def _target_contacts(db, position_id: str) -> tuple[set[str], set[str]]:
 def _rank_key(item: dict) -> tuple:
     result = item["result"]
     return (result["status"] != "POSSIBLE_MISMATCH", result["score"] if result["score"] is not None else -1.0,
-            result["coverage"], item["consented_at"])
+            result["coverage"], item["received_at"])
 
 
 def run_scan(db, *, scan_id: str, position_id: str, user_id: str,
@@ -201,7 +201,7 @@ def run_scan(db, *, scan_id: str, position_id: str, user_id: str,
         pool = kept
     if len(pool) > settings.TALENT_POOL_SCAN_MAX:
         skipped["OVER_LIMIT"] = len(pool) - settings.TALENT_POOL_SCAN_MAX
-        pool = sorted(pool, key=lambda r: r["consented_at"], reverse=True)[:settings.TALENT_POOL_SCAN_MAX]
+        pool = sorted(pool, key=lambda r: r["received_at"], reverse=True)[:settings.TALENT_POOL_SCAN_MAX]
 
     scored: list[dict] = []
     failed = 0
@@ -225,7 +225,7 @@ def run_scan(db, *, scan_id: str, position_id: str, user_id: str,
             failed += 1
             continue
         email, phone = identities.get(application_id, ("", ""))
-        scored.append({"application_id": application_id, "consented_at": row["consented_at"], "result": result,
+        scored.append({"application_id": application_id, "received_at": row["received_at"], "result": result,
                        "email": email, "phone": phone})
 
     # One row per candidate: dedupe by email first, then by phone, keeping the best application.
@@ -358,14 +358,14 @@ def scan_results(db, scan_id: str, now: Optional[datetime] = None) -> list[dict]
     out = []
     for rank, r in enumerate(rows, start=1):
         item = dict(r)
-        consented_at = still[str(r["application_id"])]["consented_at"]
+        received_at = still[str(r["application_id"])]["received_at"]
         item.update({
             "rank": rank,
             "application_id": str(r["application_id"]),
             "source_position_id": str(r["source_position_id"]),
             "matching_score": float(r["matching_score"]) if r["matching_score"] is not None else None,
             "evidence_coverage": float(r["evidence_coverage"]),
-            "pool_expires_on": pool_expiry(consented_at).date().isoformat(),
+            "pool_expires_on": pool_expiry(received_at).date().isoformat(),
         })
         out.append(item)
     return out

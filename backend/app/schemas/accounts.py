@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr, field_validator
 
 Role = Literal["ADMIN", "HR_LEAD", "HR_RECRUITER", "HIRING_MANAGER", "VIEWER"]
-AccountStatus = Literal["ACTIVE", "INACTIVE", "SUSPENDED"]
+AccountStatus = Literal["ACTIVE", "INACTIVE", "SUSPENDED", "PENDING"]
 
 
 def validate_password(value: SecretStr) -> SecretStr:
@@ -95,3 +95,39 @@ class AdminPasswordReset(BaseModel):
     new_password: SecretStr
 
     _password = field_validator("new_password")(validate_password)
+
+
+class RegisterRequest(AccountIdentity):
+    """Self-registration; same fields and password policy as an Admin-created account."""
+
+
+class VerifyEmailRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str = Field(min_length=20, max_length=200)
+
+
+class ForgotPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str = Field(min_length=20, max_length=200)
+    new_password: SecretStr
+
+    _password = field_validator("new_password")(validate_password)
+
+
+class PasswordResetRequestInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: EmailStr
+    reason: str = Field(min_length=5, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def clean_reason(cls, value: str) -> str:
+        text = value.strip()
+        if len(text) < 5:
+            raise ValueError("Reason is too short")
+        return text

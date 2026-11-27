@@ -1,5 +1,6 @@
 'use client';
 
+import PasswordField from '@/components/common/PasswordField';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Alert, Box, Button, Card, CardContent, CircularProgress, TextField, Typography } from '@mui/material';
@@ -56,8 +57,8 @@ export default function BootstrapPage() {
             <TextField label={t("Họ và tên")} value={name} onChange={e => setName(e.target.value)} fullWidth required margin="normal" inputProps={{ maxLength: 120 }} />
             <TextField label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} fullWidth required margin="normal" autoComplete="username" />
             <TextField label={t("Mã khởi tạo")} type="password" value={token} onChange={e => setToken(e.target.value)} fullWidth required margin="normal" autoComplete="off" inputProps={{ minLength: 32, maxLength: 256 }} />
-            <TextField label={t("Mật khẩu Admin")} type="password" value={password} onChange={e => setPassword(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" helperText={t("Ít nhất 12 ký tự, tối đa 72 byte UTF-8.")} />
-            <TextField label={t("Xác nhận mật khẩu")} type="password" value={confirm} onChange={e => setConfirm(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" />
+            <PasswordField label={t("Mật khẩu Admin")} value={password} onChange={e => setPassword(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" helperText={t("Ít nhất 12 ký tự, tối đa 72 byte UTF-8.")} />
+            <PasswordField label={t("Xác nhận mật khẩu")} value={confirm} onChange={e => setConfirm(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" />
             <Button type="submit" variant="contained" color="secondary" fullWidth disabled={loading} sx={{ mt: 2 }}>
               {loading ? <CircularProgress size={22} color="inherit" /> : t("Tạo Admin")}
             </Button>

@@ -1,5 +1,6 @@
 'use client';
 
+import PasswordField from '@/components/common/PasswordField';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Alert, Box, Button, Card, CardContent, CircularProgress, TextField, Typography } from '@mui/material';
@@ -50,9 +51,9 @@ export default function ChangePasswordPage() {
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>{forced ? t("Bạn cần đổi mật khẩu do Admin cấp trước khi sử dụng hệ thống.") : t("Nhập mật khẩu hiện tại để xác minh trước khi đặt mật khẩu mới.")}</Typography>
       {error && <Alert severity="error" sx={{ mb: 2 }}>{t(error)}</Alert>}
       {checking ? <Box sx={{ textAlign: 'center', py: 4 }}><CircularProgress color="secondary" aria-label={t("Đang kiểm tra")} /></Box> : success ? <Alert severity="success">{t("Đã đổi mật khẩu. Vui lòng chờ vài giây rồi đăng nhập lại.")}</Alert> : <Box component="form" onSubmit={submit}>
-        <TextField label={forced ? t("Mật khẩu tạm thời") : t("Mật khẩu hiện tại")} type="password" value={current} onChange={e => setCurrent(e.target.value)} fullWidth required margin="normal" autoComplete="current-password" />
-        <TextField label={t("Mật khẩu mới")} type="password" value={password} onChange={e => setPassword(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" helperText={t("Ít nhất 12 ký tự, tối đa 72 byte UTF-8.")} />
-        <TextField label={t("Xác nhận mật khẩu")} type="password" value={confirm} onChange={e => setConfirm(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" />
+        <PasswordField label={forced ? t("Mật khẩu tạm thời") : t("Mật khẩu hiện tại")} value={current} onChange={e => setCurrent(e.target.value)} fullWidth required margin="normal" autoComplete="current-password" />
+        <PasswordField label={t("Mật khẩu mới")} value={password} onChange={e => setPassword(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" helperText={t("Ít nhất 12 ký tự, tối đa 72 byte UTF-8.")} />
+        <PasswordField label={t("Xác nhận mật khẩu")} value={confirm} onChange={e => setConfirm(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" />
         <Button type="submit" variant="contained" color="secondary" fullWidth disabled={loading} sx={{ mt: 2 }}>
           {loading ? <CircularProgress size={22} color="inherit" /> : t("Đổi mật khẩu")}
         </Button>

@@ -24,7 +24,7 @@ REASON_TEXT = {
     "CONSENT_WITHDRAWN": "Ứng viên đã rút đồng ý",
     "RETENTION_EXPIRED": "Hồ sơ đã quá thời hạn lưu",
     "DELETION_PENDING": "Hồ sơ đang chờ xóa hoặc bị tạm hoãn",
-    "STATUS_NOT_ELIGIBLE": "Trạng thái hồ sơ chưa đủ điều kiện",
+    "STATUS_NOT_ELIGIBLE": "Cần chuyển hồ sơ sang Shortlist hoặc Phỏng vấn trước khi đưa vào Talent Pool (nếu Shortlist khác kết luận của AI, hãy chọn lý do điều chỉnh khi đổi trạng thái).",
 }
 
 
@@ -221,7 +221,7 @@ def _list_marks_sync(user_id: str, limit: int, offset: int) -> dict:
                           "marked_at": r["marked_at"], "position_id": str(r["position_id"]),
                           "position_title": r["position_title"], "position_code": r["position_code"],
                           "application_status": r["application_status"], "eligible": e is not None,
-                          "expires_on": pool_expiry(e["consented_at"]).date().isoformat() if e else None})
+                          "expires_on": pool_expiry(e["received_at"]).date().isoformat() if e else None})
         return {"items": items}
     finally:
         db.close()

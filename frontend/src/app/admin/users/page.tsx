@@ -1,5 +1,7 @@
 'use client';
 
+import ResetRequestsPanel from '@/components/admin/ResetRequestsPanel';
+import PasswordField from '@/components/common/PasswordField';
 import { useEffect, useState } from 'react';
 import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Dialog, DialogActions,
@@ -12,14 +14,18 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { adminApi, authApi } from '@/lib/api';
 
 type Role = 'ADMIN' | 'HR_LEAD' | 'HR_RECRUITER' | 'HIRING_MANAGER' | 'VIEWER';
-type AccountStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED';
-type Account = { user_id: string; email: string | null; display_name: string; account_status: AccountStatus; roles: Role[]; must_change_password: boolean };
+type AccountStatus = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' | 'PENDING';
+type Account = { user_id: string; email: string | null; display_name: string; account_status: AccountStatus; roles: Role[]; must_change_password: boolean; email_verified_at?: string | null };
 const roleKeys: Record<Role, string> = {
   ADMIN: 'Quản trị viên', HR_LEAD: 'Trưởng nhóm HR', HR_RECRUITER: 'HR tuyển dụng',
   HIRING_MANAGER: 'Hiring Manager (HM)', VIEWER: 'Người xem',
 };
-const statusKeys: Record<AccountStatus, string> = { ACTIVE: 'Đang hoạt động', INACTIVE: 'Ngừng hoạt động', SUSPENDED: 'Đã khóa' };
+const statusKeys: Record<AccountStatus, string> = { ACTIVE: 'Đang hoạt động', INACTIVE: 'Ngừng hoạt động', SUSPENDED: 'Đã khóa', PENDING: 'Chờ duyệt' };
 const allRoles = Object.keys(roleKeys) as Role[];
+// A self-registered account is PENDING until its email is verified and an Admin approves it.
+const isPending = (account: Account) => account.account_status === 'PENDING';
+const statusLabel = (account: Account) => isPending(account) && !account.email_verified_at
+  ? 'Chưa xác minh email' : statusKeys[account.account_status];
 const allStatuses = Object.keys(statusKeys) as AccountStatus[];
 
 export default function AdminUsersPage() {
@@ -39,6 +45,8 @@ export default function AdminUsersPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [activeAdmins, setActiveAdmins] = useState<number | null>(null);
+  useEffect(() => { adminApi.accountsSummary().then(r => setActiveAdmins(Number(r.data.active_admins))).catch(() => setActiveAdmins(null)); }, []);
   const [editing, setEditing] = useState<Account | null>(null);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -76,7 +84,7 @@ export default function AdminUsersPage() {
   const create = () => { resetForm(); setSuccess(null); setOpen(true); };
   const edit = (account: Account) => {
     setEditing(account); setName(account.display_name); setEmail(account.email || ''); setRoles(account.roles);
-    setAccountStatus(account.account_status); setPassword(''); setConfirm(''); setDialogError(null); setSuccess(null); setOpen(true);
+    setAccountStatus(isPending(account) ? 'ACTIVE' : account.account_status); setPassword(''); setConfirm(''); setDialogError(null); setSuccess(null); setOpen(true);
   };
   const save = async (event: React.FormEvent) => {
     event.preventDefault(); setDialogError(null);
@@ -141,6 +149,8 @@ export default function AdminUsersPage() {
     {error && <Alert severity="error" sx={{ mb: 2 }}>{t(error)}</Alert>}
     {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>{t(success)}</Alert>}
     <Alert severity="info" sx={{ mb: 3 }}>{t("Việc cấp vai trò HM không tự gán HM vào vị trí; HR phải chọn HM khi tạo vị trí.")}</Alert>
+    {activeAdmins !== null && activeAdmins <= 1 && <Alert severity="warning" sx={{ mb: 3 }}>{t("Hệ thống chỉ có 1 Admin đang hoạt động. Hãy tạo thêm một Admin dự phòng để có người đặt lại mật khẩu khi Admin này quên.")}</Alert>}
+    <ResetRequestsPanel />
     <Grid container spacing={2} sx={{ mb: 3 }}>
       <Grid item xs={12} sm={6}><TextField label={t("Tìm theo tên hoặc email")} value={searchInput} onChange={e => setSearchInput(e.target.value)} fullWidth size="small" /></Grid>
       <Grid item xs={6} sm={3}><FormControl fullWidth size="small"><InputLabel id="role-filter-label">{t("Vai trò")}</InputLabel>
@@ -159,7 +169,7 @@ export default function AdminUsersPage() {
             <Typography fontWeight={700} sx={{ overflowWrap: 'anywhere' }}>{account.display_name}</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere', mb: 1 }}>{account.email || '—'}</Typography>
             {roleChips(account)}
-            <Typography variant="body2" sx={{ mt: 1 }}>{t(statusKeys[account.account_status])}{account.must_change_password ? ` · ${t("Chờ đổi mật khẩu")}` : ''}</Typography>
+            <Typography variant="body2" sx={{ mt: 1 }}>{t(statusLabel(account))}{account.must_change_password ? ` · ${t("Chờ đổi mật khẩu")}` : ''}</Typography>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
               <Button onClick={() => edit(account)} aria-label={t("Chỉnh sửa tài khoản {0}", account.display_name)}>{t("Chỉnh sửa")}</Button>
               {account.account_status === 'ACTIVE' && account.user_id !== currentUser && <Button color="warning" onClick={() => openReset(account)} aria-label={t("Đặt lại mật khẩu cho {0}", account.display_name)}>{t("Đặt lại mật khẩu")}</Button>}
@@ -171,7 +181,7 @@ export default function AdminUsersPage() {
           <TableBody>{items.map(account => <TableRow key={account.user_id}>
             <TableCell>{account.display_name}{account.user_id === currentUser && <Typography variant="caption" display="block" color="text.secondary">{t("Tài khoản của bạn")}</Typography>}</TableCell>
             <TableCell sx={{ overflowWrap: 'anywhere' }}>{account.email || '—'}</TableCell><TableCell>{roleChips(account)}</TableCell>
-            <TableCell>{t(statusKeys[account.account_status])}{account.must_change_password && <Typography variant="caption" display="block" color="text.secondary">{t("Chờ đổi mật khẩu")}</Typography>}</TableCell>
+            <TableCell>{t(statusLabel(account))}{account.must_change_password && <Typography variant="caption" display="block" color="text.secondary">{t("Chờ đổi mật khẩu")}</Typography>}</TableCell>
             <TableCell align="right"><Box sx={{ display: 'flex', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 1 }}>
               <Button onClick={() => edit(account)} aria-label={t("Chỉnh sửa tài khoản {0}", account.display_name)}>{t("Chỉnh sửa")}</Button>
               {account.account_status === 'ACTIVE' && account.user_id !== currentUser && <Button color="warning" onClick={() => openReset(account)} aria-label={t("Đặt lại mật khẩu cho {0}", account.display_name)}>{t("Đặt lại mật khẩu")}</Button>}
@@ -197,8 +207,8 @@ export default function AdminUsersPage() {
           <TextField label={t("Họ và tên")} value={name} onChange={e => setName(e.target.value)} fullWidth required margin="normal" inputProps={{ maxLength: 120 }} />
           <TextField label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} fullWidth required margin="normal" disabled={Boolean(editing)} autoComplete="off" />
           {!editing && <>
-            <TextField label={t("Mật khẩu tạm thời")} type="password" value={password} onChange={e => setPassword(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" helperText={t("Ít nhất 12 ký tự, tối đa 72 byte UTF-8.")} />
-            <TextField label={t("Xác nhận mật khẩu")} type="password" value={confirm} onChange={e => setConfirm(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" />
+            <PasswordField label={t("Mật khẩu tạm thời")} value={password} onChange={e => setPassword(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" helperText={t("Ít nhất 12 ký tự, tối đa 72 byte UTF-8.")} />
+            <PasswordField label={t("Xác nhận mật khẩu")} value={confirm} onChange={e => setConfirm(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" />
           </>}
           <FormControl fullWidth required margin="normal"><InputLabel id="edit-roles-label">{t("Vai trò")}</InputLabel>
             <Select labelId="edit-roles-label" multiple value={roles} label={t("Vai trò")} onChange={e => setRoles(e.target.value as Role[])}
@@ -224,8 +234,8 @@ export default function AdminUsersPage() {
           {resetError && <Alert severity="error" sx={{ mb: 2 }}>{t(resetError)}</Alert>}
           <Alert severity="warning" sx={{ mb: 2 }}>{t("Thành viên sẽ phải đổi mật khẩu này khi đăng nhập lại; các phiên đăng nhập hiện tại của thành viên sẽ bị thu hồi.")}</Alert>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{resetTarget ? `${resetTarget.display_name} · ${resetTarget.email || '—'}` : ''}</Typography>
-          <TextField label={t("Mật khẩu tạm thời")} type="password" value={resetPassword} onChange={e => setResetPassword(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" helperText={t("Ít nhất 12 ký tự, tối đa 72 byte UTF-8.")} />
-          <TextField label={t("Xác nhận mật khẩu")} type="password" value={resetConfirm} onChange={e => setResetConfirm(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" />
+          <PasswordField label={t("Mật khẩu tạm thời")} value={resetPassword} onChange={e => setResetPassword(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" helperText={t("Ít nhất 12 ký tự, tối đa 72 byte UTF-8.")} />
+          <PasswordField label={t("Xác nhận mật khẩu")} value={resetConfirm} onChange={e => setResetConfirm(e.target.value)} fullWidth required margin="normal" autoComplete="new-password" />
         </DialogContent>
         <DialogActions sx={{ p: 2 }}><Button onClick={closeReset} disabled={resetting}>{t("Hủy")}</Button>
           <Button type="submit" variant="contained" color="secondary" disabled={resetting}>{resetting ? <CircularProgress size={20} color="inherit" /> : t("Đặt lại mật khẩu")}</Button>

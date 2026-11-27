@@ -73,6 +73,50 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def approved_policy(db) -> dict | None:
+    """The approved retention policy: months with consent and, if set, without.
+
+    ``base_months`` is the period after the position closes for an application
+    without an active Talent Pool consent. When it is None the policy predates
+    00023 and ``months`` after closing applies to every application.
+    """
+    row = db.execute(text("""
+        SELECT policy_version, retention_months, retention_months_without_consent
+        FROM app_private.retention_policy_versions
+        WHERE status = 'APPROVED'
+        ORDER BY created_at DESC, policy_version DESC
+        LIMIT 1
+    """)).mappings().first()
+    if not row:
+        return None
+    base = row["retention_months_without_consent"]
+    return {"policy_version": row["policy_version"],
+            "months": int(row["retention_months"] or settings.RETENTION_MONTHS),
+            "base_months": int(base) if base is not None else None}
+
+
+def earliest_retention_months(policy: dict) -> int:
+    """Shortest period after closing that any application of a position can get."""
+    return policy["base_months"] if policy["base_months"] is not None else policy["months"]
+
+
+def retention_due_date(closed_at: datetime, received_at: datetime | None, policy: dict) -> datetime:
+    """Due date of one application.
+
+    Without an active Talent Pool consent: ``base_months`` after the position
+    closes. With one: the later of that and ``months`` after the application
+    was received, so the CV is kept up to 5 years from when it came in, not
+    from when the consent box was ticked.
+    """
+    closed_at = _as_utc(closed_at)
+    if policy["base_months"] is None:
+        return add_months(closed_at, policy["months"])
+    due = add_months(closed_at, policy["base_months"])
+    if received_at is not None:
+        due = max(due, add_months(_as_utc(received_at), policy["months"]))
+    return due
+
+
 def extracted_storage_paths(extracted_path: str | None) -> list[str]:
     """Return an extracted-text path plus its sibling page map path."""
     if not extracted_path:
@@ -312,23 +356,26 @@ def generate_retention_cases(db, *, position_id: str, actor_user_id: str | None)
     if position["status"] != "CLOSED" or not position["closed_at"]:
         raise RetentionError("Chỉ tạo retention case cho vị trí đã đóng", status_code=409)
 
-    policy = db.execute(text("""
-        SELECT policy_version, retention_months FROM app_private.retention_policy_versions
-        WHERE status = 'APPROVED'
-        ORDER BY created_at DESC, policy_version DESC
-        LIMIT 1
-    """)).mappings().first()
+    policy = approved_policy(db)
     if not policy:
         raise RetentionError("Chưa có retention policy đã phê duyệt", status_code=503)
-    months = int(policy["retention_months"] or settings.RETENTION_MONTHS)
+    months = policy["months"]
     closed_at = _as_utc(position["closed_at"])
-    due_date = add_months(closed_at, months)
-    if due_date - timedelta(days=notice_window_days()) > _now():
+    # Earliest due date of the position: applications without consent. Those
+    # with an active Talent Pool consent may be due later (checked per row).
+    due_date = add_months(closed_at, earliest_retention_months(policy))
+    horizon = _now() + timedelta(days=notice_window_days())
+    if due_date > horizon:
         return {"position_id": position_id, "policy_version": policy["policy_version"],
                 "retention_months": months, "due_date": due_date, "created_count": 0, "cases": []}
 
     applications = db.execute(text("""
-        SELECT application_id FROM app_private.applications
+        SELECT application_id,
+               (CASE WHEN EXISTS (SELECT 1 FROM app_private.application_data_consents k
+                WHERE k.application_id = applications.application_id
+                  AND k.purpose = 'TALENT_POOL' AND k.withdrawn_at IS NULL)
+                THEN applications.created_at END) AS consent_received_at
+        FROM app_private.applications
         WHERE position_id = :position_id
           AND NOT EXISTS (
               SELECT 1 FROM app_private.application_retention_cases c
@@ -341,6 +388,9 @@ def generate_retention_cases(db, *, position_id: str, actor_user_id: str | None)
     created = []
     for application in applications:
         application_id = str(application["application_id"])
+        app_due = retention_due_date(closed_at, application["consent_received_at"], policy)
+        if app_due > horizon:
+            continue
         row = db.execute(text("""
             INSERT INTO app_private.application_retention_cases
                 (application_id, position_id, application_opaque_id, policy_version,
@@ -354,7 +404,7 @@ def generate_retention_cases(db, *, position_id: str, actor_user_id: str | None)
             "application_id": application_id, "position_id": position_id,
             "opaque_id": application_opaque_id(application_id),
             "policy_version": policy["policy_version"], "closed_at": closed_at,
-            "due_date": due_date,
+            "due_date": app_due,
         }).mappings().one()
         created.append(dict(row))
 

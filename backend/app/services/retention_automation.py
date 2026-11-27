@@ -33,8 +33,10 @@ from app.services.retention import (
     _as_utc,
     _audit,
     _now,
+    approved_policy,
     assert_position_still_closed,
     days_until,
+    earliest_retention_months,
     generate_retention_cases,
     get_case,
     notice_window_days,
@@ -86,26 +88,33 @@ def cancel_cases_of_superseded_policy(db, *, actor_user_id: str | None = None) -
     """Cancel open cases whose policy was replaced by a longer one.
 
     A case stores the due date computed under the policy in force when it was
-    created. When the approved retention period is extended (12 months -> 5
-    years), such a case would delete data too early, so it is cancelled and
-    re-created later with the new due date. Legal holds (ON_HOLD) are kept:
-    once released they come back as PENDING and are cancelled here.
+    created. When the approved policy gives that application a later due date
+    (12 months -> 5 years with an active Talent Pool consent), the case would
+    delete data too early, so it is cancelled and re-created later with the new
+    due date. Legal holds (ON_HOLD) are kept: once released they come back as
+    PENDING and are cancelled here.
     """
-    policy = db.execute(text("""
-        SELECT policy_version, retention_months FROM app_private.retention_policy_versions
-        WHERE status = 'APPROVED' ORDER BY created_at DESC, policy_version DESC LIMIT 1
-    """)).mappings().first()
+    policy = approved_policy(db)
     if not policy:
         return 0
-    months = int(policy["retention_months"] or settings.RETENTION_MONTHS)
+    use_consent = policy["base_months"] is not None
+    # Same rule as retention_due_date, per case.
     rows = db.execute(text("""
         UPDATE app_private.application_retention_cases c
         SET status = 'CANCELLED', cancel_reason = 'POLICY_EXTENDED', cancelled_at = NOW()
         WHERE c.status IN ('PENDING', 'SCHEDULED_FOR_DELETION')
           AND c.policy_version <> :policy_version
-          AND c.position_closed_at + make_interval(months => :months) > c.due_date
+          AND GREATEST(
+                c.position_closed_at + make_interval(months => :base_months),
+                CASE WHEN :use_consent THEN (
+                    SELECT a.created_at + make_interval(months => :months)
+                    FROM app_private.applications a
+                    WHERE a.application_id = c.application_id
+                      AND EXISTS (SELECT 1 FROM app_private.application_data_consents k WHERE k.application_id = a.application_id AND k.purpose = 'TALENT_POOL' AND k.withdrawn_at IS NULL)) END
+              ) > c.due_date
         RETURNING c.retention_case_id, c.position_id
-    """), {"policy_version": policy["policy_version"], "months": months}).mappings().all()
+    """), {"policy_version": policy["policy_version"], "months": policy["months"],
+           "base_months": earliest_retention_months(policy), "use_consent": use_consent}).mappings().all()
     if not rows:
         return 0
     case_ids = [str(row["retention_case_id"]) for row in rows]
@@ -127,14 +136,13 @@ def cancel_cases_of_superseded_policy(db, *, actor_user_id: str | None = None) -
 
 def sync_due_cases(db) -> int:
     """Create cases for every closed position that is due or nearly due."""
-    policy = db.execute(text("""
-        SELECT retention_months FROM app_private.retention_policy_versions
-        WHERE status = 'APPROVED' ORDER BY created_at DESC, policy_version DESC LIMIT 1
-    """)).mappings().first()
+    policy = approved_policy(db)
     if not policy:
         return 0
-    months = int(policy["retention_months"] or settings.RETENTION_MONTHS)
-    # Coarse SQL pre-filter; generate_retention_cases applies the exact rule.
+    # Shortest period: applications without an active Talent Pool consent.
+    months = earliest_retention_months(policy)
+    # Coarse SQL pre-filter; generate_retention_cases applies the exact rule
+    # (including the later due date of applications with consent).
     horizon = _now() + timedelta(days=notice_window_days() + 1)
     positions = db.execute(text("""
         SELECT p.position_id FROM app_private.positions p
@@ -186,13 +194,15 @@ def record_due_reminders(db, now: datetime | None = None) -> dict[str, Any]:
     now = now or _now()
     milestones = sorted({int(day) for day in settings.RETENTION_NOTICE_DAYS})
     groups = db.execute(text("""
-        SELECT c.position_id, c.position_closed_at, MIN(c.due_date) AS due_date,
+        SELECT c.position_id, c.position_closed_at,
+               (c.due_date AT TIME ZONE 'UTC')::date AS due_on,
+               MIN(c.due_date) AS due_date,
                COUNT(*) AS open_case_count
         FROM app_private.application_retention_cases c
         JOIN app_private.positions p ON p.position_id = c.position_id
         WHERE c.status IN ('PENDING', 'SCHEDULED_FOR_DELETION')
           AND p.status = 'CLOSED' AND p.closed_at = c.position_closed_at
-        GROUP BY c.position_id, c.position_closed_at
+        GROUP BY c.position_id, c.position_closed_at, (c.due_date AT TIME ZONE 'UTC')::date
     """)).mappings().all()
     email_ids: list[str] = []
     in_app_sent = 0
@@ -211,29 +221,31 @@ def record_due_reminders(db, now: datetime | None = None) -> dict[str, Any]:
                 status = "SENT" if day == target else "SKIPPED"
                 inserted = db.execute(text("""
                     INSERT INTO app_private.retention_notifications
-                        (position_id, position_closed_at, due_date, milestone_days, recipient_user_id,
+                        (position_id, position_closed_at, due_date, due_on, milestone_days, recipient_user_id,
                          channel, status, open_case_count, sent_at)
-                    VALUES (:position_id, :closed_at, :due_date, :day, :user_id, 'IN_APP', :status,
+                    VALUES (:position_id, :closed_at, :due_date, :due_on, :day, :user_id, 'IN_APP', :status,
                             :count, CASE WHEN :status = 'SENT' THEN NOW() END)
-                    ON CONFLICT (position_id, position_closed_at, milestone_days, recipient_user_id, channel)
+                    ON CONFLICT (position_id, position_closed_at, due_on, milestone_days, recipient_user_id, channel)
                     DO NOTHING
                     RETURNING notification_id
                 """), {"position_id": position_id, "closed_at": group["position_closed_at"],
-                       "due_date": group["due_date"], "day": day, "user_id": recipient["user_id"],
+                       "due_date": group["due_date"], "due_on": group["due_on"], "day": day,
+                       "user_id": recipient["user_id"],
                        "status": status, "count": int(group["open_case_count"])}).scalar_one_or_none()
                 if inserted and status == "SENT":
                     in_app_sent += 1
             if send_email_channel and recipient.get("email"):
                 row = db.execute(text("""
                     INSERT INTO app_private.retention_notifications
-                        (position_id, position_closed_at, due_date, milestone_days, recipient_user_id,
+                        (position_id, position_closed_at, due_date, due_on, milestone_days, recipient_user_id,
                          channel, status, open_case_count)
-                    VALUES (:position_id, :closed_at, :due_date, :day, :user_id, 'EMAIL', 'PENDING', :count)
-                    ON CONFLICT (position_id, position_closed_at, milestone_days, recipient_user_id, channel)
+                    VALUES (:position_id, :closed_at, :due_date, :due_on, :day, :user_id, 'EMAIL', 'PENDING', :count)
+                    ON CONFLICT (position_id, position_closed_at, due_on, milestone_days, recipient_user_id, channel)
                     DO NOTHING
                     RETURNING notification_id
                 """), {"position_id": position_id, "closed_at": group["position_closed_at"],
-                       "due_date": group["due_date"], "day": target, "user_id": recipient["user_id"],
+                       "due_date": group["due_date"], "due_on": group["due_on"], "day": target,
+                       "user_id": recipient["user_id"],
                        "count": int(group["open_case_count"])}).scalar_one_or_none()
                 if row:
                     email_ids.append(str(row))

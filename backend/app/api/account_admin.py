@@ -23,6 +23,21 @@ def _lock_management(db, actor_id: str) -> None:
     _lock_active_admin(db, actor_id)
 
 
+@router.get("/summary")
+def accounts_summary(current_user: dict = Depends(require_admin_role)):
+    """Counts the Admin screen needs to warn about a single point of failure."""
+    db = SessionLocal()
+    try:
+        active_admins = db.execute(text("""
+            SELECT COUNT(DISTINCT p.user_id) FROM app_private.user_profiles p
+            JOIN app_private.user_role_assignments r ON r.user_id = p.user_id
+            WHERE p.account_status = 'ACTIVE' AND r.role_code = 'ADMIN' AND r.revoked_at IS NULL
+        """)).scalar_one()
+        return {"active_admins": int(active_admins)}
+    finally:
+        db.close()
+
+
 @router.get("")
 def list_managed_users(
     search: Optional[str] = Query(None, max_length=120),
@@ -36,7 +51,7 @@ def list_managed_users(
     db = SessionLocal()
     try:
         rows = db.execute(text("""
-            SELECT p.user_id, p.display_name, p.preferred_locale, p.account_status,
+            SELECT p.user_id, p.display_name, p.preferred_locale, p.account_status, p.email_verified_at,
                    p.must_change_password, p.created_at, u.email,
                    COALESCE(array_agg(DISTINCT r.role_code ORDER BY r.role_code)
                        FILTER (WHERE r.role_code IS NOT NULL), ARRAY[]::text[]) AS roles
@@ -103,11 +118,17 @@ def update_managed_user(user_id: UUID, request: AdminUserUpdate, current_user: d
     try:
         _lock_management(db, actor_id)
         target = db.execute(text("""
-            SELECT display_name, account_status FROM app_private.user_profiles
-            WHERE user_id = :id FOR UPDATE
+            SELECT display_name, account_status, email_verified_at, created_via_registration FROM (
+                SELECT display_name, account_status, email_verified_at,
+                       EXISTS (SELECT 1 FROM app_private.audit_events e WHERE e.object_id = user_id
+                               AND e.action_type = 'REGISTER_ACCOUNT') AS created_via_registration
+                FROM app_private.user_profiles WHERE user_id = :id FOR UPDATE) t
         """), {"id": target_id}).mappings().first()
         if not target:
             raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+        if (target["account_status"] == "PENDING" and request.account_status == "ACTIVE"
+                and target["created_via_registration"] and target["email_verified_at"] is None):
+            raise HTTPException(status_code=409, detail="Người đăng ký chưa xác minh email nên chưa thể duyệt.")
         current_roles = set(db.execute(text("""
             SELECT role_code FROM app_private.user_role_assignments
             WHERE user_id = :id AND revoked_at IS NULL FOR UPDATE

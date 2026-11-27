@@ -204,6 +204,15 @@ FIELD_ABBREVIATIONS: dict[str, tuple[str, ...]] = {
     "software engineering": ("ky thuat phan mem", "cong nghe phan mem"),
     "data science": ("khoa hoc du lieu",),
 }
+# Fields of one family: a CV naming any of them evidences a criterion naming another
+# ("Computer Science, AI" is met by a degree in Information Technology or Software Engineering).
+# Deliberately narrow; unrelated fields (Marketing, Accounting) never join it.
+IT_FAMILY_FIELDS: tuple[str, ...] = (
+    "computer science", "information technology", "software engineering", "data science", "computer engineering",
+    "informatics", "artificial intelligence", "khoa hoc may tinh", "cong nghe thong tin",
+    "ky thuat phan mem", "cong nghe phan mem", "khoa hoc du lieu", "ky thuat may tinh", "tin hoc", "cntt", "khmt",
+    "tri tue nhan tao",
+)
 _FIELD_SPLIT = re.compile(r"[,;/()]|\b(?:or|and|hoac|va|in|of|trong|ve)\b", re.IGNORECASE)
 _FIELD_SUFFIXES = ("ing", "ers", "er", "ed", "s")
 
@@ -601,9 +610,14 @@ class DeterministicMatchingEngine:
 
     @staticmethod
     def _required_degree_level(normalized: str) -> int | None:
-        for level, patterns in DEGREE_PATTERNS:
-            if any(_contains_phrase(normalized, pattern) for pattern in patterns):
-                return level
+        found = [level for level, patterns in DEGREE_PATTERNS
+                 if any(_contains_phrase(normalized, pattern) for pattern in patterns)]
+        if found:
+            # "Bachelor's or Master's degree": any one of the listed levels satisfies it, so the
+            # lowest counts. Without "or" the highest named level stays the requirement.
+            if len(found) > 1 and re.search(r"\b(?:or|hoac)\b|/", normalized):
+                return min(found)
+            return found[0]
         if "degree" in normalized.split() or "bang dai hoc" in normalized:
             return 3
         return None
@@ -620,6 +634,20 @@ class DeterministicMatchingEngine:
         if _contains_phrase(normalized, "university") or _contains_phrase(normalized, "college"):
             return 3
         return None
+
+    @classmethod
+    def _stored_or_inferred_degree_level(cls, stored: Any, inferred: int | None, kind: str, criterion: dict[str, Any]) -> int | None:
+        """A level stored before rules v1.10 may be the highest of "Bachelor's or Master's"; when the criterion text
+        offers alternatives the lower inferred level is the real requirement."""
+        if stored is None:
+            return None
+        level = int(stored)
+        if kind == "DEGREE" and inferred is not None and inferred < level:
+            text = normalize_text(f"{criterion.get('name') or ''}. {criterion.get('description') or ''}")
+            found = [lv for lv, patterns in DEGREE_PATTERNS if any(_contains_phrase(text, pattern) for pattern in patterns)]
+            if len(found) > 1 and re.search(r"\b(?:or|hoac)\b|/", text):
+                return inferred
+        return level
 
     def build_requirement_spec(self, criterion: dict[str, Any]) -> RequirementSpec:
         inferred = self._infer_requirement_spec(criterion)
@@ -653,7 +681,8 @@ class DeterministicMatchingEngine:
             kind=kind,
             terms=terms,
             min_years=float(pick("min_years", inferred.min_years)) if pick("min_years", inferred.min_years) is not None else None,
-            required_degree_level=int(pick("required_degree_level", inferred.required_degree_level)) if pick("required_degree_level", inferred.required_degree_level) is not None else None,
+            required_degree_level=self._stored_or_inferred_degree_level(
+                pick("required_degree_level", inferred.required_degree_level), inferred.required_degree_level, kind, criterion),
             required_languages=tuple(str(item).lower() for item in languages),
             required_ielts=float(pick("required_ielts", inferred.required_ielts)) if pick("required_ielts", inferred.required_ielts) is not None else None,
             required_toeic=int(pick("required_toeic", inferred.required_toeic)) if pick("required_toeic", inferred.required_toeic) is not None else None,
@@ -794,6 +823,10 @@ class DeterministicMatchingEngine:
     def _field_in_text(phrases: tuple[tuple[str, ...], ...], text: str) -> bool:
         normalized = normalize_text(text)
         stems = {_field_stem(token) for token in normalized.split()}
+        names_it_family = any(" ".join(phrase) in IT_FAMILY_FIELDS or phrase == ("ai",) for phrase in phrases)
+        if names_it_family and (any(_contains_phrase(normalized, form) for form in IT_FAMILY_FIELDS)
+                                or re.search(r"\bIT\b", text or "")):
+            return True
         for phrase in phrases:
             # Lower-case "it" is a pronoun; only the upper-case abbreviation counts.
             is_pronoun_it = phrase == ("it",) and not re.search(r"\bIT\b", text or "")
