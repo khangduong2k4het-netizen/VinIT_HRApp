@@ -166,8 +166,7 @@ def test_two_simultaneous_sends_of_one_letter_send_it_once(client, mail, monkeyp
         assert conn.execute(text("SELECT status FROM app_private.candidate_emails WHERE email_id = :i"), {"i": email_id}).scalar_one() == "SENT"
 
 
-def test_a_letter_stuck_in_sending_becomes_failed_and_can_be_retried(client, mail, monkeypatch):
-    from app.api import candidate_emails
+def test_a_letter_stuck_in_sending_becomes_failed_and_can_be_retried(client, mail):
     email_id = _draft(client, mail)
     with engine.begin() as conn:
         conn.execute(text("""UPDATE app_private.candidate_emails SET status = 'SENDING', sending_started_at = NOW() - INTERVAL '11 minutes'

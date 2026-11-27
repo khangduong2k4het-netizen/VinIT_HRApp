@@ -142,7 +142,7 @@ def test_withdrawn_candidate_disappears_from_results_and_cannot_be_decided(clien
     with engine.connect() as conn:
         reveal_audit = conn.execute(text("""SELECT metadata::text FROM app_private.audit_events
             WHERE action_type = 'REVEAL_TALENT_POOL_CONTACT'""")).scalar_one()
-    assert "strong.pool@example.com" not in reveal_audit and "912" not in reveal_audit
+    assert "strong.pool@example.com" not in reveal_audit and all(phone not in reveal_audit for phone in ("+84 912 345 678", "912 345 678", "912345678"))  # not a bare "912": random ids contain it
     # Plain recruiter cannot withdraw; HR Lead can.
     assert client.post(f"/v1/talent-pool/applications/{pool['weak']}/withdraw-consent", headers=hr, json={}).status_code == 403
     assert client.post(f"/v1/talent-pool/applications/{pool['weak']}/withdraw-consent", headers=lead, json={}).status_code == 200
