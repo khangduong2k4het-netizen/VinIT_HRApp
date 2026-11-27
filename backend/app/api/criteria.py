@@ -866,9 +866,9 @@ async def apply_template_to_position(position_id: UUID, request: ApplyTemplateRe
                 "template": str(request.template_version_id)}).scalar_one()
         db.execute(text("""
             INSERT INTO app_private.criteria_items (criteria_version_id, name, description, category, weight_in_group,
-                expected_evidence_keywords, evidence_guidance, display_order, source_template_item_id)
+                expected_evidence_keywords, evidence_guidance, display_order, source_template_item_id, requirement_spec)
             SELECT :new_id, name, description, category, weight_in_group, expected_evidence_keywords,
-                evidence_guidance, display_order, template_item_id
+                evidence_guidance, display_order, template_item_id, requirement_spec
             FROM app_private.rubric_template_items WHERE template_version_id = :template
         """), {"new_id": str(new_id), "template": str(request.template_version_id)})
         # Same structured requirement specs as an AI/HR draft, so deterministic

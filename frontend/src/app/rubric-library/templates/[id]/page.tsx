@@ -42,6 +42,8 @@ export default function RubricTemplatePage() {
   const [reviewComment, setReviewComment] = useState('');
   const [newVersionOpen, setNewVersionOpen] = useState(false);
   const [changeNote, setChangeNote] = useState('');
+  // Sample JD editor (draft only): null = not editing.
+  const [jdDraft, setJdDraft] = useState<string | null>(null);
 
   const roles = me?.system_roles || [];
   const isLead = roles.includes('HR_LEAD');
@@ -52,6 +54,7 @@ export default function RubricTemplatePage() {
   const loadVersion = useCallback(async (versionId: string) => {
     const res = await rubricApi.getVersion(versionId);
     setVersion(res.data);
+    setJdDraft(null);
   }, []);
 
   const loadAll = useCallback(async (preferVersionId?: string) => {
@@ -229,6 +232,39 @@ export default function RubricTemplatePage() {
           <Grid item xs={12} md={6}>{renderGroup('MUST_HAVE', 'Tiêu chí bắt buộc', version.mandatory_weight_total)}</Grid>
           <Grid item xs={12} md={6}>{renderGroup('NICE_TO_HAVE', 'Tiêu chí ưu tiên', version.nice_to_have_weight_total)}</Grid>
         </Grid>
+
+        <Card variant="outlined" sx={{ mb: 2 }}><CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+            <Typography variant="h4" sx={{ fontSize: 16 }}>{t("JD mẫu")}</Typography>
+            {canEdit && jdDraft === null && (
+              <Button size="small" startIcon={<EditOutlinedIcon />} onClick={() => setJdDraft(version.jd_template || '')}>
+                {version.jd_template ? t("Sửa JD mẫu") : t("Thêm JD mẫu")}
+              </Button>
+            )}
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            {t("Khi HR tạo vị trí mới từ mẫu này, JD mẫu được điền sẵn vào ô mô tả công việc để chỉnh lại cho vị trí.")}
+          </Typography>
+          {jdDraft !== null ? (
+            <>
+              <TextField fullWidth multiline minRows={8} maxRows={24} value={jdDraft} onChange={e => setJdDraft(e.target.value)}
+                inputProps={{ maxLength: 50000 }} placeholder={t("Dán hoặc viết JD mẫu cho nhóm vị trí này…")} />
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 1 }}>
+                <Button onClick={() => setJdDraft(null)} disabled={busy}>{t("Hủy")}</Button>
+                <Button variant="contained" color="secondary" disabled={busy} onClick={async () => {
+                  const ok = await run(() => rubricApi.updateVersion(version.template_version_id, { jd_template: jdDraft }),
+                    "Không thể lưu JD mẫu", () => loadVersion(version.template_version_id));
+                  if (ok) setJdDraft(null);
+                }}>{t("Lưu JD mẫu")}</Button>
+              </Box>
+            </>
+          ) : version.jd_template ? (
+            <Box sx={{ whiteSpace: 'pre-wrap', bgcolor: '#F8FAFC', border: '1px solid #EDF1F5', borderRadius: 1, p: 1.5,
+                       maxHeight: 320, overflow: 'auto', fontSize: 14 }}>{version.jd_template}</Box>
+          ) : (
+            <Typography variant="body2" color="text.secondary">{t("Chưa có JD mẫu.")}</Typography>
+          )}
+        </CardContent></Card>
 
         {version.review_events.length > 0 && (
           <Card variant="outlined"><CardContent>

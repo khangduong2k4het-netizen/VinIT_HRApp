@@ -13,11 +13,12 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.core.exceptions import NotFoundError
+from app.core.permissions import can_update_application_status
 from app.core.security import get_current_user
 from app.db.database import SessionLocal
-from app.schemas.rubric import (JobFamilyCreate, JobFamilyUpdate, TemplateCreate, TemplateItemCreate,
-                                TemplateItemUpdate, TemplateReviewRequest, TemplateVersionCreate,
-                                TemplateVersionUpdate)
+from app.schemas.rubric import (JobFamilyCreate, JobFamilyUpdate, TemplateCreate, TemplateFromCriteria,
+                                TemplateItemCreate, TemplateItemUpdate, TemplateReviewRequest,
+                                TemplateVersionCreate, TemplateVersionUpdate)
 from app.services.criteria_fairness import fairness_warnings
 from app.services.workflow_rules import template_publish_errors
 
@@ -156,7 +157,8 @@ _TEMPLATE_SUMMARY = """
            pub.template_version_id AS published_version_id, pub.version_number AS published_version_number,
            pub.published_at,
            draft.template_version_id AS draft_version_id, draft.version_number AS draft_version_number,
-           (SELECT COUNT(*) FROM app_private.rubric_template_items i WHERE i.template_version_id = pub.template_version_id) AS published_item_count
+           (SELECT COUNT(*) FROM app_private.rubric_template_items i WHERE i.template_version_id = pub.template_version_id) AS published_item_count,
+           COALESCE(btrim(pub.jd_template) <> '', FALSE) AS published_has_jd
     FROM app_private.rubric_templates t
     JOIN app_private.job_families f ON f.job_family_id = t.job_family_id
     LEFT JOIN app_private.user_profiles creator ON creator.user_id = t.created_by
@@ -222,6 +224,110 @@ async def create_template(request: TemplateCreate, current_user: dict = Depends(
         db.close()
 
 
+@router.post("/templates/from-criteria", status_code=status.HTTP_201_CREATED)
+async def create_template_from_criteria(request: TemplateFromCriteria, current_user: dict = Depends(get_current_user)):
+    """Save a position's APPROVED criteria as a template DRAFT (a new template, or the next draft of one).
+
+    Only human-approved criteria go into the library, and the result is a draft: an HR Lead still reviews
+    and publishes it (D-02/D-03). The structured requirement of each criterion is kept so a later
+    position gets exactly the rule HR approved here."""
+    user_id = current_user["user_id"]
+    db = SessionLocal()
+    try:
+        _require(library_roles(db, user_id), TEMPLATE_EDITORS, "Chỉ HR mới lưu được tiêu chí thành template")
+        source = db.execute(text("""
+            SELECT cv.criteria_version_id, cv.position_id, cv.status, cv.version_number,
+                   cv.mandatory_weight_total, cv.nice_to_have_weight_total, p.position_code, p.title AS position_title,
+                   jd.content_text AS jd_text
+            FROM app_private.criteria_versions cv JOIN app_private.positions p ON p.position_id = cv.position_id
+            LEFT JOIN app_private.jd_versions jd ON jd.jd_version_id = cv.jd_version_id
+            WHERE cv.criteria_version_id = :id
+        """), {"id": str(request.criteria_version_id)}).mappings().first()
+        if not source:
+            raise NotFoundError("Criteria version")
+        if not can_update_application_status(user_id, str(source["position_id"])):
+            raise HTTPException(status_code=403, detail="Chỉ HR phụ trách vị trí mới lưu được bộ tiêu chí này thành template")
+        if source["status"] != "APPROVED":
+            raise HTTPException(status_code=400, detail="Chỉ lưu được bộ tiêu chí đã duyệt thành template")
+        items = db.execute(text("""
+            SELECT name, description, category, weight_in_group, expected_evidence_keywords, evidence_guidance,
+                   display_order, requirement_spec
+            FROM app_private.criteria_items WHERE criteria_version_id = :id ORDER BY display_order, name
+        """), {"id": str(request.criteria_version_id)}).mappings().all()
+        if not items:
+            raise HTTPException(status_code=400, detail="Bộ tiêu chí không có tiêu chí nào")
+        if len(items) > MAX_ITEMS:
+            raise HTTPException(status_code=400, detail=f"Một template có tối đa {MAX_ITEMS} tiêu chí")
+        note = _clean(request.change_note, 2000, "Ghi chú thay đổi") or (
+            f"Lưu từ bộ tiêu chí đã duyệt v{source['version_number']} của vị trí {source['position_code']}")
+
+        if request.template_id:
+            template = db.execute(text("""
+                SELECT template_id FROM app_private.rubric_templates WHERE template_id = :id AND status = 'ACTIVE' FOR UPDATE
+            """), {"id": str(request.template_id)}).mappings().first()
+            if not template:
+                raise NotFoundError("Rubric template")
+            if db.execute(text("SELECT 1 FROM app_private.rubric_template_versions WHERE template_id = :id AND status = 'DRAFT'"),
+                          {"id": str(request.template_id)}).first():
+                raise HTTPException(status_code=409, detail="Template đang có một bản nháp. Vui lòng hoàn tất hoặc lưu trữ bản nháp đó trước.")
+            template_id = str(request.template_id)
+            number = db.execute(text("""
+                SELECT COALESCE(MAX(version_number), 0) + 1 FROM app_private.rubric_template_versions WHERE template_id = :id
+            """), {"id": template_id}).scalar_one()
+            action = "CREATE_RUBRIC_TEMPLATE_VERSION_FROM_CRITERIA"
+        else:
+            if not request.job_family_id:
+                raise HTTPException(status_code=400, detail="Vui lòng chọn nhóm ngành cho template mới")
+            family = db.execute(text("SELECT status FROM app_private.job_families WHERE job_family_id = :id"),
+                                {"id": str(request.job_family_id)}).scalar_one_or_none()
+            if family != "ACTIVE":
+                raise HTTPException(status_code=400, detail="Nhóm ngành không tồn tại hoặc đã ngừng sử dụng")
+            template_id = str(db.execute(text("""
+                INSERT INTO app_private.rubric_templates (job_family_id, title, level_band, created_by)
+                VALUES (:family, :title, :level, :user_id) RETURNING template_id
+            """), {"family": str(request.job_family_id),
+                    "title": _clean(request.title or source["position_title"], 200, "Tên template", True),
+                    "level": _clean(request.level_band, 100, "Cấp bậc"), "user_id": user_id}).scalar_one())
+            number = 1
+            action = "CREATE_RUBRIC_TEMPLATE_FROM_CRITERIA"
+
+        version_id = db.execute(text("""
+            INSERT INTO app_private.rubric_template_versions (template_id, version_number, mandatory_weight_total,
+                nice_to_have_weight_total, change_note, created_by, source_criteria_version_id, jd_template)
+            VALUES (:template, :number, :mandatory, :nice, :note, :user_id, :source, :jd) RETURNING template_version_id
+        """), {"template": template_id, "number": number, "mandatory": source["mandatory_weight_total"],
+                "nice": source["nice_to_have_weight_total"], "note": note, "user_id": user_id,
+                "source": str(request.criteria_version_id),
+                # The JD these criteria were approved against becomes the template's sample JD (editable in the draft).
+                "jd": (source["jd_text"] or "").strip()[:50000] or None}).scalar_one()
+        for order, item in enumerate(items):
+            name = _clean(item["name"], 200, "Tên tiêu chí", True)
+            spec = item["requirement_spec"]
+            db.execute(text("""
+                INSERT INTO app_private.rubric_template_items (template_version_id, name, description, category,
+                    weight_in_group, expected_evidence_keywords, evidence_guidance, display_order, requirement_spec)
+                VALUES (:version, :name, :description, :category, :weight, CAST(:keywords AS jsonb), :guidance, :order,
+                        CAST(:spec AS jsonb))
+            """), {"version": str(version_id), "name": name,
+                    # Template items need a description; AI drafts sometimes leave it empty.
+                    "description": _clean(item["description"], 4000, "Mô tả tiêu chí") or name,
+                    "category": item["category"], "weight": item["weight_in_group"],
+                    "keywords": _keywords(item["expected_evidence_keywords"]),
+                    "guidance": _clean(item["evidence_guidance"], 4000, "Hướng dẫn bằng chứng"), "order": order,
+                    "spec": json.dumps(spec) if isinstance(spec, (dict, list)) else spec})
+        _audit(db, user_id, action, "RUBRIC_TEMPLATE_VERSION", version_id,
+               {"template_id": template_id, "source_criteria_version_id": str(request.criteria_version_id),
+                "position_id": str(source["position_id"]), "item_count": len(items)})
+        db.commit()
+        return {"template_id": template_id, "template_version_id": str(version_id), "version_number": number,
+                "item_count": len(items), "status": "DRAFT"}
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 @router.get("/templates/{template_id}")
 async def get_template(template_id: UUID, current_user: dict = Depends(get_current_user)):
     db = SessionLocal()
@@ -248,8 +354,9 @@ async def get_template(template_id: UUID, current_user: dict = Depends(get_curre
 def _copy_items(db, source_version_id, target_version_id):
     db.execute(text("""
         INSERT INTO app_private.rubric_template_items (template_version_id, name, description, category, weight_in_group,
-            expected_evidence_keywords, evidence_guidance, display_order)
-        SELECT :target, name, description, category, weight_in_group, expected_evidence_keywords, evidence_guidance, display_order
+            expected_evidence_keywords, evidence_guidance, display_order, requirement_spec)
+        SELECT :target, name, description, category, weight_in_group, expected_evidence_keywords, evidence_guidance, display_order,
+               requirement_spec
         FROM app_private.rubric_template_items WHERE template_version_id = :source
     """), {"target": str(target_version_id), "source": str(source_version_id)})
 
@@ -269,7 +376,7 @@ async def create_template_version(template_id: UUID, request: TemplateVersionCre
                       {"id": str(template_id)}).first():
             raise HTTPException(status_code=409, detail="Template đang có một bản nháp. Vui lòng hoàn tất hoặc lưu trữ bản nháp đó trước.")
         source = db.execute(text("""
-            SELECT template_version_id, mandatory_weight_total, nice_to_have_weight_total
+            SELECT template_version_id, mandatory_weight_total, nice_to_have_weight_total, jd_template
             FROM app_private.rubric_template_versions
             WHERE template_id = :id AND (CAST(:source AS uuid) IS NULL OR template_version_id = CAST(:source AS uuid))
             ORDER BY (status = 'PUBLISHED') DESC, version_number DESC LIMIT 1
@@ -280,11 +387,12 @@ async def create_template_version(template_id: UUID, request: TemplateVersionCre
                             {"id": str(template_id)}).scalar_one()
         version_id = db.execute(text("""
             INSERT INTO app_private.rubric_template_versions (template_id, version_number, mandatory_weight_total,
-                nice_to_have_weight_total, change_note, created_by)
-            VALUES (:template, :number, :mandatory, :nice, :note, :user_id) RETURNING template_version_id
+                nice_to_have_weight_total, change_note, created_by, jd_template)
+            VALUES (:template, :number, :mandatory, :nice, :note, :user_id, :jd) RETURNING template_version_id
         """), {"template": str(template_id), "number": number,
                 "mandatory": source["mandatory_weight_total"] if source else 70, "nice": source["nice_to_have_weight_total"] if source else 30,
-                "note": _clean(request.change_note, 2000, "Ghi chú thay đổi"), "user_id": user_id}).scalar_one()
+                "note": _clean(request.change_note, 2000, "Ghi chú thay đổi"), "user_id": user_id,
+                "jd": source["jd_template"] if source else None}).scalar_one()
         if source:
             _copy_items(db, source["template_version_id"], version_id)
         _audit(db, user_id, "CREATE_RUBRIC_TEMPLATE_VERSION", "RUBRIC_TEMPLATE_VERSION", version_id,
@@ -367,6 +475,8 @@ async def update_template_version(version_id: UUID, request: TemplateVersionUpda
         values["nice_to_have_weight_total"] = fields["nice_to_have_weight_total"]
     if "change_note" in fields:
         values["change_note"] = _clean(fields["change_note"], 2000, "Ghi chú thay đổi")
+    if "jd_template" in fields:
+        values["jd_template"] = _clean(fields["jd_template"], 50000, "JD mẫu")
     if not values:
         raise HTTPException(status_code=400, detail="Không có nội dung cần cập nhật")
     db = SessionLocal()
@@ -448,6 +558,10 @@ async def update_template_item(item_id: UUID, request: TemplateItemUpdate, curre
         _lock_draft(db, version_id, current_user["user_id"])
         sets = ", ".join(f"{key} = CAST(:{key} AS jsonb)" if key == "expected_evidence_keywords" else f"{key} = :{key}"
                          for key in values)
+        if {"name", "description", "expected_evidence_keywords"} & values.keys():
+            # A stored rule copied from position criteria no longer describes the edited text:
+            # drop it so it is inferred again from the new wording when the template is applied.
+            sets += ", requirement_spec = NULL"
         row = db.execute(text(f"""
             UPDATE app_private.rubric_template_items SET {sets}, updated_at = NOW()
             WHERE template_item_id = :id RETURNING *

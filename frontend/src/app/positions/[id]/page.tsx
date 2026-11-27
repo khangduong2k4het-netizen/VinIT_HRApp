@@ -54,6 +54,7 @@ import IntakeEmailLine from '@/components/positions/IntakeEmailLine';
 const TAB_SLUGS = ['criteria', 'applications', 'shortlist', 'jd', 'history'] as const;
 const tabFromSlug = (slug: string | null) => { const i = (TAB_SLUGS as readonly string[]).indexOf(slug || ''); return i >= 0 ? i : null; };
 import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
+import BookmarkAddOutlinedIcon from '@mui/icons-material/BookmarkAddOutlined';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import StatusBadge from '@/components/common/StatusBadge';
 import WorkflowStepper from '@/components/workflow/WorkflowStepper';
@@ -203,6 +204,16 @@ export default function PositionDetailPage() {
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [applyingTemplate, setApplyingTemplate] = useState(false);
   const [templateError, setTemplateError] = useState<string | null>(null);
+  // F2.01: save the approved criteria as a template draft ('' target = a new template).
+  const [saveTplOpen, setSaveTplOpen] = useState(false);
+  const [saveTplTarget, setSaveTplTarget] = useState('');
+  const [saveTplFamily, setSaveTplFamily] = useState('');
+  const [saveTplTitle, setSaveTplTitle] = useState('');
+  const [saveTplLevel, setSaveTplLevel] = useState('');
+  const [saveTplNote, setSaveTplNote] = useState('');
+  const [saveTplTemplates, setSaveTplTemplates] = useState<{ template_id: string; title: string; level_band: string | null; job_family_name?: string }[]>([]);
+  const [saveTplBusy, setSaveTplBusy] = useState(false);
+  const [saveTplError, setSaveTplError] = useState<string | null>(null);
 
   const latestJd = jdVersions[0];
   const approvedCriteria = criteriaVersions.find(c => c.status === 'APPROVED' && c.jd_version_id === latestJd?.jd_version_id);
@@ -531,6 +542,36 @@ export default function PositionDetailPage() {
     } finally { setApplyingTemplate(false); }
   };
 
+  const openSaveTemplateDialog = async () => {
+    if (!position) return;
+    setSaveTplOpen(true); setSaveTplError(null); setSaveTplTarget(''); setSaveTplNote('');
+    setSaveTplFamily(position.job_family_id || ''); setSaveTplTitle(position.title || ''); setSaveTplLevel(position.level || '');
+    try {
+      const [fam, tpl] = await Promise.all([rubricApi.listFamilies(), rubricApi.listTemplates({ status: 'ALL' })]);
+      setFamilies(fam.data || []); setSaveTplTemplates(tpl.data || []);
+    } catch (err: any) {
+      setSaveTplError(err.response?.data?.detail || t("Không thể tải thư viện rubric"));
+    }
+  };
+
+  const saveAsTemplate = async () => {
+    if (!approvedCriteria || saveTplBusy) return;
+    try {
+      setSaveTplBusy(true); setSaveTplError(null);
+      const res = await rubricApi.createFromCriteria({
+        criteria_version_id: approvedCriteria.criteria_version_id,
+        ...(saveTplTarget ? { template_id: saveTplTarget }
+          : { job_family_id: saveTplFamily, title: saveTplTitle.trim(), level_band: saveTplLevel.trim() || null }),
+        change_note: saveTplNote.trim() || null,
+      });
+      setSaveTplOpen(false);
+      router.push(`/rubric-library/templates/${res.data.template_id}`);
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      setSaveTplError(typeof detail === 'string' ? detail : t("Không thể lưu bộ tiêu chí thành template"));
+    } finally { setSaveTplBusy(false); }
+  };
+
   const openPositionDialog = async () => {
     if (!position) return;
     setPositionTitle(position.title); setPositionStatus(position.status); setPositionStatusReason('');
@@ -666,6 +707,10 @@ export default function PositionDetailPage() {
           {isHR && (
             <Button variant="outlined" startIcon={<LibraryBooksIcon />} onClick={openTemplateDialog} disabled={hasOpenCriteria}
               sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}>{t("Áp dụng từ thư viện")}</Button>
+          )}
+          {isHR && approvedCriteria && (
+            <Button variant="outlined" startIcon={<BookmarkAddOutlinedIcon />} onClick={openSaveTemplateDialog}
+              sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}>{t("Lưu thành mẫu")}</Button>
           )}
           {canCreateNewVersion && (
             <Button variant="outlined" startIcon={creatingVersion ? <CircularProgress size={16} /> : <ContentCopyIcon />}
@@ -1269,6 +1314,47 @@ export default function PositionDetailPage() {
           <Button onClick={() => setTemplateDialogOpen(false)} disabled={applyingTemplate}>{t("Hủy")}</Button>
           <Button variant="contained" color="secondary" onClick={applyTemplate}
             disabled={!selectedTemplate || applyingTemplate || hasOpenCriteria}>{applyingTemplate ? t("Đang áp dụng…") : t("Áp dụng template")}</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={saveTplOpen} onClose={() => !saveTplBusy && setSaveTplOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>{t("Lưu bộ tiêu chí thành mẫu")}</DialogTitle>
+        <DialogContent>
+          {saveTplError && <Alert severity="error" sx={{ mb: 2 }}>{t(saveTplError)}</Alert>}
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {t("Bộ tiêu chí đã duyệt (phiên bản {0}, {1} tiêu chí) được lưu thành bản nháp trong thư viện rubric. HR Lead xem lại và xuất bản trước khi vị trí khác dùng được.",
+              approvedCriteria?.version_number ?? '', approvedCriteria?.criteria?.length ?? 0)}
+          </Typography>
+          <Box sx={{ display: 'grid', gap: 2 }}>
+            <TextField select fullWidth label={t("Lưu vào")} value={saveTplTarget} onChange={e => setSaveTplTarget(e.target.value)}
+              SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}
+              helperText={saveTplTarget ? t("Tạo phiên bản nháp mới của template này.") : t("Tạo một template mới trong thư viện.")}>
+              <MenuItem value="">{t("Template mới")}</MenuItem>
+              {saveTplTemplates.map(tpl => (
+                <MenuItem key={tpl.template_id} value={tpl.template_id}>
+                  {tpl.title}{tpl.level_band ? ` · ${tpl.level_band}` : ''}{tpl.job_family_name ? ` (${tpl.job_family_name})` : ''}
+                </MenuItem>
+              ))}
+            </TextField>
+            {!saveTplTarget && <>
+              <TextField fullWidth required label={t("Tên template")} value={saveTplTitle} onChange={e => setSaveTplTitle(e.target.value)}
+                inputProps={{ maxLength: 200 }} />
+              <TextField select fullWidth required label={t("Nhóm ngành")} value={saveTplFamily} onChange={e => setSaveTplFamily(e.target.value)}>
+                {families.map(f => <MenuItem key={f.job_family_id} value={f.job_family_id}>{f.name}</MenuItem>)}
+              </TextField>
+              <TextField fullWidth label={t("Cấp bậc")} value={saveTplLevel} onChange={e => setSaveTplLevel(e.target.value)}
+                inputProps={{ maxLength: 100 }} />
+            </>}
+            <TextField fullWidth multiline minRows={2} label={t("Ghi chú (không bắt buộc)")} value={saveTplNote}
+              onChange={e => setSaveTplNote(e.target.value)} inputProps={{ maxLength: 2000 }} />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSaveTplOpen(false)} disabled={saveTplBusy}>{t("Hủy")}</Button>
+          <Button variant="contained" color="secondary" onClick={saveAsTemplate}
+            disabled={saveTplBusy || (!saveTplTarget && (!saveTplTitle.trim() || !saveTplFamily))}>
+            {saveTplBusy ? t("Đang lưu…") : t("Lưu thành mẫu")}
+          </Button>
         </DialogActions>
       </Dialog>
 

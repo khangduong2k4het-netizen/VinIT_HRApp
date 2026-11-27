@@ -170,11 +170,16 @@ export const rubricApi = {
     apiClient.get('/rubric-library/templates', { params }),
   createTemplate: (data: { job_family_id: string; title: string; level_band?: string | null; change_note?: string | null }) =>
     apiClient.post('/rubric-library/templates', data),
+  // Save a position's APPROVED criteria as a template draft: a new template, or the next draft of `template_id`.
+  createFromCriteria: (data: { criteria_version_id: string; template_id?: string | null; job_family_id?: string | null;
+                               title?: string | null; level_band?: string | null; change_note?: string | null }) =>
+    apiClient.post('/rubric-library/templates/from-criteria', data),
   getTemplate: (id: string) => apiClient.get(`/rubric-library/templates/${id}`),
   createVersion: (templateId: string, data: { source_version_id?: string; change_note?: string | null }) =>
     apiClient.post(`/rubric-library/templates/${templateId}/versions`, data),
   getVersion: (id: string) => apiClient.get(`/rubric-library/template-versions/${id}`),
-  updateVersion: (id: string, data: { mandatory_weight_total?: number; nice_to_have_weight_total?: number; change_note?: string | null }) =>
+  updateVersion: (id: string, data: { mandatory_weight_total?: number; nice_to_have_weight_total?: number; change_note?: string | null;
+                                      jd_template?: string | null }) =>
     apiClient.patch(`/rubric-library/template-versions/${id}`, data),
   addItem: (versionId: string, data: TemplateItemInput) =>
     apiClient.post(`/rubric-library/template-versions/${versionId}/items`, data),

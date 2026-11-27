@@ -38,7 +38,7 @@ import LinkIcon from '@mui/icons-material/Link';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { positionsApi, usersApi, dashboardApi, authApi, departmentsApi, rubricApi } from '@/lib/api';
+import { positionsApi, usersApi, dashboardApi, authApi, departmentsApi, rubricApi, criteriaApi } from '@/lib/api';
 import { useScrollMemory, useUrlState } from '@/lib/navMemory';
 import StatusBadge from '@/components/common/StatusBadge';
 import { Department, JobFamily, Position, UserSummary } from '@/types';
@@ -83,6 +83,14 @@ export default function PositionsPage() {
   // is labelled as an AI suggestion and is refreshed by the next import; once HR types
   // something else, an import leaves it alone.
   const [aiFilled, setAiFilled] = useState<{ title: string; level: string; levelInferred: boolean }>({ title: '', level: '', levelInferred: false });
+  // F2.01: start the new position's criteria from a published rubric template ('' = later, on the position page).
+  type PublishedTemplate = { template_id: string; title: string; level_band: string | null; job_family_id: string;
+    job_family_name: string; published_version_id: string | null; published_version_number: number | null; published_item_count: number;
+    published_has_jd?: boolean };
+  const [publishedTemplates, setPublishedTemplates] = useState<PublishedTemplate[]>([]);
+  const [startTemplateVersionId, setStartTemplateVersionId] = useState('');
+  // The JD text last filled in from a template's sample JD (to label it and refresh it on another choice).
+  const [jdFromTemplate, setJdFromTemplate] = useState('');
   const [hmSearchQuery, setHmSearchQuery] = useState('');
   const [hmOptions, setHmOptions] = useState<UserSummary[]>([]);
   const [hmLoading, setHmLoading] = useState(false);
@@ -114,6 +122,36 @@ export default function PositionsPage() {
     }
   }, [t]);
   useEffect(() => { loadPositions(); }, [loadPositions]);
+  // Published templates for the "initial criteria" choice, loaded when the create dialog opens.
+  useEffect(() => {
+    if (!createDialogOpen) return;
+    rubricApi.listTemplates({ status: 'PUBLISHED' })
+      .then(res => setPublishedTemplates((res.data || []).filter((tpl: PublishedTemplate) => tpl.published_version_id)))
+      .catch(() => setPublishedTemplates([]));
+  }, [createDialogOpen]);
+  // Same job family first, then same level, then by title.
+  const sameLevel = (tpl: PublishedTemplate) => !!formData.level.trim() && (tpl.level_band || '').trim().toLowerCase() === formData.level.trim().toLowerCase();
+  const sortedTemplates = [...publishedTemplates].sort((a, b) =>
+    Number(b.job_family_id === formData.job_family_id) - Number(a.job_family_id === formData.job_family_id)
+    || Number(sameLevel(b)) - Number(sameLevel(a)) || a.title.localeCompare(b.title));
+  const startTemplate = publishedTemplates.find(tpl => tpl.published_version_id === startTemplateVersionId);
+
+  // Choosing a template also pre-fills the JD with its sample JD. A JD HR wrote or imported is only
+  // replaced after confirmation; a JD that still holds the previous template's sample is refreshed silently.
+  const chooseStartTemplate = async (versionId: string) => {
+    setStartTemplateVersionId(versionId);
+    const tpl = publishedTemplates.find(item => item.published_version_id === versionId);
+    if (!versionId || !tpl?.published_has_jd) return;
+    try {
+      const sample = ((await rubricApi.getVersion(versionId)).data?.jd_template || '').trim();
+      if (!sample) return;
+      const current = formData.jd_content.trim();
+      if (current && current !== jdFromTemplate.trim() && current !== sample
+          && !window.confirm(t("Mẫu này có JD mẫu. Thay nội dung JD hiện tại bằng JD mẫu?"))) return;
+      setJdFromTemplate(sample);
+      setFormData(prev => ({ ...prev, jd_content: sample }));
+    } catch { /* the template is still applied; HR writes the JD */ }
+  };
 
   const handleCreatePosition = async () => {
     try {
@@ -127,13 +165,29 @@ export default function PositionsPage() {
         ...(formData.level.trim() ? { level: formData.level.trim() } : {}),
         ...(formData.posting_content.trim() ? { posting_content: formData.posting_content.trim() } : {}),
       };
-      await positionsApi.create(payload);
+      const created = (await positionsApi.create(payload)).data;
+      const templateVersionId = startTemplateVersionId;
       setCreateDialogOpen(false);
+      setStartTemplateVersionId(''); setJdFromTemplate('');
       setFormData({ department_id: '', title: '', jd_content: '', hiring_manager_user_id: '', job_family_id: '', level: '', posting_content: '' });
       setJdUrl(''); setJdImportResult(null); setJdImportError(null); setAiFilled({ title: '', level: '', levelInferred: false });
       setHmSelectedName('');
       setHmSearchQuery('');
       setHmOptions([]);
+      if (templateVersionId && created?.position_id) {
+        // The template becomes a criteria DRAFT; HR and the Hiring Manager still approve it on the position page.
+        try {
+          await criteriaApi.applyTemplate(created.position_id, templateVersionId);
+        } catch (err: any) {
+          const detail = err.response?.data?.detail;
+          setError(t("Đã tạo vị trí {0} nhưng chưa áp dụng được mẫu: {1}. Bạn có thể áp dụng lại bằng nút \"Áp dụng từ thư viện\" trên trang vị trí.",
+            created.position_code || '', typeof detail === 'string' ? t(detail) : t("lỗi không xác định")));
+          await loadPositions();
+          return;
+        }
+        router.push(`/positions/${created.position_id}`);
+        return;
+      }
       await loadPositions();
     } catch (err: any) {
       setCreateError(err.response?.data?.detail || t("Không thể tạo vị trí mới"));
@@ -479,6 +533,34 @@ export default function PositionsPage() {
               </datalist>
             </Grid>
             <Grid item xs={12}>
+              <TextField select fullWidth label={t("Bộ tiêu chí ban đầu")} value={startTemplateVersionId}
+                onChange={(e) => { void chooseStartTemplate(e.target.value); }}
+                SelectProps={{ displayEmpty: true, renderValue: () => startTemplate
+                  ? `${startTemplate.title}${startTemplate.level_band ? ` · ${startTemplate.level_band}` : ''}`
+                  : t("Để sau: AI đề xuất từ JD hoặc tự soạn trên trang vị trí") }}
+                InputLabelProps={{ shrink: true }}
+                helperText={startTemplate
+                  ? t("Mẫu được sao chép thành bộ tiêu chí nháp cho vị trí; HR và Hiring Manager vẫn phải duyệt trước khi chấm CV.")
+                  : publishedTemplates.length
+                    ? t("Chọn một mẫu trong thư viện rubric, hoặc để AI đề xuất tiêu chí từ JD trên trang vị trí.")
+                    : t("Thư viện rubric chưa có mẫu nào được xuất bản.")}>
+                <MenuItem value="">{t("Để sau: AI đề xuất từ JD hoặc tự soạn trên trang vị trí")}</MenuItem>
+                {sortedTemplates.map(tpl => (
+                  <MenuItem key={tpl.published_version_id!} value={tpl.published_version_id!}>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span>{tpl.title}{tpl.level_band ? ` · ${tpl.level_band}` : ''}</span>
+                      <Typography component="span" variant="caption" color="text.secondary">
+                        {tpl.job_family_name} · {t("{0} tiêu chí", tpl.published_item_count)} · {t("Phiên bản ")}{tpl.published_version_number}
+                        {tpl.published_has_jd ? ` · ${t("Có JD mẫu")}` : ''}
+                      </Typography>
+                      {formData.job_family_id && tpl.job_family_id === formData.job_family_id && <Chip size="small" color="success" label={t("Cùng nhóm ngành")} />}
+                      {sameLevel(tpl) && <Chip size="small" color="success" label={t("Cùng cấp bậc")} />}
+                    </Box>
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12}>
               <Autocomplete
                 options={hmOptions}
                 loading={hmLoading}
@@ -580,7 +662,9 @@ export default function PositionsPage() {
                 value={formData.jd_content}
                 onChange={(e) => setFormData({ ...formData, jd_content: e.target.value })}
                 placeholder="Paste full JD content here..."
-                helperText={t("Sau khi tạo, bạn có thể yêu cầu AI đề xuất bản nháp tiêu chí từ JD")}
+                helperText={jdFromTemplate && formData.jd_content.trim() === jdFromTemplate.trim()
+                  ? t("JD mẫu điền từ thư viện rubric; hãy chỉnh lại cho vị trí này.")
+                  : t("Sau khi tạo, bạn có thể yêu cầu AI đề xuất bản nháp tiêu chí từ JD")}
               />
             </Grid>
             <Grid item xs={12}>
