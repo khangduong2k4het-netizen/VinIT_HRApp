@@ -26,7 +26,13 @@ const STATUS: Record<EmailRow['status'], { label: string; color: 'default' | 'in
   CANCELLED: { label: 'Đã hủy', color: 'default' },
 };
 
-export type EmailRequest = { applicationId: string; template: EmailTemplateCode; trigger: 'MANUAL' | 'STATUS_CHANGE'; nonce: number } | null;
+export type EmailRequest = {
+  applicationId: string;
+  template: EmailTemplateCode;
+  trigger: 'MANUAL' | 'STATUS_CHANGE';
+  nonce: number;
+  prefillInterview?: { time?: string; place?: string };
+} | null;
 
 export default function CandidateEmailPanel({ applicationId, request }: { applicationId: string; request?: EmailRequest }) {
   const { t, dateLocale } = useI18n();
@@ -35,7 +41,12 @@ export default function CandidateEmailPanel({ applicationId, request }: { applic
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [openEmail, setOpenEmail] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<{ template: EmailTemplateCode; trigger: 'MANUAL' | 'STATUS_CHANGE'; draft: EmailDraft | null } | null>(null);
+  const [dialog, setDialog] = useState<{
+    template: EmailTemplateCode;
+    trigger: 'MANUAL' | 'STATUS_CHANGE';
+    draft: EmailDraft | null;
+    prefillInterview?: { time?: string; place?: string };
+  } | null>(null);
 
   const load = useCallback(async () => {
     try { setError(null); setEmails((await candidateEmailsApi.forApplication(applicationId)).data.emails); }
@@ -49,7 +60,7 @@ export default function CandidateEmailPanel({ applicationId, request }: { applic
     // Only for this candidate: the page keeps the request while HR moves to the next one.
     if (!request || request.applicationId !== applicationId) return;
     setExpanded(true);
-    setDialog({ template: request.template, trigger: request.trigger, draft: null });
+    setDialog({ template: request.template, trigger: request.trigger, draft: null, prefillInterview: request.prefillInterview });
   }, [request, applicationId]);
 
   const [retrying, setRetrying] = useState<string | null>(null);
@@ -143,6 +154,7 @@ export default function CandidateEmailPanel({ applicationId, request }: { applic
         open={!!dialog}
         applicationId={applicationId}
         templateCode={dialog?.template}
+        prefillInterview={dialog?.prefillInterview}
         triggerSource={dialog?.trigger}
         draft={dialog?.draft}
         onClose={() => setDialog(null)}

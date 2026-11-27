@@ -52,6 +52,7 @@ import CVDocumentViewer from '@/components/candidates/CVDocumentViewer';
 import HRNotesPanel from '@/components/candidates/HRNotesPanel';
 import CrossDuplicatesPanel from '@/components/candidates/CrossDuplicatesPanel';
 import CandidateEmailPanel, { type EmailRequest } from '@/components/candidates/CandidateEmailPanel';
+import InterviewPanel from '@/components/candidates/InterviewPanel';
 import {
   filterAndSortApplicantItems,
   mergeRankingWithApplications,
@@ -550,13 +551,26 @@ export default function ApplicantDetailPage() {
 
       {/* Sibling keys must differ: both panels used key={applicantId}, which React reports as duplicate keys. */}
       {application.can_view_cv && <CandidateProfilePanel key={`profile-${applicantId}`} applicationId={applicantId} canEdit={!!application.can_update_status} onSaved={() => { loadData(); }} />}
+      <InterviewPanel
+        key={`interviews-${applicantId}`}
+        applicationId={applicantId}
+        onInviteEmail={application.can_update_status
+          ? (time, place) => setEmailRequest({
+              applicationId: applicantId,
+              template: 'INTERVIEW_INVITE',
+              trigger: 'MANUAL',
+              nonce: Date.now(),
+              prefillInterview: { time, place },
+            })
+          : undefined}
+      />
       {application.can_update_status && <CandidateEmailPanel key={`emails-${applicantId}`} applicationId={applicantId} request={emailRequest} />}
       {application.can_manage_hr_notes && <HRNotesPanel key={`notes-${applicantId}`} applicationId={applicantId} />}
       {application.can_update_status && <CrossDuplicatesPanel key={`duplicates-${applicantId}`} applicationId={applicantId}
         versionKey={JSON.stringify(application.identity)} />}
 
       {application.can_update_status && (
-        <Accordion disableGutters elevation={0} sx={{ mb: 3, border: '1px solid #E4E7EC', borderRadius: '8px !important', '&:before': { display: 'none' } }}>
+        <Accordion disableGutters elevation={0} sx={{ mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: '10px !important', '&:before': { display: 'none' } }}>
           <AccordionSummary expandIcon={<ExpandMoreIcon />} aria-controls="status-history-content" id="status-history-header">
             <Typography fontWeight={600}>{t("Lịch sử trạng thái ")}{history.length > 0 && `(${history.length})`}</Typography>
           </AccordionSummary>

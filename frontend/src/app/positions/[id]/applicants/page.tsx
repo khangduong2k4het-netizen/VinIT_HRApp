@@ -63,6 +63,7 @@ import Link from 'next/link';
 import { assessmentsApi, operationsApi, applicationsApi, shortlistApi } from '@/lib/api';
 import { notifyUrlChanged, useScrollMemory } from '@/lib/navMemory';
 import PageHeader from '@/components/common/PageHeader';
+import ActionOverflowMenu from '@/components/common/ActionOverflowMenu';
 import StatusBadge from '@/components/common/StatusBadge';
 import QueueFilterChips from '@/components/applicants/QueueFilterChips';
 import { useOverrideGate } from '@/components/applicants/OverrideReasonDialog';
@@ -441,10 +442,15 @@ export default function ApplicantsRankingPage() {
         title={t("Danh sách ưu tiên rà soát ứng viên")}
         description={t("Xếp hạng sàng lọc theo phiên bản tiêu chí mới nhất đã duyệt; số thứ hạng là tại lần chạy gần nhất.")}
         actions={
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            <Button variant="outlined" size="small" startIcon={<RefreshIcon />} onClick={loadRanking}>{t("Làm mới")}</Button>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
             <Button variant="outlined" size="small" startIcon={<ShareIcon />} onClick={handleOpenShare}>{t("Chia sẻ Shortlist")}</Button>
-            <Button variant="outlined" size="small" startIcon={<FileDownloadOutlinedIcon />} onClick={() => setExportOpen(true)}>{t("Xuất báo cáo")}</Button>
+            <ActionOverflowMenu
+              label={t('Thao tác khác')}
+              items={[
+                { label: t("Xuất báo cáo"), icon: <FileDownloadOutlinedIcon fontSize="small" />, onClick: () => setExportOpen(true) },
+                { label: t("Làm mới"), icon: <RefreshIcon fontSize="small" />, onClick: loadRanking },
+              ]}
+            />
             <Button
               variant="contained"
               color="secondary"

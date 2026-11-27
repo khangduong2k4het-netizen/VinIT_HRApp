@@ -38,6 +38,8 @@ type Props = {
   templateCode?: EmailTemplateCode;
   /** Talent Pool invitation: the scan whose CONTACT decision and contact reveal allow it. */
   poolScanId?: string;
+  /** Optional prefill from a scheduled interview session (fills {thoi_gian_pv} and {dia_diem_pv}). */
+  prefillInterview?: { time?: string; place?: string } | null;
   triggerSource?: 'MANUAL' | 'STATUS_CHANGE';
   draft?: EmailDraft | null;
   onClose: () => void;
@@ -50,7 +52,7 @@ export function unresolvedPlaceholders(...parts: string[]): string[] {
   return Array.from(found).sort();
 }
 
-export default function CandidateEmailDialog({ open, applicationId, templateCode = 'ACK_RECEIVED', poolScanId, triggerSource = 'MANUAL', draft, onClose, onDone }: Props) {
+export default function CandidateEmailDialog({ open, applicationId, templateCode = 'ACK_RECEIVED', poolScanId, prefillInterview, triggerSource = 'MANUAL', draft, onClose, onDone }: Props) {
   const { t } = useI18n();
   const [template, setTemplate] = useState<EmailTemplateCode>(templateCode);
   const [loading, setLoading] = useState(false);
@@ -87,7 +89,17 @@ export default function CandidateEmailDialog({ open, applicationId, templateCode
           const d = res.data;
           setSender({ from_address: d.from_address, reply_to_address: d.reply_to_address, send_mode: d.send_mode });
           setToAddress(d.to_address); setToSource(d.to_source); setProfileEmail(d.to_address);
-          setSubject(d.subject); setBody(d.body); setWarnings(d.warnings || []);
+          const preTime = (prefillInterview?.time || '').trim();
+          const prePlace = (prefillInterview?.place || '').trim();
+          const fill = (value: string) => {
+            let out = value;
+            if (preTime) out = out.split('{thoi_gian_pv}').join(preTime);
+            if (prePlace) out = out.split('{dia_diem_pv}').join(prePlace);
+            return out;
+          };
+          setSubject(fill(d.subject)); setBody(fill(d.body)); setWarnings(d.warnings || []);
+          if (preTime) setInterviewTime(preTime);
+          if (prePlace) setInterviewPlace(prePlace);
         });
     load.catch((err: any) => { if (active) setError(err.response?.data?.detail || t('Không thể soạn thư.')); })
       .finally(() => { if (active) setLoading(false); });

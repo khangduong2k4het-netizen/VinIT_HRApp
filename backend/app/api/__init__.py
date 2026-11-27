@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from . import quality, cross_duplicates, candidate_reports, public_intake, talent_pool, partner_intake, candidate_emails, mailbox
+from . import quality, cross_duplicates, candidate_reports, public_intake, talent_pool, partner_intake, candidate_emails, mailbox, interviews
 from . import auth, users, positions, criteria, applications, assessments, shortlist, dashboard, admin, account_admin, reset_requests, admin_recovery, operations, candidate_details, departments, retention, rubric_library, scorecards, analytics
 
 api_router = APIRouter()
@@ -28,6 +28,7 @@ api_router.include_router(partner_intake.router, prefix="/intake", tags=["Partne
 api_router.include_router(talent_pool.router, prefix="/talent-pool", tags=["Talent Pool"])
 api_router.include_router(candidate_emails.router, prefix="/candidate-emails", tags=["Candidate Emails"])
 api_router.include_router(mailbox.router, prefix="/mailbox", tags=["Mailbox CV Intake"])
+api_router.include_router(interviews.router, prefix="/interviews", tags=["Interview Coordination"])
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin Configuration"])
 api_router.include_router(account_admin.router, prefix="/admin/users", tags=["Admin Accounts"])
 api_router.include_router(admin_recovery.router, prefix="/auth/recovery", tags=["Admin Recovery"])

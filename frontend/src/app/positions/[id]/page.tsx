@@ -50,6 +50,7 @@ import Link from 'next/link';
 import { positionsApi, criteriaApi, applicationsApi, operationsApi, authApi, dashboardApi, rubricApi } from '@/lib/api';
 import { setUrlParam } from '@/lib/navMemory';
 import PageHeader from '@/components/common/PageHeader';
+import ActionOverflowMenu from '@/components/common/ActionOverflowMenu';
 import PositionIntakeChannelsCard from '@/components/positions/PositionIntakeChannelsCard';
 
 const TAB_SLUGS = ['criteria', 'applications', 'shortlist', 'jd', 'history'] as const;
@@ -688,58 +689,58 @@ export default function PositionDetailPage() {
       <PageHeader
         eyebrow={position.position_code || t('Vị trí tuyển dụng')}
         title={position.title}
-        actions={
+        actions={isHR ? (
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-            {isHR && <Button variant="outlined" size="small" startIcon={<EditOutlinedIcon />} onClick={openPositionDialog}>{t("Chỉnh sửa vị trí")}</Button>}
-            {isHR && (
-              <Button variant="outlined" size="small" startIcon={<LibraryBooksIcon />} onClick={openTemplateDialog} disabled={hasOpenCriteria}>
-                {t("Áp dụng từ thư viện")}
-              </Button>
-            )}
-            {isHR && approvedCriteria && (
-              <Button variant="outlined" size="small" startIcon={<BookmarkAddOutlinedIcon />} onClick={openSaveTemplateDialog}>
-                {t("Lưu thành mẫu")}
-              </Button>
-            )}
-            {canCreateNewVersion && (
-              <Button variant="outlined" size="small" startIcon={creatingVersion ? <CircularProgress size={16} /> : <ContentCopyIcon />}
-                onClick={handleCreateNewVersion} disabled={creatingVersion}>
-                {t("Sao chép để chỉnh sửa")}
-              </Button>
-            )}
-            {isHR && (
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<AutoAwesomeIcon />}
-                onClick={handleGenerateCriteria}
-                disabled={generating || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status))}
-              >
-                {generating ? <CircularProgress size={16} sx={{ mr: 1 }} /> : null}
-                {currentCriteria?.status === 'APPROVED' ? t("Tạo phiên bản tiêu chí mới") : t("Đề xuất tiêu chí AI")}
-              </Button>
-            )}
-            {isHR && (
-              <Button
-                variant="outlined"
-                size="small"
-                component={Link}
-                href={`/positions/${positionId}/talent-pool`}
-                disabled={!approvedCriteria || position.status !== 'OPEN'}
-              >{t("Quét Talent Pool")}</Button>
-            )}
-            {isHR && (
-              <Button
-                variant="contained"
-                color="secondary"
-                size="small"
-                startIcon={<UploadFileIcon />}
-                onClick={scrollToIntake}
-                disabled={!approvedCriteria || position.status !== 'OPEN' || isOperationRunning}
-              >{t("Tải lên CV")}</Button>
-            )}
+            <Button variant="outlined" size="small" startIcon={<EditOutlinedIcon />} onClick={openPositionDialog}>
+              {t("Chỉnh sửa vị trí")}
+            </Button>
+            <ActionOverflowMenu
+              label={t('Thao tác khác')}
+              items={[
+                {
+                  label: currentCriteria?.status === 'APPROVED' ? t("Tạo phiên bản tiêu chí mới") : t("Đề xuất tiêu chí AI"),
+                  icon: generating ? <CircularProgress size={16} /> : <AutoAwesomeIcon fontSize="small" />,
+                  onClick: handleGenerateCriteria,
+                  disabled: generating || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status)),
+                },
+                {
+                  label: t("Áp dụng từ thư viện"),
+                  icon: <LibraryBooksIcon fontSize="small" />,
+                  onClick: openTemplateDialog,
+                  disabled: hasOpenCriteria,
+                },
+                {
+                  label: t("Lưu thành mẫu"),
+                  icon: <BookmarkAddOutlinedIcon fontSize="small" />,
+                  onClick: openSaveTemplateDialog,
+                  hidden: !approvedCriteria,
+                },
+                {
+                  label: t("Sao chép để chỉnh sửa"),
+                  icon: creatingVersion ? <CircularProgress size={16} /> : <ContentCopyIcon fontSize="small" />,
+                  onClick: handleCreateNewVersion,
+                  disabled: creatingVersion,
+                  hidden: !canCreateNewVersion,
+                },
+                {
+                  label: t("Quét Talent Pool"),
+                  href: `/positions/${positionId}/talent-pool`,
+                  disabled: !approvedCriteria || position.status !== 'OPEN',
+                },
+              ]}
+            />
+            <Button
+              variant="contained"
+              color="secondary"
+              size="small"
+              startIcon={<UploadFileIcon />}
+              onClick={scrollToIntake}
+              disabled={!approvedCriteria || position.status !== 'OPEN' || isOperationRunning}
+            >
+              {t("Tải lên CV")}
+            </Button>
           </Box>
-        }
+        ) : undefined}
       />
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: -1.5, mb: 2.5, flexWrap: 'wrap' }}>

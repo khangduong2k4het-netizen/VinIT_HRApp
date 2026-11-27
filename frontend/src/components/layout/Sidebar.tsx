@@ -19,6 +19,7 @@ import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import AutoGraphOutlinedIcon from '@mui/icons-material/AutoGraphOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined';
+import EventAvailableOutlinedIcon from '@mui/icons-material/EventAvailableOutlined';
 import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import MoveToInboxOutlinedIcon from '@mui/icons-material/MoveToInboxOutlined';
 import AlternateEmailOutlinedIcon from '@mui/icons-material/AlternateEmailOutlined';
@@ -38,6 +39,7 @@ const menuGroups = [
       { text: 'Tổng quan công việc', icon: <SpaceDashboardOutlinedIcon fontSize="small" />, href: '/dashboard' },
       { text: 'Vị trí tuyển dụng', icon: <WorkOutlineIcon fontSize="small" />, href: '/positions' },
       { text: 'Shortlist & phản hồi', icon: <PeopleOutlineIcon fontSize="small" />, href: '/shortlist' },
+      { text: 'Lịch phỏng vấn', icon: <EventAvailableOutlinedIcon fontSize="small" />, href: '/interviews' },
       { text: 'Thư viện rubric', icon: <LibraryBooksOutlinedIcon fontSize="small" />, href: '/rubric-library', hrOnly: true },
       { text: 'Talent Pool', icon: <GroupsOutlinedIcon fontSize="small" />, href: '/talent-pool', hrOnly: true },
       { text: 'Hộp thư CV', icon: <MoveToInboxOutlinedIcon fontSize="small" />, href: '/mail-triage', hrOnly: true },

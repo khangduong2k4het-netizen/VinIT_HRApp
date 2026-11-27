@@ -347,6 +347,30 @@ export const mailboxApi = {
   retry: (messageId: string) => apiClient.post(`/mailbox/messages/${messageId}/retry`),
 };
 
+// Interview Coordination: rounds, panelist conflict checks, .ics export & AI Interview Prep Brief.
+export type InterviewFormat = 'ONLINE' | 'ONSITE' | 'PHONE';
+export type InterviewStatus = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
+export const interviewsApi = {
+  mySchedule: (params?: { from_date?: string; to_date?: string; include_cancelled?: boolean }) =>
+    apiClient.get('/interviews/my-schedule', { params }),
+  forApplication: (applicationId: string) =>
+    apiClient.get(`/interviews/applications/${applicationId}`),
+  schedule: (applicationId: string, data: {
+    round_no: number; title: string; starts_at: string; ends_at: string;
+    format: InterviewFormat; location_or_link?: string | null; prep_notes?: string | null;
+    panelists: Array<{ user_id: string; panel_role?: 'LEAD_INTERVIEWER' | 'INTERVIEWER' | 'OBSERVER' }>;
+    allow_conflict?: boolean;
+  }) => apiClient.post(`/interviews/applications/${applicationId}`, data),
+  update: (sessionId: string, data: {
+    title?: string; session_status?: InterviewStatus; starts_at?: string; ends_at?: string;
+    format?: InterviewFormat; location_or_link?: string | null; prep_notes?: string | null;
+    panelists?: Array<{ user_id: string; panel_role?: 'LEAD_INTERVIEWER' | 'INTERVIEWER' | 'OBSERVER' }>;
+    allow_conflict?: boolean;
+  }) => apiClient.patch(`/interviews/${sessionId}`, data),
+  downloadIcs: (sessionId: string) =>
+    apiClient.get(`/interviews/${sessionId}/calendar.ics`, { responseType: 'blob' }),
+};
+
 export const talentPoolApi = {
   state: (applicationId: string) => apiClient.get(`/talent-pool/applications/${applicationId}`),
   mark: (applicationId: string, reasonCode: string) =>
