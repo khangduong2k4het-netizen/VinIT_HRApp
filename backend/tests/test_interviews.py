@@ -100,3 +100,108 @@ def test_schedule_conflict_detection_rbac_ics_and_status_update(client, seed):
     # HR marks session COMPLETED.
     upd = client.patch(f"/v1/interviews/{sid}", headers=headers(seed["hr"]), json={"session_status": "COMPLETED"})
     assert upd.status_code == 200 and upd.json()["session_status"] == "COMPLETED"
+
+
+def test_panelist_must_be_active_and_position_eligible_and_prep_brief_queries_evidence(client, seed):
+    from uuid import uuid4
+    from test_hr_analytics import _assessed_application
+
+    app_id = _assessed_application(seed, "NEEDS_HR_VERIFICATION", "Brief Candidate")
+    with engine.begin() as conn:
+        aid = conn.execute(
+            text("SELECT assessment_id FROM app_private.assessment_runs WHERE application_id = :a"),
+            {"a": app_id},
+        ).scalar_one()
+        cid = conn.execute(
+            text("SELECT criterion_id FROM app_private.criteria_items WHERE criteria_version_id = :cv LIMIT 1"),
+            {"cv": seed["cv"]},
+        ).scalar_one_or_none()
+        if not cid:
+            cid = str(uuid4())
+            conn.execute(text("""
+                INSERT INTO app_private.criteria_items
+                    (criterion_id, criteria_version_id, name, description, category, weight_in_group, display_order)
+                VALUES (:c, :cv, 'System Design', 'Distributed systems', 'MUST_HAVE', 100, 1)
+            """), {"c": cid, "cv": seed["cv"]})
+        rid = conn.execute(text("""
+            INSERT INTO app_private.criterion_assessment_results
+                (assessment_id, criterion_id, outcome, score, confidence, reasoning, requires_hr_verification)
+            VALUES (:a, :c, 'UNCLEAR', 40, 0.5, 'Need interview check', TRUE)
+            RETURNING result_id
+        """), {"a": aid, "c": cid}).scalar_one()
+        doc_id = conn.execute(text("""
+            INSERT INTO app_private.application_documents
+                (application_id, document_type, bucket, storage_path, original_filename, mime_type, size_bytes, file_processing_status)
+            VALUES (:a, 'CV', 'cv', 'test/brief.pdf', 'brief.pdf', 'application/pdf', 1024, 'COMPLETED')
+            RETURNING document_id
+        """), {"a": app_id}).scalar_one()
+        conn.execute(text("""
+            INSERT INTO app_private.evidence_items
+                (criterion_result_id, source_document_id, verbatim_quote, page_number, verification_status)
+            VALUES (:r, :d, 'Built internal API gateway', 1, 'VERIFIED')
+        """), {"r": rid, "d": doc_id})
+
+        # Create a disabled user who even has a position assignment — must still be rejected.
+        inactive_uid = str(uuid4())
+        conn.execute(text("""
+            INSERT INTO auth.users (id, email) VALUES (:u, 'disabled-panelist@example.com')
+        """), {"u": inactive_uid})
+        conn.execute(text("""
+            INSERT INTO app_private.user_profiles (user_id, display_name, account_status)
+            VALUES (:u, 'Suspended Reviewer', 'SUSPENDED')
+        """), {"u": inactive_uid})
+        conn.execute(text("""
+            INSERT INTO app_private.position_assignments (position_id, user_id, position_role)
+            VALUES (:p, :u, 'HIRING_MANAGER')
+        """), {"p": seed["pos"], "u": inactive_uid})
+
+    start = (datetime.now(timezone.utc) + timedelta(days=5)).replace(hour=2, minute=0, second=0, microsecond=0)
+    end = start + timedelta(hours=1)
+    base = {
+        "round_no": 1,
+        "title": "Vòng kiểm tra quyền hội đồng",
+        "starts_at": start.isoformat(),
+        "ends_at": end.isoformat(),
+        "format": "ONLINE",
+        "location_or_link": "https://meet.vinuni.edu.vn/check",
+    }
+
+    # Unrelated active HR (not assigned to this position) -> 400.
+    bad_unrelated = client.post(
+        f"/v1/interviews/applications/{app_id}",
+        headers=headers(seed["hr"]),
+        json={**base, "panelists": [{"user_id": seed["hr2"], "panel_role": "INTERVIEWER"}]},
+    )
+    assert bad_unrelated.status_code == 400
+
+    # Disabled user even with position assignment -> 400.
+    bad_inactive = client.post(
+        f"/v1/interviews/applications/{app_id}",
+        headers=headers(seed["hr"]),
+        json={**base, "panelists": [{"user_id": inactive_uid, "panel_role": "INTERVIEWER"}]},
+    )
+    assert bad_inactive.status_code == 400
+
+    # Eligible active HM on this position succeeds -> 201, and PATCH also rejects ineligible panelists.
+    ok = client.post(
+        f"/v1/interviews/applications/{app_id}",
+        headers=headers(seed["hr"]),
+        json={**base, "panelists": [{"user_id": seed["hm"], "panel_role": "LEAD_INTERVIEWER"}]},
+    )
+    assert ok.status_code == 201, ok.text
+    sid = ok.json()["session_id"]
+
+    bad_patch = client.patch(
+        f"/v1/interviews/{sid}",
+        headers=headers(seed["hr"]),
+        json={"panelists": [{"user_id": inactive_uid, "panel_role": "OBSERVER"}]},
+    )
+    assert bad_patch.status_code == 400
+
+    # GET /applications/{app_id} synthesizes the real AI Prep Brief from criterion_assessment_results + evidence_items.
+    detail = client.get(f"/v1/interviews/applications/{app_id}", headers=headers(seed["hr"]))
+    assert detail.status_code == 200, detail.text
+    brief = detail.json()["prep_brief"]
+    assert brief["probe_count"] == 1
+    assert brief["probe_points"][0]["evidence_quote"] == "Built internal API gateway"
+    assert brief["probe_points"][0]["page_number"] == 1

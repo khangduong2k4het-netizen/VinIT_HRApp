@@ -244,12 +244,12 @@ def _load_prep_brief(db, application_id: str) -> dict:
         return {"probe_points": [], "strengths": [], "probe_count": 0, "strength_count": 0}
     rows = db.execute(text("""
         SELECT car.criterion_id, ci.name AS criterion_name, ci.category,
-               car.outcome, car.requires_verification,
-               (SELECT ei.quote FROM app_private.evidence_items ei
-                WHERE ei.result_id = car.result_id
+               car.outcome, car.requires_hr_verification AS requires_verification,
+               (SELECT ei.verbatim_quote FROM app_private.evidence_items ei
+                WHERE ei.criterion_result_id = car.result_id
                 ORDER BY (ei.verification_status = 'VERIFIED') DESC, ei.evidence_id LIMIT 1) AS quote,
                (SELECT ei.page_number FROM app_private.evidence_items ei
-                WHERE ei.result_id = car.result_id
+                WHERE ei.criterion_result_id = car.result_id
                 ORDER BY (ei.verification_status = 'VERIFIED') DESC, ei.evidence_id LIMIT 1) AS page_number
         FROM app_private.criterion_assessment_results car
         JOIN app_private.criteria_items ci ON ci.criterion_id = car.criterion_id
@@ -257,6 +257,31 @@ def _load_prep_brief(db, application_id: str) -> dict:
         ORDER BY CASE ci.category WHEN 'MUST_HAVE' THEN 0 ELSE 1 END, ci.display_order
     """), {"aid": str(run_row[0])}).mappings().all()
     return build_prep_brief([dict(r) for r in rows])
+
+
+def _validate_eligible_panelists(db, position_id: str, panelist_ids: list[str]) -> None:
+    """Every panelist must be an ACTIVE user assigned to this position (or HR Lead / Admin)."""
+    if not panelist_ids:
+        return
+    valid_rows = db.execute(text("""
+        SELECT up.user_id::text AS user_id
+        FROM app_private.user_profiles up
+        WHERE up.user_id = ANY(CAST(:uids AS uuid[]))
+          AND up.account_status = 'ACTIVE'
+          AND (
+              EXISTS (SELECT 1 FROM app_private.position_assignments pa
+                      WHERE pa.position_id = :p AND pa.user_id = up.user_id AND pa.revoked_at IS NULL)
+              OR EXISTS (SELECT 1 FROM app_private.user_role_assignments r
+                         WHERE r.user_id = up.user_id AND r.revoked_at IS NULL
+                           AND r.role_code IN ('HR_LEAD', 'ADMIN'))
+          )
+    """), {"uids": panelist_ids, "p": position_id}).scalars().all()
+    valid_set = set(valid_rows)
+    if any(uid not in valid_set for uid in panelist_ids):
+        raise HTTPException(
+            status_code=400,
+            detail="Thành viên hội đồng phải là tài khoản đang hoạt động và có quyền trên vị trí này.",
+        )
 
 
 def _audit(db, user_id: str, action: str, session_id: str, position_id: str, metadata: dict) -> None:
@@ -418,6 +443,7 @@ async def schedule_interview(application_id: UUID, body: InterviewCreate, curren
 
             unique_panelists = {str(p.user_id): p.panel_role for p in body.panelists}
             panelist_ids = list(unique_panelists.keys())
+            _validate_eligible_panelists(db, pid, panelist_ids)
             conflicts = _find_panelist_conflicts(db, panelist_ids, body.starts_at, body.ends_at)
             if conflicts and not body.allow_conflict:
                 raise HTTPException(
@@ -498,6 +524,7 @@ async def update_interview(session_id: UUID, body: InterviewUpdate, current_user
             if body.panelists is not None:
                 unique_panelists = {str(p.user_id): p.panel_role for p in body.panelists}
                 panelist_ids = list(unique_panelists.keys())
+                _validate_eligible_panelists(db, pid, panelist_ids)
             else:
                 panelist_ids = [str(r[0]) for r in db.execute(
                     text("SELECT user_id FROM app_private.interview_panelists WHERE session_id = :sid"),
