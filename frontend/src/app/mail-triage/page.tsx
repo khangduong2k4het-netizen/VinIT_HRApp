@@ -7,11 +7,13 @@ import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, MenuItem, Stack, Tab, Tabs, TextField, Typography,
 } from '@mui/material';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
+import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ReplayIcon from '@mui/icons-material/Replay';
 import Link from 'next/link';
 import PageHeader from '@/components/common/PageHeader';
 import EmptyState from '@/components/common/EmptyState';
+import CandidateEmailDialog from '@/components/candidates/CandidateEmailDialog';
 import { mailboxApi, positionsApi, type MailboxStatus } from '@/lib/api';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -58,6 +60,7 @@ export default function MailTriagePage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [emailAppId, setEmailAppId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setItems(null);
@@ -176,10 +179,23 @@ export default function MailTriagePage() {
                   ))}
                 </Stack>
                 {tab === 'MATCHED' && item.position_code && (
-                  <Typography variant="body2" sx={{ mt: 1.5 }}>
-                    {t('Vào vị trí')} <b>{item.position_code}</b> {item.position_title ? `– ${item.position_title}` : ''} ({t(METHODS[item.match_method || ''] || '')})
-                    {item.application_id && item.position_id && <> · <Link href={`/positions/${item.position_id}/applicants/${item.application_id}`}>{t('Mở hồ sơ')}</Link></>}
-                  </Typography>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} justifyContent="space-between" sx={{ mt: 1.5 }}>
+                    <Typography variant="body2">
+                      {t('Vào vị trí')} <b>{item.position_code}</b> {item.position_title ? `– ${item.position_title}` : ''} ({t(METHODS[item.match_method || ''] || '')})
+                      {item.application_id && item.position_id && <> · <Link href={`/positions/${item.position_id}/applicants/${item.application_id}`}>{t('Mở hồ sơ')}</Link></>}
+                    </Typography>
+                    {item.application_id && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<MailOutlineIcon fontSize="small" />}
+                        onClick={() => setEmailAppId(item.application_id)}
+                        sx={{ flexShrink: 0 }}
+                      >
+                        {t('Gửi thư xác nhận')}
+                      </Button>
+                    )}
+                  </Stack>
                 )}
                 {tab === 'FAILED' && (
                   <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
@@ -220,6 +236,18 @@ export default function MailTriagePage() {
             </Card>
           ))}
         </Stack>
+      )}
+      {emailAppId && (
+        <CandidateEmailDialog
+          open={Boolean(emailAppId)}
+          applicationId={emailAppId}
+          templateCode="ACK_RECEIVED"
+          onClose={() => setEmailAppId(null)}
+          onDone={() => {
+            setEmailAppId(null);
+            setNotice(t('Đã gửi hoặc lưu thư xác nhận cho ứng viên.'));
+          }}
+        />
       )}
     </Box>
   );

@@ -427,4 +427,14 @@ export const analyticsApi = {
     apiClient.post('/analytics/quality/markers', data),
   exportGoldenSet: (params: { date_from?: string; date_to?: string; format?: 'json' | 'csv'; position_id?: string; department_id?: string; job_family_id?: string }) =>
     apiClient.get('/analytics/quality/golden-set/export', { params, responseType: 'blob' }),
+  evidenceCalibration: (params: { date_from?: string; date_to?: string; position_id?: string; department_id?: string; job_family_id?: string }) =>
+    apiClient.get('/analytics/quality/evidence-calibration', { params }),
+};
+
+// Closed-loop HR evidence verification (CONFIRMED / DISPUTED per criterion result).
+export const evidenceSignoffsApi = {
+  forApplication: (applicationId: string) =>
+    apiClient.get(`/assessments/applications/${applicationId}/signoffs`),
+  signoff: (resultId: string, data: { verdict: 'CONFIRMED' | 'DISPUTED'; reason_code?: string; note?: string }) =>
+    apiClient.post(`/assessments/results/${resultId}/signoff`, data),
 };

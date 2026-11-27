@@ -42,7 +42,7 @@ import ReplayIcon from '@mui/icons-material/Replay';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { applicationsApi, assessmentsApi, operationsApi } from '@/lib/api';
+import { applicationsApi, assessmentsApi, evidenceSignoffsApi, operationsApi } from '@/lib/api';
 import { useOverrideGate } from '@/components/applicants/OverrideReasonDialog';
 import StatusBadge from '@/components/common/StatusBadge';
 import StickyActionBar from '@/components/common/StickyActionBar';
@@ -60,7 +60,7 @@ import {
   storeApplicantNavigation,
   type ApplicantNavigationContext,
 } from '@/lib/applicantReview';
-import type { ApplicationWithAssessment } from '@/types';
+import type { ApplicationWithAssessment, EvidenceSignoff, EvidenceSignoffReasonCode } from '@/types';
 import { APPLICATION_STATUSES, APPLICATION_TRANSITIONS, isApplicationStatus } from '@/lib/applicationStatus';
 
 interface StatusEvent {
@@ -101,6 +101,7 @@ export default function ApplicantDetailPage() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [selectedPage, setSelectedPage] = useState(1);
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
+  const [signoffs, setSignoffs] = useState<Record<string, EvidenceSignoff>>({});
   const [navigationContext, setNavigationContext] = useState<ApplicantNavigationContext | null>(null);
   const [cvUrl, setCvUrl] = useState<string | null>(null);
   const [cvError, setCvError] = useState<string | null>(null);
@@ -140,6 +141,11 @@ export default function ApplicantDetailPage() {
           if (currentRequest === requestId.current) { setHistory(events.data || []); setHistoryError(null); }
         }).catch(() => { if (currentRequest === requestId.current) setHistoryError(t("Không thể tải lịch sử trạng thái.")); });
       } else { setHistory([]); setHistoryError(null); }
+      if (res.data.can_view_assessment_evidence) {
+        evidenceSignoffsApi.forApplication(applicantId).then(resSignoffs => {
+          if (currentRequest === requestId.current) setSignoffs(resSignoffs.data?.signoffs || {});
+        }).catch(() => { if (currentRequest === requestId.current) setSignoffs({}); });
+      } else { setSignoffs({}); }
       if (res.data.can_view_cv) {
         try {
           const cvRes = await applicationsApi.getCvUrl(applicantId);
@@ -262,6 +268,14 @@ export default function ApplicantDetailPage() {
   }, [reprocessOperationId, loadData, t]);
 
   const jumpToPage = (page: number) => { if (page >= 1) setSelectedPage(page); };
+
+  const handleEvidenceSignoff = async (
+    resultId: string,
+    payload: { verdict: 'CONFIRMED' | 'DISPUTED'; reason_code?: EvidenceSignoffReasonCode; note?: string },
+  ) => {
+    const res = await evidenceSignoffsApi.signoff(resultId, payload);
+    setSignoffs(prev => ({ ...prev, [resultId]: res.data }));
+  };
 
   if (loading) {
     return (
@@ -529,6 +543,9 @@ export default function ApplicantDetailPage() {
                   hasCv={Boolean(cvUrl)}
                   selected={selectedEvidenceId === result.criterion_id}
                   onJumpToPage={(page, criterionId) => { setSelectedEvidenceId(criterionId); jumpToPage(page); }}
+                  signoff={result.result_id ? signoffs[result.result_id] || null : null}
+                  canReview={Boolean(application.can_update_status)}
+                  onSignoff={handleEvidenceSignoff}
                 />
               ))}
             </Box>

@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from . import quality, cross_duplicates, candidate_reports, public_intake, talent_pool, partner_intake, candidate_emails, mailbox, interviews
+from . import quality, cross_duplicates, candidate_reports, public_intake, talent_pool, partner_intake, candidate_emails, mailbox, interviews, evidence_signoffs
 from . import auth, users, positions, criteria, applications, assessments, shortlist, dashboard, admin, account_admin, reset_requests, admin_recovery, operations, candidate_details, departments, retention, rubric_library, scorecards, analytics
 
 api_router = APIRouter()
@@ -14,6 +14,9 @@ api_router.include_router(positions.router, prefix="/positions", tags=["Position
 api_router.include_router(criteria.router, prefix="/criteria", tags=["Criteria & Rubric"])
 api_router.include_router(applications.router, prefix="/applications", tags=["Applications & CVs"])
 api_router.include_router(candidate_details.router, prefix="/applications", tags=["Candidate details"])
+# Evidence sign-offs first: literal paths (/applications/.../signoffs, /results/.../signoff)
+# must win over /assessments/{assessment_id}.
+api_router.include_router(evidence_signoffs.router, prefix="/assessments", tags=["Evidence Sign-Off"])
 api_router.include_router(assessments.router, prefix="/assessments", tags=["AI Assessment & Ranking"])
 # Scorecards first: their literal paths must win over /shortlist/{share_id}.
 api_router.include_router(scorecards.router, prefix="/shortlist", tags=["Shortlist Scorecards"])

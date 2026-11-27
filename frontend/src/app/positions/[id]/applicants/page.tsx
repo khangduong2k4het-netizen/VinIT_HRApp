@@ -47,7 +47,9 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
+import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import ExportReportDialog from '@/components/reports/ExportReportDialog';
+import BatchCandidateEmailDialog from '@/components/candidates/BatchCandidateEmailDialog';
 import Checkbox from '@mui/material/Checkbox';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
@@ -138,6 +140,7 @@ export default function ApplicantsRankingPage() {
   // F2.09: 2–4 assessed candidates for side-by-side comparison, and export.
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [exportOpen, setExportOpen] = useState(false);
+  const [batchEmailOpen, setBatchEmailOpen] = useState(false);
   const toggleCompare = (appId: string) => {
     setCompareIds(prev => prev.includes(appId) ? prev.filter(id => id !== appId)
       : prev.length >= 4 ? prev : [...prev, appId]);
@@ -447,6 +450,7 @@ export default function ApplicantsRankingPage() {
             <ActionOverflowMenu
               label={t('Thao tác khác')}
               items={[
+                { label: t("Soạn thư hàng loạt"), icon: <MailOutlineIcon fontSize="small" />, onClick: () => setBatchEmailOpen(true), disabled: rankingItems.length === 0 },
                 { label: t("Xuất báo cáo"), icon: <FileDownloadOutlinedIcon fontSize="small" />, onClick: () => setExportOpen(true) },
                 { label: t("Làm mới"), icon: <RefreshIcon fontSize="small" />, onClick: loadRanking },
               ]}
@@ -557,6 +561,7 @@ export default function ApplicantsRankingPage() {
           <Typography variant="body2" fontWeight={700}>{t("Đã chọn {0} hồ sơ shortlist", selectedIds.size)}</Typography>
           <Box sx={{ flex: 1 }} />
           <Button size="small" onClick={() => setSelectedIds(new Set())}>{t("Bỏ chọn")}</Button>
+          <Button size="small" variant="outlined" startIcon={<MailOutlineIcon />} onClick={() => setBatchEmailOpen(true)}>{t("Soạn thư hàng loạt")}</Button>
           <Button size="small" variant="contained" color="secondary" startIcon={<ShareIcon />} onClick={handleOpenShare}>{t("Chia sẻ Shortlist")}</Button>
         </Box>
       )}
@@ -922,6 +927,21 @@ export default function ApplicantsRankingPage() {
       {overrideGate.dialog}
       <ExportReportDialog open={exportOpen} onClose={() => setExportOpen(false)} positionId={positionId}
         selectedIds={compareIds} />
+      <BatchCandidateEmailDialog
+        open={batchEmailOpen}
+        candidates={rankingItems.map(item => ({
+          application_id: item.application_id,
+          candidate_name: item.candidate_name || t("Chưa trích xuất tên"),
+          application_status: item.application_status,
+          matching_score: item.matching_score,
+        }))}
+        initialSelectedIds={Array.from(selectedIds)}
+        onClose={() => setBatchEmailOpen(false)}
+        onDone={() => {
+          setBatchEmailOpen(false);
+          setNotice("Đã hoàn tất đợt rà soát thư gửi ứng viên.");
+        }}
+      />
     </Box>
   );
 }
