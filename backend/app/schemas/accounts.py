@@ -119,15 +119,32 @@ class ResetPasswordRequest(BaseModel):
     _password = field_validator("new_password")(validate_password)
 
 
+def _one_line(value: str) -> str:
+    """Trim, drop control characters and collapse whitespace (a name or unit is a single line)."""
+    cleaned = "".join(ch if ch.isprintable() else " " for ch in value)
+    return " ".join(cleaned.split())
+
+
 class PasswordResetRequestInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     email: EmailStr
     reason: str = Field(min_length=5, max_length=500)
+    full_name: str = Field(min_length=2, max_length=100)
+    unit: str = Field(min_length=2, max_length=100)
 
     @field_validator("reason")
     @classmethod
     def clean_reason(cls, value: str) -> str:
-        text = value.strip()
+        # Keep line breaks; drop other control characters.
+        text = "".join(ch for ch in value if ch in "\n\t" or ch.isprintable()).strip()
         if len(text) < 5:
             raise ValueError("Reason is too short")
+        return text
+
+    @field_validator("full_name", "unit")
+    @classmethod
+    def clean_line(cls, value: str) -> str:
+        text = _one_line(value)
+        if len(text) < 2:
+            raise ValueError("Too short")
         return text

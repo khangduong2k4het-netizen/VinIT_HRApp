@@ -50,8 +50,9 @@ def _bearer(user_id, email):
     return {"Authorization": f"Bearer {local_auth.issue_token(user_id, email)[0]}"}
 
 
-def _ask(client, email, reason=REASON):
-    return client.post("/v1/auth/password-reset-requests", json={"email": email, "reason": reason})
+def _ask(client, email, reason=REASON, name="Nguyễn Văn A", unit="Phòng Nhân sự"):
+    return client.post("/v1/auth/password-reset-requests",
+                       json={"email": email, "reason": reason, "full_name": name, "unit": unit})
 
 
 def _pending(user_id=None):
@@ -62,14 +63,17 @@ def _pending(user_id=None):
 
 def test_answer_is_identical_for_known_and_unknown_emails_and_only_real_accounts_get_a_request(box):
     client, _ = box
+    _clear_unmatched()
     email, user_id = _member(["HR_RECRUITER"])
     known = _ask(client, email)
     unknown = _ask(client, f"nobody{uuid4().hex[:6]}@vinuni.edu.vn")
     assert known.status_code == unknown.status_code == 202 and known.json() == unknown.json()
     rows = _pending(user_id)
     assert len(rows) == 1 and rows[0][1] == "PENDING"
+    # An address that matches no account is kept for the Admin as UNMATCHED (never sent a link, never answered differently).
     with engine.connect() as conn:
-        assert conn.execute(text("SELECT COUNT(*) FROM app_private.password_reset_requests WHERE email LIKE 'nobody%'")).scalar_one() == 0
+        kinds = conn.execute(text("SELECT kind, status, user_id IS NULL FROM app_private.password_reset_requests WHERE email LIKE 'nobody%'")).all()
+    assert [tuple(k) for k in kinds] == [("UNMATCHED", "PENDING", True)]
 
 
 def test_one_open_request_per_account_reason_rules_and_daily_cap(box):
@@ -174,3 +178,85 @@ def test_the_old_instant_link_is_off_by_default(box):
     email, _ = _member(["VIEWER"])
     answer = client.post("/v1/auth/forgot-password", json={"email": email})
     assert answer.status_code == 202 and sent == []
+
+
+def _clear_unmatched():
+    # The per-address cap counts earlier tests' rows too (same test client address): start each test clean.
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM app_private.password_reset_requests WHERE kind = 'UNMATCHED'"))
+
+
+def _unmatched_rows():
+    with engine.connect() as conn:
+        return conn.execute(text("""SELECT request_id::text, status, full_name, unit FROM app_private.password_reset_requests
+            WHERE kind = 'UNMATCHED' ORDER BY requested_at""")).all()
+
+
+def test_name_and_unit_are_required_and_cleaned(box):
+    client, _ = box
+    email, user_id = _member(["HR_RECRUITER"])
+    base = {"email": email, "reason": REASON}
+    assert client.post("/v1/auth/password-reset-requests", json=base).status_code == 422  # name and unit are required
+    assert _ask(client, email, name="A").status_code == 422
+    assert _ask(client, email, unit="x" * 101).status_code == 422
+    assert _ask(client, email, name="  Nguyễn \n\tVăn   A\x00 ", unit="Phòng\x07 Nhân   sự").status_code == 202
+    with engine.connect() as conn:
+        name, unit = conn.execute(text("SELECT full_name, unit FROM app_private.password_reset_requests WHERE user_id = :u"), {"u": user_id}).one()
+    assert (name, unit) == ("Nguyễn Văn A", "Phòng Nhân sự")
+
+
+def test_unmatched_requests_are_deduplicated_and_capped_without_changing_the_answer(box, monkeypatch):
+    client, _ = box
+    _clear_unmatched()
+    answers = set()
+    first = f"typo{uuid4().hex[:6]}@vinuni.edu.vn"
+    for email in (first, first.upper(), first):
+        response = _ask(client, email)
+        answers.add((response.status_code, response.text))
+    assert len(answers) == 1
+    assert len([r for r in _unmatched_rows() if r[1] == "PENDING"]) == 1  # same email, same day: one row
+    # Per-address cap: the 6th different unmatched email from one address is dropped silently (same answer).
+    from app.api import auth
+    cap = auth.MAX_UNMATCHED_PER_IP_PER_DAY
+    results = [_ask(client, f"lost{i}{uuid4().hex[:5]}@vinuni.edu.vn") for i in range(cap + 2)]
+    assert len({(r.status_code, r.text) for r in results}) == 1
+    with engine.connect() as conn:
+        total = conn.execute(text("SELECT COUNT(*) FROM app_private.password_reset_requests WHERE kind = 'UNMATCHED' AND status = 'PENDING'")).scalar_one()
+    assert total == cap
+    # Overall cap on open unmatched rows.
+    monkeypatch.setattr(auth, "MAX_UNMATCHED_PER_IP_PER_DAY", 10_000)
+    monkeypatch.setattr(auth, "MAX_UNMATCHED_OPEN", total)
+    before = len(_unmatched_rows())
+    _ask(client, f"more{uuid4().hex[:6]}@vinuni.edu.vn")
+    assert len(_unmatched_rows()) == before
+
+
+def test_admin_sees_unmatched_requests_labelled_and_can_only_handle_or_dismiss_them(box):
+    client, sent = box
+    _clear_unmatched()
+    ghost = f"ghost{uuid4().hex[:6]}@vinuni.edu.vn"
+    _ask(client, ghost, reason="Em quên cả email, em ở phòng Kế toán.", name="Trần Thị B", unit="Phòng Kế toán")
+    admin_email, admin_id = _member(["ADMIN"])
+    hr_email, hr_id = _member(["HR_RECRUITER"])
+    admin = _bearer(admin_id, admin_email)
+    items = client.get("/v1/admin/reset-requests", headers=admin).json()["items"]
+    row = next(i for i in items if i["email"] == ghost)
+    assert (row["kind"], row["full_name"], row["unit"], row["user_id"]) == ("UNMATCHED", "Trần Thị B", "Phòng Kế toán", None)
+    rid = row["request_id"]
+    assert client.post(f"/v1/admin/reset-requests/{rid}/approve", headers=admin).status_code == 409
+    assert client.post(f"/v1/admin/reset-requests/{rid}/reject", headers=admin, json={}).status_code == 409
+    assert sent == []  # nothing is emailed for a request that matches no account
+    assert client.post(f"/v1/admin/reset-requests/{rid}/resolve", headers=_bearer(hr_id, hr_email), json={"outcome": "HANDLED"}).status_code == 403
+    assert client.post(f"/v1/admin/reset-requests/{rid}/resolve", headers=admin, json={"outcome": "NOPE"}).status_code == 422
+    assert client.post(f"/v1/admin/reset-requests/{rid}/resolve", headers=admin, json={"outcome": "HANDLED"}).status_code == 200
+    assert client.post(f"/v1/admin/reset-requests/{rid}/resolve", headers=admin, json={"outcome": "DISMISSED"}).status_code == 409  # already closed
+    assert not any(i["request_id"] == rid for i in client.get("/v1/admin/reset-requests", headers=admin).json()["items"])
+    done = client.get("/v1/admin/reset-requests?status=HANDLED", headers=admin).json()["items"]
+    assert any(i["request_id"] == rid for i in done)
+    # A request that matches an account cannot be closed through "resolve".
+    _ask(client, hr_email)
+    matched = next(r for r in _pending(hr_id))
+    assert client.post(f"/v1/admin/reset-requests/{matched[0]}/resolve", headers=admin, json={"outcome": "HANDLED"}).status_code == 409
+    with engine.connect() as conn:
+        actions = [r[0] for r in conn.execute(text("SELECT action_type FROM app_private.audit_events WHERE action_type LIKE '%UNMATCHED%'")).all()]
+    assert "REQUEST_PASSWORD_RESET_UNMATCHED" in actions and "RESOLVE_UNMATCHED_RESET_REQUEST" in actions

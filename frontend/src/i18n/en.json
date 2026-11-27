@@ -1007,7 +1007,7 @@
   "Không còn việc ưu tiên. Mở danh sách để tiếp tục rà soát ứng viên.": "No priority work remains. Open the list to continue reviewing candidates.",
   "Vị trí không còn mở để tiếp nhận hoặc xử lý thêm CV.": "This position is no longer open for accepting or processing more CVs.",
   "Xử lý thất bại:": "Processing failed:",
-  "Đã xử lý": "Processed",
+  "Đã xử lý": "Handled",
   "Có {0} hồ sơ đang được xử lý.": "{0} applications are being processed.",
   "Hệ thống đang cập nhật tiến trình.": "The system is updating progress.",
   "Đã matching": "Matched",
@@ -1603,7 +1603,7 @@
   "Phù hợp tốt": "Strong fit",
   "Suýt đạt": "Near miss",
   "Để sau": "Later",
-  "Bỏ qua": "Skip",
+  "Bỏ qua": "Dismiss",
   "Chưa có văn bản CV": "No CV text yet",
   "Không đọc được văn bản CV": "CV text could not be read",
   "Vượt giới hạn một lượt quét": "Over the per-scan limit",
@@ -1956,5 +1956,14 @@
   "Bạn sắp gửi thư mời trao đổi tới": "You are about to send an invitation to connect to",
   "Ứng viên đã đồng ý cho VinUni lưu hồ sơ để cân nhắc các vị trí khác (Talent Pool). Mục đích thư: mời trao đổi cơ hội tuyển dụng. Bấm \"Xác nhận gửi thư mời\" để gửi.": "The candidate agreed to let VinUni keep their file for other positions (Talent Pool). Purpose of the letter: an invitation to discuss a job opportunity. Press \"Confirm sending the invitation\" to send it.",
   "Xác nhận gửi thư mời": "Confirm sending the invitation",
-  "Để mời một ứng viên trao đổi: quét Talent Pool cho vị trí đang tuyển, chọn Liên hệ cho hồ sơ phù hợp, xem thông tin liên hệ rồi soạn thư. Hệ thống kiểm tra lại sự đồng ý của ứng viên trước mỗi lần soạn và gửi.": "To invite a candidate: scan the Talent Pool for an open position, choose Contact for a suitable file, view the contact details, then write the letter. The system re-checks the candidate's consent before every draft and send."
+  "Để mời một ứng viên trao đổi: quét Talent Pool cho vị trí đang tuyển, chọn Liên hệ cho hồ sơ phù hợp, xem thông tin liên hệ rồi soạn thư. Hệ thống kiểm tra lại sự đồng ý của ứng viên trước mỗi lần soạn và gửi.": "To invite a candidate: scan the Talent Pool for an open position, choose Contact for a suitable file, view the contact details, then write the letter. The system re-checks the candidate's consent before every draft and send.",
+  "Yêu cầu đã được gửi tới Admin. Khi Admin duyệt và email thuộc một tài khoản đang hoạt động, link đặt lại mật khẩu sẽ được gửi tới email đó. Hãy kiểm tra đúng email công việc; nếu không chắc, ghi rõ họ tên và đơn vị để Admin xác định.": "The request has been sent to an Admin. Once the Admin approves it and the email belongs to an active account, a reset link is emailed to that address. Check that you used your work email; if unsure, write your full name and unit so the Admin can identify you.",
+  "Đơn vị / phòng ban": "Unit / department",
+  "Giúp Admin nhận ra bạn, kể cả khi bạn nhập chưa đúng email.": "Helps the Admin recognise you, even if the email you typed is not exact.",
+  "Vui lòng nhập họ tên và đơn vị / phòng ban.": "Please enter your full name and unit / department.",
+  "Nhập email công việc, họ tên, đơn vị và lý do. Admin sẽ kiểm tra; khi được duyệt, link đặt lại mật khẩu (hiệu lực 30 phút, dùng một lần) sẽ được gửi tới email đó.": "Enter your work email, full name, unit and the reason. An Admin will check it; once approved, a reset link (valid 30 minutes, single use) is emailed to that address.",
+  "Không khớp tài khoản nào": "Matches no account",
+  "Email đã nhập": "Email entered",
+  "Đã đánh dấu đã xử lý.": "Marked as handled.",
+  "Đã bỏ qua yêu cầu.": "Request dismissed."
 }

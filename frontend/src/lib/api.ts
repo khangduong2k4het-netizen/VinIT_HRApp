@@ -88,7 +88,8 @@ export const authApi = {
   recoveryEmailReset: (email: string, code: string, new_password: string) => apiClient.post('/auth/recovery/email-code/reset', { email, code, new_password }),
   recoveryAdmins: (key: string) => apiClient.post('/auth/recovery/admins', { key }),
   recoveryReset: (key: string, user_id: string, new_password: string) => apiClient.post('/auth/recovery/reset', { key, user_id, new_password }),
-  requestPasswordReset: (email: string, reason: string) => apiClient.post('/auth/password-reset-requests', { email, reason }),
+  requestPasswordReset: (email: string, reason: string, fullName: string, unit: string) =>
+    apiClient.post('/auth/password-reset-requests', { email, reason, full_name: fullName, unit }),
   resetPassword: (token: string, new_password: string) =>
     apiClient.post('/auth/reset-password', { token, new_password }),
   changePassword: (current_password: string, new_password: string) =>
@@ -290,6 +291,7 @@ export const adminApi = {
   listResetRequests: (status = 'PENDING') => apiClient.get('/admin/reset-requests', { params: { status } }),
   approveResetRequest: (id: string) => apiClient.post(`/admin/reset-requests/${id}/approve`),
   rejectResetRequest: (id: string, note: string) => apiClient.post(`/admin/reset-requests/${id}/reject`, { note }),
+  resolveResetRequest: (id: string, outcome: 'HANDLED' | 'DISMISSED') => apiClient.post(`/admin/reset-requests/${id}/resolve`, { outcome }),
   resetUserPassword: (id: string, new_password: string) =>
     apiClient.post(`/admin/users/${id}/reset-password`, { new_password }),
   listAiConfigs: () => apiClient.get('/admin/ai/config'),
