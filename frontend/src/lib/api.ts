@@ -88,7 +88,8 @@ export const authApi = {
   recoveryEmailReset: (email: string, code: string, new_password: string) => apiClient.post('/auth/recovery/email-code/reset', { email, code, new_password }),
   recoveryAdmins: (key: string) => apiClient.post('/auth/recovery/admins', { key }),
   recoveryReset: (key: string, user_id: string, new_password: string) => apiClient.post('/auth/recovery/reset', { key, user_id, new_password }),
-  requestPasswordReset: (email: string, reason: string) => apiClient.post('/auth/password-reset-requests', { email, reason }),
+  requestPasswordReset: (email: string, reason: string, fullName: string, unit: string) =>
+    apiClient.post('/auth/password-reset-requests', { email, reason, full_name: fullName, unit }),
   resetPassword: (token: string, new_password: string) =>
     apiClient.post('/auth/reset-password', { token, new_password }),
   changePassword: (current_password: string, new_password: string) =>
@@ -295,6 +296,7 @@ export const adminApi = {
   listResetRequests: (status = 'PENDING') => apiClient.get('/admin/reset-requests', { params: { status } }),
   approveResetRequest: (id: string) => apiClient.post(`/admin/reset-requests/${id}/approve`),
   rejectResetRequest: (id: string, note: string) => apiClient.post(`/admin/reset-requests/${id}/reject`, { note }),
+  resolveResetRequest: (id: string, outcome: 'HANDLED' | 'DISMISSED') => apiClient.post(`/admin/reset-requests/${id}/resolve`, { outcome }),
   resetUserPassword: (id: string, new_password: string) =>
     apiClient.post(`/admin/users/${id}/reset-password`, { new_password }),
   listAiConfigs: () => apiClient.get('/admin/ai/config'),
@@ -316,15 +318,16 @@ export const candidateEmailsApi = {
   updateTemplate: (code: EmailTemplateCode, data: { subject_template: string; body_template: string }) =>
     apiClient.put(`/candidate-emails/templates/${code}`, data),
   forApplication: (applicationId: string) => apiClient.get(`/candidate-emails/applications/${applicationId}`),
-  compose: (applicationId: string, templateCode: EmailTemplateCode) =>
-    apiClient.post(`/candidate-emails/applications/${applicationId}/compose`, { template_code: templateCode }),
+  compose: (applicationId: string, templateCode: EmailTemplateCode, scanId?: string) =>
+    apiClient.post(`/candidate-emails/applications/${applicationId}/compose`, { template_code: templateCode, ...(scanId ? { scan_id: scanId } : {}) }),
   create: (applicationId: string, data: {
     template_code: EmailTemplateCode | null; trigger_source: 'MANUAL' | 'STATUS_CHANGE';
-    to_address: string; subject: string; body: string; send: boolean; confirmed?: boolean;
+    to_address: string; subject: string; body: string; send: boolean; confirmed?: boolean; scan_id?: string;
   }) => apiClient.post(`/candidate-emails/applications/${applicationId}/emails`, data),
   updateDraft: (emailId: string, data: { to_address: string; subject: string; body: string }) =>
     apiClient.put(`/candidate-emails/emails/${emailId}`, data),
   sendDraft: (emailId: string, confirmed = false) => apiClient.post(`/candidate-emails/emails/${emailId}/send`, { confirmed }),
+  retryFailed: (emailId: string, confirmed = false) => apiClient.post(`/candidate-emails/emails/${emailId}/retry`, { confirmed }),
   cancelDraft: (emailId: string) => apiClient.post(`/candidate-emails/emails/${emailId}/cancel`),
 };
 
@@ -341,6 +344,31 @@ export const mailboxApi = {
   assign: (messageId: string, positionId: string, attachmentId?: string) =>
     apiClient.post(`/mailbox/messages/${messageId}/assign`, { position_id: positionId, attachment_id: attachmentId || null }),
   ignore: (messageId: string) => apiClient.post(`/mailbox/messages/${messageId}/ignore`),
+  retry: (messageId: string) => apiClient.post(`/mailbox/messages/${messageId}/retry`),
+};
+
+// Interview Coordination: rounds, panelist conflict checks, .ics export & AI Interview Prep Brief.
+export type InterviewFormat = 'ONLINE' | 'ONSITE' | 'PHONE';
+export type InterviewStatus = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
+export const interviewsApi = {
+  mySchedule: (params?: { from_date?: string; to_date?: string; include_cancelled?: boolean }) =>
+    apiClient.get('/interviews/my-schedule', { params }),
+  forApplication: (applicationId: string) =>
+    apiClient.get(`/interviews/applications/${applicationId}`),
+  schedule: (applicationId: string, data: {
+    round_no: number; title: string; starts_at: string; ends_at: string;
+    format: InterviewFormat; location_or_link?: string | null; prep_notes?: string | null;
+    panelists: Array<{ user_id: string; panel_role?: 'LEAD_INTERVIEWER' | 'INTERVIEWER' | 'OBSERVER' }>;
+    allow_conflict?: boolean;
+  }) => apiClient.post(`/interviews/applications/${applicationId}`, data),
+  update: (sessionId: string, data: {
+    title?: string; session_status?: InterviewStatus; starts_at?: string; ends_at?: string;
+    format?: InterviewFormat; location_or_link?: string | null; prep_notes?: string | null;
+    panelists?: Array<{ user_id: string; panel_role?: 'LEAD_INTERVIEWER' | 'INTERVIEWER' | 'OBSERVER' }>;
+    allow_conflict?: boolean;
+  }) => apiClient.patch(`/interviews/${sessionId}`, data),
+  downloadIcs: (sessionId: string) =>
+    apiClient.get(`/interviews/${sessionId}/calendar.ics`, { responseType: 'blob' }),
 };
 
 export const talentPoolApi = {
@@ -399,4 +427,14 @@ export const analyticsApi = {
     apiClient.post('/analytics/quality/markers', data),
   exportGoldenSet: (params: { date_from?: string; date_to?: string; format?: 'json' | 'csv'; position_id?: string; department_id?: string; job_family_id?: string }) =>
     apiClient.get('/analytics/quality/golden-set/export', { params, responseType: 'blob' }),
+  evidenceCalibration: (params: { date_from?: string; date_to?: string; position_id?: string; department_id?: string; job_family_id?: string }) =>
+    apiClient.get('/analytics/quality/evidence-calibration', { params }),
+};
+
+// Closed-loop HR evidence verification (CONFIRMED / DISPUTED per criterion result).
+export const evidenceSignoffsApi = {
+  forApplication: (applicationId: string) =>
+    apiClient.get(`/assessments/applications/${applicationId}/signoffs`),
+  signoff: (resultId: string, data: { verdict: 'CONFIRMED' | 'DISPUTED'; reason_code?: string; note?: string }) =>
+    apiClient.post(`/assessments/results/${resultId}/signoff`, data),
 };

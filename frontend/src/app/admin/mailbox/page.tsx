@@ -4,12 +4,13 @@
 import * as React from 'react';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import {
-  Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Stack, Typography,
+  Alert, Box, Button, Card, CardContent, Chip, CircularProgress, Grid, Stack, Typography,
 } from '@mui/material';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { useSearchParams } from 'next/navigation';
+import PageHeader from '@/components/common/PageHeader';
 import { mailboxApi } from '@/lib/api';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -73,7 +74,7 @@ function MailboxAdmin() {
   };
   const copy = async (value: string) => { try { await navigator.clipboard.writeText(value); setNotice(t('Đã sao chép.')); } catch { /* ignore */ } };
 
-  if (!data) return <Box>{error ? <Alert severity="error">{error}</Alert> : <CircularProgress size={24} />}</Box>;
+  if (!data) return <Box sx={{ py: 6, display: 'flex', justifyContent: 'center' }}>{error ? <Alert severity="error">{error}</Alert> : <CircularProgress size={28} />}</Box>;
   const account = data.account;
   const checks: [boolean, string][] = [
     [data.enabled, t('Bật GMAIL_INTAKE_ENABLED=true trong backend/.env')],
@@ -83,22 +84,44 @@ function MailboxAdmin() {
     [!!data.pubsub_subscription, t('Điền GMAIL_PUBSUB_SUBSCRIPTION để HRA nhận thông báo')],
     [!!account && account.status === 'ACTIVE', t('Kết nối tài khoản Gmail bằng nút bên dưới')],
   ];
+  const stats = [
+    { label: t('Đã vào hồ sơ'), value: data.last_30_days.MATCHED || 0, color: 'success.main' },
+    { label: t('Chờ phân loại'), value: data.last_30_days.NEEDS_TRIAGE || 0, color: 'warning.main' },
+    { label: t('Bỏ qua'), value: data.last_30_days.IGNORED || 0, color: 'text.secondary' },
+    { label: t('Lỗi'), value: data.last_30_days.FAILED || 0, color: 'error.main' },
+  ];
 
   return (
     <Box>
-      <Typography variant="h4" sx={{ mb: 1 }}>{t('Kết nối hộp thư nhận CV')}</Typography>
-      <Typography color="text.secondary" sx={{ mb: 3, maxWidth: 760 }}>
-        {t('CV gửi tới hộp thư Gmail này được tự động đưa vào HRA. Thư gửi tới địa chỉ có mã vị trí (ví dụ ten+REQ-IT-043@gmail.com) hoặc có mã vị trí trong tiêu đề sẽ vào đúng vị trí; thư không rõ vị trí nằm trong "Hộp thư CV" chờ HR phân loại.')}
-      </Typography>
+      <PageHeader
+        eyebrow={t('Quản trị')}
+        title={t('Kết nối hộp thư nhận CV')}
+        description={t('CV gửi tới hộp thư Gmail này được tự động đưa vào HRA. Thư gửi tới địa chỉ có mã vị trí (ví dụ ten+REQ-IT-043@gmail.com) hoặc có mã vị trí trong tiêu đề sẽ vào đúng vị trí; thư không rõ vị trí nằm trong "Hộp thư CV" chờ HR phân loại.')}
+      />
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
       {notice && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setNotice(null)}>{notice}</Alert>}
+
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        {stats.map(stat => (
+          <Grid item xs={6} sm={3} key={stat.label}>
+            <Card variant="outlined">
+              <CardContent sx={{ py: 1.75, '&:last-child': { pb: 1.75 } }}>
+                <Typography variant="caption" color="text.secondary">{stat.label} ({t('30 ngày qua')})</Typography>
+                <Typography variant="h4" className="tabular-nums" sx={{ mt: 0.5, fontWeight: 700, color: stat.color }}>
+                  {stat.value}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="stretch">
         <Card variant="outlined" sx={{ flex: 1, minWidth: 0 }}>
           <CardContent>
             <Typography variant="h6" sx={{ mb: 1.5 }}>{t('Hộp thư')}</Typography>
             {account ? (
-              <Stack spacing={1}>
+              <Stack spacing={1.25}>
                 <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
                   <Typography fontWeight={600} sx={{ wordBreak: 'break-all' }}>{account.email_address}</Typography>
                   <Chip size="small" label={account.status === 'ACTIVE' ? t('Đang nhận thư') : account.status === 'ERROR' ? t('Lỗi, cần kết nối lại') : t('Đã ngắt')}
@@ -112,17 +135,17 @@ function MailboxAdmin() {
                   {t('Gmail báo thư mới đến hết')}: {account.watch_expires_at ? new Date(account.watch_expires_at).toLocaleString(dateLocale) : t('chưa bật (sẽ đọc định kỳ mỗi phút)')}
                 </Typography>
                 {account.address_example && (
-                  <Box sx={{ p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}>
+                  <Box sx={{ p: 1.5, bgcolor: 'background.default', border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}>
                     <Typography variant="body2" sx={{ mb: 0.5 }}>{t('Địa chỉ nhận CV cho từng vị trí, ví dụ REQ-IT-043:')}</Typography>
                     <Stack direction="row" spacing={1} alignItems="center">
-                      <Typography component="code" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{account.address_example}</Typography>
+                      <Typography component="code" className="mono-code" sx={{ wordBreak: 'break-all' }}>{account.address_example}</Typography>
                       <Button size="small" startIcon={<ContentCopyIcon fontSize="small" />} onClick={() => copy(account.address_example!)}>{t('Sao chép')}</Button>
                     </Stack>
                   </Box>
                 )}
               </Stack>
             ) : <Typography color="text.secondary">{t('Chưa kết nối hộp thư nào.')}</Typography>}
-            <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap" useFlexGap>
+            <Stack direction="row" spacing={1} sx={{ mt: 2.5 }} flexWrap="wrap" useFlexGap>
               <Button variant="contained" color="secondary" onClick={connect} disabled={!!busy || !data.enabled || !data.client_configured || !data.encryption_ready}>
                 {busy === 'connect' ? <CircularProgress size={18} color="inherit" /> : account ? t('Kết nối lại Gmail') : t('Kết nối Gmail')}
               </Button>
@@ -137,7 +160,7 @@ function MailboxAdmin() {
         <Card variant="outlined" sx={{ flex: 1, minWidth: 0 }}>
           <CardContent>
             <Typography variant="h6" sx={{ mb: 1.5 }}>{t('Cấu hình cần có')}</Typography>
-            <Stack spacing={1}>
+            <Stack spacing={1.25}>
               {checks.map(([ok, label]) => (
                 <Stack key={label} direction="row" spacing={1} alignItems="flex-start">
                   {ok ? <CheckCircleOutlineIcon color="success" fontSize="small" /> : <RadioButtonUncheckedIcon color="disabled" fontSize="small" />}
@@ -147,9 +170,6 @@ function MailboxAdmin() {
             </Stack>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2, wordBreak: 'break-all' }}>
               {t('Địa chỉ chuyển hướng cần khai báo trên Google Cloud')}: <code>{data.redirect_uri}</code>
-            </Typography>
-            <Typography variant="body2" sx={{ mt: 2 }}>
-              {t('30 ngày qua')}: {data.last_30_days.MATCHED || 0} {t('vào hồ sơ')} · {data.last_30_days.NEEDS_TRIAGE || 0} {t('chờ phân loại')} · {data.last_30_days.IGNORED || 0} {t('bỏ qua')}
             </Typography>
           </CardContent>
         </Card>

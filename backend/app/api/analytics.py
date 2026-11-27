@@ -13,7 +13,7 @@ from app.core.permissions import require_admin_role
 from app.core.security import get_current_user
 from app.db.database import SessionLocal
 from app.services.ai_quality import (
-    MARKER_NOTE_MAX, MARKER_TITLE_MAX, QualityError, golden_set_csv, golden_set_rows,
+    MARKER_NOTE_MAX, MARKER_TITLE_MAX, QualityError, evidence_calibration, golden_set_csv, golden_set_rows,
     quality_breakdown, quality_trends, resolve_period, version_markers,
 )
 from app.services.analytics import AnalyticsError, has_any_hr_scope, has_global_scope, operational_report, resolve_range
@@ -208,3 +208,34 @@ async def export_quality_golden_set(
             headers={"Content-Disposition": f'attachment; filename="hra-golden-set-{start.isoformat()}-{end.isoformat()}.csv"'},
         )
     return {"range": {"date_from": start.isoformat(), "date_to": end.isoformat()}, "count": len(items), "items": items}
+
+
+@router.get("/quality/evidence-calibration")
+async def quality_evidence_calibration(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    position_id: Optional[UUID] = None,
+    department_id: Optional[UUID] = None,
+    job_family_id: Optional[UUID] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Closed-loop HR evidence verification calibration metrics (aggregates only)."""
+    start, end, _ = _period(date_from, date_to, "week")
+
+    def _run():
+        db = SessionLocal()
+        try:
+            _quality_scope(db, current_user)
+            return evidence_calibration(
+                db,
+                user_id=current_user["user_id"],
+                start=start,
+                end=end,
+                position_id=str(position_id) if position_id else None,
+                department_id=str(department_id) if department_id else None,
+                job_family_id=str(job_family_id) if job_family_id else None,
+            )
+        finally:
+            db.close()
+
+    return await run_in_threadpool(_run)

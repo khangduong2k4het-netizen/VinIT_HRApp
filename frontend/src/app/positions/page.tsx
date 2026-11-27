@@ -40,6 +40,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { positionsApi, usersApi, dashboardApi, authApi, departmentsApi, rubricApi, criteriaApi } from '@/lib/api';
 import { useScrollMemory, useUrlState } from '@/lib/navMemory';
+import PageHeader from '@/components/common/PageHeader';
+import EmptyState from '@/components/common/EmptyState';
 import StatusBadge from '@/components/common/StatusBadge';
 import { Department, JobFamily, Position, UserSummary } from '@/types';
 
@@ -302,20 +304,19 @@ export default function PositionsPage() {
 
   return (
     <Box>
-      {/* Page Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2, mb: 4 }}>
-        <Box>
-          <Typography variant="h1" sx={{ fontSize: 28, color: '#0A2B57', mb: 0.5 }}>{t("Danh sách vị trí tuyển dụng")}</Typography>
-          <Typography variant="body2" color="text.secondary">{t("Quản lý các vị trí đang tuyển, tiêu chí đánh giá và hồ sơ ứng viên")}</Typography>
-        </Box>
-        {canCreate && <Button
-          variant="contained"
-          color="secondary"
-          startIcon={<AddIcon />}
-          onClick={() => { setCreateError(null); setCreateDialogOpen(true); }}
-          size="large"
-        >{t("Tạo vị trí mới")}</Button>}
-      </Box>
+      <PageHeader
+        eyebrow={t('Tuyển dụng')}
+        title={t("Danh sách vị trí tuyển dụng")}
+        description={t("Quản lý các vị trí đang tuyển, tiêu chí đánh giá và hồ sơ ứng viên")}
+        actions={canCreate ? (
+          <Button
+            variant="contained"
+            color="secondary"
+            startIcon={<AddIcon />}
+            onClick={() => { setCreateError(null); setCreateDialogOpen(true); }}
+          >{t("Tạo vị trí mới")}</Button>
+        ) : undefined}
+      />
 
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} action={<Button color="inherit" onClick={loadPositions}>{t("Thử lại")}</Button>}>
@@ -325,42 +326,42 @@ export default function PositionsPage() {
 
       {!error && <>
       {/* Summary Cards */}
-      <Grid container spacing={{ xs: 2, sm: 3 }} sx={{ mb: 4 }}>
+      <Grid container spacing={{ xs: 2, sm: 2.5 }} sx={{ mb: 3 }}>
         <Grid item xs={6} md={3}>
-          <Card>
-            <CardContent>
+          <Card variant="outlined">
+            <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
               <Typography variant="caption" color="text.secondary">{t("Vị trí đang mở")}</Typography>
-              <Typography variant="h3" sx={{ fontSize: 24, fontWeight: 'bold', color: '#0A2B57', mt: 1 }}>
+              <Typography variant="h3" className="tabular-nums" sx={{ fontSize: 26, fontWeight: 700, color: 'primary.main', mt: 0.75 }}>
                 {positions.filter(p => p.status === 'OPEN').length}
               </Typography>
             </CardContent>
           </Card>
         </Grid>
         <Grid item xs={6} md={3}>
-          <Card>
-            <CardContent>
+          <Card variant="outlined">
+            <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
               <Typography variant="caption" color="text.secondary">{t("Tạm dừng")}</Typography>
-              <Typography variant="h3" sx={{ fontSize: 24, fontWeight: 'bold', color: '#B54708', mt: 1 }}>
+              <Typography variant="h3" className="tabular-nums" sx={{ fontSize: 26, fontWeight: 700, color: 'warning.main', mt: 0.75 }}>
                 {positions.filter(p => p.status === 'PAUSED').length}
               </Typography>
             </CardContent>
           </Card>
         </Grid>
         <Grid item xs={6} md={3}>
-          <Card>
-            <CardContent>
+          <Card variant="outlined">
+            <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
               <Typography variant="caption" color="text.secondary">{t("Đã đóng")}</Typography>
-              <Typography variant="h3" sx={{ fontSize: 24, fontWeight: 'bold', color: '#475569', mt: 1 }}>
+              <Typography variant="h3" className="tabular-nums" sx={{ fontSize: 26, fontWeight: 700, color: 'text.secondary', mt: 0.75 }}>
                 {positions.filter(p => p.status === 'CLOSED').length}
               </Typography>
             </CardContent>
           </Card>
         </Grid>
         <Grid item xs={6} md={3}>
-          <Card>
-            <CardContent>
+          <Card variant="outlined">
+            <CardContent sx={{ py: 2, '&:last-child': { pb: 2 } }}>
               <Typography variant="caption" color="text.secondary">{t("Tổng hồ sơ")}</Typography>
-              <Typography variant="h3" sx={{ fontSize: 24, fontWeight: 'bold', color: '#0A2B57', mt: 1 }}>
+              <Typography variant="h3" className="tabular-nums" sx={{ fontSize: 26, fontWeight: 700, color: 'primary.main', mt: 0.75 }}>
                 {applicationTotal ?? '—'}
               </Typography>
             </CardContent>
@@ -369,28 +370,33 @@ export default function PositionsPage() {
       </Grid>
 
       {/* S-03: search by title/code and filter by position status. */}
-      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 2 }}>
-        <TextField size="small" label={t("Tìm theo tên hoặc mã vị trí")} value={search}
-          onChange={e => setSearch(e.target.value)} sx={{ minWidth: 260, flex: 1, maxWidth: 420 }} inputProps={{ maxLength: 200 }} />
-        <TextField size="small" select label={t("Trạng thái")} value={statusFilter} sx={{ minWidth: 180 }}
-          onChange={e => setStatusFilter(e.target.value as 'ALL' | Position['status'])}>
-          <MenuItem value="ALL">{t("Tất cả")}</MenuItem>
-          <MenuItem value="OPEN">{t("Đang mở")}</MenuItem>
-          <MenuItem value="PAUSED">{t("Tạm dừng")}</MenuItem>
-          <MenuItem value="CLOSED">{t("Đã đóng")}</MenuItem>
-        </TextField>
-      </Box>
+      <Card variant="outlined" sx={{ mb: 2.5 }}>
+        <CardContent sx={{ py: 1.75, '&:last-child': { pb: 1.75 }, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+          <TextField size="small" label={t("Tìm theo tên hoặc mã vị trí")} value={search}
+            onChange={e => setSearch(e.target.value)} sx={{ minWidth: 260, flex: 1, maxWidth: 440 }} inputProps={{ maxLength: 200 }} />
+          <TextField size="small" select label={t("Trạng thái")} value={statusFilter} sx={{ minWidth: 180 }}
+            onChange={e => setStatusFilter(e.target.value as 'ALL' | Position['status'])}>
+            <MenuItem value="ALL">{t("Tất cả")}</MenuItem>
+            <MenuItem value="OPEN">{t("Đang mở")}</MenuItem>
+            <MenuItem value="PAUSED">{t("Tạm dừng")}</MenuItem>
+            <MenuItem value="CLOSED">{t("Đã đóng")}</MenuItem>
+          </TextField>
+          <Typography variant="caption" color="text.secondary" className="tabular-nums" sx={{ ml: 'auto' }}>
+            {visiblePositions.length}/{positions.length}
+          </Typography>
+        </CardContent>
+      </Card>
 
       {/* On small screens cards keep the actions and status visible without horizontal scrolling. */}
       <Box sx={{ display: { xs: 'grid', md: 'none' }, gap: 2 }}>
         {visiblePositions.length === 0 ? (
-          <Paper sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>{emptyMessage}</Paper>
+          <EmptyState title={emptyMessage} />
         ) : visiblePositions.map(pos => (
-          <Card key={pos.position_id} sx={{ border: '1px solid #E9EEF4' }}>
+          <Card key={pos.position_id} variant="outlined">
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1 }}>
                 <Box sx={{ minWidth: 0 }}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#0A2B57', overflowWrap: 'anywhere' }}>{pos.title}</Typography>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700, color: 'primary.main', overflowWrap: 'anywhere' }}>{pos.title}</Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{pos.position_code} · {pos.department_name || pos.org_unit || t("Chưa có đơn vị")}</Typography>
                 </Box>
                 {getPositionStatusBadge(pos.status)}
@@ -405,33 +411,38 @@ export default function PositionsPage() {
       </Box>
 
       {/* Wider screens retain the compact table. */}
-      <TableContainer component={Paper} sx={{ display: { xs: 'none', md: 'block' }, borderRadius: 2, boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-        <Table aria-label={t("Danh sách vị trí tuyển dụng")}>
-          <TableHead>
-            <TableRow>
-              <TableCell>{t("Mã vị trí")}</TableCell>
-              <TableCell>{t("Tên vị trí")}</TableCell>
-              <TableCell>{t("Đơn vị")}</TableCell>
-              <TableCell>{t("Trạng thái")}</TableCell>
-              <TableCell>{t("Tiêu chí mới nhất")}</TableCell>
-              <TableCell align="right">{t("Thao tác")}</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {visiblePositions.length === 0 ? (
+      {visiblePositions.length === 0 ? (
+        <Box sx={{ display: { xs: 'none', md: 'block' } }}>
+          <EmptyState title={emptyMessage} />
+        </Box>
+      ) : (
+        <TableContainer component={Paper} variant="outlined" sx={{ display: { xs: 'none', md: 'block' }, borderRadius: 2 }}>
+          <Table aria-label={t("Danh sách vị trí tuyển dụng")}>
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 8, color: 'text.secondary' }}>{emptyMessage}</TableCell>
+                <TableCell>{t("Mã vị trí")}</TableCell>
+                <TableCell>{t("Tên vị trí")}</TableCell>
+                <TableCell>{t("Đơn vị")}</TableCell>
+                <TableCell>{t("Trạng thái")}</TableCell>
+                <TableCell>{t("Tiêu chí mới nhất")}</TableCell>
+                <TableCell align="right">{t("Thao tác")}</TableCell>
               </TableRow>
-            ) : (
-              visiblePositions.map((pos) => (
-                <TableRow key={pos.position_id} hover>
+            </TableHead>
+            <TableBody>
+              {visiblePositions.map((pos) => (
+                <TableRow
+                  key={pos.position_id}
+                  hover
+                  onClick={() => router.push(`/positions/${pos.position_id}`)}
+                  sx={{ cursor: 'pointer' }}
+                >
                   <TableCell>
-                    <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace' }}>
+                    <Typography variant="body2" className="mono-code" sx={{ fontWeight: 600, color: 'primary.main' }}>
                       {pos.position_code}
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2" sx={{ fontWeight: 500 }}>{pos.title}</Typography>
+                    <Typography variant="body2" sx={{ fontWeight: 600 }}>{pos.title}</Typography>
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2" color="text.secondary">{pos.department_name || pos.org_unit || '-'}</Typography>
@@ -440,22 +451,21 @@ export default function PositionsPage() {
                   <TableCell>
                     {getCriteriaBadge(pos)}
                   </TableCell>
-                  <TableCell align="right">
+                  <TableCell align="right" onClick={e => e.stopPropagation()}>
                     <IconButton
                       color="primary"
                       onClick={() => router.push(`/positions/${pos.position_id}`)}
-                      sx={{ color: '#0A2B57' }}
                       aria-label={t("Xem vị trí {0}", pos.title)}
                     >
                       <VisibilityIcon />
                     </IconButton>
                   </TableCell>
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
       </>}
 
       {/* Create Position Dialog */}
@@ -465,7 +475,7 @@ export default function PositionsPage() {
         maxWidth="md"
         fullWidth
       >
-        <DialogTitle sx={{ color: '#0A2B57', fontWeight: 'bold' }}>{t("Tạo vị trí tuyển dụng mới")}</DialogTitle>
+        <DialogTitle sx={{ color: 'primary.main', fontWeight: 700 }}>{t("Tạo vị trí tuyển dụng mới")}</DialogTitle>
         <DialogContent dividers>
           {createError && <Alert severity="error" sx={{ mb: 2 }}>{t(createError)}</Alert>}
           <Grid container spacing={3} sx={{ pt: 1 }}>

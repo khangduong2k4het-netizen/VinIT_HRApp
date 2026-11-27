@@ -521,3 +521,14 @@ def test_stored_degree_level_from_before_v1_10_is_lowered_for_or_alternatives():
     result = deterministic_matcher.evaluate_criteria(
         "EDUCATION\nB.Eng. in Computer Science, Hanoi University of Science and Technology, 2016 - 2020", [stored], {})
     assert result["findings"][0]["outcome"] == "MATCH"
+
+
+def test_degree_criterion_without_specified_level_stays_unresolved():
+    # A degree criterion with no explicit level must not silently default to Bachelor (level 3)
+    # and reject candidates with a college/associate diploma.
+    crit = criterion("d_any", "Bằng cấp chuyên môn phù hợp", "Yêu cầu có bằng cấp liên quan")
+    crit["requirement_spec"] = {"kind": "DEGREE", "required_degree_level": None}
+    cv = "EDUCATION\nCao đẳng Công nghệ Thông tin, 2022"
+    result = deterministic_matcher.evaluate_criteria(cv, [crit], {"education": ["Cao đẳng CNTT"]})
+    assert result["unresolved_criterion_ids"] == ["d_any"]
+    assert result["findings"] == []

@@ -1354,7 +1354,9 @@ class DeterministicMatchingEngine:
         chunks: list[DocumentChunk],
         candidate_profile: dict[str, Any] | None,
     ) -> dict[str, Any] | None:
-        required = spec.required_degree_level or 3
+        if spec.required_degree_level is None:
+            return None
+        required = spec.required_degree_level
         education_chunks = [chunk for chunk in chunks if chunk.section == "EDUCATION"]
 
         def highest_in(pool: list[DocumentChunk]) -> tuple[int | None, DocumentChunk | None]:

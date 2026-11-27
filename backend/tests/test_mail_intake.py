@@ -66,6 +66,7 @@ def box(seed, monkeypatch, tmp_path):
     monkeypatch.setattr(gmail_client, "get_message", lambda token, gid: inbox[gid])
     monkeypatch.setattr(gmail_client, "get_attachment", lambda token, gid, att: inbox[gid]["_files"][att])
     monkeypatch.setattr(gmail_client, "add_label", lambda token, gid, label: labelled.append((gid, label)))
+    monkeypatch.setattr(gmail_client, "replace_label", lambda token, gid, add_id, remove_id=None: labelled.append((gid, add_id, remove_id)))
 
     def deliver(*messages):
         pending.clear()
@@ -213,3 +214,37 @@ def test_email_cv_held_while_busy_is_queued_once_the_position_is_free(box):
     assert dispatch_held_portal_cvs() == 1
     with engine.connect() as conn:
         assert conn.execute(text(held_sql), {"p": box["pos"]}).scalar_one() == 0
+
+
+def test_oversized_attachment_skipped_before_download_and_failed_message_retried(client, box, monkeypatch):
+    from app.core.config import Settings
+    from app.services import gmail_client, mail_intake
+    from app.services.malware_scan import ScanUnavailable
+
+    # Production config guard: GMAIL_INTAKE_ENABLED outside dev/test requires clamav + encryption key.
+    with pytest.raises(ValueError, match="GMAIL_INTAKE_ENABLED requires MALWARE_SCAN_MODE=clamav"):
+        Settings(_env_file=None, APP_ENV="production", LLM_PROVIDER="openai", PUBLIC_INTAKE_ENABLED=False,
+                 INTAKE_API_ENABLED=False, GMAIL_INTAKE_ENABLED=True, MALWARE_SCAN_MODE="off")
+
+    downloaded = []
+    orig_get_att = gmail_client.get_attachment
+    monkeypatch.setattr(gmail_client, "get_attachment", lambda t, gid, aid: (downloaded.append(aid), orig_get_att(t, gid, aid))[1])
+    big = gmail_message("big1", to="hra.test+REQ-IT-901@gmail.com", files=(("huge.pdf", PDF),))
+    big["payload"]["parts"][1]["body"]["size"] = settings.MAX_FILE_SIZE_BYTES + 1
+    box["deliver"](big)
+    assert downloaded == []
+    assert (_message("big1")["status"], _message("big1")["reason"]) == ("IGNORED", "NO_CV_ATTACHMENT")
+
+    # Transient malware scanner failure -> FAILED -> HR retries -> MATCHED.
+    fail_once = {"flag": True}
+    def flaky_scan(content):
+        if fail_once["flag"]:
+            raise ScanUnavailable("clamd down")
+    monkeypatch.setattr(mail_intake, "scan_upload", flaky_scan)
+    box["deliver"](gmail_message("retry1", to="hra.test+REQ-IT-901@gmail.com", files=(("cv_retry.pdf", PDF + b"%retry"),)))
+    msg = _message("retry1")
+    assert (msg["status"], msg["reason"]) == ("FAILED", "SCAN_UNAVAILABLE")
+    fail_once["flag"] = False
+    r = client.post(f"/v1/mailbox/messages/{msg['message_id']}/retry", headers=headers(box["hr"]))
+    assert r.status_code == 200 and r.json()["status"] == "MATCHED"
+    assert _message("retry1")["status"] == "MATCHED"

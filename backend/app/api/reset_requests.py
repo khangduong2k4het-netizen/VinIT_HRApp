@@ -1,7 +1,7 @@
 """ADMIN review of password-reset requests. Approving emails a one-time reset link to the account's own address;
 the link is never returned to the Admin or to the person who asked."""
 import json
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -25,6 +25,12 @@ class RejectRequest(BaseModel):
     note: Optional[str] = Field(default=None, max_length=500)
 
 
+class ResolveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    outcome: Literal["HANDLED", "DISMISSED"]
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
 def expire_old_requests(db) -> None:
     db.execute(text("""
         UPDATE app_private.password_reset_requests SET status = 'EXPIRED', decided_at = NOW()
@@ -41,15 +47,16 @@ def _audit(db, actor_id: str, action: str, request_id: str, user_id: str, outcom
 
 
 @router.get("")
-def list_requests(status: Optional[str] = Query("PENDING", pattern="^(PENDING|APPROVED|REJECTED|EXPIRED|ALL)$"),
+def list_requests(status: Optional[str] = Query("PENDING", pattern="^(PENDING|APPROVED|REJECTED|EXPIRED|HANDLED|DISMISSED|ALL)$"),
                   current_user: dict = Depends(require_admin_role)):
     db = SessionLocal()
     try:
         expire_old_requests(db)
         db.commit()
         rows = db.execute(text("""
-            SELECT r.request_id, r.user_id, r.email, p.display_name, r.reason, r.status, r.requested_at, r.decided_at, r.decision_note
-            FROM app_private.password_reset_requests r JOIN app_private.user_profiles p ON p.user_id = r.user_id
+            SELECT r.request_id, r.user_id, r.kind, r.email, p.display_name, r.full_name, r.unit, r.reason, r.status,
+                   r.requested_at, r.decided_at, r.decision_note
+            FROM app_private.password_reset_requests r LEFT JOIN app_private.user_profiles p ON p.user_id = r.user_id
             WHERE (:status = 'ALL' OR r.status = :status)
             ORDER BY r.requested_at DESC LIMIT 100
         """), {"status": status}).mappings().all()
@@ -60,8 +67,8 @@ def list_requests(status: Optional[str] = Query("PENDING", pattern="^(PENDING|AP
 
 def _lock_pending(db, request_id: str) -> dict:
     row = db.execute(text("""
-        SELECT r.request_id, r.user_id, r.email, r.status, p.account_status
-        FROM app_private.password_reset_requests r JOIN app_private.user_profiles p ON p.user_id = r.user_id
+        SELECT r.request_id, r.user_id, r.kind, r.email, r.status, p.account_status
+        FROM app_private.password_reset_requests r LEFT JOIN app_private.user_profiles p ON p.user_id = r.user_id
         WHERE r.request_id = :id FOR UPDATE OF r
     """), {"id": request_id}).mappings().first()
     if not row:
@@ -81,6 +88,9 @@ def approve_request(request_id: UUID, current_user: dict = Depends(require_admin
     try:
         expire_old_requests(db)
         req = _lock_pending(db, rid)
+        if req["kind"] == "UNMATCHED":
+            raise HTTPException(status_code=409, detail="Yêu cầu này không khớp tài khoản nào nên không gửi được link. "
+                                "Hãy liên hệ người gửi rồi bấm 'Đã xử lý'.")
         target = str(req["user_id"])
         if req["account_status"] != "ACTIVE":
             raise HTTPException(status_code=409, detail="Tài khoản này không còn hoạt động.")
@@ -125,6 +135,8 @@ def reject_request(request_id: UUID, body: RejectRequest, current_user: dict = D
     db = SessionLocal()
     try:
         req = _lock_pending(db, rid)
+        if req["kind"] == "UNMATCHED":
+            raise HTTPException(status_code=409, detail="Yêu cầu không khớp tài khoản: dùng 'Đã xử lý' hoặc 'Bỏ qua'.")
         db.execute(text("""
             UPDATE app_private.password_reset_requests
             SET status = 'REJECTED', decided_by = :actor, decided_at = NOW(), decision_note = :note WHERE request_id = :id
@@ -132,6 +144,32 @@ def reject_request(request_id: UUID, body: RejectRequest, current_user: dict = D
         _audit(db, actor_id, "REJECT_PASSWORD_RESET_REQUEST", rid, str(req["user_id"]), "REJECTED")
         db.commit()
         return {"request_id": rid, "status": "REJECTED"}
+    except HTTPException:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+@router.post("/{request_id}/resolve")
+def resolve_unmatched_request(request_id: UUID, body: ResolveRequest, current_user: dict = Depends(require_admin_role)):
+    """Close a request that matched no account: 'Đã xử lý' (Admin dealt with the person) or 'Bỏ qua'."""
+    actor_id, rid = current_user["user_id"], str(request_id)
+    db = SessionLocal()
+    try:
+        req = _lock_pending(db, rid)
+        if req["kind"] != "UNMATCHED":
+            raise HTTPException(status_code=409, detail="Chỉ dùng cho yêu cầu không khớp tài khoản; yêu cầu khác hãy duyệt hoặc từ chối.")
+        db.execute(text("""
+            UPDATE app_private.password_reset_requests
+            SET status = :status, decided_by = :actor, decided_at = NOW(), decision_note = :note WHERE request_id = :id
+        """), {"status": body.outcome, "actor": actor_id, "id": rid, "note": (body.note or "").strip() or None})
+        db.execute(text("""
+            INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, outcome)
+            VALUES (:actor, 'RESOLVE_UNMATCHED_RESET_REQUEST', 'PASSWORD_RESET_REQUEST', :id, :outcome)
+        """), {"actor": actor_id, "id": rid, "outcome": body.outcome})
+        db.commit()
+        return {"request_id": rid, "status": body.outcome}
     except HTTPException:
         db.rollback()
         raise

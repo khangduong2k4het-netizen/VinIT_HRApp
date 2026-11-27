@@ -42,7 +42,7 @@ import ReplayIcon from '@mui/icons-material/Replay';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { applicationsApi, assessmentsApi, operationsApi } from '@/lib/api';
+import { applicationsApi, assessmentsApi, evidenceSignoffsApi, operationsApi } from '@/lib/api';
 import { useOverrideGate } from '@/components/applicants/OverrideReasonDialog';
 import StatusBadge from '@/components/common/StatusBadge';
 import StickyActionBar from '@/components/common/StickyActionBar';
@@ -52,6 +52,7 @@ import CVDocumentViewer from '@/components/candidates/CVDocumentViewer';
 import HRNotesPanel from '@/components/candidates/HRNotesPanel';
 import CrossDuplicatesPanel from '@/components/candidates/CrossDuplicatesPanel';
 import CandidateEmailPanel, { type EmailRequest } from '@/components/candidates/CandidateEmailPanel';
+import InterviewPanel from '@/components/candidates/InterviewPanel';
 import {
   filterAndSortApplicantItems,
   mergeRankingWithApplications,
@@ -59,7 +60,7 @@ import {
   storeApplicantNavigation,
   type ApplicantNavigationContext,
 } from '@/lib/applicantReview';
-import type { ApplicationWithAssessment } from '@/types';
+import type { ApplicationWithAssessment, EvidenceSignoff, EvidenceSignoffReasonCode } from '@/types';
 import { APPLICATION_STATUSES, APPLICATION_TRANSITIONS, isApplicationStatus } from '@/lib/applicationStatus';
 
 interface StatusEvent {
@@ -100,6 +101,7 @@ export default function ApplicantDetailPage() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [selectedPage, setSelectedPage] = useState(1);
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
+  const [signoffs, setSignoffs] = useState<Record<string, EvidenceSignoff>>({});
   const [navigationContext, setNavigationContext] = useState<ApplicantNavigationContext | null>(null);
   const [cvUrl, setCvUrl] = useState<string | null>(null);
   const [cvError, setCvError] = useState<string | null>(null);
@@ -139,6 +141,11 @@ export default function ApplicantDetailPage() {
           if (currentRequest === requestId.current) { setHistory(events.data || []); setHistoryError(null); }
         }).catch(() => { if (currentRequest === requestId.current) setHistoryError(t("Không thể tải lịch sử trạng thái.")); });
       } else { setHistory([]); setHistoryError(null); }
+      if (res.data.can_view_assessment_evidence) {
+        evidenceSignoffsApi.forApplication(applicantId).then(resSignoffs => {
+          if (currentRequest === requestId.current) setSignoffs(resSignoffs.data?.signoffs || {});
+        }).catch(() => { if (currentRequest === requestId.current) setSignoffs({}); });
+      } else { setSignoffs({}); }
       if (res.data.can_view_cv) {
         try {
           const cvRes = await applicationsApi.getCvUrl(applicantId);
@@ -262,6 +269,14 @@ export default function ApplicantDetailPage() {
 
   const jumpToPage = (page: number) => { if (page >= 1) setSelectedPage(page); };
 
+  const handleEvidenceSignoff = async (
+    resultId: string,
+    payload: { verdict: 'CONFIRMED' | 'DISPUTED'; reason_code?: EvidenceSignoffReasonCode; note?: string },
+  ) => {
+    const res = await evidenceSignoffsApi.signoff(resultId, payload);
+    setSignoffs(prev => ({ ...prev, [resultId]: res.data }));
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}>
@@ -313,7 +328,7 @@ export default function ApplicantDetailPage() {
       <StickyActionBar>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
           <Box sx={{ minWidth: 220, flex: 1 }}>
-            <Typography variant="body1" fontWeight={700} color="#0A2B57">{application.identity?.display_name || t("Hồ sơ ứng viên")}</Typography>
+            <Typography variant="body1" fontWeight={700} color="primary.main">{application.identity?.display_name || t("Hồ sơ ứng viên")}</Typography>
             <Typography variant="caption" color="text.secondary">
               {navigationIndex >= 0 && navigationContext
                 ? t("Hồ sơ {0}/{1} trong hàng đợi đang xem", navigationIndex + 1, navigationContext.applicationIds.length)
@@ -370,20 +385,20 @@ export default function ApplicantDetailPage() {
       )}
 
       {/* Applicant Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap', mb: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap', mb: 2.5, pb: 2, borderBottom: '1px solid', borderColor: 'divider' }}>
         <Box>
-          <Typography variant="h1" sx={{ fontSize: 24, color: '#0A2B57', mb: 0.5 }}>
+          <Typography variant="h1" sx={{ fontSize: 24, color: 'text.primary', mb: 0.5 }}>
             {application.identity?.display_name || t("Hồ sơ ứng viên")}
           </Typography>
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', mt: 1, flexWrap: 'wrap' }}>
-            <Typography variant="body2" color="text.secondary" fontFamily="monospace">
+          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', mt: 1, flexWrap: 'wrap' }}>
+            <Typography variant="body2" color="text.secondary" className="mono-code">
               ID: {application.application_id.slice(0, 8)}...
             </Typography>
             {application.file_processing_status === 'PROCESSING' && (
               <Chip label={t("Đang xử lý CV")} size="small" />
             )}
             {application.has_duplicate_warning && (
-              <Chip label={t("Hồ sơ trùng lặp")} size="small" sx={{ backgroundColor: '#FEF0C7', color: '#B54708' }} />
+              <Chip label={t("Hồ sơ trùng lặp")} size="small" color="warning" />
             )}
             {assessment && (
               <>
@@ -410,7 +425,6 @@ export default function ApplicantDetailPage() {
             target="_blank"
             rel="noreferrer"
             disabled={!cvUrl}
-            sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
           >{t("Tải CV gốc")}</Button>
           {application.can_update_status && nextStatuses.length > 0 && (
             <FormControl size="small" sx={{ minWidth: 220 }}>
@@ -529,6 +543,9 @@ export default function ApplicantDetailPage() {
                   hasCv={Boolean(cvUrl)}
                   selected={selectedEvidenceId === result.criterion_id}
                   onJumpToPage={(page, criterionId) => { setSelectedEvidenceId(criterionId); jumpToPage(page); }}
+                  signoff={result.result_id ? signoffs[result.result_id] || null : null}
+                  canReview={Boolean(application.can_update_status)}
+                  onSignoff={handleEvidenceSignoff}
                 />
               ))}
             </Box>
@@ -551,13 +568,26 @@ export default function ApplicantDetailPage() {
 
       {/* Sibling keys must differ: both panels used key={applicantId}, which React reports as duplicate keys. */}
       {application.can_view_cv && <CandidateProfilePanel key={`profile-${applicantId}`} applicationId={applicantId} canEdit={!!application.can_update_status} onSaved={() => { loadData(); }} />}
+      <InterviewPanel
+        key={`interviews-${applicantId}`}
+        applicationId={applicantId}
+        onInviteEmail={application.can_update_status
+          ? (time, place) => setEmailRequest({
+              applicationId: applicantId,
+              template: 'INTERVIEW_INVITE',
+              trigger: 'MANUAL',
+              nonce: Date.now(),
+              prefillInterview: { time, place },
+            })
+          : undefined}
+      />
       {application.can_update_status && <CandidateEmailPanel key={`emails-${applicantId}`} applicationId={applicantId} request={emailRequest} />}
       {application.can_manage_hr_notes && <HRNotesPanel key={`notes-${applicantId}`} applicationId={applicantId} />}
       {application.can_update_status && <CrossDuplicatesPanel key={`duplicates-${applicantId}`} applicationId={applicantId}
         versionKey={JSON.stringify(application.identity)} />}
 
       {application.can_update_status && (
-        <Accordion disableGutters elevation={0} sx={{ mb: 3, border: '1px solid #E4E7EC', borderRadius: '8px !important', '&:before': { display: 'none' } }}>
+        <Accordion disableGutters elevation={0} sx={{ mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: '10px !important', '&:before': { display: 'none' } }}>
           <AccordionSummary expandIcon={<ExpandMoreIcon />} aria-controls="status-history-content" id="status-history-header">
             <Typography fontWeight={600}>{t("Lịch sử trạng thái ")}{history.length > 0 && `(${history.length})`}</Typography>
           </AccordionSummary>

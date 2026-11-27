@@ -10,7 +10,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import { candidateEmailsApi, type EmailTemplateCode } from '@/lib/api';
 import { useI18n } from '@/i18n/I18nProvider';
-import CandidateEmailDialog, { COMPOSE_TEMPLATES, type EmailDraft } from './CandidateEmailDialog';
+import CandidateEmailDialog, { TEMPLATE_LABELS, type EmailDraft } from './CandidateEmailDialog';
 
 type EmailRow = EmailDraft & {
   status: 'DRAFT' | 'RECORDED' | 'SENT' | 'FAILED' | 'CANCELLED';
@@ -26,7 +26,13 @@ const STATUS: Record<EmailRow['status'], { label: string; color: 'default' | 'in
   CANCELLED: { label: 'Đã hủy', color: 'default' },
 };
 
-export type EmailRequest = { applicationId: string; template: EmailTemplateCode; trigger: 'MANUAL' | 'STATUS_CHANGE'; nonce: number } | null;
+export type EmailRequest = {
+  applicationId: string;
+  template: EmailTemplateCode;
+  trigger: 'MANUAL' | 'STATUS_CHANGE';
+  nonce: number;
+  prefillInterview?: { time?: string; place?: string };
+} | null;
 
 export default function CandidateEmailPanel({ applicationId, request }: { applicationId: string; request?: EmailRequest }) {
   const { t, dateLocale } = useI18n();
@@ -35,7 +41,12 @@ export default function CandidateEmailPanel({ applicationId, request }: { applic
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [openEmail, setOpenEmail] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<{ template: EmailTemplateCode; trigger: 'MANUAL' | 'STATUS_CHANGE'; draft: EmailDraft | null } | null>(null);
+  const [dialog, setDialog] = useState<{
+    template: EmailTemplateCode;
+    trigger: 'MANUAL' | 'STATUS_CHANGE';
+    draft: EmailDraft | null;
+    prefillInterview?: { time?: string; place?: string };
+  } | null>(null);
 
   const load = useCallback(async () => {
     try { setError(null); setEmails((await candidateEmailsApi.forApplication(applicationId)).data.emails); }
@@ -49,8 +60,10 @@ export default function CandidateEmailPanel({ applicationId, request }: { applic
     // Only for this candidate: the page keeps the request while HR moves to the next one.
     if (!request || request.applicationId !== applicationId) return;
     setExpanded(true);
-    setDialog({ template: request.template, trigger: request.trigger, draft: null });
+    setDialog({ template: request.template, trigger: request.trigger, draft: null, prefillInterview: request.prefillInterview });
   }, [request, applicationId]);
+
+  const [retrying, setRetrying] = useState<string | null>(null);
 
   const cancel = async (emailId: string) => {
     if (!window.confirm(t('Hủy bản nháp này?'))) return;
@@ -58,12 +71,30 @@ export default function CandidateEmailPanel({ applicationId, request }: { applic
     catch (err: any) { setError(err.response?.data?.detail || t('Không thể hủy bản nháp.')); }
   };
 
-  const templateLabel = (code: string | null) => t(COMPOSE_TEMPLATES.find(item => item.code === code)?.label || 'Thư tự soạn');
+  const retry = async (email: EmailRow) => {
+    const isRej = email.template_code === 'REJECTION';
+    if (isRej && !window.confirm(t('Xác nhận gửi lại thư từ chối cho ứng viên này?'))) return;
+    try {
+      setRetrying(email.email_id);
+      setError(null);
+      const res = await candidateEmailsApi.retryFailed(email.email_id, isRej);
+      if (res.data.status === 'FAILED') {
+        setError(t('Gửi thư không thành công. Thư đã được lưu với trạng thái lỗi.'));
+      }
+      await load();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || t('Không thể gửi lại thư.'));
+    } finally {
+      setRetrying(null);
+    }
+  };
+
+  const templateLabel = (code: string | null) => t((code && TEMPLATE_LABELS[code]) || 'Thư tự soạn');
   const visible = emails.filter(email => email.status !== 'CANCELLED');
 
   return (
     <Accordion expanded={expanded} onChange={(_, value) => setExpanded(value)} disableGutters elevation={0}
-      sx={{ mb: 3, border: '1px solid #E4E7EC', borderRadius: '8px !important', '&:before': { display: 'none' } }}>
+      sx={{ mb: 3, border: '1px solid', borderColor: 'divider', borderRadius: '10px !important', '&:before': { display: 'none' } }}>
       <AccordionSummary expandIcon={<ExpandMoreIcon />}>
         <Typography fontWeight={600}>{t('Thư gửi ứng viên ')}{visible.length > 0 ? `(${visible.length})` : ''}</Typography>
       </AccordionSummary>
@@ -100,9 +131,15 @@ export default function CandidateEmailPanel({ applicationId, request }: { applic
                 </Button>
                 <Button size="small" color="error" onClick={() => cancel(email.email_id)}>{t('Hủy nháp')}</Button>
               </>}
+              {email.status === 'FAILED' && (
+                <Button size="small" variant="outlined" color="error" disabled={retrying === email.email_id}
+                  onClick={() => retry(email)}>
+                  {retrying === email.email_id ? <CircularProgress size={14} color="inherit" /> : t('Thử gửi lại')}
+                </Button>
+              )}
             </Stack>
             <Collapse in={openEmail === email.email_id} unmountOnExit>
-              <Box sx={{ mt: 1, p: 1.5, bgcolor: '#F8FAFC', borderRadius: 1, border: '1px solid #E5EAF0' }}>
+              <Box sx={{ mt: 1, p: 1.5, bgcolor: 'background.default', borderRadius: 1.5, border: '1px solid', borderColor: 'divider' }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                   {t('Gửi từ')}: {email.from_address}{email.reply_to_address ? ` · ${t('Trả lời về')}: ${email.reply_to_address}` : ''}
                 </Typography>
@@ -117,6 +154,7 @@ export default function CandidateEmailPanel({ applicationId, request }: { applic
         open={!!dialog}
         applicationId={applicationId}
         templateCode={dialog?.template}
+        prefillInterview={dialog?.prefillInterview}
         triggerSource={dialog?.trigger}
         draft={dialog?.draft}
         onClose={() => setDialog(null)}

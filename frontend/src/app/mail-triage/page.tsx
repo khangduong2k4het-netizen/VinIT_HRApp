@@ -7,7 +7,13 @@ import {
   Alert, Box, Button, Card, CardContent, Chip, CircularProgress, MenuItem, Stack, Tab, Tabs, TextField, Typography,
 } from '@mui/material';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
+import MailOutlineIcon from '@mui/icons-material/MailOutline';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import ReplayIcon from '@mui/icons-material/Replay';
 import Link from 'next/link';
+import PageHeader from '@/components/common/PageHeader';
+import EmptyState from '@/components/common/EmptyState';
+import CandidateEmailDialog from '@/components/candidates/CandidateEmailDialog';
 import { mailboxApi, positionsApi, type MailboxStatus } from '@/lib/api';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -54,6 +60,7 @@ export default function MailTriagePage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [emailAppId, setEmailAppId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setItems(null);
@@ -68,7 +75,6 @@ export default function MailTriagePage() {
     } catch (err: any) { setError(err.response?.data?.detail || t('Không thể tải hộp thư CV.')); setItems([]); }
   }, [tab, t]);
   useEffect(() => { load(); }, [load]);
-  // All open positions (the plain list endpoint returns one page of 20).
   useEffect(() => { positionsApi.listAll().then(all => setPositions(all.filter((p: any) => p.status === 'OPEN'))).catch(() => setPositions([])); }, []);
 
   const open = async (att: Attachment) => {
@@ -95,35 +101,76 @@ export default function MailTriagePage() {
     catch (err: any) { setError(err.response?.data?.detail || t('Không thể bỏ qua thư.')); }
     finally { setBusy(null); }
   };
+  const retry = async (item: Item) => {
+    try {
+      setBusy(item.message_id); setError(null);
+      await mailboxApi.retry(item.message_id);
+      setNotice(t('Đã thử đọc lại thư.'));
+      await load();
+    } catch (err: any) { setError(err.response?.data?.detail || t('Không thể đọc lại thư lúc này.')); }
+    finally { setBusy(null); }
+  };
 
   return (
     <Box>
-      <Typography variant="h4" sx={{ mb: 1 }}>{t('Hộp thư CV')}</Typography>
-      <Typography color="text.secondary" sx={{ mb: 2, maxWidth: 760 }}>
-        {t('CV ứng viên gửi qua email. Thư có mã vị trí được tự động đưa vào hồ sơ; thư không rõ vị trí nằm ở mục "Chờ phân loại" để HR chọn.')}
-      </Typography>
+      <PageHeader
+        eyebrow={t('Tuyển dụng')}
+        title={t('Hộp thư CV')}
+        description={t('CV ứng viên gửi qua email. Thư có mã vị trí được tự động đưa vào hồ sơ; thư không rõ vị trí nằm ở mục "Chờ phân loại" để HR chọn.')}
+        actions={
+          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={load} disabled={items === null}>
+            {t('Làm mới')}
+          </Button>
+        }
+      />
       {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{t(error)}</Alert>}
       {notice && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setNotice(null)}>{notice}</Alert>}
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }} variant="scrollable" allowScrollButtonsMobile>
-        {TABS.map(x => <Tab key={x.value} value={x.value} label={t(x.label)} />)}
-      </Tabs>
-      {items === null ? <CircularProgress size={24} /> : items.length === 0 ? (
-        <Typography color="text.secondary">{tab === 'NEEDS_TRIAGE' ? t('Không có thư nào chờ phân loại.') : t('Chưa có thư nào.')}</Typography>
+
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2.5 }}>
+        <Tabs value={tab} onChange={(_, v) => setTab(v)} variant="scrollable" allowScrollButtonsMobile>
+          {TABS.map(x => (
+            <Tab
+              key={x.value}
+              value={x.value}
+              label={items !== null && tab === x.value ? `${t(x.label)} (${items.length})` : t(x.label)}
+            />
+          ))}
+        </Tabs>
+      </Box>
+
+      {items === null ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress size={28} /></Box>
+      ) : items.length === 0 ? (
+        <EmptyState
+          title={tab === 'NEEDS_TRIAGE' ? t('Không có thư nào chờ phân loại.') : t('Chưa có thư nào.')}
+          description={tab === 'NEEDS_TRIAGE'
+            ? t('Các CV gửi tới hộp thư tuyển dụng mà hệ thống chưa tự khớp vị trí sẽ hiển thị tại đây.')
+            : undefined}
+        />
       ) : (
         <Stack spacing={1.5}>
           {items.map(item => (
             <Card key={item.message_id} variant="outlined">
-              <CardContent sx={{ '&:last-child': { pb: 2 } }}>
+              <CardContent sx={{ '&:last-child': { pb: 2.25 } }}>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ sm: 'flex-start' }}>
                   <Box sx={{ minWidth: 0 }}>
-                    <Typography fontWeight={600} sx={{ wordBreak: 'break-word' }}>{item.subject || t('(không có tiêu đề)')}</Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
+                    <Typography fontWeight={600} sx={{ wordBreak: 'break-word', color: 'text.primary' }}>
+                      {item.subject || t('(không có tiêu đề)')}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-all', mt: 0.25 }}>
                       {item.from_name ? `${item.from_name} · ` : ''}{item.from_address || ''} · {new Date(item.received_at || item.created_at).toLocaleString(dateLocale)}
                     </Typography>
                   </Box>
-                  {item.reason && <Chip size="small" variant="outlined" color={tab === 'FAILED' ? 'error' : 'default'} label={t(REASONS[item.reason] || item.reason)} />}
+                  {item.reason && (
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      color={tab === 'FAILED' ? 'error' : tab === 'NEEDS_TRIAGE' ? 'warning' : 'default'}
+                      label={t(REASONS[item.reason] || item.reason)}
+                    />
+                  )}
                 </Stack>
-                <Stack direction="row" spacing={1} sx={{ mt: 1.25 }} flexWrap="wrap" useFlexGap>
+                <Stack direction="row" spacing={1} sx={{ mt: 1.5 }} flexWrap="wrap" useFlexGap>
                   {item.attachments.map(att => (
                     <Chip key={att.attachment_id} size="small" icon={<AttachFileIcon />} label={att.filename}
                       onClick={tab === 'NEEDS_TRIAGE' && att.status === 'STORED' ? () => open(att) : undefined}
@@ -132,13 +179,40 @@ export default function MailTriagePage() {
                   ))}
                 </Stack>
                 {tab === 'MATCHED' && item.position_code && (
-                  <Typography variant="body2" sx={{ mt: 1.25 }}>
-                    {t('Vào vị trí')} <b>{item.position_code}</b> {item.position_title ? `– ${item.position_title}` : ''} ({t(METHODS[item.match_method || ''] || '')})
-                    {item.application_id && item.position_id && <> · <Link href={`/positions/${item.position_id}/applicants/${item.application_id}`}>{t('Mở hồ sơ')}</Link></>}
-                  </Typography>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} justifyContent="space-between" sx={{ mt: 1.5 }}>
+                    <Typography variant="body2">
+                      {t('Vào vị trí')} <b>{item.position_code}</b> {item.position_title ? `– ${item.position_title}` : ''} ({t(METHODS[item.match_method || ''] || '')})
+                      {item.application_id && item.position_id && <> · <Link href={`/positions/${item.position_id}/applicants/${item.application_id}`}>{t('Mở hồ sơ')}</Link></>}
+                    </Typography>
+                    {item.application_id && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<MailOutlineIcon fontSize="small" />}
+                        onClick={() => setEmailAppId(item.application_id)}
+                        sx={{ flexShrink: 0 }}
+                      >
+                        {t('Gửi thư xác nhận')}
+                      </Button>
+                    )}
+                  </Stack>
+                )}
+                {tab === 'FAILED' && (
+                  <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="error"
+                      startIcon={busy === item.message_id ? <CircularProgress size={14} color="inherit" /> : <ReplayIcon />}
+                      disabled={busy === item.message_id}
+                      onClick={() => retry(item)}
+                    >
+                      {t('Thử đọc lại')}
+                    </Button>
+                  </Stack>
                 )}
                 {tab === 'NEEDS_TRIAGE' && (
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1.5 }} alignItems={{ sm: 'center' }}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1.75, pt: 1.5, borderTop: '1px solid', borderColor: 'divider' }} alignItems={{ sm: 'center' }}>
                     {item.suggestions?.length > 0 && (
                       <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
                         <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>{t('Gợi ý:')}</Typography>
@@ -162,6 +236,18 @@ export default function MailTriagePage() {
             </Card>
           ))}
         </Stack>
+      )}
+      {emailAppId && (
+        <CandidateEmailDialog
+          open={Boolean(emailAppId)}
+          applicationId={emailAppId}
+          templateCode="ACK_RECEIVED"
+          onClose={() => setEmailAppId(null)}
+          onDone={() => {
+            setEmailAppId(null);
+            setNotice(t('Đã gửi hoặc lưu thư xác nhận cho ứng viên.'));
+          }}
+        />
       )}
     </Box>
   );

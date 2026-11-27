@@ -7,7 +7,10 @@ import {
 import { useI18n } from '@/i18n/I18nProvider';
 import { adminApi } from '@/lib/api';
 
-type ResetRequest = { request_id: string; email: string; display_name: string; reason: string; requested_at: string };
+type ResetRequest = {
+  request_id: string; kind?: 'MATCHED' | 'UNMATCHED'; email: string; display_name: string | null;
+  full_name?: string | null; unit?: string | null; reason: string; requested_at: string;
+};
 
 // Admin queue: people who forgot their password and wrote why. Approving emails them a one-time reset link.
 export default function ResetRequestsPanel() {
@@ -38,6 +41,15 @@ export default function ResetRequestsPanel() {
     } catch (err) { fail(err); } finally { setBusy(null); }
   };
 
+  const resolve = async (item: ResetRequest, outcome: 'HANDLED' | 'DISMISSED') => {
+    setBusy(item.request_id); setError(null); setNotice(null);
+    try {
+      await adminApi.resolveResetRequest(item.request_id, outcome);
+      setNotice(outcome === 'HANDLED' ? "Đã đánh dấu đã xử lý." : "Đã bỏ qua yêu cầu.");
+      await load();
+    } catch (err) { fail(err); } finally { setBusy(null); }
+  };
+
   const reject = async () => {
     if (!rejecting) return;
     setBusy(rejecting.request_id); setError(null); setNotice(null);
@@ -60,16 +72,29 @@ export default function ResetRequestsPanel() {
       ? <Typography variant="body2" color="text.secondary">{t("Không có yêu cầu nào đang chờ.")}</Typography>
       : items.map(item => <Box key={item.request_id} sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', py: 1.25, borderTop: '1px solid #E4E7EC' }}>
         <Box sx={{ minWidth: 0, flex: '1 1 320px' }}>
-          <Typography variant="body2" fontWeight={600} sx={{ overflowWrap: 'anywhere' }}>{item.display_name} · {item.email}</Typography>
+          {item.kind === 'UNMATCHED'
+            ? <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Chip size="small" color="warning" variant="outlined" label={t("Không khớp tài khoản nào")} />
+              <Typography variant="body2" fontWeight={600} sx={{ overflowWrap: 'anywhere' }}>{item.full_name} · {item.unit}</Typography>
+            </Box>
+            : <Typography variant="body2" fontWeight={600} sx={{ overflowWrap: 'anywhere' }}>
+              {item.display_name} · {item.email}{item.full_name ? ` · ${item.full_name} (${item.unit || ''})` : ''}
+            </Typography>}
+          {item.kind === 'UNMATCHED' && <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere', display: 'block' }}>{t("Email đã nhập")}: {item.email}</Typography>}
           <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{item.reason}</Typography>
           <Typography variant="caption" color="text.secondary">{t("Gửi lúc")}: {new Date(item.requested_at).toLocaleString('vi-VN')}</Typography>
         </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button size="small" variant="contained" disabled={busy !== null} onClick={() => approve(item)}>
-            {busy === item.request_id ? <CircularProgress size={18} color="inherit" /> : t("Duyệt và gửi link")}
-          </Button>
-          <Button size="small" color="error" disabled={busy !== null} onClick={() => { setRejecting(item); setNote(''); }}>{t("Từ chối")}</Button>
-        </Box>
+        {item.kind === 'UNMATCHED'
+          ? <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button size="small" variant="contained" disabled={busy !== null} onClick={() => resolve(item, 'HANDLED')}>{t("Đã xử lý")}</Button>
+            <Button size="small" color="inherit" disabled={busy !== null} onClick={() => resolve(item, 'DISMISSED')}>{t("Bỏ qua")}</Button>
+          </Box>
+          : <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button size="small" variant="contained" disabled={busy !== null} onClick={() => approve(item)}>
+              {busy === item.request_id ? <CircularProgress size={18} color="inherit" /> : t("Duyệt và gửi link")}
+            </Button>
+            <Button size="small" color="error" disabled={busy !== null} onClick={() => { setRejecting(item); setNote(''); }}>{t("Từ chối")}</Button>
+          </Box>}
       </Box>)}
     <Dialog open={rejecting !== null} onClose={() => busy === null && setRejecting(null)} maxWidth="sm" fullWidth>
       <DialogTitle>{t("Từ chối yêu cầu")}</DialogTitle>

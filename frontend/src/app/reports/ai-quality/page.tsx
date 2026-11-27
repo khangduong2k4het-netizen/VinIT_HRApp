@@ -8,8 +8,10 @@ import { analyticsApi, authApi, departmentsApi, positionsApi, rubricApi } from '
 import { useI18n } from '@/i18n/I18nProvider';
 import PageHeader from '@/components/common/PageHeader';
 import RateTrendChart from '@/components/reports/RateTrendChart';
+import { SIGNOFF_REASON_LABELS } from '@/components/candidates/EvidenceCard';
 import { chartPoints, counts, localIsoDate, markerKindKey, pct, trendStatement,
   type BreakdownRow, type Marker, type Proportion, type Trends } from '@/lib/aiQuality';
+import type { EvidenceCalibration, EvidenceSignoffReasonCode } from '@/types';
 
 const REASONS: Record<string, string> = {
   SYNONYM_TERMS: 'Từ đồng nghĩa', EQUIVALENT_CREDENTIAL: 'Chứng chỉ tương đương', IMPLICIT_EVIDENCE: 'Bằng chứng ngầm định',
@@ -52,6 +54,7 @@ export default function AiQualityPage() {
   const [versions, setVersions] = useState<BreakdownRow[]>([]);
   const [fileTypes, setFileTypes] = useState<BreakdownRow[]>([]);
   const [criterionTypes, setCriterionTypes] = useState<BreakdownRow[]>([]);
+  const [calibration, setCalibration] = useState<EvidenceCalibration | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
@@ -76,7 +79,7 @@ export default function AiQualityPage() {
     setLoading(true); setError('');
     const range = buildFilterParams();
     try {
-      const [tr, mk, rs, fl, fa, dp, ve, ft, ct] = await Promise.all([
+      const [tr, mk, rs, fl, fa, dp, ve, ft, ct, cal] = await Promise.all([
         analyticsApi.qualityTrends({ ...range, grain }),
         analyticsApi.qualityMarkers({ date_from: dateFrom, date_to: dateTo }),
         analyticsApi.qualityBreakdown({ ...range, dimension: 'override_reason' }),
@@ -86,10 +89,11 @@ export default function AiQualityPage() {
         analyticsApi.qualityBreakdown({ ...range, dimension: 'matching_policy_version' }),
         analyticsApi.qualityBreakdown({ ...range, dimension: 'file_type' }),
         analyticsApi.qualityBreakdown({ ...range, dimension: 'criterion_type' }),
+        analyticsApi.evidenceCalibration(range),
       ]);
       setTrends(tr.data); setMarkers(mk.data.markers); setReasons(rs.data.rows); setFlags(fl.data.rows);
       setFamilies(fa.data.rows); setDepartments(dp.data.rows); setVersions(ve.data.rows);
-      setFileTypes(ft.data.rows); setCriterionTypes(ct.data.rows);
+      setFileTypes(ft.data.rows); setCriterionTypes(ct.data.rows); setCalibration(cal.data);
     } catch (err: any) {
       setTrends(null);
       setError(err.response?.status === 403 ? t('Bạn không có quyền xem chất lượng AI.') : err.response?.status === 400
@@ -292,6 +296,116 @@ export default function AiQualityPage() {
                 </Box>))}
             </CardContent></Card></Grid>
           </Grid>
+
+          {calibration && (
+            <Card sx={{ mt: 2 }}>
+              <CardContent>
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>
+                  {t('Hiệu chỉnh bằng chứng từ HR')}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  {t('Tổng hợp từ các lần HR bấm Xác nhận hoặc Báo sai trực tiếp trên từng tiêu chí AI (chỉ tính kết luận mới nhất mỗi tiêu chí, không chia theo cá nhân HR).')}
+                </Typography>
+
+                {calibration.total_reviewed === 0 ? (
+                  <Typography color="text.secondary">
+                    {t('Chưa có lượt xác nhận hoặc báo sai bằng chứng nào trong khoảng thời gian này.')}
+                  </Typography>
+                ) : (
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} sm={4}>
+                      <Box sx={{ p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+                        <Typography variant="caption" color="text.secondary">{t('Tổng tiêu chí HR đã kiểm')}</Typography>
+                        <Typography variant="h4" className="tabular-nums" sx={{ fontWeight: 700, color: 'primary.main', mt: 0.5 }}>
+                          {calibration.total_reviewed}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {t('{0} xác nhận · {1} báo sai', calibration.confirmed_count, calibration.disputed_count)}
+                        </Typography>
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={4}>
+                      <Box sx={{ p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+                        <Typography variant="caption" color="text.secondary">{t('Tỷ lệ báo sai bằng chứng')}</Typography>
+                        <Box sx={{ mt: 0.75 }}>
+                          <Rate p={calibration.dispute_proportion} />
+                        </Box>
+                        {calibration.dispute_proportion.insufficient && calibration.dispute_rate != null && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                            {t('Tỷ lệ quan sát hiện tại: {0} (cần tối thiểu {1} lượt kiểm để tính khoảng tin cậy).', pct(calibration.dispute_rate), calibration.min_sample)}
+                          </Typography>
+                        )}
+                      </Box>
+                    </Grid>
+                    <Grid item xs={12} sm={4}>
+                      <Box sx={{ p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider', height: '100%' }}>
+                        <Typography variant="caption" color="text.secondary">{t('Phân bổ lý do báo sai')}</Typography>
+                        {calibration.by_reason.length === 0 ? (
+                          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+                            {t('Không có tiêu chí nào bị báo sai.')}
+                          </Typography>
+                        ) : (
+                          <Stack spacing={0.5} sx={{ mt: 0.75 }}>
+                            {calibration.by_reason.map(r => (
+                              <Box key={r.reason_code} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                                <Typography variant="body2">
+                                  {t(SIGNOFF_REASON_LABELS[r.reason_code as EvidenceSignoffReasonCode] || 'Lý do khác')}
+                                </Typography>
+                                <Typography variant="body2" className="tabular-nums">
+                                  <b>{r.count}</b> · {pct(r.share)}
+                                </Typography>
+                              </Box>
+                            ))}
+                          </Stack>
+                        )}
+                      </Box>
+                    </Grid>
+
+                    {calibration.top_disputed_criteria.length > 0 && (
+                      <Grid item xs={12}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+                          {t('Tiêu chí bị báo sai nhiều nhất (gợi ý tinh chỉnh rubric)')}
+                        </Typography>
+                        <TableContainer>
+                          <Table size="small" aria-label={t('Tiêu chí bị báo sai nhiều nhất')}>
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>{t('Tên tiêu chí')}</TableCell>
+                                <TableCell>{t('Nhóm')}</TableCell>
+                                <TableCell align="right">{t('Số lượt kiểm')}</TableCell>
+                                <TableCell align="right">{t('Số lượt báo sai')}</TableCell>
+                                <TableCell align="right">{t('Tỷ lệ báo sai')}</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {calibration.top_disputed_criteria.map(row => (
+                                <TableRow key={`${row.criterion_name}-${row.category}`}>
+                                  <TableCell>{row.criterion_name}</TableCell>
+                                  <TableCell>
+                                    <Chip
+                                      size="small"
+                                      label={row.category === 'MUST_HAVE' ? t('Bắt buộc') : t('Ưu tiên')}
+                                      color={row.category === 'MUST_HAVE' ? 'error' : 'default'}
+                                      variant="outlined"
+                                    />
+                                  </TableCell>
+                                  <TableCell align="right" className="tabular-nums">{row.total_reviewed}</TableCell>
+                                  <TableCell align="right" className="tabular-nums" sx={{ color: 'error.main', fontWeight: 600 }}>
+                                    {row.disputed_count}
+                                  </TableCell>
+                                  <TableCell align="right" className="tabular-nums">{pct(row.dispute_rate)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      </Grid>
+                    )}
+                  </Grid>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           <Card sx={{ mt: 2 }}><CardContent>
             <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>{t('Mốc thay đổi')}</Typography>

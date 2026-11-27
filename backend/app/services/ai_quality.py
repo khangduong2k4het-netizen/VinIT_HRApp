@@ -538,3 +538,108 @@ def golden_set_csv(rows: list[dict[str, Any]]) -> str:
         }
         writer.writerow({k: _csv_cell(flat.get(k)) for k in fields})
     return buf.getvalue()
+
+
+def evidence_calibration(
+    db,
+    *,
+    user_id: str,
+    start: date,
+    end: date,
+    position_id: Optional[str] = None,
+    department_id: Optional[str] = None,
+    job_family_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Closed-loop aggregate calibration from HR evidence sign-offs.
+
+    Uses the latest sign-off per criterion result within the selected period so
+    re-reviews never double-count. Aggregated only — never per recruiter.
+    """
+    params = _params(db, user_id, start, end, position_id, department_id, job_family_id)
+
+    summary_rows = _rows(db, """,
+        latest AS (
+            SELECT DISTINCT ON (es.result_id)
+                   es.result_id, es.criterion_id, es.verdict, es.reason_code
+            FROM app_private.evidence_signoffs es
+            WHERE es.position_id IN (SELECT position_id FROM scope)
+              AND es.created_at >= :start AND es.created_at < :end_excl
+            ORDER BY es.result_id, es.created_at DESC, es.signoff_id DESC
+        )
+        SELECT COUNT(*) AS total_reviewed,
+               COUNT(*) FILTER (WHERE verdict = 'CONFIRMED') AS confirmed_count,
+               COUNT(*) FILTER (WHERE verdict = 'DISPUTED') AS disputed_count
+        FROM latest
+    """, params)
+    summary = summary_rows[0] if summary_rows else {"total_reviewed": 0, "confirmed_count": 0, "disputed_count": 0}
+    total_reviewed = int(summary["total_reviewed"] or 0)
+    confirmed_count = int(summary["confirmed_count"] or 0)
+    disputed_count = int(summary["disputed_count"] or 0)
+    dispute_rate = round(disputed_count / total_reviewed, 4) if total_reviewed > 0 else None
+
+    reason_rows = _rows(db, """,
+        latest AS (
+            SELECT DISTINCT ON (es.result_id)
+                   es.result_id, es.verdict, es.reason_code
+            FROM app_private.evidence_signoffs es
+            WHERE es.position_id IN (SELECT position_id FROM scope)
+              AND es.created_at >= :start AND es.created_at < :end_excl
+            ORDER BY es.result_id, es.created_at DESC, es.signoff_id DESC
+        )
+        SELECT reason_code, COUNT(*) AS count
+        FROM latest
+        WHERE verdict = 'DISPUTED' AND reason_code IS NOT NULL
+        GROUP BY reason_code
+        ORDER BY count DESC, reason_code ASC
+    """, params)
+    by_reason = [
+        {
+            "reason_code": r["reason_code"],
+            "count": int(r["count"]),
+            "share": round(int(r["count"]) / disputed_count, 4) if disputed_count > 0 else 0.0,
+        }
+        for r in reason_rows
+    ]
+
+    criteria_rows = _rows(db, """,
+        latest AS (
+            SELECT DISTINCT ON (es.result_id)
+                   es.result_id, es.criterion_id, es.verdict
+            FROM app_private.evidence_signoffs es
+            WHERE es.position_id IN (SELECT position_id FROM scope)
+              AND es.created_at >= :start AND es.created_at < :end_excl
+            ORDER BY es.result_id, es.created_at DESC, es.signoff_id DESC
+        )
+        SELECT ci.name AS criterion_name,
+               ci.category,
+               COUNT(*) AS total_reviewed,
+               COUNT(*) FILTER (WHERE l.verdict = 'DISPUTED') AS disputed_count
+        FROM latest l
+        JOIN app_private.criteria_items ci ON ci.criterion_id = l.criterion_id
+        GROUP BY ci.name, ci.category
+        HAVING COUNT(*) FILTER (WHERE l.verdict = 'DISPUTED') > 0
+        ORDER BY disputed_count DESC, total_reviewed DESC, ci.name ASC
+        LIMIT 10
+    """, params)
+    top_disputed_criteria = [
+        {
+            "criterion_name": r["criterion_name"],
+            "category": r["category"],
+            "total_reviewed": int(r["total_reviewed"]),
+            "disputed_count": int(r["disputed_count"]),
+            "dispute_rate": round(int(r["disputed_count"]) / int(r["total_reviewed"]), 4) if int(r["total_reviewed"]) > 0 else 0.0,
+        }
+        for r in criteria_rows
+    ]
+
+    return {
+        "range": {"date_from": start.isoformat(), "date_to": end.isoformat()},
+        "min_sample": MIN_SAMPLE_SIZE,
+        "total_reviewed": total_reviewed,
+        "confirmed_count": confirmed_count,
+        "disputed_count": disputed_count,
+        "dispute_rate": dispute_rate,
+        "dispute_proportion": proportion(disputed_count, total_reviewed),
+        "by_reason": by_reason,
+        "top_disputed_criteria": top_disputed_criteria,
+    }

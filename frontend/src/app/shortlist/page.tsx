@@ -40,6 +40,8 @@ import { scorecardApi, shortlistApi } from '@/lib/api';
 import { readUrlParam, setUrlParam, useScrollMemory } from '@/lib/navMemory';
 import ScorecardDialog, { RECOMMENDATION_LABELS, SCORECARD_STATUS_LABELS } from '@/components/shortlist/ScorecardDialog';
 import type { Recommendation, Scorecard } from '@/types';
+import PageHeader from '@/components/common/PageHeader';
+import EmptyState from '@/components/common/EmptyState';
 import StatusBadge from '@/components/common/StatusBadge';
 import Link from 'next/link';
 
@@ -200,11 +202,16 @@ export default function ShortlistPage() {
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap', mb: 4 }}>
-        <Box><Typography variant="h1" sx={{ fontSize: 28, color: '#0A2B57', mb: 0.5 }}>{t("Shortlist được chia sẻ")}</Typography>
-        <Typography variant="body2" color="text.secondary">{t("Theo dõi shortlist đã gửi hoặc nhận và trao đổi phản hồi chuyên môn")}</Typography></Box>
-        <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => loadData()}>{t("Làm mới")}</Button>
-      </Box>
+      <PageHeader
+        eyebrow={t('Tuyển dụng')}
+        title={t("Shortlist được chia sẻ")}
+        description={t("Theo dõi shortlist đã gửi hoặc nhận và trao đổi phản hồi chuyên môn")}
+        actions={
+          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => loadData()}>
+            {t("Làm mới")}
+          </Button>
+        }
+      />
 
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} action={<Button color="inherit" onClick={() => loadData()}>{t("Thử lại")}</Button>}>
@@ -213,9 +220,9 @@ export default function ShortlistPage() {
       )}
 
       {!error && myScorecards && myScorecards.summary.total > 0 && (
-        <Card variant="outlined" sx={{ mb: 3, borderLeft: '4px solid #941616' }}><CardContent>
+        <Card variant="outlined" sx={{ mb: 3, borderLeft: '4px solid', borderLeftColor: 'secondary.main' }}><CardContent>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
-            <Typography variant="h4" sx={{ fontSize: 18 }}>{t("Scorecard cần chấm")}</Typography>
+            <Typography variant="h6" sx={{ fontWeight: 700 }}>{t("Scorecard cần chấm")}</Typography>
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
               <Chip size="small" label={t("Chưa bắt đầu: {0}", myScorecards.summary.not_started)} />
               <Chip size="small" color="warning" label={t("Đang chấm: {0}", myScorecards.summary.in_progress)} />
@@ -226,7 +233,7 @@ export default function ShortlistPage() {
           {myScorecards.items.filter(item => item.status !== 'SUBMITTED').length === 0 ? (
             <Typography variant="body2" color="text.secondary">{t("Bạn đã nộp tất cả scorecard được giao.")}</Typography>
           ) : myScorecards.items.filter(item => item.status !== 'SUBMITTED').map(item => (
-            <Box key={item.scorecard_id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, flexWrap: 'wrap', py: 1, borderTop: '1px solid #F2F4F7' }}>
+            <Box key={item.scorecard_id} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, flexWrap: 'wrap', py: 1, borderTop: '1px solid', borderColor: 'divider' }}>
               <Box>
                 <Typography variant="body2" fontWeight={600}>{item.candidate_name}</Typography>
                 <Typography variant="caption" color={item.is_overdue ? 'error' : 'text.secondary'}>
@@ -243,11 +250,11 @@ export default function ShortlistPage() {
       {!error && <>
       <Box sx={{ display: { xs: 'grid', md: 'none' }, gap: 2 }}>
         {shares.length === 0 ? (
-          <Paper sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>{t("Chưa có shortlist được gửi hoặc nhận.")}</Paper>
+          <EmptyState title={t("Chưa có shortlist được gửi hoặc nhận.")} />
         ) : shares.map(share => (
-          <Card key={share.share_id} sx={{ border: '1px solid #E9EEF4' }}>
+          <Card key={share.share_id} variant="outlined">
             <CardContent>
-              <Typography variant="subtitle1" fontWeight={700} color="#0A2B57">{share.position?.title || t("Vị trí tuyển dụng")}</Typography>
+              <Typography variant="subtitle1" fontWeight={700} color="primary.main">{share.position?.title || t("Vị trí tuyển dụng")}</Typography>
               <Typography variant="caption" color="text.secondary">{share.position?.position_code} · {share.direction === 'sent' ? t("Bạn / HR → {0}", share.recipient_profile?.display_name || 'Hiring Manager') : t("Từ {0}", share.created_by_profile?.display_name || 'HR')}</Typography>
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1.5 }}>
                 <Chip size="small" label={t("{0} ứng viên", share.application_count ?? 0)} />

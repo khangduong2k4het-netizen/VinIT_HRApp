@@ -276,7 +276,52 @@ export interface EvidenceItem {
   verification_status: string | null;
 }
 
+export type EvidenceSignoffReasonCode =
+  | 'WRONG_QUOTE'
+  | 'WRONG_LEVEL'
+  | 'MISSING_CONTEXT'
+  | 'OCR_NOISE'
+  | 'RUBRIC_AMBIGUOUS'
+  | 'OTHER';
+
+export interface EvidenceSignoff {
+  signoff_id: string;
+  result_id: string;
+  criterion_id: string;
+  verdict: 'CONFIRMED' | 'DISPUTED';
+  reason_code: EvidenceSignoffReasonCode | null;
+  note: string | null;
+  reviewed_by_name: string | null;
+  created_at: string | null;
+}
+
+export interface EvidenceCalibration {
+  range: { date_from: string; date_to: string };
+  min_sample: number;
+  total_reviewed: number;
+  confirmed_count: number;
+  disputed_count: number;
+  dispute_rate: number | null;
+  dispute_proportion: {
+    count: number;
+    total: number;
+    rate: number | null;
+    ci_low: number | null;
+    ci_high: number | null;
+    insufficient: boolean;
+  };
+  by_reason: Array<{ reason_code: string; count: number; share: number }>;
+  top_disputed_criteria: Array<{
+    criterion_name: string;
+    category: string;
+    total_reviewed: number;
+    disputed_count: number;
+    dispute_rate: number;
+  }>;
+}
+
 export interface CriterionResult {
+  result_id?: string;
   criterion_id: string;
   criterion_name: string;
   category: string;

@@ -55,10 +55,25 @@ def _prune(window: deque, now: float) -> None:
         window.popleft()
 
 
+_last_ip_prune = 0.0
+
+
+def _prune_ip_map(now: float) -> None:
+    """Drop idle addresses; at most once a minute so a large map is not rescanned on every request."""
+    global _last_ip_prune
+    if len(_failures_by_ip) <= 2000 or now - _last_ip_prune < 60:
+        return
+    _last_ip_prune = now
+    stale = [key for key, q in list(_failures_by_ip.items()) if not q or q[-1] < now - WINDOW_SECONDS]
+    for key in stale:
+        _failures_by_ip.pop(key, None)
+
+
 def _check_key(http_request: Request, key: SecretStr) -> None:
     if not recovery_enabled():
         raise HTTPException(status_code=404, detail="Không tìm thấy.")
     ip, now = client_address(http_request), time.time()
+    _prune_ip_map(now)
     mine = _failures_by_ip[ip]
     _prune(mine, now)
     _prune(_failures_overall, now)
@@ -183,6 +198,8 @@ def _active_admin(db, email: str):
 def send_email_code(body: RecoveryEmail, http_request: Request):
     """Step 1 of the email path: the Admin types their email. The answer is the same for every email; only an
     ACTIVE Admin gets a mail, with a one-time code that plays the part of the old password in step 2."""
+    if settings.AUTH_BACKEND != "local":
+        raise HTTPException(status_code=404, detail="Không tìm thấy.")
     from app.api.auth import _limit_public_calls
     _limit_public_calls(http_request)
     if not email_enabled():
@@ -226,10 +243,13 @@ def send_email_code(body: RecoveryEmail, http_request: Request):
 @router.post("/email-code/reset")
 def reset_with_email_code(body: RecoveryCodeReset, http_request: Request):
     """Step 2: email + the code from the mail + new password. Every failure gives the same answer."""
+    if settings.AUTH_BACKEND != "local":
+        raise HTTPException(status_code=404, detail="Không tìm thấy.")
     if not email_enabled():
         raise HTTPException(status_code=409, detail="Chưa cấu hình email. Hãy dùng mã khôi phục, hoặc nhờ Admin khác / "
                             "người quản trị máy chủ.")
     ip, now = client_address(http_request), time.time()
+    _prune_ip_map(now)
     mine = _failures_by_ip[ip]
     _prune(mine, now)
     if len(mine) >= MAX_FAILURES_PER_IP:

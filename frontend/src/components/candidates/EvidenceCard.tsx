@@ -1,10 +1,33 @@
 'use client';
 
 import * as React from 'react';
-import { Alert, Box, Button, Card, CardContent, Chip, Paper, Stack, Typography } from '@mui/material';
+import { useState } from 'react';
+import {
+  Alert, Box, Button, Card, CardContent, Chip, CircularProgress, MenuItem, Paper, Stack, TextField, Typography,
+} from '@mui/material';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import FlagOutlinedIcon from '@mui/icons-material/FlagOutlined';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useI18n } from '@/i18n/I18nProvider';
-import type { CriterionResult } from '@/types';
+import type { CriterionResult, EvidenceSignoff, EvidenceSignoffReasonCode } from '@/types';
+
+export const SIGNOFF_REASON_LABELS: Record<EvidenceSignoffReasonCode, string> = {
+  WRONG_QUOTE: 'Trích dẫn sai đoạn',
+  WRONG_LEVEL: 'Chấm sai mức độ',
+  MISSING_CONTEXT: 'Thiếu ngữ cảnh CV',
+  OCR_NOISE: 'Lỗi đọc chữ / OCR',
+  RUBRIC_AMBIGUOUS: 'Tiêu chí chưa rõ ràng',
+  OTHER: 'Lý do khác',
+};
+
+const SIGNOFF_REASON_LIST: EvidenceSignoffReasonCode[] = [
+  'WRONG_QUOTE',
+  'WRONG_LEVEL',
+  'MISSING_CONTEXT',
+  'OCR_NOISE',
+  'RUBRIC_AMBIGUOUS',
+  'OTHER',
+];
 
 const outcomeStyles: Record<string, { borderColor: string; bg: string; label: string; color: string; dot: string }> = {
   STRONG_MATCH: { borderColor: '#067647', bg: '#ECFDF3', label: 'Đáp ứng tốt', color: '#067647', dot: '#12B76A' },
@@ -19,10 +42,31 @@ interface EvidenceCardProps {
   hasCv: boolean;
   selected: boolean;
   onJumpToPage: (page: number, criterionId: string) => void;
+  signoff?: EvidenceSignoff | null;
+  canReview?: boolean;
+  onSignoff?: (
+    resultId: string,
+    payload: { verdict: 'CONFIRMED' | 'DISPUTED'; reason_code?: EvidenceSignoffReasonCode; note?: string },
+  ) => Promise<void>;
 }
 
-export default function EvidenceCard({ result, isPdf, hasCv, selected, onJumpToPage }: EvidenceCardProps) {
+export default function EvidenceCard({
+  result,
+  isPdf,
+  hasCv,
+  selected,
+  onJumpToPage,
+  signoff,
+  canReview = false,
+  onSignoff,
+}: EvidenceCardProps) {
   const { t } = useI18n();
+  const [disputeOpen, setDisputeOpen] = useState(false);
+  const [reasonCode, setReasonCode] = useState<EvidenceSignoffReasonCode>('WRONG_QUOTE');
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [signoffError, setSignoffError] = useState<string | null>(null);
+
   const style = outcomeStyles[result.outcome] || outcomeStyles.UNCLEAR;
   const citation = result.evidence?.[0];
   const verified = citation?.verification_status === 'VERIFIED' || citation?.verification_status === 'MANUAL_FIX';
@@ -37,6 +81,41 @@ export default function EvidenceCard({ result, isPdf, hasCv, selected, onJumpToP
       : result.decision_source
         ? t('AI đối chiếu')
         : '';
+
+  const showSignoffControls = Boolean(canReview && onSignoff && result.result_id);
+
+  const handleConfirm = async () => {
+    if (!onSignoff || !result.result_id || saving) return;
+    setSaving(true);
+    setSignoffError(null);
+    try {
+      await onSignoff(result.result_id, { verdict: 'CONFIRMED' });
+      setDisputeOpen(false);
+    } catch {
+      setSignoffError(t('Không thể lưu xác nhận bằng chứng.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSubmitDispute = async () => {
+    if (!onSignoff || !result.result_id || saving) return;
+    setSaving(true);
+    setSignoffError(null);
+    try {
+      await onSignoff(result.result_id, {
+        verdict: 'DISPUTED',
+        reason_code: reasonCode,
+        note: note.trim() || undefined,
+      });
+      setDisputeOpen(false);
+      setNote('');
+    } catch {
+      setSignoffError(t('Không thể lưu phản hồi bằng chứng.'));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <Card
@@ -170,6 +249,127 @@ export default function EvidenceCard({ result, isPdf, hasCv, selected, onJumpToP
           <Alert severity="warning" icon={false} sx={{ mt: 1.5, py: 0.25, fontSize: 12 }}>
             {t('Không tìm thấy bằng chứng rõ ràng. Vui lòng kiểm tra CV để xác minh.')}
           </Alert>
+        )}
+
+        {(signoff || showSignoffControls) && (
+          <Box sx={{ mt: 1.5, pt: 1.25, borderTop: '1px solid #EDF1F5' }}>
+            <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" flexWrap="wrap" useFlexGap>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                {signoff ? (
+                  <Chip
+                    size="small"
+                    icon={signoff.verdict === 'CONFIRMED' ? <CheckCircleOutlineIcon /> : <FlagOutlinedIcon />}
+                    label={
+                      signoff.verdict === 'CONFIRMED'
+                        ? t('HR đã xác nhận')
+                        : `${t('HR báo sai')} · ${t(SIGNOFF_REASON_LABELS[signoff.reason_code || 'OTHER'])}`
+                    }
+                    sx={{
+                      bgcolor: signoff.verdict === 'CONFIRMED' ? '#ECFDF3' : '#FEF2F2',
+                      color: signoff.verdict === 'CONFIRMED' ? '#067647' : '#941616',
+                      border: `1px solid ${signoff.verdict === 'CONFIRMED' ? '#A6F4C5' : '#FECACA'}`,
+                      fontWeight: 600,
+                      fontSize: 11.5,
+                      height: 24,
+                      '& .MuiChip-icon': { color: 'inherit', fontSize: 14 },
+                    }}
+                  />
+                ) : (
+                  <Typography variant="caption" color="text.secondary">
+                    {t('Xác minh bằng chứng AI')}
+                  </Typography>
+                )}
+                {signoff?.note && (
+                  <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 260 }} noWrap title={signoff.note}>
+                    {signoff.note}
+                  </Typography>
+                )}
+              </Box>
+
+              {showSignoffControls && (
+                <Stack direction="row" spacing={0.75} alignItems="center">
+                  <Button
+                    size="small"
+                    variant={signoff?.verdict === 'CONFIRMED' ? 'contained' : 'outlined'}
+                    color="success"
+                    startIcon={saving && !disputeOpen ? <CircularProgress size={12} color="inherit" /> : <CheckCircleOutlineIcon sx={{ fontSize: '14px !important' }} />}
+                    disabled={saving}
+                    onClick={handleConfirm}
+                    sx={{ py: 0.25, px: 1, fontSize: 11.5, minWidth: 0 }}
+                  >
+                    {t('Xác nhận')}
+                  </Button>
+                  <Button
+                    size="small"
+                    variant={signoff?.verdict === 'DISPUTED' || disputeOpen ? 'contained' : 'outlined'}
+                    color="error"
+                    startIcon={<FlagOutlinedIcon sx={{ fontSize: '14px !important' }} />}
+                    disabled={saving}
+                    onClick={() => {
+                      setReasonCode(signoff?.reason_code || 'WRONG_QUOTE');
+                      setNote(signoff?.note || '');
+                      setSignoffError(null);
+                      setDisputeOpen(prev => !prev);
+                    }}
+                    sx={{ py: 0.25, px: 1, fontSize: 11.5, minWidth: 0 }}
+                  >
+                    {t('Báo sai')}
+                  </Button>
+                </Stack>
+              )}
+            </Stack>
+
+            {signoffError && (
+              <Alert severity="error" sx={{ mt: 1, py: 0, fontSize: 12 }}>
+                {signoffError}
+              </Alert>
+            )}
+
+            {disputeOpen && showSignoffControls && (
+              <Box sx={{ mt: 1.25, p: 1.25, bgcolor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '8px' }}>
+                <Stack spacing={1}>
+                  <TextField
+                    select
+                    size="small"
+                    fullWidth
+                    label={t('Lý do bằng chứng chưa đúng')}
+                    value={reasonCode}
+                    onChange={e => setReasonCode(e.target.value as EvidenceSignoffReasonCode)}
+                    disabled={saving}
+                    sx={{ bgcolor: '#FFFFFF' }}
+                  >
+                    {SIGNOFF_REASON_LIST.map(code => (
+                      <MenuItem key={code} value={code}>{t(SIGNOFF_REASON_LABELS[code])}</MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    size="small"
+                    fullWidth
+                    label={t('Ghi chú ngắn (tùy chọn)')}
+                    value={note}
+                    onChange={e => setNote(e.target.value)}
+                    disabled={saving}
+                    inputProps={{ maxLength: 500 }}
+                    sx={{ bgcolor: '#FFFFFF' }}
+                  />
+                  <Stack direction="row" spacing={1} justifyContent="flex-end">
+                    <Button size="small" onClick={() => setDisputeOpen(false)} disabled={saving}>
+                      {t('Hủy')}
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="error"
+                      disabled={saving}
+                      onClick={handleSubmitDispute}
+                    >
+                      {saving ? t('Đang lưu…') : t('Lưu phản hồi')}
+                    </Button>
+                  </Stack>
+                </Stack>
+              </Box>
+            )}
+          </Box>
         )}
       </CardContent>
     </Card>

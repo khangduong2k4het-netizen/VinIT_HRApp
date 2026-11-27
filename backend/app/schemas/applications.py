@@ -91,6 +91,7 @@ class EvidenceItem(BaseSchema):
 
 
 class CriterionResult(BaseSchema):
+    result_id: Optional[UUID] = None
     criterion_id: UUID
     criterion_name: str
     category: str

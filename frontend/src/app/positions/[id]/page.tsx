@@ -49,7 +49,9 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { positionsApi, criteriaApi, applicationsApi, operationsApi, authApi, dashboardApi, rubricApi } from '@/lib/api';
 import { setUrlParam } from '@/lib/navMemory';
-import IntakeEmailLine from '@/components/positions/IntakeEmailLine';
+import PageHeader from '@/components/common/PageHeader';
+import ActionOverflowMenu from '@/components/common/ActionOverflowMenu';
+import PositionIntakeChannelsCard from '@/components/positions/PositionIntakeChannelsCard';
 
 const TAB_SLUGS = ['criteria', 'applications', 'shortlist', 'jd', 'history'] as const;
 const tabFromSlug = (slug: string | null) => { const i = (TAB_SLUGS as readonly string[]).indexOf(slug || ''); return i >= 0 ? i : null; };
@@ -684,87 +686,82 @@ export default function PositionDetailPage() {
         <Typography color="text.primary">{position.title}</Typography>
       </Breadcrumbs>
 
-      {/* Position Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2, mb: 3 }}>
-        <Box>
-          <Typography variant="h1" sx={{ fontSize: 28, color: '#0A2B57', mb: 0.5 }}>
-            {position.title}
-          </Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1, flexWrap: 'wrap' }}>
-            <Typography variant="body2" color="text.secondary" fontFamily="monospace">
-              {position.position_code}
-            </Typography>
-            <StatusBadge
-              type={position.status === 'OPEN' ? 'position-open' : position.status === 'PAUSED' ? 'position-paused' : 'position-closed'}
-              label={position.status === 'OPEN' ? t("Đang mở") : position.status === 'PAUSED' ? t("Tạm dừng") : t("Đã đóng")}
+      <PageHeader
+        eyebrow={position.position_code || t('Vị trí tuyển dụng')}
+        title={position.title}
+        actions={isHR ? (
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Button variant="outlined" size="small" startIcon={<EditOutlinedIcon />} onClick={openPositionDialog}>
+              {t("Chỉnh sửa vị trí")}
+            </Button>
+            <ActionOverflowMenu
+              label={t('Thao tác khác')}
+              items={[
+                {
+                  label: currentCriteria?.status === 'APPROVED' ? t("Tạo phiên bản tiêu chí mới") : t("Đề xuất tiêu chí AI"),
+                  icon: generating ? <CircularProgress size={16} /> : <AutoAwesomeIcon fontSize="small" />,
+                  onClick: handleGenerateCriteria,
+                  disabled: generating || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status)),
+                },
+                {
+                  label: t("Áp dụng từ thư viện"),
+                  icon: <LibraryBooksIcon fontSize="small" />,
+                  onClick: openTemplateDialog,
+                  disabled: hasOpenCriteria,
+                },
+                {
+                  label: t("Lưu thành mẫu"),
+                  icon: <BookmarkAddOutlinedIcon fontSize="small" />,
+                  onClick: openSaveTemplateDialog,
+                  hidden: !approvedCriteria,
+                },
+                {
+                  label: t("Sao chép để chỉnh sửa"),
+                  icon: creatingVersion ? <CircularProgress size={16} /> : <ContentCopyIcon fontSize="small" />,
+                  onClick: handleCreateNewVersion,
+                  disabled: creatingVersion,
+                  hidden: !canCreateNewVersion,
+                },
+                {
+                  label: t("Quét Talent Pool"),
+                  href: `/positions/${positionId}/talent-pool`,
+                  disabled: !approvedCriteria || position.status !== 'OPEN',
+                },
+              ]}
             />
-            {currentCriteria && <StatusBadge type={currentCriteria.status === 'APPROVED' ? 'criteria-approved' : 'criteria-draft'}
-              label={{ DRAFT: t("Bản nháp"), PENDING_HR_REVIEW: t("Chờ HR"), PENDING_HM_APPROVAL: t("Chờ HM"), APPROVED: t("Đã duyệt"), REJECTED: t("Đã từ chối") }[currentCriteria.status]} />}
-          </Box>
-        </Box>
-        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-          {isHR && <Button variant="outlined" startIcon={<EditOutlinedIcon />} onClick={openPositionDialog}>{t("Chỉnh sửa vị trí")}</Button>}
-          {isHR && (
-            <Button variant="outlined" startIcon={<LibraryBooksIcon />} onClick={openTemplateDialog} disabled={hasOpenCriteria}
-              sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}>{t("Áp dụng từ thư viện")}</Button>
-          )}
-          {isHR && approvedCriteria && (
-            <Button variant="outlined" startIcon={<BookmarkAddOutlinedIcon />} onClick={openSaveTemplateDialog}
-              sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}>{t("Lưu thành mẫu")}</Button>
-          )}
-          {canCreateNewVersion && (
-            <Button variant="outlined" startIcon={creatingVersion ? <CircularProgress size={16} /> : <ContentCopyIcon />}
-              onClick={handleCreateNewVersion} disabled={creatingVersion} sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}>
-              {t("Sao chép để chỉnh sửa")}
-            </Button>
-          )}
-          {/* HR-only actions: hidden (not just disabled) for Hiring Managers and other viewers. */}
-          {isHR && (
-            <Button
-              variant="outlined"
-              startIcon={<AutoAwesomeIcon />}
-              onClick={handleGenerateCriteria}
-              disabled={generating || (!!currentCriteria && !criteriaStale && !['REJECTED', 'APPROVED'].includes(currentCriteria.status))}
-              sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
-            >
-              {generating ? <CircularProgress size={20} sx={{ mr: 1 }} /> : null}
-              {currentCriteria?.status === 'APPROVED' ? t("Tạo phiên bản tiêu chí mới") : t("Đề xuất tiêu chí AI")}
-            </Button>
-          )}
-          {isHR && (
             <Button
               variant="contained"
               color="secondary"
+              size="small"
               startIcon={<UploadFileIcon />}
               onClick={scrollToIntake}
               disabled={!approvedCriteria || position.status !== 'OPEN' || isOperationRunning}
-            >{t("Tải lên CV")}</Button>
-          )}
-          {isHR && (
-            <Button
-              variant="outlined"
-              component={Link}
-              href={`/positions/${positionId}/talent-pool`}
-              disabled={!approvedCriteria || position.status !== 'OPEN'}
-              sx={{ borderColor: '#0A2B57', color: '#0A2B57' }}
-            >{t("Quét Talent Pool")}</Button>
-          )}
-        </Box>
+            >
+              {t("Tải lên CV")}
+            </Button>
+          </Box>
+        ) : undefined}
+      />
+
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mt: -1.5, mb: 2.5, flexWrap: 'wrap' }}>
+        <StatusBadge
+          type={position.status === 'OPEN' ? 'position-open' : position.status === 'PAUSED' ? 'position-paused' : 'position-closed'}
+          label={position.status === 'OPEN' ? t("Đang mở") : position.status === 'PAUSED' ? t("Tạm dừng") : t("Đã đóng")}
+        />
+        {currentCriteria && <StatusBadge type={currentCriteria.status === 'APPROVED' ? 'criteria-approved' : 'criteria-draft'}
+          label={{ DRAFT: t("Bản nháp"), PENDING_HR_REVIEW: t("Chờ HR"), PENDING_HM_APPROVAL: t("Chờ HM"), APPROVED: t("Đã duyệt"), REJECTED: t("Đã từ chối") }[currentCriteria.status]} />}
       </Box>
+
       {isHR && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mt: -1, mb: 2 }}>
-          <FormControlLabel
-            control={<Switch checked={!!position.public_apply_enabled} disabled={publicApplyBusy}
-              onChange={handlePublicApply} />}
-            label={t("Nhận hồ sơ qua cổng ứng tuyển công khai (/apply)")} />
-          <Typography variant="caption" color="text.secondary">
-            {position.public_apply_enabled && (!approvedCriteria || position.status !== 'OPEN')
-              ? t("Đang bật nhưng chưa hiện trên cổng: vị trí phải đang mở và có bộ tiêu chí đã duyệt.")
-              : t("Ứng viên tự nộp CV, bắt buộc đồng ý cho sử dụng thông tin; CV được chấm như hồ sơ HR tải lên.")}
-          </Typography>
-        </Box>
+        <PositionIntakeChannelsCard
+          positionCode={position.position_code}
+          positionStatus={position.status}
+          approvedCriteria={!!approvedCriteria}
+          publicApplyEnabled={!!position.public_apply_enabled}
+          publicApplyBusy={publicApplyBusy}
+          onTogglePublicApply={handlePublicApply}
+        />
       )}
-      {isHR && position.position_code && <IntakeEmailLine positionCode={position.position_code} />}
 
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>

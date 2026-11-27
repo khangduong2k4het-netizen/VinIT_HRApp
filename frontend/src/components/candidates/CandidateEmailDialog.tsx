@@ -11,12 +11,18 @@ import {
 import { candidateEmailsApi, type EmailTemplateCode } from '@/lib/api';
 import { useI18n } from '@/i18n/I18nProvider';
 
+// POOL_INVITE is not offered here: it is only written from a Talent Pool scan (see poolScanId).
 export const COMPOSE_TEMPLATES: { code: EmailTemplateCode; label: string }[] = [
   { code: 'ACK_RECEIVED', label: 'Xác nhận đã nhận hồ sơ' },
   { code: 'REQUEST_INFO', label: 'Mời bổ sung thông tin' },
   { code: 'INTERVIEW_INVITE', label: 'Mời phỏng vấn' },
   { code: 'REJECTION', label: 'Thông báo chưa phù hợp' },
 ];
+
+export const TEMPLATE_LABELS: Record<string, string> = {
+  ...Object.fromEntries(COMPOSE_TEMPLATES.map(item => [item.code, item.label])),
+  POOL_INVITE: 'Mời trao đổi (Talent Pool)',
+};
 
 const PLACEHOLDER = /\{(ho_ten|vi_tri|ma_vi_tri|ngay_nop|ten_hr|email_hr|thoi_gian_pv|dia_diem_pv)\}/g;
 const EMAIL = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
@@ -30,6 +36,10 @@ type Props = {
   open: boolean;
   applicationId: string;
   templateCode?: EmailTemplateCode;
+  /** Talent Pool invitation: the scan whose CONTACT decision and contact reveal allow it. */
+  poolScanId?: string;
+  /** Optional prefill from a scheduled interview session (fills {thoi_gian_pv} and {dia_diem_pv}). */
+  prefillInterview?: { time?: string; place?: string } | null;
   triggerSource?: 'MANUAL' | 'STATUS_CHANGE';
   draft?: EmailDraft | null;
   onClose: () => void;
@@ -42,7 +52,7 @@ export function unresolvedPlaceholders(...parts: string[]): string[] {
   return Array.from(found).sort();
 }
 
-export default function CandidateEmailDialog({ open, applicationId, templateCode = 'ACK_RECEIVED', triggerSource = 'MANUAL', draft, onClose, onDone }: Props) {
+export default function CandidateEmailDialog({ open, applicationId, templateCode = 'ACK_RECEIVED', poolScanId, prefillInterview, triggerSource = 'MANUAL', draft, onClose, onDone }: Props) {
   const { t } = useI18n();
   const [template, setTemplate] = useState<EmailTemplateCode>(templateCode);
   const [loading, setLoading] = useState(false);
@@ -58,12 +68,13 @@ export default function CandidateEmailDialog({ open, applicationId, templateCode
   const [interviewTime, setInterviewTime] = useState('');
   const [interviewPlace, setInterviewPlace] = useState('');
   const [confirmReject, setConfirmReject] = useState(false);
+  const [confirmPool, setConfirmPool] = useState(false);
 
   // Load a fresh prefilled letter (or the saved draft) each time the dialog opens.
   useEffect(() => {
     if (!open) return;
     let active = true;
-    setError(null); setConfirmReject(false); setInterviewTime(''); setInterviewPlace('');
+    setError(null); setConfirmReject(false); setConfirmPool(false); setInterviewTime(''); setInterviewPlace('');
     setLoading(true);
     const load = draft
       ? candidateEmailsApi.forApplication(applicationId).then(res => {
@@ -73,19 +84,29 @@ export default function CandidateEmailDialog({ open, applicationId, templateCode
           setToAddress(draft.to_address); setToSource('DRAFT'); setProfileEmail(res.data.candidate_email || '');
           setSubject(draft.subject); setBody(draft.body); setWarnings([]);
         })
-      : candidateEmailsApi.compose(applicationId, template).then(res => {
+      : candidateEmailsApi.compose(applicationId, template, poolScanId).then(res => {
           if (!active) return;
           const d = res.data;
           setSender({ from_address: d.from_address, reply_to_address: d.reply_to_address, send_mode: d.send_mode });
           setToAddress(d.to_address); setToSource(d.to_source); setProfileEmail(d.to_address);
-          setSubject(d.subject); setBody(d.body); setWarnings(d.warnings || []);
+          const preTime = (prefillInterview?.time || '').trim();
+          const prePlace = (prefillInterview?.place || '').trim();
+          const fill = (value: string) => {
+            let out = value;
+            if (preTime) out = out.split('{thoi_gian_pv}').join(preTime);
+            if (prePlace) out = out.split('{dia_diem_pv}').join(prePlace);
+            return out;
+          };
+          setSubject(fill(d.subject)); setBody(fill(d.body)); setWarnings(d.warnings || []);
+          if (preTime) setInterviewTime(preTime);
+          if (prePlace) setInterviewPlace(prePlace);
         });
     load.catch((err: any) => { if (active) setError(err.response?.data?.detail || t('Không thể soạn thư.')); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
     // A template change reloads the letter; the draft and application come with the open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, applicationId, template, draft]);
+  }, [open, applicationId, template, draft, poolScanId]);
 
   useEffect(() => { if (open && !draft) setTemplate(templateCode); }, [open, templateCode, draft]);
 
@@ -93,6 +114,7 @@ export default function CandidateEmailDialog({ open, applicationId, templateCode
   const needsInterview = unresolved.includes('thoi_gian_pv') || unresolved.includes('dia_diem_pv');
   const validTo = EMAIL.test(toAddress.trim());
   const isRejection = template === 'REJECTION';
+  const isPoolInvite = template === 'POOL_INVITE';
   const recordOnly = sender?.send_mode !== 'smtp';
 
   const fillInterview = () => {
@@ -105,25 +127,27 @@ export default function CandidateEmailDialog({ open, applicationId, templateCode
   const save = async (send: boolean) => {
     if (busy) return;
     if (send && isRejection && !confirmReject) { setConfirmReject(true); return; }
+    if (send && isPoolInvite && !confirmPool) { setConfirmPool(true); return; }
     try {
       setBusy(true); setError(null);
       const payload = { to_address: toAddress.trim(), subject: subject.trim(), body };
       if (draft) {
         await candidateEmailsApi.updateDraft(draft.email_id, payload);
         if (send) {
-          const res = await candidateEmailsApi.sendDraft(draft.email_id, isRejection);
+          const res = await candidateEmailsApi.sendDraft(draft.email_id, isRejection || isPoolInvite);
           if (res.data.status === 'FAILED') throw { response: { data: { detail: t('Gửi thư không thành công. Thư đã được lưu với trạng thái lỗi.') } } };
         }
       } else {
         const res = await candidateEmailsApi.create(applicationId, {
-          ...payload, template_code: template, trigger_source: triggerSource, send, confirmed: isRejection,
+          ...payload, template_code: template, trigger_source: triggerSource, send, confirmed: isRejection || isPoolInvite,
+          ...(poolScanId ? { scan_id: poolScanId } : {}),
         });
         if (send && res.data.status === 'FAILED') throw { response: { data: { detail: t('Gửi thư không thành công. Thư đã được lưu với trạng thái lỗi.') } } };
       }
       onDone();
     } catch (err: any) {
       setError(err.response?.data?.detail || t('Không thể lưu thư.'));
-      setConfirmReject(false);
+      setConfirmReject(false); setConfirmPool(false);
     } finally { setBusy(false); }
   };
 
@@ -147,7 +171,7 @@ export default function CandidateEmailDialog({ open, applicationId, templateCode
             {warnings.includes('DRAFT_EXISTS') && <Alert severity="warning" sx={{ mb: 2 }}>{t('Đã có một bản nháp cùng loại cho hồ sơ này.')}</Alert>}
             {error && <Alert severity="error" sx={{ mb: 2 }}>{t(error)}</Alert>}
             <Grid container spacing={2}>
-              {!draft && (
+              {!draft && !poolScanId && (
                 <Grid item xs={12}>
                   <TextField select fullWidth size="small" label={t('Mẫu thư')} value={template}
                     onChange={e => setTemplate(e.target.value as EmailTemplateCode)} disabled={busy}>
@@ -204,6 +228,11 @@ export default function CandidateEmailDialog({ open, applicationId, templateCode
                 {t('Thư còn chỗ chưa điền:')} {unresolved.map(name => `{${name}}`).join(', ')}
               </Alert>
             )}
+            {confirmPool && (
+              <Alert severity="warning" sx={{ mt: 2 }}>
+                {t('Bạn sắp gửi thư mời trao đổi tới')} <strong>{toAddress.trim()}</strong>. {t('Ứng viên đã đồng ý cho VinUni lưu hồ sơ để cân nhắc các vị trí khác (Talent Pool). Mục đích thư: mời trao đổi cơ hội tuyển dụng. Bấm "Xác nhận gửi thư mời" để gửi.')}
+              </Alert>
+            )}
             {confirmReject && (
               <Alert severity="error" sx={{ mt: 2 }}>
                 {t('Đây là thư thông báo chưa phù hợp. Bấm "Xác nhận gửi thư từ chối" để gửi; kiểm tra kỹ người nhận trước khi gửi.')}
@@ -219,7 +248,7 @@ export default function CandidateEmailDialog({ open, applicationId, templateCode
         </Button>
         <Button variant="contained" color={isRejection ? 'error' : 'secondary'} onClick={() => save(true)}
           disabled={busy || loading || !validTo || !subject.trim() || !body.trim() || unresolved.length > 0}>
-          {busy ? <CircularProgress size={18} color="inherit" /> : confirmReject ? t('Xác nhận gửi thư từ chối') : t('Gửi thư')}
+          {busy ? <CircularProgress size={18} color="inherit" /> : confirmReject ? t('Xác nhận gửi thư từ chối') : confirmPool ? t('Xác nhận gửi thư mời') : t('Gửi thư')}
         </Button>
       </DialogActions>
     </Dialog>

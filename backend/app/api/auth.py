@@ -279,6 +279,7 @@ def _change_supabase_password(current_user: dict, old_password: str, new_passwor
 
 GENERIC_REGISTER = "Đã gửi đăng ký. Hãy mở liên kết xác minh trong email, sau đó chờ Admin duyệt."
 _public_hits: dict[str, deque] = defaultdict(deque)
+_last_public_prune = 0.0
 
 
 def _limit_public_calls(request: Request) -> None:
@@ -288,6 +289,12 @@ def _limit_public_calls(request: Request) -> None:
         return
     from app.api.public_intake import client_address
     now = time.time()
+    global _last_public_prune
+    if len(_public_hits) > 2000 and now - _last_public_prune >= 60:
+        _last_public_prune = now
+        stale = [key for key, q in list(_public_hits.items()) if not q or q[-1] < now - 3600]
+        for key in stale:
+            _public_hits.pop(key, None)
     hits = _public_hits[client_address(request)]
     while hits and hits[0] < now - 3600:
         hits.popleft()
@@ -305,7 +312,7 @@ def public_config():
             # Self-service reset needs a way to deliver the link: SMTP, or the development echo.
             "password_reset": settings.PASSWORD_RESET_SELF_SERVICE and (email_enabled() or bool(settings.PASSWORD_RESET_DEV_ECHO)),
             "reset_request": True,
-            "admin_recovery": _recovery_enabled() or email_enabled(),
+            "admin_recovery": _recovery_enabled() or (settings.AUTH_BACKEND == "local" and email_enabled()),
             "registration_domains": [d.strip() for d in settings.SELF_REGISTRATION_ALLOWED_DOMAINS.split(",") if d.strip()]}
 
 
@@ -376,18 +383,24 @@ def verify_email(request: VerifyEmailRequest):
         db.close()
 
 
-GENERIC_REQUEST = ("Nếu email thuộc một tài khoản đang hoạt động, yêu cầu đã được gửi tới Admin. "
-                   "Khi Admin duyệt, link đặt lại mật khẩu sẽ được gửi tới email đó.")
+GENERIC_REQUEST = ("Yêu cầu đã được gửi tới Admin. Khi Admin duyệt và email thuộc một tài khoản đang hoạt động, "
+                   "link đặt lại mật khẩu sẽ được gửi tới email đó. Hãy kiểm tra đúng email công việc; nếu không chắc, "
+                   "ghi rõ họ tên và đơn vị để Admin xác định.")
 MAX_REQUESTS_PER_DAY = 3
+# Requests that match no account are kept for the Admin, but bounded so they cannot be used to flood the queue.
+MAX_UNMATCHED_PER_IP_PER_DAY = 5
+MAX_UNMATCHED_OPEN = 100
 
 
 @router.post("/password-reset-requests", status_code=202)
 def request_password_reset(body: PasswordResetRequestInput, http_request: Request):
-    """Ask an Admin to allow a password reset. The answer is the same for every email; a request is stored only
-    for an ACTIVE account that has no open request and has not asked too often today."""
+    """Ask an Admin to allow a password reset. The answer is the same for every email (nothing tells the caller
+    whether the address exists). A request for an ACTIVE account is stored for approval; one that matches no active
+    account is stored as UNMATCHED so the Admin can recognise the person by name and unit."""
     _limit_public_calls(http_request)
     from app.api.public_intake import _ip_hash
     email = str(body.email).strip().lower()
+    ip_hash = _ip_hash(http_request)
     db = SessionLocal()
     try:
         from app.api.reset_requests import expire_old_requests
@@ -396,23 +409,41 @@ def request_password_reset(body: PasswordResetRequestInput, http_request: Reques
             SELECT u.id FROM auth.users u JOIN app_private.user_profiles p ON p.user_id = u.id
             WHERE lower(u.email) = :email AND p.account_status = 'ACTIVE'
         """), {"email": email}).first()
+        values = {"email": email, "reason": body.reason, "ip": ip_hash, "name": body.full_name, "unit": body.unit}
         if row:
             user_id = str(row[0])
             recent = db.execute(text("""
-                SELECT COUNT(*) FILTER (WHERE status = 'PENDING') AS open_count, COUNT(*) AS day_count
+                SELECT COUNT(*) AS day_count
                 FROM app_private.password_reset_requests WHERE user_id = :id AND requested_at > NOW() - INTERVAL '1 day'
             """), {"id": user_id}).one()
             pending = db.execute(text("SELECT 1 FROM app_private.password_reset_requests WHERE user_id = :id AND status = 'PENDING'"),
                                  {"id": user_id}).first()
             if not pending and recent.day_count < MAX_REQUESTS_PER_DAY:
                 request_id = db.execute(text("""
-                    INSERT INTO app_private.password_reset_requests (user_id, email, reason, requested_ip_hash)
-                    VALUES (:id, :email, :reason, :ip) RETURNING request_id
-                """), {"id": user_id, "email": email, "reason": body.reason, "ip": _ip_hash(http_request)}).scalar_one()
+                    INSERT INTO app_private.password_reset_requests (user_id, email, reason, requested_ip_hash, full_name, unit)
+                    VALUES (:id, :email, :reason, :ip, :name, :unit) RETURNING request_id
+                """), {**values, "id": user_id}).scalar_one()
                 db.execute(text("""
                     INSERT INTO app_private.audit_events (actor_user_id, action_type, object_type, object_id, outcome, metadata)
                     VALUES (:id, 'REQUEST_PASSWORD_RESET_APPROVAL', 'USER', :id, 'PENDING', CAST(:m AS jsonb))
                 """), {"id": user_id, "m": '{"request_id": "%s"}' % request_id})
+        else:
+            same_email = db.execute(text("""SELECT 1 FROM app_private.password_reset_requests WHERE kind = 'UNMATCHED'
+                AND status = 'PENDING' AND lower(email) = :email AND requested_at > NOW() - INTERVAL '1 day'"""),
+                                    {"email": email}).first()
+            counts = db.execute(text("""SELECT
+                COUNT(*) FILTER (WHERE requested_ip_hash = :ip AND requested_at > NOW() - INTERVAL '1 day') AS from_ip,
+                COUNT(*) FILTER (WHERE status = 'PENDING') AS open_count
+                FROM app_private.password_reset_requests WHERE kind = 'UNMATCHED'"""), {"ip": ip_hash}).one()
+            if not same_email and counts.from_ip < MAX_UNMATCHED_PER_IP_PER_DAY and counts.open_count < MAX_UNMATCHED_OPEN:
+                request_id = db.execute(text("""
+                    INSERT INTO app_private.password_reset_requests (user_id, kind, email, reason, requested_ip_hash, full_name, unit)
+                    VALUES (NULL, 'UNMATCHED', :email, :reason, :ip, :name, :unit) RETURNING request_id
+                """), values).scalar_one()
+                db.execute(text("""
+                    INSERT INTO app_private.audit_events (action_type, object_type, object_id, outcome)
+                    VALUES ('REQUEST_PASSWORD_RESET_UNMATCHED', 'PASSWORD_RESET_REQUEST', :id, 'PENDING')
+                """), {"id": request_id})
         db.commit()
     except Exception:
         db.rollback()
