@@ -39,6 +39,8 @@ class TemplateVersionUpdate(BaseModel):
     mandatory_weight_total: Optional[Decimal] = Field(default=None, gt=0, le=100, max_digits=5, decimal_places=2)
     nice_to_have_weight_total: Optional[Decimal] = Field(default=None, ge=0, le=100, max_digits=5, decimal_places=2)
     change_note: Optional[str] = Field(default=None, max_length=2000)
+    # Sample JD pre-filled into new positions; empty string clears it.
+    jd_template: Optional[str] = Field(default=None, max_length=50000)
 
     @model_validator(mode="after")
     def weights_together(self):
@@ -75,6 +77,19 @@ class TemplateReviewRequest(BaseModel):
 
 class ApplyTemplateRequest(BaseModel):
     template_version_id: UUID
+
+
+class TemplateFromCriteria(BaseModel):
+    """Save an APPROVED criteria version as a template draft.
+
+    With ``template_id`` it becomes the next draft version of that template;
+    otherwise a new template is created in ``job_family_id`` with ``title``."""
+    criteria_version_id: UUID
+    template_id: Optional[UUID] = None
+    job_family_id: Optional[UUID] = None
+    title: Optional[str] = Field(default=None, max_length=200)
+    level_band: Optional[str] = Field(default=None, max_length=100)
+    change_note: Optional[str] = Field(default=None, max_length=2000)
 
 
 # ---------- F2.02 scorecards ----------

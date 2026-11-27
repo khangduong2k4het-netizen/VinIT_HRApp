@@ -425,6 +425,8 @@ export interface RubricTemplateVersion extends Omit<RubricTemplateVersionSummary
   title: string;
   level_band?: string | null;
   job_family_name: string;
+  /** Sample JD pre-filled into new positions created from this template. */
+  jd_template?: string | null;
   items: TemplateItem[];
   review_events: Array<{ event_id: string; decision: 'PUBLISH' | 'ARCHIVE' | 'REQUEST_CHANGES'; comment?: string | null; decided_at: string; reviewer_name?: string | null }>;
   fairness_warnings: FairnessWarning[];

@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "hra-backend-local",
-      "runtimeExecutable": "C:/Users/khang/AppData/Local/Temp/claude/75b5dd53ae26efb0/99b2e4f0-fc9f-4256-9146-45f84580be9f/scratchpad/venv/Scripts/python.exe",
-      "runtimeArgs": ["C:/Users/khang/AppData/Local/Temp/claude/75b5dd53ae26efb0/99b2e4f0-fc9f-4256-9146-45f84580be9f/scratchpad/run_backend_env.py"],
+      "runtimeExecutable": "C:/Users/khang/Downloads/Vinuni-IT-CV/VinIT_HRApp/backend/.venv/Scripts/python.exe",
+      "runtimeArgs": ["C:/Users/khang/Downloads/Vinuni-IT-CV/VinIT_HRApp/.claude/run_backend_local.py"],
       "port": 8000
     },
     {
@@ -12,6 +12,30 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
       "port": 3000
+    },
+    {
+      "name": "hra-frontend-prod",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "frontend", "run", "start"],
+      "port": 3000
+    },
+    {
+      "name": "careers-demo",
+      "runtimeExecutable": "C:/Users/khang/Downloads/Vinuni-IT-CV/VinUni-Careers-Demo/.venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "--app-dir", "C:/Users/khang/Downloads/Vinuni-IT-CV/VinUni-Careers-Demo", "app:app", "--port", "3100"],
+      "port": 3100
+    },
+    {
+      "name": "aif-backend",
+      "runtimeExecutable": "C:/Users/khang/Downloads/Vinuni-IT-CV/VinIT_HRApp_aif/backend/.venv/Scripts/python.exe",
+      "runtimeArgs": ["C:/Users/khang/Downloads/Vinuni-IT-CV/VinIT_HRApp/.claude/run_backend_aif.py"],
+      "port": 8001
+    },
+    {
+      "name": "aif-frontend",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["C:/Users/khang/Downloads/Vinuni-IT-CV/VinIT_HRApp_aif/frontend/node_modules/next/dist/bin/next", "dev", "C:/Users/khang/Downloads/Vinuni-IT-CV/VinIT_HRApp_aif/frontend", "-p", "3001"],
+      "port": 3001
     }
   ]
 }
