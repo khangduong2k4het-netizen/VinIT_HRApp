@@ -129,7 +129,7 @@ Các cấu hình dưới đây được kiểm tra lúc khởi động. Thiếu 
 | `GMAIL_INTAKE_ENABLED=true` | `MAILBOX_ENCRYPTION_KEY` hoặc `AI_CONFIG_ENCRYPTION_KEY` (khóa Fernet) | mã làm mới của Gmail lưu trong DB phải được mã hóa |
 | `INTAKE_API_ENABLED=true` | `MALWARE_SCAN_MODE=clamav` | cùng lý do với nộp CV công khai |
 
-Trước khi nâng cấp: sao lưu DB, áp migration theo thứ tự (hiện đến `00034`), kiểm tra bảng `hra_local_migrations` nếu DB từng áp bản đánh số cũ.
+Trước khi nâng cấp: sao lưu DB, áp migration theo thứ tự (hiện đến `00037`), kiểm tra bảng `hra_local_migrations` nếu DB từng áp bản đánh số cũ.
 Nhiều worker/tiến trình: các bộ giới hạn tốc độ (đăng ký, quên mật khẩu, khôi phục) nằm trong bộ nhớ từng tiến trình, cần đặt thêm giới hạn ở reverse proxy. Việc gửi thư ứng viên thì an toàn khi nhiều worker (thư được "giữ chỗ" bằng trạng thái SENDING trong DB; thư kẹt quá 10 phút hiện là FAILED để HR kiểm tra và thử lại).
 
 Thư mời Talent Pool (`POOL_INVITE`): chỉ soạn/gửi được từ kết quả quét Talent Pool, sau khi HR chọn "Liên hệ" và xem thông tin liên hệ; hệ thống kiểm tra lại sự đồng ý (chưa rút, còn trong hạn 5 năm tính từ ngày nhận CV, hồ sơ không chờ xóa) ở mỗi lần soạn và gửi.
